@@ -1,0 +1,39 @@
+{
+  "name": "cardio-flow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "APP_BUILD=1 tsx server/index.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write src server tests docs README.md *.json *.ts index.html .github",
+    "format:check": "prettier --check src server tests docs README.md *.json *.ts index.html .github"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "express": "5.2.1",
+    "lucide-react": "1.46.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/express": "5.0.6",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "agent-browser": "0.37.1",
+    "prettier": "3.9.6",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  }
+}

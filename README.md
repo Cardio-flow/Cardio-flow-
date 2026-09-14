@@ -1,1 +1,111 @@
-# Cardio-flow-
+# Cardio Flow
+
+A shared cardiovascular registry workspace. This first implementation turns the **Cardio Flow implementation blueprint v0.2 (5 September 2026)** into a working, persistent CAD development slice.
+
+**Release 0.1 is a synthetic localhost preview. It is not approved for real patient data or clinical use.** Production authentication, institution-hosted PostgreSQL, clinical governance, and the remaining release gates are tracked in [the delivery roadmap](docs/ROADMAP.md).
+
+## Run locally
+
+Requirements: Node.js 22.12+ (Node 24 recommended) and npm.
+
+```sh
+npm ci
+npm run dev
+```
+
+Open **http://127.0.0.1:4310** and select **Enter demo workspace**. Eight clearly named sample patients are seeded on the first start. The server stores PostgreSQL data in `.data/cardio/`, which is excluded from Git. Reloading the browser or restarting the server preserves saved records. Sessions expire after eight hours and are intentionally cleared on restart.
+
+To run the optimized frontend locally:
+
+```sh
+npm run build
+npm start
+```
+
+The server binds to loopback, rejects untrusted Host/Origin headers, and refuses to start with `NODE_ENV=production`. This preview deliberately cannot be deployed as a clinical service without further engineering.
+
+Optional environment variables:
+
+| Variable          | Default        | Purpose                                             |
+| ----------------- | -------------- | --------------------------------------------------- |
+| `PORT`            | `4310`         | Local HTTP port                                     |
+| `CARDIO_DATA_DIR` | `.data/cardio` | Dedicated persistent development database directory |
+| `CARDIO_SEED`     | `1`            | Set to `0` to begin with an empty patient registry  |
+| `APP_BUILD`       | unset          | Set to `1` to serve `dist/`; `npm start` does this  |
+
+Only one server should open a database directory at a time. Use a new directory for an independent sandbox; never share the data directory over a network or commit it to Git.
+
+## Working features
+
+- Responsive workspace overview, patient search, and shared patient identity.
+- Transactional synthetic patient registration and CAD enrollment, with unique MRNs and server-allocated registry IDs.
+- CAD index episodes with presentation, angiography access, management, repeatable lesions, lesion-linked stents, and discharge disposition.
+- Server-side structural validation, optimistic version checks, saved drafts, locked final snapshots, and separate reviewer approval.
+- CAD 1/3/6/12-calendar-month tasks anchored to **index admission**, including leap-year and month-end handling.
+- Follow-up contacts linked to episodes; only complete in-window contacts satisfy a milestone. Unknown or early contacts are retained. Death closes remaining open tasks.
+- Demonstration clinician, reviewer, analyst, and designer access boundaries enforced by the API.
+- Read-only registry library with the CAD template and clearly planned HF, EP, and Structural Heart modules.
+- Purpose-bound episode CSV exports and a codebook, with frozen content, row counts, and SHA-256 checksums.
+- Append-only database audit events and final snapshots. No patient records or privileges are stored in browser local storage.
+
+CAD protocol windows (7 days early / 14 days late), contact requirements, and displayed value sets are **demonstration configuration pending named clinical approval**. There are no active treatment recommendations, proprietary scores, or clinical calculators.
+
+## Try the workflow
+
+1. Enter as **Clinician**. Register a synthetic patient with an MRN such as `SYN-0100`.
+2. Create an index episode. Complete Presentation, Angiography & PCI, and Discharge.
+3. Add lesions and, when relevant, PCI stents. Save the draft before finalizing.
+4. Finalize the saved record. Eligible follow-up tasks appear in **Follow-ups**.
+5. Change **Demo role** to **Reviewer**, open the patient, and approve the final record.
+6. Return to **Clinician** to record a contact. The server explains whether it satisfied the milestone.
+7. Change to **Analyst** to generate a dataset and codebook with a stated export purpose.
+8. Change to **Designer** to inspect definitions; patient browsing and patient API access are denied.
+
+The role selector is a synthetic demonstration mechanism, **not authentication**. Every person on this local instance can select a demo role. Production identity and multi-user grants must replace it before any clinical pilot.
+
+## Architecture
+
+```text
+React + TypeScript web application
+                │ same-origin JSON API
+Express modular server: session → permission → validation → transaction
+                │
+Server-side PGlite (embedded PostgreSQL, persistent on local disk)
+  core.patient / registry.enrollment / clinical.episode
+  cad.lesion / cad.stent / clinical.encounter
+  workflow.followup_task / task_satisfaction
+  governance.audit_event / record_snapshot / export_job
+```
+
+PGlite runs **on the server**, not in the browser. It provides real PostgreSQL schemas, relational constraints, transactions, and trigger behavior for a setup-free development environment. A separately managed PostgreSQL service, least-privilege database roles, migration management, backups, encryption, and operations are still required for the production architecture.
+
+All runtime web assets are bundled locally. No public CDN, HIS connection, clinical browser PIN, or hospital integration is used.
+
+| Directory           | Responsibility                                                         |
+| ------------------- | ---------------------------------------------------------------------- |
+| `src/`              | Responsive React interface and typed API client                        |
+| `server/app.ts`     | Session/role checks and transactional domain API                       |
+| `server/domain.ts`  | Input validation, calendar logic, CAD demo definition, CSV escaping    |
+| `server/schema.sql` | Relational PostgreSQL development schema and immutable record triggers |
+| `server/db.ts`      | Persistent database initialization and synthetic fixtures              |
+| `tests/`            | Domain, API, and browser acceptance checks                             |
+| `docs/`             | Delivery scope, architecture decisions, API guide                      |
+
+## Verification
+
+```sh
+npm run build
+npm test
+npm run test:e2e
+npm run format:check
+```
+
+Browser tests use a separate temporary database and a second local server on port 4311. On macOS they use an installed Google Chrome. Elsewhere install the Playwright browser first:
+
+```sh
+npx playwright install --with-deps chromium
+```
+
+The test suite covers authorization, CSRF/origin checks, duplicate identity, chronology, concurrent-version rejection, finalization transaction behavior, immutable history, independent review, calendar boundaries, follow-up satisfaction, CSV injection protection, scope filtering, exports, and phone layout.
+
+See [the API guide](docs/API.md) and [release roadmap](docs/ROADMAP.md) for current limitations and the next build stages.
