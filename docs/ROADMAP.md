@@ -15,9 +15,16 @@ This repository implements a useful engineering preview, not the whole first cli
 - A limited episode dataset, codebook, export purpose, reproducible stored CSV, checksum, and audit.
 - Desktop/mobile browser tests, domain/API tests, reproducible locked dependencies, and CI checks.
 
+### Hosted engineering pilot
+
+- Vercel Express deployment with static frontend, shared Neon PostgreSQL, and an initial migration ledger.
+- Neon Auth sign-in with email verification, approved memberships, immutable account binding, server-derived roles, and immediate membership revocation.
+- Local demo-role access is disabled on the hosted server.
+- Remaining activation: trust `https://cardio-flow-one.vercel.app` in Neon Auth and configure the named owner email.
+
 ### P0: before a clinical pilot
 
-1. Replace demo identity with local account provisioning, password hashing, MFA enrollment/recovery, lockouts, invitation and account lifecycle, session idle/absolute policies, and named actors. Remove the role-switch endpoint.
+1. Complete institutional identity review, MFA enrollment/recovery, lockouts, invitation and account lifecycle, and session idle/absolute policies. Hosted Neon identity and approved memberships are implemented; demo roles remain local only.
 2. Move to institution-approved PostgreSQL with ordered migrations, least-privilege application/audit database roles, scoped organizations/sites/teams, scope-aware queries and database defense in depth. The current one-site demo is not a tenant isolation implementation.
 3. Implement sensitive identifier protection, contact access and masking, consent/lawful-basis records, duplicate review, reversible merge, and patient-level termination status. Current synthetic MRN checks are not an identity management policy.
 4. Establish encrypted transport/storage, private attachments, backup/restore verification, audit retention, protected logs, deployment secrets, and operational monitoring.
@@ -42,7 +49,7 @@ Add HF, EP, and Structural Heart screens to the same shared core. Their library 
 ### Known engineering limits
 
 - PGlite provides local relational development persistence but is not the blueprint's managed multi-user PostgreSQL service.
-- Development schema initialization is idempotent; a migration ledger and forward data migrations are not yet implemented. Schema changes require a fresh sandbox during this preview.
+- Local schema initialization is idempotent. Hosted PostgreSQL has a checksum-checked initial migration ledger; future schema changes need ordered forward migrations.
 - Only CAD demo v1 can be active. Multi-version registry transitions and site customization are pending.
 - API permission checks use a fixed demonstration site; the same demo role has the same actor across sessions. This cannot establish real person attribution.
 - Database triggers protect ordinary UPDATE/DELETE operations; the process owns its embedded database and can alter schema. Production append-only enforcement needs distinct database roles and protected operational access.

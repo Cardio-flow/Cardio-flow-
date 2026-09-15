@@ -2139,3 +2139,35 @@ dialog p {
     transition: none !important;
   }
 }
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+.auth-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 14px;
+  color: #24483c;
+}
+.auth-form input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cbd8cf;
+  border-radius: 8px;
+  background: white;
+}
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.auth-links button {
+  background: none;
+  border: 0;
+  padding: 5px 0;
+  text-decoration: underline;
+  color: #286253;
+  font-size: 13px;
+}

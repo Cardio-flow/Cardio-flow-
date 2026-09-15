@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "tsx server/index.ts",
@@ -12,13 +12,18 @@
     "start": "APP_BUILD=1 tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
-    "format": "prettier --write src server tests docs README.md *.json *.ts index.html .github",
-    "format:check": "prettier --check src server tests docs README.md *.json *.ts index.html .github"
+    "format": "prettier --write src server scripts tests docs README.md *.json *.ts index.html .github",
+    "format:check": "prettier --check src server scripts tests docs README.md *.json *.ts index.html .github",
+    "build:hosted": "tsc --noEmit && vite build --mode hosted",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@neondatabase/auth": "0.5.0-beta",
     "express": "5.2.1",
+    "jose": "6.2.12",
     "lucide-react": "1.46.0",
+    "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5"
@@ -27,13 +32,14 @@
     "@playwright/test": "1.63.0",
     "@types/express": "5.0.6",
     "@types/node": "26.5.1",
+    "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "agent-browser": "0.37.1",
     "prettier": "3.9.6",
     "tsx": "4.23.13",
-    "typescript": "7.0.2",
+    "typescript": "5.9.3",
     "vite": "8.3.0"
   }
 }

@@ -82,3 +82,7 @@ The date must not precede admission. Clinic and Telephone are supported. Vital s
 ## Export
 
 `POST /exports` requires a purpose of 10–500 characters. The response includes `content`, `codebook`, `filename`, `row_count`, and `checksum`. Drafts are excluded. Direct identifiers are removed but internal linkage identifiers remain, so this is not anonymous data. The original CSV is stored to permit exact reproduction; download access auditing and expiry are future work.
+
+## Hosted authentication
+
+Hosted requests use `/api/auth/*` through the Neon SDK server adapter. `/api/demo-session` returns 404. Data routes require a verified email and active database membership; the API derives the role and actor. `GET /api/config` exposes only whether hosted mode is active. Mutations retain same-origin and CSRF checks. Neon sign-out uses `/api/auth/sign-out`.

@@ -18,7 +18,18 @@ import {
   csv,
 } from "./domain.js";
 type Role = "clinician" | "reviewer" | "analyst" | "designer";
-type Session = { actor: string; role: Role; expires: number; csrf: string };
+export type Session = {
+  actor: string;
+  role: Role;
+  expires: number;
+  csrf: string;
+  email?: string;
+};
+export type HostedOptions = {
+  origin: string;
+  mountAuth(app: express.Express): void;
+  authenticate(req: Request, res: Response): Promise<Session | null>;
+};
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -36,30 +47,34 @@ const one = async <T = Record<string, any>>(
   sql: string,
   args: unknown[] = [],
 ) => (await db.query<T>(sql, args)).rows[0];
-export function createApp(db: DB) {
+export function createApp(db: DB, hosted?: HostedOptions) {
   const app = express();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "200kb" }));
   const sessions = new Map<string, Session>();
   app.use("/api", (req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.set("X-Content-Type-Options", "nosniff");
     const host = req.hostname;
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(host))
+    if (!hosted && !["localhost", "127.0.0.1", "[::1]"].includes(host))
       return res.status(403).json({
         error: "This synthetic workspace is restricted to localhost.",
       });
     if (!["GET", "HEAD"].includes(req.method)) {
       const origin = req.get("origin");
-      if (origin && ![`http://${req.get("host")}`].includes(origin))
+      if (origin && origin !== (hosted?.origin ?? `http://${req.get("host")}`))
         return res.status(403).json({ error: "Untrusted origin" });
     }
     next();
   });
+  hosted?.mountAuth(app);
+  app.use(express.json({ limit: "200kb" }));
+  app.get("/api/config", (_req, res) => res.json({ hosted: !!hosted }));
   app.get("/api/health", (_req, res) =>
     res.json({ status: "ok", mode: "synthetic", date: today() }),
   );
   app.post("/api/demo-session", (req, res) => {
+    if (hosted)
+      return res.status(404).json({ error: "Demo login is disabled" });
     const { role } = z
       .object({
         role: z.enum(["clinician", "reviewer", "analyst", "designer"]),
@@ -90,16 +105,23 @@ export function createApp(db: DB) {
     });
     res.json(session);
   });
-  app.use("/api", (req, res, next) => {
+  app.use("/api", async (req, res, next) => {
     const token = req.headers.cookie
       ?.split("; ")
       .find((v) => v.startsWith("cf_session="))
       ?.split("=")[1];
-    const session = token ? sessions.get(token) : undefined;
+    const session = hosted
+      ? await hosted.authenticate(req, res)
+      : token
+        ? sessions.get(token)
+        : undefined;
+    if (res.headersSent) return;
     if (!session || session.expires < Date.now())
-      return res
-        .status(401)
-        .json({ error: "Start a demo session to continue" });
+      return res.status(401).json({
+        error: hosted
+          ? "Sign in to continue"
+          : "Start a demo session to continue",
+      });
     res.locals.session = session;
     if (
       !["GET", "HEAD"].includes(req.method) &&
@@ -124,7 +146,7 @@ export function createApp(db: DB) {
       if (!roles.includes(res.locals.session.role))
         return res
           .status(403)
-          .json({ error: "Your demo role cannot perform this action" });
+          .json({ error: "Your role cannot perform this action" });
       next();
     };
   app.get("/api/definitions", (_req, res) => {

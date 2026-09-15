@@ -1,0 +1,11 @@
+.git
+.env*
+.data
+.agents
+node_modules
+docs
+screenshots
+test-results
+playwright-report
+dist
+skills-lock.json

@@ -1,3 +1,4 @@
+import { SignIn } from "./SignIn";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -68,6 +69,7 @@ const navigation = [
   },
 ];
 export default function App() {
+  const [hosted, setHosted] = useState(false);
   const [session, setSession] = useState<Session | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -77,6 +79,9 @@ export default function App() {
     [patientId, setPatientId] = useState(""),
     [mobile, setMobile] = useState(false);
   useEffect(() => {
+    api<{ hosted: boolean }>("/config")
+      .then((c) => setHosted(c.hosted))
+      .catch(() => {});
     api<Session>("/session")
       .then((s) => {
         setSession(s);
@@ -114,7 +119,8 @@ export default function App() {
   }
   async function logout() {
     try {
-      await api("/logout", {});
+      if (hosted) await api("/auth/sign-out", {});
+      else await api("/logout", {});
       setSession(null);
       setCsrf("");
     } catch (e) {
@@ -150,11 +156,14 @@ export default function App() {
           </span>
         </div>
         <div className="welcome-content">
-          <Badge tone="cad">Local development preview</Badge>
+          <Badge tone="cad">
+            {hosted ? "Hosted pilot" : "Local development preview"}
+          </Badge>
           <h2>Welcome to Cardio Flow</h2>
           <p>
-            Explore the first CAD workflow with synthetic patients and a
-            persistent local database.
+            {hosted
+              ? "Sign in to your shared CAD workspace. Approved accounts can work with synthetic patients in the hosted database."
+              : "Explore the first CAD workflow with synthetic patients and a persistent local database."}
           </p>
           <div className="welcome-features">
             <span>
@@ -167,20 +176,26 @@ export default function App() {
             </span>
             <span>
               <CheckCircle2 size={18} />
-              Role demonstrations & audit history
+              Approved roles & audit history
             </span>
           </div>
-          <button className="primary" onClick={() => enter()}>
-            Enter demo workspace
-            <ArrowRight size={18} />
-          </button>
+          {hosted ? (
+            <SignIn onSignedIn={() => window.location.reload()} />
+          ) : (
+            <button className="primary" onClick={() => enter()}>
+              Enter demo workspace
+              <ArrowRight size={18} />
+            </button>
+          )}
           <ErrorBox message={error} />
           <div className="demo-disclosure">
             <ShieldCheck size={20} />
             <p>
               <strong>Synthetic data only.</strong> This is an engineering
-              preview. Demo roles are not production authentication; clinical
-              approval and deployment controls remain pending.
+              preview.{" "}
+              {hosted
+                ? "Clinical approval and operational readiness checks remain pending."
+                : "Demo roles are not production authentication; clinical approval and deployment controls remain pending."}
             </p>
           </div>
         </div>
@@ -200,7 +215,9 @@ export default function App() {
           <span className="site-icon">K</span>
           <div>
             <strong>Kuwait workspace</strong>
-            <small>Development environment</small>
+            <small>
+              {hosted ? "Shared hosted pilot" : "Development environment"}
+            </small>
           </div>
           <ChevronDown size={15} />
         </div>
@@ -230,7 +247,7 @@ export default function App() {
           <div className="user-card">
             <div className="user-avatar">D{session.role[0].toUpperCase()}</div>
             <div>
-              <strong>Demo {session.role}</strong>
+              <strong>{hosted ? session.email : `Demo ${session.role}`}</strong>
               <small>Kuwait · Asia/Kuwait</small>
             </div>
             <button
@@ -266,19 +283,23 @@ export default function App() {
               <span />
               Synthetic data
             </span>
-            <label className="role-select">
-              Demo role
-              <select
-                aria-label="Demo role"
-                value={session.role}
-                onChange={(e) => enter(e.target.value as Role)}
-              >
-                <option value="clinician">Clinician</option>
-                <option value="reviewer">Reviewer</option>
-                <option value="analyst">Analyst</option>
-                <option value="designer">Designer</option>
-              </select>
-            </label>
+            {hosted ? (
+              <span>{session.role}</span>
+            ) : (
+              <label className="role-select">
+                Demo role
+                <select
+                  aria-label="Demo role"
+                  value={session.role}
+                  onChange={(e) => enter(e.target.value as Role)}
+                >
+                  <option value="clinician">Clinician</option>
+                  <option value="reviewer">Reviewer</option>
+                  <option value="analyst">Analyst</option>
+                  <option value="designer">Designer</option>
+                </select>
+              </label>
+            )}
           </div>
         </header>
         <main>

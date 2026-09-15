@@ -2,7 +2,16 @@ import { PGlite } from "@electric-sql/pglite";
 import { readFile } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
 import { cadDefinition, addMonths, addDays, today } from "./domain.js";
-export type DB = PGlite;
+export interface QueryDB {
+  query<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<{ rows: T[] }>;
+}
+export interface DB extends QueryDB {
+  transaction<T>(callback: (tx: QueryDB) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
 export const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export async function createDb(path?: string, seed = true) {
@@ -14,6 +23,10 @@ export async function createDb(path?: string, seed = true) {
   await db.exec(
     await readFile(new URL("./schema.sql", import.meta.url), "utf8"),
   );
+  await initializeData(db, seed);
+  return db;
+}
+export async function initializeData(db: DB, seed = true) {
   await db.query(
     "INSERT INTO registry.definition VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
     [
@@ -29,7 +42,6 @@ export async function createDb(path?: string, seed = true) {
     !(await db.query("SELECT id FROM core.patient LIMIT 1")).rows.length
   )
     await seedDemo(db);
-  return db;
 }
 export async function audit(
   db: Pick<DB, "query">,

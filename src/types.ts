@@ -1,5 +1,10 @@
 export type Role = "clinician" | "reviewer" | "analyst" | "designer";
-export type Session = { actor: string; role: Role; csrf: string };
+export type Session = {
+  actor: string;
+  role: Role;
+  csrf: string;
+  email?: string;
+};
 export type Patient = {
   id: string;
   name: string;

@@ -2,11 +2,13 @@
 
 A shared cardiovascular registry workspace. This first implementation turns the **Cardio Flow implementation blueprint v0.2 (5 September 2026)** into a working, persistent CAD development slice.
 
-**Release 0.1 is a synthetic localhost preview. It is not approved for real patient data or clinical use.** Production authentication, institution-hosted PostgreSQL, clinical governance, and the remaining release gates are tracked in [the delivery roadmap](docs/ROADMAP.md).
+**Release 0.1 is a synthetic engineering pilot with local and hosted modes. It is not approved for real patient data or clinical use.** The hosted mode uses Neon Auth and shared PostgreSQL; institution approval and clinical release gates remain tracked in [the delivery roadmap](docs/ROADMAP.md).
+
+Hosted site: https://cardio-flow-one.vercel.app. Sign-in setup requires the production domain to be trusted in Neon Auth and the owner email to be approved.
 
 ## Run locally
 
-Requirements: Node.js 22.12+ (Node 24 recommended) and npm.
+Requirements: Node.js 24 and npm.
 
 ```sh
 npm ci
@@ -22,7 +24,7 @@ npm run build
 npm start
 ```
 
-The server binds to loopback, rejects untrusted Host/Origin headers, and refuses to start with `NODE_ENV=production`. This preview deliberately cannot be deployed as a clinical service without further engineering.
+The local server binds to loopback, rejects untrusted Host/Origin headers, and refuses to start with `NODE_ENV=production`. This preview deliberately cannot be deployed as a clinical service without further engineering.
 
 Optional environment variables:
 
@@ -109,3 +111,23 @@ npx playwright install --with-deps chromium
 The test suite covers authorization, CSRF/origin checks, duplicate identity, chronology, concurrent-version rejection, finalization transaction behavior, immutable history, independent review, calendar boundaries, follow-up satisfaction, CSV injection protection, scope filtering, exports, and phone layout.
 
 See [the API guide](docs/API.md) and [release roadmap](docs/ROADMAP.md) for current limitations and the next build stages.
+
+## Hosted pilot
+
+The Vercel entrypoint is `server.ts`. It uses shared Neon PostgreSQL and Neon Auth through a same-origin Express adapter. Local development still uses PGlite and localhost-only demo sessions. The public version rejects demo-session requests and requires a verified email plus an active `governance.membership` row. Roles are loaded from the database on every request; clients cannot select them.
+
+Required server environment: `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET` (at least 32 random characters), and `CARDIO_ORIGIN` or Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. Secrets belong in Vercel environment settings and ignored local files. No database credentials are embedded in the browser bundle.
+
+Run migrations explicitly before deployment:
+
+```sh
+node --env-file=.env.local --import tsx scripts/migrate.ts
+```
+
+For the first approved clinician, set `CARDIO_OWNER_EMAIL` in your local environment when running the migration. An account must verify that email before membership is bound to its immutable user ID. Additional memberships are provisioned by the workspace operator in the database with an explicitly approved email and role. Public signup alone grants no registry access.
+
+Hosted builds use `npm run build:hosted`; Vite writes static assets to `public/` for Vercel. Preview environments require matching trusted origins in Neon Auth before interactive login can be tested. Keep production and preview data separate before using anything beyond this synthetic pilot.
+
+The SDK's signed session cache lasts up to 60 seconds; workspace membership revocation is checked immediately on each data request. Hosted writes use a database advisory transaction lock across server instances to preserve the pilot's workflow invariants. This intentionally serializes writes and should be replaced with finer-grained concurrency controls before scaling.
+
+This remains a synthetic CAD engineering pilot. Clinical approval, real patient-data governance, operational monitoring, restore drills, and broader registry implementation remain outstanding. Password-based sign-in and the shared database do not by themselves establish clinical readiness.
