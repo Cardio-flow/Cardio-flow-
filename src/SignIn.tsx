@@ -2,12 +2,15 @@ import { useState } from "react";
 import { ErrorBox } from "./ui";
 export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [mode, setMode] = useState<
-    "sign-in" | "sign-up" | "reset" | "new-password"
+    "sign-in" | "sign-up" | "reset" | "new-password" | "verify"
   >(
     new URLSearchParams(location.search).has("token")
       ? "new-password"
-      : "sign-in",
+      : new URLSearchParams(location.search).has("verify")
+        ? "verify"
+        : "sign-in",
   );
+  const [otp, setOtp] = useState("");
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [name, setName] = useState("");
@@ -33,7 +36,17 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     setError("");
     setMessage("");
     try {
-      if (mode === "reset") {
+      if (mode === "verify") {
+        await call("email-otp/verify-email", {
+          email: email.trim(),
+          otp: otp.trim(),
+        });
+        setOtp("");
+        setPassword("");
+        history.replaceState({}, "", "/");
+        setMode("sign-in");
+        setMessage("Email verified. Sign in to enter your workspace.");
+      } else if (mode === "reset") {
         await call("request-password-reset", {
           email,
           redirectTo: location.origin,
@@ -55,17 +68,44 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           password,
           ...(mode === "sign-up" ? { name, callbackURL: location.origin } : {}),
         });
+        if (mode === "sign-up") {
+          setMode("verify");
+          await call("email-otp/send-verification-otp", {
+            email,
+            type: "email-verification",
+          });
+          setMessage(
+            "Enter the verification code from your email. Workspace approval is also required.",
+          );
+          return;
+        }
         const response = await fetch("/api/session");
         if (response.ok) onSignedIn();
         else {
           const result = await response.json();
-          setMessage(
-            mode === "sign-up"
-              ? "Account created. Check your email to verify your address, then sign in. Workspace approval is required."
-              : result.error,
-          );
+          if (result.error?.includes("Verify your email")) setMode("verify");
+          setMessage(result.error);
         }
       }
+    } catch (e) {
+      if (/email.*not.*verified/i.test((e as Error).message)) setMode("verify");
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function resend() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await call("email-otp/send-verification-otp", {
+        email: email.trim(),
+        type: "email-verification",
+      });
+      setMessage(
+        "A new verification code was requested. Check your inbox and spam folder; use the newest code.",
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -97,7 +137,19 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           />
         </label>
       )}
-      {mode !== "reset" && (
+      {mode === "verify" && (
+        <label>
+          Verification code
+          <input
+            required
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+          />
+        </label>
+      )}
+      {mode !== "reset" && mode !== "verify" && (
         <label>
           Password
           <input
@@ -115,14 +167,45 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
       <button className="primary" disabled={busy}>
         {busy
           ? "Please wait…"
-          : mode === "sign-up"
-            ? "Create account"
-            : mode === "reset"
-              ? "Send reset link"
-              : mode === "new-password"
-                ? "Update password"
-                : "Sign in"}
+          : mode === "verify"
+            ? "Verify email"
+            : mode === "sign-up"
+              ? "Create account"
+              : mode === "reset"
+                ? "Send reset link"
+                : mode === "new-password"
+                  ? "Update password"
+                  : "Sign in"}
       </button>
+      {mode === "verify" ? (
+        <div className="auth-links">
+          <button type="button" disabled={busy || !email} onClick={resend}>
+            Resend verification code
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("sign-in");
+              setError("");
+              setMessage("");
+            }}
+          >
+            Back to sign in
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="verification-link"
+          onClick={() => {
+            setMode("verify");
+            setError("");
+            setMessage("");
+          }}
+        >
+          Enter verification code
+        </button>
+      )}
       <div className="auth-links">
         <button
           type="button"
