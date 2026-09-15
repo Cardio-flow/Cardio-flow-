@@ -46,6 +46,10 @@ export function connectPostgres(connectionString: string): DB {
   };
 }
 export async function migrate(db: DB) {
+  const careSchema = await readFile(
+    new URL("./care-schema.sql", import.meta.url),
+    "utf8",
+  );
   const schema = await readFile(
     new URL("./schema.sql", import.meta.url),
     "utf8",
@@ -75,6 +79,22 @@ export async function migrate(db: DB) {
       email text PRIMARY KEY, user_id text UNIQUE, role text NOT NULL CHECK(role IN ('clinician','reviewer','analyst','designer')),
       active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now()
     )`);
+    const careMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='002-continuous-care'",
+      )
+    ).rows[0];
+    if (careMigration && careMigration.checksum !== hash(careSchema))
+      throw new Error(
+        "Continuous-care migration changed; add a new migration instead",
+      );
+    if (!careMigration) {
+      await tx.query(careSchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('002-continuous-care',$1)",
+        [hash(careSchema)],
+      );
+    }
   });
   // Deployment runs this once before serving requests, never at cold start.
   await initializeData(db);

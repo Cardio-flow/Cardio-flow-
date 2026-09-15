@@ -53,9 +53,13 @@ export function PatientTable({
                   </span>
                 </button>
               </td>
-              <td className="mono">CF-CAD-{String(p.crf).padStart(4, "0")}</td>
+              <td className="mono">
+                {p.crf ? `CF-CAD-${String(p.crf).padStart(4, "0")}` : "—"}
+              </td>
               <td>
-                <Badge tone="cad">CAD</Badge>
+                <Badge tone="cad">
+                  {p.enrollment_id ? "CAD" : "Care only"}
+                </Badge>
               </td>
               <td>{date(p.birth_date)}</td>
               <td>{p.sex}</td>
@@ -92,7 +96,11 @@ export function NewPatient({
     e.preventDefault();
     setBusy(true);
     setError("");
-    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const form = new FormData(e.currentTarget);
+    const data = {
+      ...Object.fromEntries(form),
+      enroll_cad: form.get("enroll_cad") === "on",
+    };
     try {
       const result = await api<{ id: string }>("/patients", data);
       onCreated(result.id);
@@ -105,7 +113,8 @@ export function NewPatient({
   return (
     <Modal title="Register a patient" onClose={onClose}>
       <p className="modal-intro">
-        Create one shared identity and enroll in the CAD sandbox registry.
+        Create one shared patient identity. Choose registry enrollment only when
+        needed.
       </p>
       <form onSubmit={submit}>
         <div className="form-grid">
@@ -149,8 +158,10 @@ export function NewPatient({
             </select>
           </label>
           <label>
-            Registry
-            <input value="CAD · sandbox version 1" readOnly />
+            <span>
+              <input name="enroll_cad" type="checkbox" /> Enroll in CAD registry
+              (optional)
+            </span>
           </label>
         </div>
         <ErrorBox message={error} />
@@ -159,7 +170,7 @@ export function NewPatient({
             Cancel
           </button>
           <button className="primary" disabled={busy}>
-            {busy ? "Registering…" : "Register & enroll"}
+            {busy ? "Registering…" : "Create patient"}
             <ArrowRight size={16} />
           </button>
         </div>
@@ -207,7 +218,7 @@ export function Patients({
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <span className="muted">{filtered?.length ?? 0} patients · CAD</span>
+          <span className="muted">{filtered?.length ?? 0} patients</span>
         </div>
         <ErrorBox message={error} />
         {filtered ? (
@@ -220,6 +231,7 @@ export function Patients({
   );
 }
 export function PatientWorkspace({
+  embedded = false,
   id,
   role,
   onBack,
@@ -229,6 +241,7 @@ export function PatientWorkspace({
   role: Role;
   onBack: () => void;
   onSaved: () => void;
+  embedded?: boolean;
 }) {
   const [revision, setRevision] = useState(0),
     [selected, setSelected] = useState(""),
@@ -256,10 +269,12 @@ export function PatientWorkspace({
   }
   return (
     <>
-      <button className="text-button back" onClick={onBack}>
-        <ArrowLeft size={16} />
-        All patients
-      </button>
+      {!embedded ? (
+        <button className="text-button back" onClick={onBack}>
+          <ArrowLeft size={16} />
+          All patients
+        </button>
+      ) : null}
       <ErrorBox message={loadError} />
       {!p ? (
         !loadError ? (
@@ -267,37 +282,41 @@ export function PatientWorkspace({
         ) : null
       ) : (
         <>
-          <div className="patient-heading">
-            <div className="avatar large">
-              {p.name
-                .split(" ")
-                .map((n) => n[0])
-                .join("")}
-            </div>
-            <div>
-              <span className="eyebrow">SHARED PATIENT RECORD</span>
-              <h1>{p.name}</h1>
-              <p>
-                {p.mrn}
-                <span>•</span>
-                {p.sex}
-                <span>•</span>Born {date(p.birth_date)}
-              </p>
-            </div>
-            <Badge tone="cad">CAD enrolled</Badge>
-          </div>
-          <div className="patient-strip">
-            <span>
-              Registry ID{" "}
-              <strong>CF-CAD-{String(p.crf).padStart(4, "0")}</strong>
-            </span>
-            <span>
-              Site <strong>Kuwait · demo site</strong>
-            </span>
-            <span>
-              Protocol <strong>CAD sandbox v1</strong>
-            </span>
-          </div>
+          {!embedded ? (
+            <>
+              <div className="patient-heading">
+                <div className="avatar large">
+                  {p.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")}
+                </div>
+                <div>
+                  <span className="eyebrow">SHARED PATIENT RECORD</span>
+                  <h1>{p.name}</h1>
+                  <p>
+                    {p.mrn}
+                    <span>•</span>
+                    {p.sex}
+                    <span>•</span>Born {date(p.birth_date)}
+                  </p>
+                </div>
+                <Badge tone="cad">CAD enrolled</Badge>
+              </div>
+              <div className="patient-strip">
+                <span>
+                  Registry ID{" "}
+                  <strong>CF-CAD-{String(p.crf).padStart(4, "0")}</strong>
+                </span>
+                <span>
+                  Site <strong>Kuwait · demo site</strong>
+                </span>
+                <span>
+                  Protocol <strong>CAD sandbox v1</strong>
+                </span>
+              </div>
+            </>
+          ) : null}
           <div className="episode-toolbar">
             <div>
               <Stethoscope size={19} />

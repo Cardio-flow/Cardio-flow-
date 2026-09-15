@@ -31,6 +31,7 @@ export const patientSchema = z
       (v) => v >= "1900-01-01",
       "Date must be 1900 or later",
     ),
+    enroll_cad: z.boolean().default(false),
   })
   .strict();
 export const stentSchema = z

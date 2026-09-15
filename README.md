@@ -1,10 +1,10 @@
 # Cardio Flow
 
-A shared cardiovascular registry workspace. This first implementation turns the **Cardio Flow implementation blueprint v0.2 (5 September 2026)** into a working, persistent CAD development slice.
+A shared cardiovascular care and registry workspace. The recovered **Final Codex Plan / masterplan v1.2** is the product baseline; see [the recovered brief](docs/MASTERPLAN.md) and [implementation progress](docs/PROGRESS.md). The complete planned platform remains in development.
 
-**Release 0.1 is a synthetic engineering pilot with local and hosted modes. It is not approved for real patient data or clinical use.** The hosted mode uses Neon Auth and shared PostgreSQL; institution approval and clinical release gates remain tracked in [the delivery roadmap](docs/ROADMAP.md).
+**Release 0.2 is a synthetic engineering pilot with local and hosted modes. It is not approved for real patient data or clinical use.** The hosted mode uses Neon Auth and shared PostgreSQL; institution approval and clinical release gates remain tracked in [the delivery roadmap](docs/ROADMAP.md).
 
-Hosted site: https://cardio-flow-one.vercel.app. Sign-in setup requires the production domain to be trusted in Neon Auth and the owner email to be approved.
+Hosted site: https://cardio-flow-one.vercel.app. Neon Auth trusted-domain configuration and the first approved membership are active.
 
 ## Run locally
 
@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:4310** and select **Enter demo workspace**. Eight clearly named sample patients are seeded on the first start. The server stores PostgreSQL data in `.data/cardio/`, which is excluded from Git. Reloading the browser or restarting the server preserves saved records. Sessions expire after eight hours and are intentionally cleared on restart.
+Open **http://127.0.0.1:4310** and select **Enter demo workspace**. Eight CAD sample patients and **Hassan Sample**, a care-only continuity walkthrough, are seeded. The server stores PostgreSQL data in `.data/cardio/`, which is excluded from Git. Reloading the browser or restarting the server preserves saved records. Sessions expire after eight hours and are intentionally cleared on restart.
 
 To run the optimized frontend locally:
 
@@ -39,8 +39,12 @@ Only one server should open a database directory at a time. Use a new directory 
 
 ## Working features
 
-- Responsive workspace overview, patient search, and shared patient identity.
-- Transactional synthetic patient registration and CAD enrollment, with unique MRNs and server-allocated registry IDs.
+- Today, Admissions, OPD, Registries, Patients and a six-tab longitudinal patient workspace.
+- Dated clinician-entered problems, decisions, investigations, medications, procedures, complications and review ownership.
+- Explicit encounter connections; closure retains outstanding reviews and records a handover.
+- Versioned care records with immutable revision history and stale-write rejection.
+- Printable HTML patient reports (browser Print → Save as PDF); direct PDF generation and ECG attachments remain pending.
+- Transactional synthetic patient registration with **optional** CAD enrollment, unique MRNs and server-allocated registry IDs.
 - CAD index episodes with presentation, angiography access, management, repeatable lesions, lesion-linked stents, and discharge disposition.
 - Server-side structural validation, optimistic version checks, saved drafts, locked final snapshots, and separate reviewer approval.
 - CAD 1/3/6/12-calendar-month tasks anchored to **index admission**, including leap-year and month-end handling.
@@ -52,10 +56,14 @@ Only one server should open a database directory at a time. Use a new directory 
 
 CAD protocol windows (7 days early / 14 days late), contact requirements, and displayed value sets are **demonstration configuration pending named clinical approval**. There are no active treatment recommendations, proprietary scores, or clinical calculators.
 
-## Try the workflow
+## Try continuous care
+
+Open **Patients → Hassan Sample**. Inspect the current situation, continuing plan, connected OPD/admission/OPD journey, renal review and procedure documentation. No registry enrollment is required. Create an encounter or update a review; reload to verify persistence. Under **Registries & reports**, download the printable report or deliberately select CAD enrollment.
+
+## Try the CAD workflow
 
 1. Enter as **Clinician**. Register a synthetic patient with an MRN such as `SYN-0100`.
-2. Create an index episode. Complete Presentation, Angiography & PCI, and Discharge.
+2. Open **Registries & reports**, select **Enroll in CAD registry**, then **Open CAD assessment**. Create an index episode and complete Presentation, Angiography & PCI, and Discharge.
 3. Add lesions and, when relevant, PCI stents. Save the draft before finalizing.
 4. Finalize the saved record. Eligible follow-up tasks appear in **Follow-ups**.
 5. Change **Demo role** to **Reviewer**, open the patient, and approve the final record.
@@ -74,6 +82,7 @@ Express modular server: session → permission → validation → transaction
                 │
 Server-side PGlite (embedded PostgreSQL, persistent on local disk)
   core.patient / registry.enrollment / clinical.episode
+  care.encounter / care.entry / care.revision
   cad.lesion / cad.stent / clinical.encounter
   workflow.followup_task / task_satisfaction
   governance.audit_event / record_snapshot / export_job

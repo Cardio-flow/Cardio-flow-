@@ -93,6 +93,9 @@ test("hosted login opens the dashboard without reloading the document", async ({
       },
     }),
   );
+  await page.route("**/api/care/board", (route) =>
+    route.fulfill({ json: { entries: [], encounters: [] } }),
+  );
   await page.route("**/api/patients", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/tasks", (route) => route.fulfill({ json: [] }));
   await page.goto("/");
@@ -100,10 +103,10 @@ test("hosted login opens the dashboard without reloading the document", async ({
   await page.getByLabel("Password", { exact: true }).fill("test-password-only");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Care, connected." }),
+    page.getByRole("heading", { name: "Today", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Registered patients", { exact: true }),
+    page.getByText("Active admissions", { exact: true }),
   ).toBeVisible();
   expect(documents).toBe(1);
 });

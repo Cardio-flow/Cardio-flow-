@@ -1,3 +1,4 @@
+import { CareBoard, CareWorkspace } from "./Care";
 import { SignIn } from "./SignIn";
 import { useEffect, useState } from "react";
 import {
@@ -23,19 +24,32 @@ import {
 import { api, useData, setCsrf, date, currentDate } from "./api";
 import type { Role, Session, Overview, Patient, Task } from "./types";
 import { Mark, Badge, ErrorBox, Loading, SectionTitle } from "./ui";
-import {
-  Patients,
-  NewPatient,
-  PatientTable,
-  PatientWorkspace,
-} from "./Patients";
+import { Patients, NewPatient, PatientTable } from "./Patients";
 import { Followups, Exports, Definitions, AuditLog } from "./Workflows";
 const navigation = [
   {
     key: "overview",
-    label: "Overview",
+    label: "Today",
     icon: LayoutDashboard,
     roles: ["clinician", "reviewer", "analyst"],
+  },
+  {
+    key: "admissions",
+    label: "Admissions",
+    icon: HeartPulse,
+    roles: ["clinician", "reviewer"],
+  },
+  {
+    key: "opd",
+    label: "OPD",
+    icon: CalendarDays,
+    roles: ["clinician", "reviewer"],
+  },
+  {
+    key: "registries",
+    label: "Registries",
+    icon: Layers,
+    roles: ["clinician", "reviewer", "analyst", "designer"],
   },
   {
     key: "patients",
@@ -48,12 +62,6 @@ const navigation = [
     label: "Follow-ups",
     icon: CalendarDays,
     roles: ["clinician", "reviewer"],
-  },
-  {
-    key: "registries",
-    label: "Registry library",
-    icon: Layers,
-    roles: ["clinician", "reviewer", "analyst", "designer"],
   },
   {
     key: "exports",
@@ -162,17 +170,17 @@ export default function App() {
           <h2>Welcome to Cardio Flow</h2>
           <p>
             {hosted
-              ? "Sign in to your shared CAD workspace. Approved accounts can work with synthetic patients in the hosted database."
-              : "Explore the first CAD workflow with synthetic patients and a persistent local database."}
+              ? "Sign in to your shared patient workspace. Continue care across admissions, OPD, and selected registries."
+              : "Explore connected patient care with synthetic patients and a persistent local database."}
           </p>
           <div className="welcome-features">
             <span>
               <CheckCircle2 size={18} />
-              Shared patient identity & CAD records
+              One patient record across care settings
             </span>
             <span>
               <CheckCircle2 size={18} />
-              Versioned workflow & follow-up queue
+              Continuing plans, results & procedures
             </span>
             <span>
               <CheckCircle2 size={18} />
@@ -312,7 +320,16 @@ export default function App() {
         </header>
         <main>
           <ErrorBox message={error} />
-          {view === "overview" ? (
+          {["overview", "admissions", "opd"].includes(view) &&
+          session.role !== "analyst" ? (
+            <CareBoard
+              view={view}
+              role={session.role}
+              revision={revision}
+              onOpen={openPatient}
+              onNew={() => setNewPatient(true)}
+            />
+          ) : view === "overview" ? (
             <Dashboard
               role={session.role}
               revision={revision}
@@ -322,7 +339,8 @@ export default function App() {
             />
           ) : view === "patients" ? (
             patientId ? (
-              <PatientWorkspace
+              <CareWorkspace
+                key={patientId}
                 id={patientId}
                 role={session.role}
                 onBack={() => setPatientId("")}
@@ -357,7 +375,7 @@ export default function App() {
               <HeartPulse size={14} />
               Cardio Flow
             </span>
-            <span>Engineering preview · v0.1 · Synthetic data only</span>
+            <span>Engineering preview · v0.2 · Synthetic data only</span>
           </footer>
         </main>
       </div>

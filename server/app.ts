@@ -6,6 +6,7 @@ import express, {
 import { randomUUID, randomBytes } from "node:crypto";
 import { z, ZodError } from "zod";
 import { type DB, audit, hash } from "./db.js";
+import { mountCare, CareError } from "./care.js";
 import {
   patientSchema,
   episodeSchema,
@@ -162,7 +163,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
       .parse(req.query.q ?? "");
     const patients = (
       await db.query(
-        `SELECT p.*, e.id enrollment_id,e.crf,e.registry_key, (SELECT count(*)::int FROM clinical.episode ep WHERE ep.enrollment_id=e.id) episode_count FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id WHERE p.site_id='demo-kuwait' AND (p.name ILIKE $1 OR p.mrn ILIKE $1) ORDER BY p.created_at DESC,p.name`,
+        `SELECT p.*, e.id enrollment_id,e.crf,e.registry_key, (SELECT count(*)::int FROM clinical.episode ep WHERE ep.enrollment_id=e.id) episode_count FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD' WHERE p.site_id='demo-kuwait' AND (p.name ILIKE $1 OR p.mrn ILIKE $1) ORDER BY p.created_at DESC,p.name`,
         ["%" + q + "%"],
       )
     ).rows;
@@ -184,26 +185,34 @@ export function createApp(db: DB, hosted?: HostedOptions) {
           res.locals.session.actor,
         ],
       );
-      await tx.query(
-        "INSERT INTO registry.enrollment(id,patient_id,registry_key,definition_version) VALUES($1,$2,$3,$4)",
-        [enrollment, id, "CAD", 1],
-      );
+      if (input.enroll_cad)
+        await tx.query(
+          "INSERT INTO registry.enrollment(id,patient_id,registry_key,definition_version) VALUES($1,$2,$3,$4)",
+          [enrollment, id, "CAD", 1],
+        );
       await audit(
         tx,
         res.locals.session.actor,
-        "Patient registered & enrolled",
+        input.enroll_cad
+          ? "Patient registered & enrolled"
+          : "Patient identity registered",
         "patient",
         id,
         id,
-        { registry: "CAD", definitionVersion: 1 },
+        {
+          registry: input.enroll_cad ? "CAD" : null,
+          definitionVersion: input.enroll_cad ? 1 : null,
+        },
       );
     });
-    res.status(201).json({ id, enrollment_id: enrollment });
+    res
+      .status(201)
+      .json({ id, enrollment_id: input.enroll_cad ? enrollment : null });
   });
   const patient = async (db: Pick<DB, "query">, id: string) => {
     const p = await one(
       db,
-      "SELECT p.*,e.id enrollment_id,e.crf,e.registry_key,e.status enrollment_status FROM core.patient p JOIN registry.enrollment e ON e.patient_id=p.id WHERE p.id=$1 AND p.site_id='demo-kuwait'",
+      "SELECT p.*,e.id enrollment_id,e.crf,e.registry_key,e.status enrollment_status FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD' WHERE p.id=$1 AND p.site_id='demo-kuwait'",
       [uuid.parse(id)],
     );
     if (!p) throw new ApiError(404, "Patient not found");
@@ -705,6 +714,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     });
     res.status(201).json(job);
   });
+  mountCare(app, db);
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );
@@ -720,7 +730,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
         error:
           "This synthetic MRN or enrollment already exists. Search for the existing patient.",
       });
-    if (err instanceof ApiError)
+    if (err instanceof ApiError || err instanceof CareError)
       return res.status(err.status).json({ error: err.message });
     if (err.type === "entity.parse.failed")
       return res.status(400).json({ error: "Invalid JSON" });

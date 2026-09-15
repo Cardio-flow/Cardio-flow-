@@ -1,0 +1,37 @@
+# Progress — 16 September 2026
+
+## Restored baseline
+
+Recovered **Final Codex Plan** and verified all original HF/CAD/EP backups. The complete scope includes HF, CAD, EP, Structural Heart and custom registries. The working Vercel/Neon stack remains in place.
+
+## Release 0.2 implementation
+
+- Today, Admissions, OPD, Registries, Patients and all six agreed patient tabs.
+- Independent Admission/OPD encounters, explicit connections and discharge handover.
+- Dated problems, decisions, investigations, medications, procedures and complications with owner, review date, assessment, action and response.
+- Care-only registration by default; CAD enrollment optional and available later. Procedure documentation does not require enrollment.
+- Encounter closure preserves outstanding patient reviews. Overdue means a review is overdue or undocumented, not proof that care was missed.
+- Validated states/closure evidence, held-medication reason and review, investigation interpretation, optimistic versions, immutable revisions and audit.
+- Fictional Hassan walkthrough: OPD → ACS/PCI admission → discharge → linked OPD with continuing reviews.
+- Escaped, printable HTML care reports; browser Print → Save as PDF. Direct PDF generation and finalized report snapshots remain pending.
+- Additive migration `002-continuous-care`; existing CAD schema and records preserved.
+
+## Checks executed
+
+- TypeScript and production frontend build passed.
+- 23 API/domain/authentication checks passed, including care-only use, discharge continuity, cross-patient/site rejection, role boundaries, immutable history and stale writes.
+- Nine browser checks passed across the existing CAD/auth suite and new continuity test. Affected cases were re-run after fixing the Status field's accessible label and adapting the login assertion to Today.
+- Browser journey verifies admission, outstanding decision, discharge, linked OPD, reload, completion, history, report download and later enrollment. Phone width checked at 390px.
+- Isolated-browser inspection of Today and Hassan's six-tab workspace found meaningful content and no runtime errors.
+
+## Next acceptance gate
+
+Complete the first journey's clinical detail: private ECG/diagnostic attachments with report inclusion; timestamped ACS milestones; structured shared results/medications and detailed procedures; clinician-reviewed fact reuse in CAD; downloadable frozen PDF reports. Preserve origin/date, explicit enrollment and provisional diagnoses.
+
+Then implement the recovered HF/CAD/EP field catalog, Structural Heart workflows and governed custom-registry builder. Acceptance requires actual forms and persistence; family selectors are not complete specialty modules.
+
+## Remaining full-platform work
+
+Complete specialist forms, private attachments/direct PDF, milestone/dependency engine, reviewed clinical guidance, shared-fact mappings, no-code registry versioning/publication, final-record amendments, imports, richer exports/analytics, staff administration, multi-organization grants and operational readiness.
+
+Fixed demonstration-site checks do not establish multi-tenant authorization. All treatment rules remain inactive. This release is a continuous-care foundation, not the completed masterplan.

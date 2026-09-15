@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { readFile } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
 import { cadDefinition, addMonths, addDays, today } from "./domain.js";
+import { seedCare } from "./seed-care.js";
 export interface QueryDB {
   query<T = Record<string, unknown>>(
     sql: string,
@@ -23,6 +24,9 @@ export async function createDb(path?: string, seed = true) {
   await db.exec(
     await readFile(new URL("./schema.sql", import.meta.url), "utf8"),
   );
+  await db.exec(
+    await readFile(new URL("./care-schema.sql", import.meta.url), "utf8"),
+  );
   await initializeData(db, seed);
   return db;
 }
@@ -42,6 +46,7 @@ export async function initializeData(db: DB, seed = true) {
     !(await db.query("SELECT id FROM core.patient LIMIT 1")).rows.length
   )
     await seedDemo(db);
+  if (seed) await seedCare(db);
 }
 export async function audit(
   db: Pick<DB, "query">,

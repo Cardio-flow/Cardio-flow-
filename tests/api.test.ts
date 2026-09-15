@@ -116,6 +116,7 @@ test("CAD workflow, access boundaries, conflicts, snapshots, contacts, and expor
       async () => {
         const p = {
           name: "Integration Sample",
+          enroll_cad: true,
           mrn: "SYN-INTEGRATION",
           sex: "Female",
           birth_date: "1970-04-12",

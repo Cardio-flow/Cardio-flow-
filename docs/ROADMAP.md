@@ -1,6 +1,12 @@
 # Delivery roadmap
 
-## Current release: first working CAD development slice
+## Product baseline restored — continuous care, then complete specialty workflows
+
+The later **Final Codex Plan** takes precedence over the earlier CAD-only interpretation below. See [MASTERPLAN.md](MASTERPLAN.md). The complete release includes HF, CAD, EP, Structural Heart and no-code custom registries. Their staged implementation is not a reduction of scope.
+
+Release 0.2 adds the six-tab patient workspace, independent Admission/OPD encounters, continuing care records, ownership and review dates, discharge handover, immutable care history, optional CAD enrollment and a printable patient report. Source backups and their 2,252-field inventory are recovered; specialist parity is not complete. See [PROGRESS.md](PROGRESS.md) for the exact next gate.
+
+## Earlier CAD slice — retained scope details
 
 This repository implements a useful engineering preview, not the whole first clinical release described in the source blueprint. The source documents are the Cardio Flow Implementation Blueprint v0.2 and Canonical Field Mapping workbook dated 5 September 2026. The workbook's full field catalog has **not** yet been implemented or clinically reconciled.
 
@@ -20,7 +26,7 @@ This repository implements a useful engineering preview, not the whole first cli
 - Vercel Express deployment with static frontend, shared Neon PostgreSQL, and an initial migration ledger.
 - Neon Auth sign-in with email verification, approved memberships, immutable account binding, server-derived roles, and immediate membership revocation.
 - Local demo-role access is disabled on the hosted server.
-- Remaining activation: trust `https://cardio-flow-one.vercel.app` in Neon Auth and configure the named owner email.
+- Trusted production domain and initial verified/approved clinician membership are active.
 
 ### P0: before a clinical pilot
 
@@ -42,7 +48,7 @@ This repository implements a useful engineering preview, not the whole first cli
 - Long-table lesion/stent/follow-up exports, labeled and coded XLSX datasets, date/cohort filters, export authorization workflows, expiry and download audit. Current exports contain only episode rows and codebook CSV.
 - Deep-link routing, dirty-form navigation protection, paginated search/audit queries, accessibility contrast/focus audit, and performance checks at clinical registry scale.
 
-### P2: additional specialties
+### Subsequent implementation stages within the complete release
 
 Add HF, EP, and Structural Heart screens to the same shared core. Their library cards currently communicate planned scope only. Clinical advisories, calculators, scores, and questionnaires stay disabled until independently approved and validated.
 

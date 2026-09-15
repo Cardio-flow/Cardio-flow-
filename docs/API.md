@@ -1,5 +1,24 @@
 # Local preview API
 
+Hosted mode uses verified Neon Auth and approved membership instead of demo sessions.
+
+## Continuous care
+
+Read routes require clinician/reviewer; mutations require clinician plus the common CSRF/origin checks. All records are scoped to the current demonstration site.
+
+| Route                                                   | Behaviour                                                                               |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `GET /care/board`                                       | Independent Admission/OPD encounters and outstanding patient reviews                    |
+| `GET /patients/:id/care`                                | Shared identity, dated entries and linked encounters                                    |
+| `POST /patients/:id/care/encounters`                    | Open Admission/OPD with owner, reason, date and optional earlier same-patient encounter |
+| `POST /patients/:id/care/encounters/:encounterId/close` | Version-checked closure and handover; continuing entries stay active                    |
+| `POST /patients/:id/care/entries`                       | Create dated problem, decision, investigation, medication, procedure or complication    |
+| `PUT /care/entries/:id`                                 | Version-checked review; immutable revision appended; origin retained                    |
+| `GET /care/entries/:id/history`                         | Saved versions and authors                                                              |
+| `POST /patients/:id/enroll`                             | Deliberate CAD enrollment, `{ "registry": "CAD" }`                                      |
+
+Patient registration defaults to care-only; `enroll_cad: true` explicitly selects CAD. No care mutation requires enrollment. Clinical family and status fields document clinician choices; they do not activate clinical algorithms.
+
 All endpoints are under `/api`. JSON responses use meaningful HTTP status codes: 401 (session absent), 403 (role/origin/token denied), 404 (not found/out of site scope), 409 (duplicate/state/version conflict), and 422 (validation).
 
 ## Session boundary

@@ -5,7 +5,7 @@ async function enter(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Enter demo workspace" }).click();
   await expect(
-    page.getByRole("heading", { name: "Care, connected." }),
+    page.getByRole("heading", { name: "Today", exact: true }),
   ).toBeVisible();
 }
 test("dashboard and registry navigation render without runtime errors", async ({
@@ -16,7 +16,7 @@ test("dashboard and registry navigation render without runtime errors", async ({
   await page.setViewportSize({ width: 1440, height: 1050 });
   await enter(page);
   await expect(
-    page.getByText("Registered patients", { exact: true }),
+    page.getByText("Active admissions", { exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/dashboard.png",
@@ -31,9 +31,7 @@ test("dashboard and registry navigation render without runtime errors", async ({
   await expect(
     page.getByRole("button", { name: "Open Omar Sample", exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Registry library", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Registries", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "CAD template specification" }),
   ).toBeVisible();
@@ -52,10 +50,13 @@ test("register, save CAD with two lesions and one stent, finalize, and independe
   await page.getByLabel("Synthetic MRN").fill("SYN-BROWSER");
   await page.getByLabel("Birth date", { exact: true }).fill("1978-06-12");
   await page.getByLabel("Sex", { exact: true }).selectOption("Female");
-  await page.getByRole("button", { name: "Register & enroll" }).click();
+  await page.getByLabel("Enroll in CAD registry (optional)").check();
+  await page.getByRole("button", { name: "Create patient" }).click();
   await expect(
     page.getByRole("heading", { name: "Browser Sample" }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Registries & reports" }).click();
+  await page.getByRole("button", { name: "Open CAD assessment" }).click();
   await page.getByRole("button", { name: "New episode" }).click();
   await page.getByLabel("Index admission date").fill("2025-01-31");
   await page.getByRole("button", { name: "Create draft" }).click();
@@ -100,6 +101,8 @@ test("register, save CAD with two lesions and one stent, finalize, and independe
   await page
     .getByRole("button", { name: "Open Browser Sample", exact: true })
     .click();
+  await page.getByRole("tab", { name: "Registries & reports" }).click();
+  await page.getByRole("button", { name: "Open CAD assessment" }).click();
   await page.getByRole("button", { name: "Approve review" }).click();
   await expect(
     page.getByText("Independently reviewed", { exact: true }),
