@@ -49,3 +49,74 @@ test("email verification accepts a code, handles expiry, and offers resend", asy
   );
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
 });
+
+test("hosted login opens the dashboard without reloading the document", async ({
+  page,
+}) => {
+  let signedIn = false,
+    documents = 0;
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) documents++;
+  });
+  await page.route("**/api/config", (route) =>
+    route.fulfill({ json: { hosted: true } }),
+  );
+  await page.route("**/api/session", (route) =>
+    route.fulfill({
+      status: signedIn ? 200 : 401,
+      json: signedIn
+        ? {
+            actor: "test-clinician",
+            role: "clinician",
+            csrf: "test-csrf",
+            email: "owner@example.com",
+          }
+        : { error: "Sign in to continue" },
+    }),
+  );
+  await page.route("**/api/auth/sign-in/email", (route) => {
+    signedIn = true;
+    return route.fulfill({ json: { user: { id: "test-clinician" } } });
+  });
+  await page.route("**/api/overview", (route) =>
+    route.fulfill({
+      json: {
+        patients: 0,
+        open_tasks: 0,
+        overdue: 0,
+        due: 0,
+        drafts: 0,
+        awaiting_review: 0,
+        reviewed: 0,
+        episodes: 0,
+        presentations: [],
+      },
+    }),
+  );
+  await page.route("**/api/patients", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/tasks", (route) => route.fulfill({ json: [] }));
+  await page.goto("/");
+  await page.getByLabel("Email address").fill("owner@example.com");
+  await page.getByLabel("Password", { exact: true }).fill("test-password-only");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Care, connected." }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Registered patients", { exact: true }),
+  ).toBeVisible();
+  expect(documents).toBe(1);
+});
+
+test("a failed JavaScript download shows recovery instead of a blank page", async ({
+  page,
+}) => {
+  await page.route("**/src/main.tsx", (route) => route.abort());
+  await page.goto("/");
+  await expect(
+    page.getByText("The app could not load. Reload to get the latest version."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Reload workspace" }),
+  ).toBeVisible();
+});

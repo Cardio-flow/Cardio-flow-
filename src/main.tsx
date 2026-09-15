@@ -31,3 +31,5 @@ createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </StrictMode>,
 );
+
+window.dispatchEvent(new Event("cardio:ready"));

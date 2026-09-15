@@ -1,6 +1,11 @@
 import { useState } from "react";
+import type { Session } from "./types";
 import { ErrorBox } from "./ui";
-export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+export function SignIn({
+  onSignedIn,
+}: {
+  onSignedIn: (session: Session) => void;
+}) {
   const [mode, setMode] = useState<
     "sign-in" | "sign-up" | "reset" | "new-password" | "verify"
   >(
@@ -80,7 +85,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           return;
         }
         const response = await fetch("/api/session");
-        if (response.ok) onSignedIn();
+        if (response.ok) onSignedIn(await response.json());
         else {
           const result = await response.json();
           if (result.error?.includes("Verify your email")) setMode("verify");

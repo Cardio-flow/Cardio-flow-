@@ -19,7 +19,15 @@ const app: express.Express = createApp(
   db,
   hostedAuth(db, origin, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET),
 );
-app.get("/{*path}", (_req, res) =>
-  res.sendFile(path.resolve("public/index.html")),
-);
+app.get("/{*path}", (req, res) => {
+  if (path.extname(req.path) && req.path !== "/index.html") {
+    res.status(404).type("text/plain").send("File not found");
+    return;
+  }
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.resolve("public/index.html"), {
+    cacheControl: false,
+    lastModified: false,
+  });
+});
 export default app;

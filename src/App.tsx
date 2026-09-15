@@ -180,7 +180,15 @@ export default function App() {
             </span>
           </div>
           {hosted ? (
-            <SignIn onSignedIn={() => window.location.reload()} />
+            <SignIn
+              onSignedIn={(s) => {
+                setCsrf(s.csrf);
+                setSession(s);
+                setPatientId("");
+                setView(s.role === "designer" ? "registries" : "overview");
+                setRevision((v) => v + 1);
+              }}
+            />
           ) : (
             <button className="primary" onClick={() => enter()}>
               Enter demo workspace

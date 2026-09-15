@@ -11,7 +11,45 @@
     <title>Cardio Flow · Clinical workspace</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="padding: 48px; font-family: system-ui; color: #123f36">
+        <h1>Loading Cardio Flow…</h1>
+        <p id="startup-status">Connecting to your workspace.</p>
+        <button id="startup-reload" hidden>Reload workspace</button>
+        <noscript>Please enable JavaScript to open Cardio Flow.</noscript>
+      </div>
+    </div>
+    <script>
+      (() => {
+        let ready = false;
+        function failed() {
+          if (ready) return;
+          const status = document.getElementById("startup-status");
+          const button = document.getElementById("startup-reload");
+          if (status)
+            status.textContent =
+              "The app could not load. Reload to get the latest version.";
+          if (button) {
+            button.hidden = false;
+            button.onclick = () => {
+              const url = new URL(location.href);
+              url.searchParams.set("reload", String(Date.now()));
+              location.replace(url);
+            };
+          }
+        }
+        const timeout = setTimeout(failed, 20000);
+        window.addEventListener(
+          "cardio:ready",
+          () => {
+            ready = true;
+            clearTimeout(timeout);
+          },
+          { once: true },
+        );
+        window.addEventListener("error", failed, true);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
