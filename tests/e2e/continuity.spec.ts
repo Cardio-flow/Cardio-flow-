@@ -101,6 +101,9 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await expect(
     page.getByText("Synthetic reassessment completed and plan agreed."),
   ).toBeVisible();
+  await expect(
+    page.getByText("Recorded review date · 10 Feb 2025"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(page.getByText("Version 2 · completed")).toBeVisible();
   await expect(page.getByText("Version 1 · pending")).toBeVisible();

@@ -16,6 +16,7 @@ import { PatientWorkspace } from "./Patients";
 import {
   careKinds,
   families,
+  finished,
   needsReview,
   stateLabel,
   type CareKind,
@@ -41,6 +42,8 @@ const tabs = [
   "Registries & reports",
 ];
 function dueText(e: CareEntry) {
+  if (e.due_date && finished.includes(e.status))
+    return `Recorded review date · ${date(e.due_date)}`;
   return e.due_date
     ? `${e.due_date < currentDate() ? "Review overdue · " : "Review "}${date(e.due_date)}`
     : "No review date recorded";
