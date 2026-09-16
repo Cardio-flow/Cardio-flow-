@@ -3,6 +3,7 @@ import path from "node:path";
 import { connectPostgres } from "./server/postgres.js";
 import { createApp } from "./server/app.js";
 import { hostedAuth } from "./server/auth.js";
+import { mountFrontend } from "./server/frontend.js";
 const { DATABASE_URL, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET } =
   process.env;
 const origin =
@@ -19,15 +20,5 @@ const app: express.Express = createApp(
   db,
   hostedAuth(db, origin, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET),
 );
-app.get("/{*path}", (req, res) => {
-  if (path.extname(req.path) && req.path !== "/index.html") {
-    res.status(404).type("text/plain").send("File not found");
-    return;
-  }
-  res.set("Cache-Control", "no-store");
-  res.sendFile(path.resolve("public/index.html"), {
-    cacheControl: false,
-    lastModified: false,
-  });
-});
+mountFrontend(app, path.resolve("public"));
 export default app;
