@@ -132,7 +132,7 @@ export function Followups({
         uses demonstration windows pending local approval.
       </p>
       {selected ? (
-        <Contact
+        <FollowupContact
           task={selected}
           onClose={() => setSelected(null)}
           onDone={(message) => {
@@ -145,7 +145,7 @@ export function Followups({
     </>
   );
 }
-function Contact({
+export function FollowupContact({
   task,
   onClose,
   onDone,
@@ -374,7 +374,7 @@ export function Exports() {
     </>
   );
 }
-export function Definitions() {
+export function Definitions({ embedded = false }: { embedded?: boolean } = {}) {
   const { data, error } = useData<{
     definitions: {
       sections: {
@@ -387,14 +387,16 @@ export function Definitions() {
   }>("/definitions");
   return (
     <>
-      <div className="page-title">
-        <div>
-          <span className="eyebrow">REGISTRY GOVERNANCE</span>
-          <h1>Registry library</h1>
-          <p>A common cardiovascular core, with space for each specialty.</p>
+      {!embedded ? (
+        <div className="page-title">
+          <div>
+            <span className="eyebrow">REGISTRY GOVERNANCE</span>
+            <h1>Registry library</h1>
+            <p>A common cardiovascular core, with space for each specialty.</p>
+          </div>
+          <Badge tone="draft">Clinical approval pending</Badge>
         </div>
-        <Badge tone="draft">Clinical approval pending</Badge>
-      </div>
+      ) : null}
       <div className="registry-grid">
         {[
           {

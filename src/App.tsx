@@ -1,4 +1,4 @@
-import { CareBoard, CareWorkspace } from "./Care";
+import { UnifiedPatientWorkspace, Worklist } from "./UnifiedCare";
 import { SignIn } from "./SignIn";
 import { useEffect, useState } from "react";
 import {
@@ -25,31 +25,13 @@ import { api, useData, setCsrf, date, currentDate } from "./api";
 import type { Role, Session, Overview, Patient, Task } from "./types";
 import { Mark, Badge, ErrorBox, Loading, SectionTitle } from "./ui";
 import { Patients, NewPatient, PatientTable } from "./Patients";
-import { Followups, Exports, Definitions, AuditLog } from "./Workflows";
+import { Exports, Definitions, AuditLog } from "./Workflows";
 const navigation = [
   {
-    key: "overview",
-    label: "Today",
+    key: "worklist",
+    label: "Worklist",
     icon: LayoutDashboard,
-    roles: ["clinician", "reviewer", "analyst"],
-  },
-  {
-    key: "admissions",
-    label: "Admissions",
-    icon: HeartPulse,
     roles: ["clinician", "reviewer"],
-  },
-  {
-    key: "opd",
-    label: "OPD",
-    icon: CalendarDays,
-    roles: ["clinician", "reviewer"],
-  },
-  {
-    key: "registries",
-    label: "Registries",
-    icon: Layers,
-    roles: ["clinician", "reviewer", "analyst", "designer"],
   },
   {
     key: "patients",
@@ -58,11 +40,13 @@ const navigation = [
     roles: ["clinician", "reviewer"],
   },
   {
-    key: "followups",
-    label: "Follow-ups",
-    icon: CalendarDays,
-    roles: ["clinician", "reviewer"],
+    key: "registries",
+    label: "Registries & Analytics",
+    icon: Layers,
+    roles: ["clinician", "reviewer", "analyst", "designer"],
   },
+];
+const secondaryNavigation = [
   {
     key: "exports",
     label: "Research exports",
@@ -81,7 +65,8 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [view, setView] = useState("overview"),
+    [view, setView] = useState("worklist"),
+    [worklistFilter, setWorklistFilter] = useState("All"),
     [revision, setRevision] = useState(0),
     [newPatient, setNewPatient] = useState(false),
     [patientId, setPatientId] = useState(""),
@@ -94,7 +79,9 @@ export default function App() {
       .then((s) => {
         setSession(s);
         setCsrf(s.csrf);
-        setView(s.role === "designer" ? "registries" : "overview");
+        setView(
+          ["analyst", "designer"].includes(s.role) ? "registries" : "worklist",
+        );
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -107,7 +94,9 @@ export default function App() {
       setCsrf(s.csrf);
       setSession(s);
       setPatientId("");
-      setView(role === "designer" ? "registries" : "overview");
+      setView(
+        ["analyst", "designer"].includes(role) ? "registries" : "worklist",
+      );
       setRevision((v) => v + 1);
     } catch (e) {
       setError((e as Error).message);
@@ -116,7 +105,18 @@ export default function App() {
     }
   }
   function go(key: string) {
-    setView(session?.role === "designer" ? "registries" : key);
+    const legacyFilters: Record<string, string> = {
+      overview: "All",
+      admissions: "Inpatients",
+      opd: "OPD",
+      followups: "Registry follow-up",
+    };
+    if (legacyFilters[key]) {
+      setWorklistFilter(legacyFilters[key]);
+      setView("worklist");
+    } else {
+      setView(session?.role === "designer" ? "registries" : key);
+    }
     setPatientId("");
     setMobile(false);
   }
@@ -193,7 +193,11 @@ export default function App() {
                 setCsrf(s.csrf);
                 setSession(s);
                 setPatientId("");
-                setView(s.role === "designer" ? "registries" : "overview");
+                setView(
+                  ["analyst", "designer"].includes(s.role)
+                    ? "registries"
+                    : "worklist",
+                );
                 setRevision((v) => v + 1);
               }}
             />
@@ -220,7 +224,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className={"sidebar " + (mobile ? "mobile-open" : "")}>
-        <button className="brand" onClick={() => go("overview")}>
+        <button className="brand" onClick={() => go("worklist")}>
           <Mark />
           <span>
             cardio<span>flow</span>
@@ -255,6 +259,27 @@ export default function App() {
               </button>
             ))}
         </nav>
+        {secondaryNavigation.some((item) =>
+          item.roles.includes(session.role),
+        ) ? (
+          <>
+            <span className="nav-label secondary-label">TOOLS</span>
+            <nav className="secondary-nav">
+              {secondaryNavigation
+                .filter((item) => item.roles.includes(session.role))
+                .map((item) => (
+                  <button
+                    key={item.key}
+                    className={view === item.key ? "active" : ""}
+                    onClick={() => go(item.key)}
+                  >
+                    <item.icon size={18} />
+                    {item.label}
+                  </button>
+                ))}
+            </nav>
+          </>
+        ) : null}
         <div className="sidebar-bottom">
           <div className="sidebar-note">
             <span className="live-dot" />A connected cardiovascular core
@@ -291,10 +316,15 @@ export default function App() {
             <strong>
               {patientId
                 ? "Patient record"
-                : navigation.find((n) => n.key === view)?.label}
+                : [...navigation, ...secondaryNavigation].find(
+                    (n) => n.key === view,
+                  )?.label}
             </strong>
           </div>
           <div className="topbar-right">
+            {["clinician", "reviewer"].includes(session.role) ? (
+              <GlobalPatientSearch revision={revision} onOpen={openPatient} />
+            ) : null}
             <span className="sandbox">
               <span />
               Synthetic data
@@ -320,26 +350,18 @@ export default function App() {
         </header>
         <main>
           <ErrorBox message={error} />
-          {["overview", "admissions", "opd"].includes(view) &&
-          session.role !== "analyst" ? (
-            <CareBoard
-              view={view}
+          {view === "worklist" ? (
+            <Worklist
+              key={worklistFilter}
+              initialFilter={worklistFilter}
               role={session.role}
               revision={revision}
-              onOpen={openPatient}
-              onNew={() => setNewPatient(true)}
-            />
-          ) : view === "overview" ? (
-            <Dashboard
-              role={session.role}
-              revision={revision}
-              onNavigate={go}
               onOpen={openPatient}
               onNew={() => setNewPatient(true)}
             />
           ) : view === "patients" ? (
             patientId ? (
-              <CareWorkspace
+              <UnifiedPatientWorkspace
                 owner={session.email || session.actor}
                 key={patientId}
                 id={patientId}
@@ -358,14 +380,8 @@ export default function App() {
                 }
               />
             )
-          ) : view === "followups" ? (
-            <Followups
-              role={session.role}
-              revision={revision}
-              onSaved={() => setRevision((v) => v + 1)}
-            />
           ) : view === "registries" ? (
-            <Definitions />
+            <RegistryAnalytics revision={revision} />
           ) : view === "exports" ? (
             <Exports />
           ) : (
@@ -393,6 +409,118 @@ export default function App() {
     </div>
   );
 }
+
+function GlobalPatientSearch({
+  revision,
+  onOpen,
+}: {
+  revision: number;
+  onOpen: (id: string) => void;
+}) {
+  const { data } = useData<Patient[]>("/patients", revision);
+  const [query, setQuery] = useState(""),
+    [focused, setFocused] = useState(false);
+  const results = query.trim()
+    ? (data ?? [])
+        .filter((patient) =>
+          `${patient.name} ${patient.mrn}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+        )
+        .slice(0, 6)
+    : [];
+  return (
+    <div className="topbar-patient-search">
+      <label>
+        <Search size={16} />
+        <input
+          aria-label="Search all patients"
+          placeholder="Search patient or MRN"
+          value={query}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {focused && query ? (
+        <div className="patient-search-results">
+          {results.length ? (
+            results.map((patient) => (
+              <button
+                key={patient.id}
+                aria-label={`Open ${patient.name}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onOpen(patient.id);
+                  setQuery("");
+                  setFocused(false);
+                }}
+              >
+                <span className="avatar">
+                  {patient.name
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((part) => part[0])
+                    .join("")}
+                </span>
+                <span>
+                  <strong>{patient.name}</strong>
+                  <small>{patient.mrn}</small>
+                </span>
+                <ArrowRight size={15} />
+              </button>
+            ))
+          ) : (
+            <p>No matching patients</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RegistryAnalytics({ revision }: { revision: number }) {
+  const { data: stats, error } = useData<Overview>("/overview", revision);
+  return (
+    <>
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">REGISTRIES & ANALYTICS</span>
+          <h1>Registry overview</h1>
+          <p>
+            Programme status, completion activity and governed reporting tools.
+          </p>
+        </div>
+        <Badge tone="draft">Clinical approval pending</Badge>
+      </div>
+      <ErrorBox message={error} />
+      {stats ? (
+        <div className="registry-analytics-summary">
+          <div>
+            <strong>{stats.patients}</strong>
+            <span>registered patients</span>
+          </div>
+          <div>
+            <strong>{stats.drafts}</strong>
+            <span>draft episodes</span>
+          </div>
+          <div>
+            <strong>{stats.awaiting_review}</strong>
+            <span>awaiting review</span>
+          </div>
+          <div>
+            <strong>{stats.reviewed}</strong>
+            <span>independently reviewed</span>
+          </div>
+        </div>
+      ) : !error ? (
+        <Loading />
+      ) : null}
+      <Definitions embedded />
+    </>
+  );
+}
+
 function Dashboard({
   role,
   revision,

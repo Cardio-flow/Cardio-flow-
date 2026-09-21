@@ -5,7 +5,7 @@ async function enter(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Enter demo workspace" }).click();
   await expect(
-    page.getByRole("heading", { name: "Today", exact: true }),
+    page.getByRole("heading", { name: "My Worklist", exact: true }),
   ).toBeVisible();
 }
 test("dashboard and registry navigation render without runtime errors", async ({
@@ -16,7 +16,7 @@ test("dashboard and registry navigation render without runtime errors", async ({
   await page.setViewportSize({ width: 1440, height: 1050 });
   await enter(page);
   await expect(
-    page.getByText("Active admissions", { exact: true }),
+    page.getByLabel("Worklist summary").getByText(/inpatients/),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/dashboard.png",
@@ -31,7 +31,9 @@ test("dashboard and registry navigation render without runtime errors", async ({
   await expect(
     page.getByRole("button", { name: "Open Omar Sample", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Registries", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Registries & Analytics", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "CAD template specification" }),
   ).toBeVisible();
@@ -55,8 +57,8 @@ test("register, save CAD with two lesions and one stent, finalize, and independe
   await expect(
     page.getByRole("heading", { name: "Browser Sample" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Registries & reports" }).click();
-  await page.getByRole("button", { name: "Open CAD assessment" }).click();
+  await page.getByRole("tab", { name: "Registries" }).click();
+  await page.getByRole("button", { name: "Open CAD episode" }).click();
   await page.getByRole("button", { name: "New episode" }).click();
   await page.getByLabel("Index admission date").fill("2025-01-31");
   await page.getByRole("button", { name: "Create draft" }).click();
@@ -101,8 +103,8 @@ test("register, save CAD with two lesions and one stent, finalize, and independe
   await page
     .getByRole("button", { name: "Open Browser Sample", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Registries & reports" }).click();
-  await page.getByRole("button", { name: "Open CAD assessment" }).click();
+  await page.getByRole("tab", { name: "Registries" }).click();
+  await page.getByRole("button", { name: "Open CAD episode" }).click();
   await page.getByRole("button", { name: "Approve review" }).click();
   await expect(
     page.getByText("Independently reviewed", { exact: true }),
@@ -113,12 +115,15 @@ test("follow-up contact records an encounter and satisfies a qualifying mileston
   page,
 }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Follow-ups", exact: true }).click();
-  const row = page
-    .getByRole("row")
-    .filter({ hasText: "Browser Sample" })
-    .filter({ hasText: "1-month CAD" });
-  await row.getByRole("button", { name: "Record contact" }).click();
+  await page.getByRole("button", { name: "Worklist", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Registry follow-up", exact: true })
+    .click();
+  await page.getByRole("button", { name: /Browser Sample/ }).click();
+  await page
+    .getByLabel("Needs attention")
+    .getByRole("button", { name: /1-month CAD follow-up/ })
+    .click();
   await page.getByLabel("Contact date").fill("2025-02-28");
   await page.getByLabel("Contact type").selectOption("Telephone");
   await page.getByLabel("Vital status").selectOption("Alive");
@@ -149,7 +154,7 @@ test("analyst generates CSV and codebook; designer sees no patient navigation", 
   expect(exportedFile.suggestedFilename()).toBe("cardio-flow-cad-episodes.csv");
   await page.getByLabel("Demo role").selectOption("designer");
   await expect(
-    page.getByRole("heading", { name: "Registry library", exact: true }),
+    page.getByRole("heading", { name: "Registry overview", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Patients", exact: true }),
@@ -177,4 +182,22 @@ test("mobile dashboard and navigation fit a phone viewport", async ({
     animations: "disabled",
     fullPage: true,
   });
+});
+
+test("global patient search opens a patient and the workspace fits tablet landscape", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await enter(page);
+  await page.getByLabel("Search all patients").fill("SYN-CONTINUITY");
+  await page
+    .getByRole("button", { name: "Open Hassan Sample", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Hassan Sample", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Summary" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(1024);
 });

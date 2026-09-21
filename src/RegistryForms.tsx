@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { CheckCircle2 } from "lucide-react";
 import { api, useData, date, download } from "./api";
 import { Badge, Modal, ErrorBox, Loading } from "./ui";
 import { DynamicFields } from "./GuidedEditor";
@@ -8,8 +9,8 @@ import {
   type RegistryPackage,
   type RegistryAssessment,
 } from "./registry-forms";
-import type { Answers, Field } from "./guided";
-import type { CareEncounter } from "./care-model";
+import type { Answer, Answers, Field } from "./guided";
+import type { CareEncounter, CareEntry } from "./care-model";
 import type { Patient, Role } from "./types";
 const contextName = (s: string) =>
   ({
@@ -24,13 +25,125 @@ const contextName = (s: string) =>
     lesions: "Lesion assessment",
     "fixed follow-up block": "Scheduled follow-up",
   })[s] ?? s;
+
+const hasAnswer = (value: Answer | undefined) =>
+  value !== undefined &&
+  value !== "" &&
+  (!Array.isArray(value) || value.length > 0);
+
+function registryStats(pkg: RegistryPackage, assessment?: RegistryAssessment) {
+  const context =
+    assessment?.context ??
+    [...new Set(pkg.fields.map((field) => field.context))][0];
+  const answers = assessment?.answers ?? {};
+  const visible = registryVisible(pkg, answers, context).filter(
+    (field) => !field.blocked,
+  );
+  const required = visible.filter((field) => field.sourceRequired);
+  const completed = required.filter((field) =>
+    hasAnswer(answers[field.key]),
+  ).length;
+  const common = visible.filter(isCommonField);
+  const denominator = required.length || common.length;
+  const numerator = required.length
+    ? completed
+    : common.filter((field) => hasAnswer(answers[field.key])).length;
+  return {
+    percent: denominator ? Math.round((numerator / denominator) * 100) : 0,
+    required: required.length,
+    completed,
+    missing: required.length - completed,
+  };
+}
+
+function registryPrefill(
+  pkg: RegistryPackage,
+  context: string,
+  entries: CareEntry[],
+) {
+  const answers: Answers = {};
+  const newest = [...entries].sort((a, b) =>
+    b.occurred_on.localeCompare(a.occurred_on),
+  );
+  const structured = (key: string) =>
+    newest.find((entry) => hasAnswer(entry.structured?.[key]))?.structured?.[
+      key
+    ];
+  const activeProblem = (text: RegExp) =>
+    newest.some(
+      (entry) =>
+        entry.kind === "problem" &&
+        entry.status !== "resolved" &&
+        text.test(entry.title.toLowerCase()),
+    );
+  const pci = newest.find(
+    (entry) =>
+      entry.kind === "procedure" &&
+      /\bpci\b|percutaneous coronary/i.test(entry.title) &&
+      ["performed", "reviewed"].includes(entry.status),
+  );
+  const facts: Record<string, Answer | undefined> = {
+    presentation: structured("presentation"),
+    lvef: structured("lvef"),
+    creatinine:
+      structured("creatinine_unit") === "µmol/L"
+        ? structured("creatinine")
+        : undefined,
+    diabetes: activeProblem(/diabet/) ? "Yes" : undefined,
+    hypertension: activeProblem(/hypertension/) ? "Yes" : undefined,
+    atrial_fibrillation: activeProblem(/atrial fibrillation|\baf\b/)
+      ? "Yes"
+      : undefined,
+    pci_done: pci ? "Yes" : undefined,
+    pci_date: pci?.occurred_on,
+  };
+  pkg.fields
+    .filter((field) => field.context === context && !field.blocked)
+    .forEach((field) => {
+      const source = field.sourceKey.toLowerCase();
+      let fact: Answer | undefined;
+      if (source === "presentation_type") fact = facts.presentation;
+      else if (/lvef/.test(source)) fact = facts.lvef;
+      else if (/creat/.test(source) && !/ratio|clearance|crcl/.test(source))
+        fact = facts.creatinine;
+      else if (/diabetes|hx_dm/.test(source)) fact = facts.diabetes;
+      else if (/hypertension|hx_htn/.test(source)) fact = facts.hypertension;
+      else if (/atrial_fibrillation|hx_afib/.test(source))
+        fact = facts.atrial_fibrillation;
+      else if (/pci.*done/.test(source)) fact = facts.pci_done;
+      else if (/pci.*date/.test(source)) fact = facts.pci_date;
+      if (fact === undefined || !hasAnswer(fact)) return;
+      if (field.options?.length && !field.options.includes(String(fact)))
+        return;
+      if (field.type === "multi") {
+        if (Array.isArray(fact)) answers[field.key] = fact;
+      } else if (field.type === "number") {
+        const numeric = typeof fact === "number" ? fact : Number(fact);
+        if (Number.isFinite(numeric)) answers[field.key] = numeric;
+      } else {
+        answers[field.key] = String(fact);
+      }
+    });
+  return answers;
+}
+
+function isCommonField(field: RegistryPackage["fields"][number]) {
+  return (
+    field.sourceRequired ||
+    /presentation|diagnos|symptom|medication|procedure|pci|lvef|creatinine|outcome|discharge/i.test(
+      `${field.label} ${field.sourceKey}`,
+    )
+  );
+}
 export function RegistryForms({
   patient,
   encounters,
+  entries = [],
   role,
 }: {
   patient: Patient;
   encounters: CareEncounter[];
+  entries?: CareEntry[];
   role: Role;
 }) {
   const [revision, setRevision] = useState(0),
@@ -47,40 +160,61 @@ export function RegistryForms({
   );
   return (
     <section className="panel care-section">
-      <span className="eyebrow">RECOVERED SPECIALIST FORMS</span>
-      <h2>HF, CAD & EP assessments</h2>
+      <span className="eyebrow">REGISTRY COMPLETION</span>
+      <h2>HF, CAD & EP registries</h2>
       <p className="muted">
-        Source-derived drafts with reusable patient identity, branching fields
-        and revision history. These supplement the finalized CAD workflow;
-        specialist validation and full workflow parity remain in progress.
+        Complete the remaining required information first. Existing supported
+        clinical facts are offered for review when a new draft is opened.
       </p>
       <ErrorBox message={error || packageError} />
       {!packages && !packageError ? <Loading /> : null}
       <div className="registry-package-grid">
-        {packages?.map((p) => (
-          <article key={`${p.key}-${p.version}`}>
-            <div className="care-card-head">
-              <h3>{p.key}</h3>
-              <Badge>Source draft · v{p.version}</Badge>
-            </div>
-            <p>
-              {p.fields.filter((f) => !f.blocked).length} editable source fields
-              across {new Set(p.fields.map((f) => f.context)).size} contexts
-            </p>
-            <small>
-              {p.fields.filter((f) => f.blocked).length} legacy controls await
-              review. Identity is shared with this patient.
-            </small>
-            {role === "clinician" ? (
-              <button
-                className="secondary"
-                onClick={() => setEditor({ pkg: p })}
-              >
-                New {p.key} assessment
-              </button>
-            ) : null}
-          </article>
-        ))}
+        {packages?.map((p) => {
+          const latest = assessments?.find(
+            (assessment) => assessment.registry_key === p.key,
+          );
+          const stats = registryStats(p, latest);
+          return (
+            <article
+              key={`${p.key}-${p.version}`}
+              className="registry-completion-card"
+            >
+              <div className="care-card-head">
+                <h3>{p.key}</h3>
+                <strong className="completion-value">{stats.percent}%</strong>
+              </div>
+              <div className="completion-track">
+                <span style={{ width: `${stats.percent}%` }} />
+              </div>
+              <p>
+                {latest
+                  ? stats.required
+                    ? `${stats.completed} of ${stats.required} required fields complete`
+                    : `${Object.keys(latest.answers).length} clinical fields populated`
+                  : "No assessment started"}
+              </p>
+              <small>
+                {stats.missing
+                  ? `${stats.missing} required items remaining`
+                  : latest
+                    ? stats.required
+                      ? "Required fields complete"
+                      : "No mandatory fields marked in this source context"
+                    : "Patient identity will be reused"}
+              </small>
+              {role === "clinician" ? (
+                <button
+                  className="secondary"
+                  onClick={() => setEditor({ pkg: p, original: latest })}
+                >
+                  {latest
+                    ? `Continue ${p.key} registry`
+                    : `Start ${p.key} registry`}
+                </button>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
       {assessments?.length ? (
         <div className="registry-assessment-list">
@@ -96,8 +230,8 @@ export function RegistryForms({
                     {a.registry_key} · {contextName(a.context)}
                   </strong>
                   <p>
-                    {Object.keys(a.answers).length} answers · draft v{a.version}{" "}
-                    · {date(a.updated_at)}
+                    {pkg ? `${registryStats(pkg, a).percent}% complete · ` : ""}
+                    draft v{a.version} · {date(a.updated_at)}
                   </p>
                 </div>
                 <div className="care-actions">
@@ -169,6 +303,7 @@ export function RegistryForms({
           key={editor.original?.id ?? editor.pkg.key}
           patient={patient}
           encounters={encounters}
+          entries={entries}
           pkg={editor.pkg}
           original={editor.original}
           readOnly={role !== "clinician"}
@@ -192,6 +327,7 @@ export function RegistryForms({
 function RegistryEditor({
   patient,
   encounters,
+  entries,
   pkg,
   original,
   readOnly,
@@ -200,6 +336,7 @@ function RegistryEditor({
 }: {
   patient: Patient;
   encounters: CareEncounter[];
+  entries: CareEntry[];
   pkg: RegistryPackage;
   original?: RegistryAssessment;
   readOnly: boolean;
@@ -207,30 +344,57 @@ function RegistryEditor({
   onSaved: () => void;
 }) {
   const contexts = [...new Set(pkg.fields.map((f) => f.context))];
-  const [context, setContext] = useState(original?.context ?? contexts[0]),
+  const initialContext = original?.context ?? contexts[0];
+  const mappedPrefill = registryPrefill(pkg, initialContext, entries);
+  const initialPrefill = original
+    ? { ...mappedPrefill, ...original.answers }
+    : mappedPrefill;
+  const [context, setContext] = useState(initialContext),
     [encounter, setEncounter] = useState(original?.encounter_id ?? ""),
-    [answers, setAnswers] = useState<Answers>(original?.answers ?? {}),
+    [answers, setAnswers] = useState<Answers>(initialPrefill),
     [section, setSection] = useState(""),
     [search, setSearch] = useState(""),
+    [mode, setMode] = useState<"required" | "common" | "advanced">("required"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const visible = registryVisible(pkg, answers, context),
-    sections = [...new Set(visible.map((f) => f.section))];
+  const visible = registryVisible(pkg, answers, context).filter(
+      (f) => !f.blocked,
+    ),
+    missingRequired = visible.filter(
+      (f) => f.sourceRequired && !hasAnswer(answers[f.key]),
+    ),
+    modeFields =
+      mode === "required"
+        ? missingRequired
+        : mode === "common"
+          ? visible.filter(isCommonField)
+          : visible.filter((field) => !isCommonField(field)),
+    sections = [...new Set(modeFields.map((f) => f.section))];
   const selected = sections.includes(section) ? section : sections[0];
-  const displayed = visible.filter((f) =>
+  const displayed = (search ? visible : modeFields).filter((f) =>
     search
       ? `${f.label} ${f.group} ${f.section} ${f.sourceKey}`
           .toLowerCase()
           .includes(search.toLowerCase())
-      : f.section === selected,
+      : mode === "required" || f.section === selected,
   );
   const groups = [
     ...new Set(displayed.map((f) => `${f.section} / ${f.group || "Fields"}`)),
   ];
-  const unanswered = visible.filter(
-    (f) =>
-      f.sourceRequired &&
-      (answers[f.key] === undefined || answers[f.key] === ""),
+  const required = visible.filter((f) => f.sourceRequired);
+  const requiredDone = required.filter((f) => hasAnswer(answers[f.key])).length;
+  const completionBase = required.length
+    ? required
+    : visible.filter(isCommonField);
+  const completionDone = completionBase.filter((f) =>
+    hasAnswer(answers[f.key]),
+  ).length;
+  const percent = completionBase.length
+    ? Math.round((completionDone / completionBase.length) * 100)
+    : 0;
+  const prefilled = Object.keys(mappedPrefill).filter(
+    (key) =>
+      hasAnswer(mappedPrefill[key]) && !hasAnswer(original?.answers?.[key]),
   ).length;
   function change(key: string, value: Answers[string]) {
     setAnswers((old) => cleanRegistry(pkg, { ...old, [key]: value }, context));
@@ -277,8 +441,9 @@ function RegistryEditor({
               onChange={(e) => {
                 setContext(e.target.value);
                 setSection("");
-                setAnswers({});
+                setAnswers(registryPrefill(pkg, e.target.value, entries));
                 setSearch("");
+                setMode("required");
               }}
             >
               {contexts.map((c) => (
@@ -305,11 +470,61 @@ function RegistryEditor({
           </label>
         </div>
         <div className="registry-progress">
-          <strong>
-            {Object.keys(cleanRegistry(pkg, answers, context)).length} recorded
-          </strong>
-          <span>{visible.length} currently applicable fields</span>
-          <span>{unanswered} source-required fields unanswered</span>
+          <strong>{percent}% complete</strong>
+          <span>
+            {required.length
+              ? `${requiredDone} of ${required.length} required fields complete`
+              : `${completionDone} of ${completionBase.length} common clinical fields populated`}
+          </span>
+          {required.length ? (
+            <span>{missingRequired.length} required items remaining</span>
+          ) : (
+            <span>No mandatory fields are marked in this source context</span>
+          )}
+          {prefilled ? (
+            <span>
+              {prefilled} {original ? "new " : ""}fields prefilled from the
+              clinical record for review
+            </span>
+          ) : null}
+        </div>
+        <div
+          className="registry-priority-switch"
+          aria-label="Registry field priority"
+        >
+          <button
+            type="button"
+            className={mode === "required" ? "active" : ""}
+            onClick={() => {
+              setMode("required");
+              setSection("");
+              setSearch("");
+            }}
+          >
+            Missing required <Badge>{missingRequired.length}</Badge>
+          </button>
+          <button
+            type="button"
+            className={mode === "common" ? "active" : ""}
+            onClick={() => {
+              setMode("common");
+              setSection("");
+              setSearch("");
+            }}
+          >
+            Common clinical fields
+          </button>
+          <button
+            type="button"
+            className={mode === "advanced" ? "active" : ""}
+            onClick={() => {
+              setMode("advanced");
+              setSection("");
+              setSearch("");
+            }}
+          >
+            Advanced registry fields
+          </button>
         </div>
         <label>
           Find a registry field
@@ -319,30 +534,34 @@ function RegistryEditor({
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
-        <div className="registry-layout">
-          <nav aria-label="Registry sections">
-            {sections.map((s) => (
-              <button
-                type="button"
-                className={!search && s === selected ? "selected" : ""}
-                key={s}
-                onClick={() => {
-                  setSection(s);
-                  setSearch("");
-                }}
-              >
-                {s}
-                <small>
-                  {
-                    visible.filter(
-                      (f) => f.section === s && answers[f.key] !== undefined,
-                    ).length
-                  }
-                  /{visible.filter((f) => f.section === s).length}
-                </small>
-              </button>
-            ))}
-          </nav>
+        <div
+          className={`registry-layout ${mode === "required" ? "required-only" : ""}`}
+        >
+          {mode !== "required" ? (
+            <nav aria-label="Registry sections">
+              {sections.map((s) => (
+                <button
+                  type="button"
+                  className={!search && s === selected ? "selected" : ""}
+                  key={s}
+                  onClick={() => {
+                    setSection(s);
+                    setSearch("");
+                  }}
+                >
+                  {s}
+                  <small>
+                    {
+                      visible.filter(
+                        (f) => f.section === s && answers[f.key] !== undefined,
+                      ).length
+                    }
+                    /{visible.filter((f) => f.section === s).length}
+                  </small>
+                </button>
+              ))}
+            </nav>
+          ) : null}
           <div className="registry-fields">
             <fieldset disabled={readOnly} className="registry-inputs">
               {groups.map((group) => (
@@ -391,7 +610,18 @@ function RegistryEditor({
                 </section>
               ))}
             </fieldset>
-            {!displayed.length ? <p>No matching applicable fields.</p> : null}
+            {!displayed.length ? (
+              <div className="registry-complete-state">
+                <CheckCircle2 size={20} />
+                <strong>
+                  {mode === "required"
+                    ? required.length
+                      ? "All currently applicable required fields are complete"
+                      : "This source context has no mandatory fields; continue with common clinical fields"
+                    : "No matching applicable fields"}
+                </strong>
+              </div>
+            ) : null}
           </div>
         </div>
         <details className="guided-notes">

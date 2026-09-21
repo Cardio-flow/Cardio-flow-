@@ -10,8 +10,8 @@ test("Risk and dose previews require confirmation and retain their calculated ev
   await page
     .getByRole("button", { name: "Open Hassan Sample", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Procedures", exact: true }).click();
-  await page.getByRole("button", { name: "Procedure", exact: true }).click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: /^Procedure/ }).click();
   await page
     .getByRole("button", { name: /^Noncardiac surgery assessment/ })
     .click();
@@ -41,12 +41,17 @@ test("Risk and dose previews require confirmation and retain their calculated ev
   await expect(page.getByText("3 / 6 points", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Save 1 guided record" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("button", { name: "Procedures", exact: true }).click();
   await page
     .getByText("Saved reference assessment · draft", { exact: true })
     .click();
   await expect(page.getByText("3 / 6 points", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Results & medications" }).click();
-  await page.getByRole("button", { name: "Medication", exact: true }).click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /^Medication Record/ })
+    .click();
   await page.getByRole("button", { name: /^Apixaban General/ }).click();
   await page.getByRole("button", { name: "Continue with 1 selection" }).click();
   await page.getByLabel("Documented indication").selectOption("Nonvalvular AF");
@@ -102,9 +107,8 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await page.getByLabel("Birth date", { exact: true }).fill("1940-01-01");
   await page.getByLabel("Sex", { exact: true }).selectOption("Female");
   await page.getByRole("button", { name: "Create patient" }).click();
-  await page
-    .getByRole("button", { name: "Problem / pathway", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: /^Problem \/ diagnosis/ }).click();
   await page.getByRole("button", { name: /^Heart failure HF/ }).click();
   await page
     .getByRole("button", { name: /^Atrial fibrillation \/ flutter/ })
@@ -138,11 +142,12 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await expect(af.getByLabel("AF pattern")).toHaveCount(0);
   await page.getByRole("button", { name: "Save 2 guided records" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Care plan", exact: true }).click();
+  await page.getByRole("tab", { name: "Summary", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Heart failure", exact: true }),
+    page.getByRole("button", { name: /^Heart failure HF/ }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Complication", exact: true }).click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: /^Complication/ }).click();
   await page.getByRole("button", { name: /^Hyperkalaemia/ }).click();
   await page.getByRole("button", { name: "Continue with 1 selection" }).click();
   await page.getByLabel("Review date").fill("2025-01-01");
@@ -161,13 +166,18 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   });
   await page.getByRole("button", { name: "Save 1 guided record" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByText("Review overdue · 1 Jan 2025")).toBeVisible();
+  await expect(
+    page
+      .getByLabel("Needs attention")
+      .getByRole("button", { name: "Hyperkalaemia Overdue 1 Jan 2025" }),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Patients", exact: true }).click();
   await page
     .getByRole("button", { name: "Open Guided Workflow Sample", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Care plan", exact: true }).click();
+  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("button", { name: "Problems", exact: true }).click();
   const afCard = page.locator(".care-card").filter({
     has: page.getByRole("heading", {
       name: "Atrial fibrillation / flutter",
@@ -180,8 +190,8 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   );
   await expect(page.getByLabel("AF pattern")).toHaveCount(0);
   await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("tab", { name: "Registries & reports" }).click();
-  await page.getByRole("button", { name: "New HF assessment" }).click();
+  await page.getByRole("tab", { name: "Registries" }).click();
+  await page.getByRole("button", { name: "Start HF registry" }).click();
   await page
     .getByLabel("Assessment context")
     .selectOption("Extra_Admissions JSON array");
@@ -214,10 +224,9 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await expect(page.getByText(/Version 1 ·/)).toBeVisible();
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("tab", { name: "Care plan", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Problem / pathway", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "Summary", exact: true }).click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: /^Problem \/ diagnosis/ }).click();
   await page.getByLabel("Search guided forms").fill("valv");
   await page.getByRole("button", { name: /^Valvular heart disease/ }).click();
   await page.getByRole("button", { name: "Continue with 1 selection" }).click();

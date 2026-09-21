@@ -1,6 +1,6 @@
 import { RegistryForms } from "./RegistryForms";
 import { GuidedEditor } from "./GuidedEditor";
-import { documentationAlerts } from "./clinical-review";
+import { ageOn, documentationAlerts } from "./clinical-review";
 import { useState, type FormEvent } from "react";
 import {
   ArrowLeft,
@@ -11,10 +11,16 @@ import {
   HeartPulse,
   Download,
   History,
+  AlertTriangle,
+  Search,
+  Pill,
+  FlaskConical,
+  Stethoscope,
+  CheckCircle2,
 } from "lucide-react";
 import { api, useData, date, currentDate } from "./api";
 import { Badge, Empty, ErrorBox, Loading, Modal, SectionTitle } from "./ui";
-import type { Patient, Role } from "./types";
+import type { Patient, Role, Task } from "./types";
 import { PatientWorkspace } from "./Patients";
 import {
   careKinds,
@@ -27,23 +33,26 @@ import {
   type CareEncounter,
 } from "./care-model";
 
-type CareData = {
+export type CareData = {
   patient: Patient;
   entries: CareEntry[];
   encounters: CareEncounter[];
 };
 type BoardData = {
-  entries: (CareEntry & { name: string; mrn: string })[];
-  encounters: CareEncounter[];
+  entries: (CareEntry & {
+    name: string;
+    mrn: string;
+    sex?: string;
+    birth_date?: string;
+  })[];
+  encounters: (CareEncounter & {
+    name: string;
+    mrn: string;
+    sex?: string;
+    birth_date?: string;
+  })[];
 };
-const tabs = [
-  "Overview",
-  "Care plan",
-  "Journey",
-  "Results & medications",
-  "Procedures",
-  "Registries & reports",
-];
+const tabs = ["Summary", "Clinical Record", "Timeline", "Registries"];
 function dueText(e: CareEntry) {
   if (e.due_date && finished.includes(e.status))
     return `Recorded review date · ${date(e.due_date)}`;
@@ -695,7 +704,7 @@ export function CareWorkspace({
     </>
   );
 }
-function EntryCard({
+export function EntryCard({
   entry: e,
   encounter,
   onEdit,
@@ -780,7 +789,7 @@ function EntryCard({
     </article>
   );
 }
-function EncounterCard({
+export function EncounterCard({
   encounter: e,
   linked,
   onClose,
@@ -820,11 +829,13 @@ function EncounterCard({
     </article>
   );
 }
-function EntryEditor({
+export function EntryEditor({
   patient,
   encounters,
   original,
   kind,
+  defaultTitle,
+  dialogLabel,
   onClose,
   onSaved,
 }: {
@@ -832,6 +843,8 @@ function EntryEditor({
   encounters: CareEncounter[];
   original?: CareEntry;
   kind: CareKind;
+  defaultTitle?: string;
+  dialogLabel?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -887,7 +900,7 @@ function EntryEditor({
   return (
     <Modal
       wide
-      title={`${original ? "Review" : "Add"} ${careKinds[kind].label.toLowerCase()}`}
+      title={`${original ? "Review" : "Add"} ${dialogLabel ?? careKinds[kind].label.toLowerCase()}`}
       onClose={onClose}
     >
       <p className="modal-intro">
@@ -903,7 +916,7 @@ function EntryEditor({
               required
               minLength={2}
               maxLength={300}
-              defaultValue={original?.title}
+              defaultValue={original?.title ?? defaultTitle}
             />
           </label>
           <label>
@@ -1029,7 +1042,7 @@ function EntryEditor({
     </Modal>
   );
 }
-function EncounterEditor({
+export function EncounterEditor({
   patient,
   encounters,
   onClose,
@@ -1111,7 +1124,7 @@ function EncounterEditor({
     </Modal>
   );
 }
-function CloseEncounter({
+export function CloseEncounter({
   patientId,
   encounter,
   pending,
@@ -1191,7 +1204,7 @@ function CloseEncounter({
     </Modal>
   );
 }
-function EntryHistory({
+export function EntryHistory({
   entry,
   onClose,
 }: {
@@ -1232,7 +1245,7 @@ function EntryHistory({
     </Modal>
   );
 }
-function downloadReport(data: CareData) {
+export function downloadReport(data: CareData) {
   const escape = (s: unknown) =>
     String(s ?? "").replace(
       /[&<>"']/g,

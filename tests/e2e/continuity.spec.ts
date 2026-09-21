@@ -9,7 +9,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await page.goto("/");
   await page.getByRole("button", { name: "Enter demo workspace" }).click();
   await expect(
-    page.getByRole("heading", { name: "Today", exact: true }),
+    page.getByRole("heading", { name: "My Worklist", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Register patient", exact: true })
@@ -22,19 +22,15 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await expect(
     page.getByRole("heading", { name: "Care Journey Sample" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Care record · registry enrollment optional"),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Start encounter" }).click();
+  await expect(page.getByText("0 active problems")).toBeVisible();
+  await page.getByRole("button", { name: "Encounter", exact: true }).click();
   await page.getByLabel("Care setting").selectOption("Admission");
   await page.getByLabel("Start date").fill("2025-02-01");
   await page.getByLabel("Reason for encounter").fill("Synthetic ACS admission");
   await page.getByLabel("Responsible clinician / team").fill("Ward team");
   await page.getByRole("button", { name: "Open encounter" }).click();
-  await page
-    .getByRole("button", { name: "Decision / next action", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Custom free-text record" }).click();
+  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: /^Care plan item/ }).click();
   await page
     .getByLabel("Title", { exact: true })
     .fill("Review residual disease");
@@ -50,7 +46,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     .fill("Review findings at follow-up");
   await page.getByRole("button", { name: "Save care record" }).click();
   await expect(
-    page.getByRole("button", { name: /Review residual disease/ }),
+    page.getByRole("button", { name: /Review residual disease/ }).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Discharge / handover" }).click();
   await expect(
@@ -65,12 +61,17 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await page
     .getByRole("button", { name: "Close encounter; retain care plan" })
     .click();
+  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Synthetic ACS admission" })
+    .click();
   await expect(
     page.getByText(
       "OPD team to review residual disease and document the selected strategy.",
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Start encounter" }).click();
+  await page.getByRole("button", { name: "Encounter", exact: true }).click();
   await page.getByLabel("Care setting").selectOption("OPD");
   await page.getByLabel("Start date").fill("2025-02-10");
   await page
@@ -81,6 +82,10 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     label: "Admission · 1 Feb 2025 · Synthetic ACS admission",
   });
   await page.getByRole("button", { name: "Open encounter" }).click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Post-discharge reassessment" })
+    .click();
   await expect(
     page.getByText("Connected to Admission on 1 Feb 2025"),
   ).toBeVisible();
@@ -90,9 +95,9 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     .getByRole("button", { name: "Open Care Journey Sample", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: /Review residual disease/ }),
+    page.getByRole("button", { name: /Review residual disease/ }).first(),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Care plan", exact: true }).click();
+  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
   await page.getByRole("button", { name: "Review / update" }).click();
   await page.getByLabel("Status", { exact: true }).selectOption("completed");
   await page
@@ -109,21 +114,21 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await expect(page.getByText("Version 2 · completed")).toBeVisible();
   await expect(page.getByText("Version 1 · pending")).toBeVisible();
   await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("tab", { name: "Registries & reports" }).click();
+  await page.getByRole("tab", { name: "Registries" }).click();
   await expect(
-    page.getByText("No registry selected for this patient."),
+    page.getByRole("button", { name: "Start CAD episode workflow" }),
   ).toBeVisible();
   const downloaded = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download patient report" }).click();
+  await page.getByRole("button", { name: "Patient report" }).click();
   const file = await downloaded;
   const report = await readFile((await file.path())!, "utf8");
   expect(report).toContain("Synthetic reassessment completed and plan agreed.");
   expect(report).toContain("Post-discharge reassessment");
   await page
-    .getByRole("button", { name: "Enroll in CAD registry", exact: true })
+    .getByRole("button", { name: "Start CAD episode workflow", exact: true })
     .click();
-  await expect(page.getByText("CAD · enrolled", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Overview", exact: true }).click();
+  await expect(page.getByText("Enrolled", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Summary", exact: true }).click();
   await page.screenshot({
     path: "test-results/continuous-care-desktop.png",
     fullPage: true,

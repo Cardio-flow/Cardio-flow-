@@ -103,10 +103,10 @@ test("hosted login opens the dashboard without reloading the document", async ({
   await page.getByLabel("Password", { exact: true }).fill("test-password-only");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Today", exact: true }),
+    page.getByRole("heading", { name: "My Worklist", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Active admissions", { exact: true }),
+    page.getByLabel("Worklist summary").getByText(/inpatients/),
   ).toBeVisible();
   expect(documents).toBe(1);
 });

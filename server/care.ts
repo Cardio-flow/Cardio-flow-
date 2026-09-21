@@ -181,14 +181,18 @@ export function mountCare(app: Express, db: DB) {
   app.get("/api/care/board", read, async (_req, res) => {
     const [entries, encounters] = await Promise.all([
       db.query<CareEntry>(
-        "SELECT e.*,p.name,p.mrn FROM care.entry e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.due_date NULLS LAST,e.updated_at DESC",
+        "SELECT e.*,p.name,p.mrn,p.sex,p.birth_date FROM care.entry e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.due_date NULLS LAST,e.updated_at DESC",
       ),
       db.query(
-        "SELECT e.*,p.name,p.mrn FROM care.encounter e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.started_on DESC,e.created_at DESC",
+        "SELECT e.*,p.name,p.mrn,p.sex,p.birth_date FROM care.encounter e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.started_on DESC,e.created_at DESC",
       ),
     ]);
     res.json({
-      entries: entries.rows.filter(needsReview),
+      entries: entries.rows.filter(
+        (entry) =>
+          needsReview(entry) ||
+          (entry.kind === "problem" && entry.status !== "resolved"),
+      ),
       encounters: encounters.rows,
     });
   });
