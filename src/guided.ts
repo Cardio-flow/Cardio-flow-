@@ -1,5 +1,5 @@
-import { medicationChecks } from "./clinical-review";
-import type { CareKind } from "./care-model";
+import { medicationChecks } from "./clinical-review.js";
+import type { CareKind } from "./care-model.js";
 
 export type Answer = string | number | string[];
 export type Answers = Record<string, Answer>;

@@ -1,4 +1,4 @@
-import type { Answers } from "./guided";
+import type { Answers } from "./guided.js";
 export type Condition =
   | { any: Condition[] }
   | { all: Condition[] }

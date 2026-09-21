@@ -52,3 +52,5 @@ Implemented a searchable catalog across problems, complications, procedures, inv
 - Additive `003-guided-forms` migration preserves existing clinical tables/data and adds versioned structured care and registry storage. Applied migration SQL must not be edited.
 
 Checks: TypeScript, production build and formatting passed; 28 API/domain/auth tests and all 11 browser tests passed. These cover guided multi-save, hidden-field cleanup, contraindication/unknown blocking, exact numerical boundaries, persisted reference evidence, registry history/branching, roles, stale updates and phone layout. The additive hosted migration preserved all 10 patients, 8 CAD episodes, 3 care encounters and 8 pre-existing care entries, and installed the three versioned registry draft packages.
+
+Deployment verification caught a Node ESM import lacking its `.js` extension in a shared model. The candidate was not promoted; the public site remained healthy. Imports now use explicit runtime extensions and `shared-runtime.test.ts` verifies the emitted modules with plain Node, without the development TypeScript resolver.

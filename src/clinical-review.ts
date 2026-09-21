@@ -1,5 +1,5 @@
-import type { Answers } from "./guided";
-import type { CareEntry } from "./care-model";
+import type { Answers } from "./guided.js";
+import type { CareEntry } from "./care-model.js";
 export const rcriSource = "https://pubmed.ncbi.nlm.nih.gov/10477528/";
 export const apixabanSource =
   "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=7be1f4c1-bb2f-4ded-ae9a-515d2a22f93e";
