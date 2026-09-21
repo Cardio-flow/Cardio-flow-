@@ -37,3 +37,18 @@ Then implement the recovered HF/CAD/EP field catalog, Structural Heart workflows
 Complete specialist forms, private attachments/direct PDF, milestone/dependency engine, reviewed clinical guidance, shared-fact mappings, no-code registry versioning/publication, final-record amendments, imports, richer exports/analytics, staff administration, multi-organization grants and operational readiness.
 
 Fixed demonstration-site checks do not establish multi-tenant authorization. All treatment rules remain inactive. This release is a continuous-care foundation, not the completed masterplan.
+
+## Release 0.3 — guided capture and source registry drafts (21 September 2026)
+
+Implemented a searchable catalog across problems, complications, procedures, investigations, medications and follow-up. Multiple selections save atomically as distinct patient records. Branches appear from preceding choices; hidden descendants are removed on both client and server. Unknown is preserved, status/closure checks remain enforced, and custom narrative records remain available.
+
+- Guided medication documentation includes 37 named drugs, indication, route, dose, frequency, decision reason and monitoring selections. This is not a complete prescribing engine.
+- Complication forms expose clinician-selected assessment/management actions and response/next-step choices. No treatment is ordered automatically.
+- Reusable, dated facts from coded problems/results are proposed for explicit review in noncardiac surgery and apixaban forms. This is a limited set of mappings, not universal cross-registry synchronization.
+- Original RCRI point-count and adult-NVAF apixaban label-reference previews explain their criteria and withhold output for missing, contradictory or out-of-scope inputs. These remain synthetic implementation previews pending clinical approval. The server recomputes and retains reference snapshots with rule/source versions in immutable care history.
+- Documentation reminders identify overdue reviews, held medication, unreviewed results, missing complication response, recorded deterioration and concurrent bleeding/antithrombotic records. These are not real-time monitoring or exhaustive drug-interaction alerts.
+- Source-derived HF/CAD/EP packages expose 2,108 editable fields; 96 legacy controls remain inactive and 48 identity/attribution/contact fields use the shared record rather than duplicate forms. This count describes recovered metadata, not certified full specialist workflows.
+- Registry drafts have section navigation, search, supported declarative branching, repeated assessment contexts, linked encounters, draft CSV export, optimistic versions and immutable history. Partial drafts are permitted. Finalization, clinical publication, full EP conditional workflow reconstruction, attachments, calculations, structural/custom registries and universal fact reuse remain pending.
+- Additive `003-guided-forms` migration preserves existing clinical tables/data and adds versioned structured care and registry storage. Applied migration SQL must not be edited.
+
+Checks: TypeScript, production build and formatting passed; 28 API/domain/auth tests and all 11 browser tests passed. These cover guided multi-save, hidden-field cleanup, contraindication/unknown blocking, exact numerical boundaries, persisted reference evidence, registry history/branching, roles, stale updates and phone layout. The additive hosted migration preserved all 10 patients, 8 CAD episodes, 3 care encounters and 8 pre-existing care entries, and installed the three versioned registry draft packages.

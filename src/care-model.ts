@@ -85,6 +85,9 @@ export type CareEntry = {
   action: string;
   response: string;
   details: Record<string, string>;
+  template_key?: string | null;
+  template_version?: string | null;
+  structured?: import("./guided").Answers;
   version: number;
   updated_at: string;
   updated_by: string;

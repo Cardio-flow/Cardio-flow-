@@ -1,3 +1,5 @@
+import { mountRegistryForms } from "./registry-forms.js";
+import { mountGuided } from "./guided.js";
 import {
   type Express,
   type Request,
@@ -27,7 +29,7 @@ export class CareError extends Error {
 const uuid = z.string().uuid();
 const note = z.string().trim().max(6000);
 const required = z.string().trim().min(2).max(300);
-const entrySchema = z
+export const entrySchema = z
   .object({
     kind: z.enum([
       "problem",
@@ -121,7 +123,7 @@ const entrySchema = z
   });
 const one = async (db: QueryDB, sql: string, params: unknown[]) =>
   (await db.query<any>(sql, params)).rows[0];
-async function patient(db: QueryDB, id: string) {
+export async function patient(db: QueryDB, id: string) {
   const p = await one(
     db,
     "SELECT * FROM core.patient WHERE id=$1 AND site_id='demo-kuwait'",
@@ -130,7 +132,7 @@ async function patient(db: QueryDB, id: string) {
   if (!p) throw new CareError(404, "Patient not found");
   return p;
 }
-async function encounter(db: QueryDB, id: string, patientId: string) {
+export async function encounter(db: QueryDB, id: string, patientId: string) {
   const row = await one(
     db,
     "SELECT * FROM care.encounter WHERE id=$1 AND patient_id=$2",
@@ -139,7 +141,7 @@ async function encounter(db: QueryDB, id: string, patientId: string) {
   if (!row) throw new CareError(404, "Encounter not found for this patient");
   return row;
 }
-async function record(db: QueryDB, id: string) {
+export async function record(db: QueryDB, id: string) {
   const row = await one(
     db,
     "SELECT e.* FROM care.entry e JOIN core.patient p ON p.id=e.patient_id WHERE e.id=$1 AND p.site_id='demo-kuwait'",
@@ -148,7 +150,7 @@ async function record(db: QueryDB, id: string) {
   if (!row) throw new CareError(404, "Record not found");
   return row;
 }
-async function revision(db: QueryDB, row: CareEntry, actor: string) {
+export async function revision(db: QueryDB, row: CareEntry, actor: string) {
   await db.query(
     "INSERT INTO care.revision(id,entry_id,version,payload,actor) VALUES($1,$2,$3,$4,$5)",
     [randomUUID(), row.id, row.version, JSON.stringify(row), actor],
@@ -174,6 +176,8 @@ export function mountCare(app: Express, db: DB) {
       return res.status(403).json({ error: "Clinician access required" });
     next();
   };
+  mountGuided(app, db, read, write);
+  mountRegistryForms(app, db, read, write);
   app.get("/api/care/board", read, async (_req, res) => {
     const [entries, encounters] = await Promise.all([
       db.query<CareEntry>(
@@ -351,6 +355,11 @@ export function mountCare(app: Express, db: DB) {
     if (!input.version) throw new CareError(422, "Record version required");
     const row = await db.transaction(async (tx) => {
       const previous = await record(tx, String(req.params.id));
+      if (previous.template_key)
+        throw new CareError(
+          422,
+          "Use the guided editor to preserve structured answers",
+        );
       if (previous.version !== input.version)
         throw new CareError(409, "This record changed. Reload before saving.");
       if (

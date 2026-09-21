@@ -34,6 +34,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await page
     .getByRole("button", { name: "Decision / next action", exact: true })
     .click();
+  await page.getByRole("button", { name: "Custom free-text record" }).click();
   await page
     .getByLabel("Title", { exact: true })
     .fill("Review residual disease");

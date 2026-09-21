@@ -340,6 +340,7 @@ export default function App() {
           ) : view === "patients" ? (
             patientId ? (
               <CareWorkspace
+                owner={session.email || session.actor}
                 key={patientId}
                 id={patientId}
                 role={session.role}

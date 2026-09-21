@@ -68,7 +68,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     next();
   });
   hosted?.mountAuth(app);
-  app.use(express.json({ limit: "200kb" }));
+  app.use(express.json({ limit: "1mb" }));
   app.get("/api/config", (_req, res) => res.json({ hosted: !!hosted }));
   app.get("/api/health", (_req, res) =>
     res.json({ status: "ok", mode: "synthetic", date: today() }),

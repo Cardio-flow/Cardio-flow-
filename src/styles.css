@@ -2441,3 +2441,437 @@ input[type="checkbox"] {
   color: #286253;
   font-size: 13px;
 }
+
+/* Guided choices share the existing clinical workspace visual language. */
+.guided-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #829187;
+  font-size: 12px;
+  margin: 0 0 22px;
+}
+.guided-progress .current {
+  color: #194d3e;
+  font-weight: 700;
+}
+.template-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #cbd9d0;
+  padding: 0 14px;
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+.template-search input {
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  flex: 1;
+}
+.template-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.template-option {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 17px;
+  border: 1px solid #dce5df;
+  border-radius: 10px;
+  background: white;
+  color: #234538;
+  cursor: pointer;
+}
+.template-option strong,
+.template-option small {
+  display: block;
+}
+.template-option small {
+  margin-top: 5px;
+  color: #728378;
+  font-size: 11px;
+}
+.template-option.selected {
+  background: #eff6e7;
+  border-color: #759953;
+  box-shadow: inset 0 0 0 1px #759953;
+}
+.template-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #e9f0e8;
+}
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-top: 25px;
+  padding: 16px 0 0;
+  border-top: 1px solid #e1e8df;
+  flex-wrap: wrap;
+}
+.guided-context {
+  padding: 20px;
+  background: #f1f5ef;
+  border-radius: 12px;
+  margin-bottom: 22px;
+}
+.guided-context h3 {
+  margin: 0 0 18px;
+}
+.guided-section {
+  border: 1px solid #d6e1d8;
+  border-radius: 12px;
+  padding: 22px;
+  margin: 16px 0;
+}
+.guided-section-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  border-bottom: 1px solid #e1e8df;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+}
+.guided-section-title h3 {
+  margin: 10px 0 0;
+}
+.guided-section-title label {
+  width: 160px;
+  flex: none;
+}
+.choice-group {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.choice-group legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4e6557;
+  margin-bottom: 10px;
+}
+.choice-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.choice-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #d8e2d7;
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: #fff;
+  color: #4c6052;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.choice-chip.selected {
+  background: #e4eed7;
+  color: #244d32;
+  border-color: #9cb681;
+}
+.choice-chip svg {
+  flex: none;
+}
+.guided-notes {
+  border-top: 1px solid #e1e8df;
+  margin-top: 22px;
+  padding-top: 17px;
+}
+.guided-notes summary,
+.reuse-facts summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.guided-notes .form-grid {
+  margin-top: 17px;
+}
+.clinical-preview {
+  border-left: 3px solid #8eab65;
+  background: #f2f6ec;
+  padding: 20px;
+  margin-top: 24px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.clinical-preview .reference-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #214f36;
+  margin: 12px 0;
+}
+.clinical-preview small {
+  display: block;
+  margin-top: 10px;
+  color: #657b63;
+}
+.clinical-preview ul {
+  padding-left: 20px;
+}
+.clinical-preview a {
+  color: #286844;
+}
+.guided-hint {
+  font-size: 12px;
+  color: #6b7e71;
+  line-height: 1.6;
+}
+.reuse-facts {
+  padding: 16px;
+  background: #f3f6f7;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 12px;
+}
+.reuse-facts small {
+  display: block;
+  margin-top: 4px;
+  color: #6c7e75;
+}
+.patient-alerts {
+  border: 1px solid #e3d4af;
+  border-radius: 10px;
+  background: #fcf8ed;
+  padding: 17px 22px;
+  margin-bottom: 22px;
+}
+.patient-alerts summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.patient-alerts small {
+  display: block;
+  margin-top: 12px;
+  color: #766c53;
+}
+.alert-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 15px;
+  margin-top: 18px;
+}
+.alert-grid > div {
+  padding: 14px;
+  background: #fffdf7;
+  border: 1px solid #ede3cd;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.alert-grid p {
+  line-height: 1.6;
+}
+.guided-fields input,
+.guided-fields select {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 650px) {
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+  .guided-section {
+    padding: 16px;
+  }
+  .guided-section-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .guided-section-title label {
+    width: 100%;
+  }
+  .guided-progress {
+    font-size: 11px;
+    gap: 7px;
+  }
+  .clinical-preview .care-card-head {
+    flex-wrap: wrap;
+  }
+  .guided-context {
+    padding: 15px;
+  }
+  .modal-actions {
+    position: static;
+  }
+}
+.registry-package-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 22px 0;
+}
+.registry-package-grid article {
+  border: 1px solid #d9e3d9;
+  border-radius: 10px;
+  padding: 20px;
+  background: #fafcf8;
+}
+.registry-package-grid h3 {
+  margin: 0;
+}
+.registry-package-grid p {
+  line-height: 1.6;
+  font-size: 13px;
+}
+.registry-package-grid small {
+  display: block;
+  color: #768774;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.registry-package-grid .care-card-head {
+  flex-wrap: wrap;
+}
+.registry-assessment-list > article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  border-top: 1px solid #e2e9df;
+  padding: 17px 0;
+}
+.registry-assessment-list p {
+  color: #7b8a75;
+  font-size: 12px;
+}
+.registry-assessment-list .care-actions {
+  margin: 0;
+}
+.registry-progress {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  background: #eef4e8;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+.registry-layout {
+  display: grid;
+  grid-template-columns: 185px minmax(0, 1fr);
+  gap: 22px;
+  margin-top: 22px;
+}
+.registry-layout nav {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  gap: 5px;
+  position: sticky;
+  top: 0;
+}
+.registry-layout nav button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 11px 10px;
+  border-radius: 7px;
+  color: #51654d;
+  font-size: 12px;
+  cursor: pointer;
+}
+.registry-layout nav button.selected {
+  background: #dfebd4;
+  color: #244b30;
+  font-weight: 600;
+}
+.registry-layout nav small {
+  display: block;
+  margin-top: 4px;
+  color: #819174;
+}
+.registry-inputs {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.registry-fields section h3 {
+  font-size: 14px;
+  margin: 0 0 20px;
+  padding: 13px;
+  background: #f0f4eb;
+  border-radius: 6px;
+}
+.registry-source-field {
+  border-bottom: 1px solid #e8ede4;
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+}
+.registry-source-field .form-grid {
+  grid-template-columns: 1fr;
+}
+.registry-source-field .span-2 {
+  grid-column: 1;
+}
+.registry-source-field small {
+  display: block;
+  color: #8a9681;
+  font-size: 10px;
+  margin-top: 7px;
+}
+.registry-history-json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+@media (max-width: 800px) {
+  .registry-package-grid {
+    grid-template-columns: 1fr;
+  }
+  .registry-layout {
+    grid-template-columns: 1fr;
+  }
+  .registry-layout nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 8px;
+  }
+  .registry-layout nav button {
+    min-width: 135px;
+  }
+  .registry-assessment-list > article {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.template-search {
+  flex-direction: row;
+}
+.template-grid {
+  max-height: min(42vh, 340px);
+}
+@media (max-width: 650px) {
+  .guided-context .form-grid,
+  .guided-section .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .guided-context .span-2,
+  .guided-section .span-2 {
+    grid-column: 1;
+  }
+}

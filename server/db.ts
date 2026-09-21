@@ -1,3 +1,4 @@
+import { initializeRegistryPackages } from "./registry-forms.js";
 import { PGlite } from "@electric-sql/pglite";
 import { readFile } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
@@ -27,10 +28,14 @@ export async function createDb(path?: string, seed = true) {
   await db.exec(
     await readFile(new URL("./care-schema.sql", import.meta.url), "utf8"),
   );
+  await db.exec(
+    await readFile(new URL("./guided-schema.sql", import.meta.url), "utf8"),
+  );
   await initializeData(db, seed);
   return db;
 }
 export async function initializeData(db: DB, seed = true) {
+  await initializeRegistryPackages(db);
   await db.query(
     "INSERT INTO registry.definition VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
     [

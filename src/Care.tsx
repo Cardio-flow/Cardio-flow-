@@ -1,3 +1,6 @@
+import { RegistryForms } from "./RegistryForms";
+import { GuidedEditor } from "./GuidedEditor";
+import { documentationAlerts } from "./clinical-review";
 import { useState, type FormEvent } from "react";
 import {
   ArrowLeft,
@@ -229,18 +232,21 @@ export function CareBoard({
 }
 
 export function CareWorkspace({
+  owner,
   id,
   role,
   onBack,
   onSaved,
 }: {
   id: string;
+  owner: string;
   role: Role;
   onBack: () => void;
   onSaved: () => void;
 }) {
   const [tab, setTab] = useState("Overview"),
     [revision, setRevision] = useState(0);
+  const [customEditor, setCustomEditor] = useState(false);
   const [editor, setEditor] = useState<CareKind | CareEntry | null>(null),
     [newEncounter, setNewEncounter] = useState(false),
     [closing, setClosing] = useState<CareEncounter | null>(null),
@@ -255,6 +261,7 @@ export function CareWorkspace({
   const { data: patient } = useData<Patient>(`/patients/${id}`, revision);
   function saved() {
     setEditor(null);
+    setCustomEditor(false);
     setNewEncounter(false);
     setClosing(null);
     setRevision((v) => v + 1);
@@ -293,7 +300,14 @@ export function CareWorkspace({
         : ["procedure"];
   function addButton(kind: CareKind) {
     return role === "clinician" ? (
-      <button className="secondary" key={kind} onClick={() => setEditor(kind)}>
+      <button
+        className="secondary"
+        key={kind}
+        onClick={() => {
+          setCustomEditor(false);
+          setEditor(kind);
+        }}
+      >
         <Plus size={15} />
         {careKinds[kind].label}
       </button>
@@ -307,7 +321,14 @@ export function CareWorkspace({
             key={e.id}
             entry={e}
             encounter={encounters.find((c) => c.id === e.encounter_id)}
-            onEdit={role === "clinician" ? () => setEditor(e) : undefined}
+            onEdit={
+              role === "clinician"
+                ? () => {
+                    setCustomEditor(!e.template_key);
+                    setEditor(e);
+                  }
+                : undefined
+            }
             onHistory={() => setHistory(e)}
           />
         ))}
@@ -373,6 +394,37 @@ export function CareWorkspace({
         ))}
       </div>
       <ErrorBox message={error || loadError} />
+      {documentationAlerts(entries, currentDate()).length ? (
+        <details className="patient-alerts">
+          <summary>
+            {documentationAlerts(entries, currentDate()).length} review
+            reminders
+          </summary>
+          <div className="alert-grid">
+            {documentationAlerts(entries, currentDate()).map((a) => (
+              <div key={a.id}>
+                <strong>{a.title}</strong>
+                <p>{a.detail}</p>
+                {role === "clinician" ? (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setCustomEditor(!a.entry.template_key);
+                      setEditor(a.entry);
+                    }}
+                  >
+                    Open review
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <small>
+            Documentation and follow-up reminders; not real-time physiological
+            monitoring.
+          </small>
+        </details>
+      ) : null}
       <div role="tabpanel" aria-label={tab}>
         {tab === "Overview" ? (
           <>
@@ -554,10 +606,12 @@ export function CareWorkspace({
                 </>
               )}
               <p className="muted">
-                HF, EP, Structural Heart and custom registry assessments remain
-                under implementation.
+                Source-derived HF, CAD and EP drafts are available below.
+                Structural Heart and custom registry publication remain under
+                implementation.
               </p>
             </section>
+            <RegistryForms patient={p} encounters={encounters} role={role} />
             {registry && patient?.enrollment_id ? (
               <PatientWorkspace
                 key={revision}
@@ -592,7 +646,22 @@ export function CareWorkspace({
           </>
         )}
       </div>
-      {editor ? (
+      {editor &&
+      !customEditor &&
+      (typeof editor === "string" || editor.template_key) ? (
+        <GuidedEditor
+          key={typeof editor === "string" ? editor : editor.id}
+          patient={p}
+          encounters={encounters}
+          entries={entries}
+          owner={owner}
+          original={typeof editor === "string" ? undefined : editor}
+          kind={typeof editor === "string" ? editor : editor.kind}
+          onClose={() => setEditor(null)}
+          onSaved={saved}
+          onCustom={() => setCustomEditor(true)}
+        />
+      ) : editor ? (
         <EntryEditor
           key={typeof editor === "string" ? editor : editor.id}
           patient={p}
@@ -650,6 +719,12 @@ function EntryCard({
           ? `${encounter.kind} ${date(encounter.started_on)}`
           : "Continuing plan"}
       </p>
+      {e.structured?._reference ? (
+        <details className="clinical-preview">
+          <summary>Saved reference assessment · draft</summary>
+          <SavedReference value={String(e.structured._reference)} />
+        </details>
+      ) : null}
       {e.assessment ? (
         <p>
           <strong>Assessment</strong> {e.assessment}
@@ -1205,4 +1280,36 @@ function downloadReport(data: CareData) {
   link.download = `cardio-flow-${p.mrn}-report.html`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function SavedReference({ value }: { value: string }) {
+  try {
+    const r = JSON.parse(value);
+    return (
+      <>
+        <p>
+          <strong>{r.title}</strong> · {r.assessedOn}
+        </p>
+        <p>
+          {r.points !== undefined
+            ? `${r.points} / 6 points`
+            : r.reference || "Incomplete — no result"}
+        </p>
+        {r.reasons?.length ? (
+          <ul>
+            {r.reasons.map((s: string) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>{r.factors?.join(" · ") || "No listed criteria present"}</p>
+        )}
+        <small>
+          {r.ruleVersion} · synthetic preview; clinical approval pending
+        </small>
+      </>
+    );
+  } catch {
+    return <p>Reference unavailable.</p>;
+  }
 }

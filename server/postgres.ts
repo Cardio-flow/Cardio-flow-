@@ -54,6 +54,10 @@ export async function migrate(db: DB) {
     new URL("./schema.sql", import.meta.url),
     "utf8",
   );
+  const guidedSchema = await readFile(
+    new URL("./guided-schema.sql", import.meta.url),
+    "utf8",
+  );
   await db.transaction(async (tx) => {
     await tx.query("CREATE SCHEMA IF NOT EXISTS governance");
     await tx.query(
@@ -93,6 +97,20 @@ export async function migrate(db: DB) {
       await tx.query(
         "INSERT INTO governance.migration(name,checksum) VALUES('002-continuous-care',$1)",
         [hash(careSchema)],
+      );
+    }
+    const guidedMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='003-guided-forms'",
+      )
+    ).rows[0];
+    if (guidedMigration && guidedMigration.checksum !== hash(guidedSchema))
+      throw new Error("Guided migration changed; add a new migration instead");
+    if (!guidedMigration) {
+      await tx.query(guidedSchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('003-guided-forms',$1)",
+        [hash(guidedSchema)],
       );
     }
   });
