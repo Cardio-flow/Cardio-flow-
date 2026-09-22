@@ -57,6 +57,11 @@ import {
   type LaboratoryData,
   type MedicationData,
 } from "./MedicationLaboratory";
+import {
+  HeartFailureClinicalRecord,
+  HeartFailureDashboard,
+  HeartFailureTimeline,
+} from "./HeartFailure";
 
 type BoardEntry = CareEntry & {
   name: string;
@@ -994,6 +999,13 @@ export function UnifiedPatientWorkspace({
               onTask={setFollowup}
               onRecord={() => setTab("Clinical Record")}
             />
+            <HeartFailureDashboard
+              patientId={id}
+              revision={revision}
+              role={role}
+              encounters={encounters}
+              onChanged={saved}
+            />
             <MedicationLaboratoryOverview
               patientId={id}
               revision={revision}
@@ -1013,67 +1025,73 @@ export function UnifiedPatientWorkspace({
             ) : null}
           </>
         ) : tab === "Clinical Record" ? (
-          <section className="panel care-section clinical-record">
-            <div className="record-toolbar">
-              <div className="segmented" aria-label="Clinical record filters">
-                {recordFilters.map((item) => (
-                  <button
-                    key={item}
-                    className={recordFilter === item ? "active" : ""}
-                    onClick={() => setRecordFilter(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <label>
-                Care context
-                <select
-                  value={encounterFilter}
-                  onChange={(event) => setEncounterFilter(event.target.value)}
-                >
-                  <option value="all">All care contexts</option>
-                  <option value="longitudinal">Continuing record only</option>
-                  {encounters.map((encounter) => (
-                    <option key={encounter.id} value={encounter.id}>
-                      {encounter.kind} · {date(encounter.started_on)} ·{" "}
-                      {encounter.reason}
-                    </option>
+          <>
+            <HeartFailureClinicalRecord patientId={id} revision={revision} />
+            <section className="panel care-section clinical-record">
+              <div className="record-toolbar">
+                <div className="segmented" aria-label="Clinical record filters">
+                  {recordFilters.map((item) => (
+                    <button
+                      key={item}
+                      className={recordFilter === item ? "active" : ""}
+                      onClick={() => setRecordFilter(item)}
+                    >
+                      {item}
+                    </button>
                   ))}
-                </select>
-              </label>
-            </div>
-            {filteredEntries.length ? (
-              <div className="record-list">
-                {filteredEntries.map((entry) => (
-                  <EntryCard
-                    key={entry.id}
-                    entry={entry}
-                    encounter={encounters.find(
-                      (encounter) => encounter.id === entry.encounter_id,
-                    )}
-                    onEdit={
-                      role === "clinician" ? () => edit(entry) : undefined
-                    }
-                    onHistory={() => setHistory(entry)}
-                  />
-                ))}
+                </div>
+                <label>
+                  Care context
+                  <select
+                    value={encounterFilter}
+                    onChange={(event) => setEncounterFilter(event.target.value)}
+                  >
+                    <option value="all">All care contexts</option>
+                    <option value="longitudinal">Continuing record only</option>
+                    {encounters.map((encounter) => (
+                      <option key={encounter.id} value={encounter.id}>
+                        {encounter.kind} · {date(encounter.started_on)} ·{" "}
+                        {encounter.reason}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-            ) : (
-              <Empty title="No records in this view">
-                Use Add / Update to document clinical information once.
-              </Empty>
-            )}
-          </section>
+              {filteredEntries.length ? (
+                <div className="record-list">
+                  {filteredEntries.map((entry) => (
+                    <EntryCard
+                      key={entry.id}
+                      entry={entry}
+                      encounter={encounters.find(
+                        (encounter) => encounter.id === entry.encounter_id,
+                      )}
+                      onEdit={
+                        role === "clinician" ? () => edit(entry) : undefined
+                      }
+                      onHistory={() => setHistory(entry)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <Empty title="No records in this view">
+                  Use Add / Update to document clinical information once.
+                </Empty>
+              )}
+            </section>
+          </>
         ) : tab === "Timeline" ? (
-          <PatientTimeline
-            entries={entries}
-            encounters={encounters}
-            role={role}
-            onEdit={edit}
-            onHistory={setHistory}
-            onCloseEncounter={setClosing}
-          />
+          <>
+            <HeartFailureTimeline patientId={id} revision={revision} />
+            <PatientTimeline
+              entries={entries}
+              encounters={encounters}
+              role={role}
+              onEdit={edit}
+              onHistory={setHistory}
+              onCloseEncounter={setClosing}
+            />
+          </>
         ) : (
           <>
             <section className="panel care-section registry-intro">

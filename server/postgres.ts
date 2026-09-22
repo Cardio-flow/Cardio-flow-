@@ -70,6 +70,10 @@ export async function migrate(db: DB) {
     new URL("./medication-laboratory-schema.sql", import.meta.url),
     "utf8",
   );
+  const heartFailureSchema = await readFile(
+    new URL("./heart-failure-schema.sql", import.meta.url),
+    "utf8",
+  );
   await db.transaction(async (tx) => {
     await tx.query("CREATE SCHEMA IF NOT EXISTS governance");
     await tx.query(
@@ -181,6 +185,25 @@ export async function migrate(db: DB) {
       await tx.query(
         "INSERT INTO governance.migration(name,checksum) VALUES('006-medication-laboratory-intelligence',$1)",
         [hash(medicationLaboratorySchema)],
+      );
+    }
+    const heartFailureMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='007-heart-failure-intelligence'",
+      )
+    ).rows[0];
+    if (
+      heartFailureMigration &&
+      heartFailureMigration.checksum !== hash(heartFailureSchema)
+    )
+      throw new Error(
+        "Heart failure intelligence migration changed; add a new migration instead",
+      );
+    if (!heartFailureMigration) {
+      await tx.query(heartFailureSchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('007-heart-failure-intelligence',$1)",
+        [hash(heartFailureSchema)],
       );
     }
   });

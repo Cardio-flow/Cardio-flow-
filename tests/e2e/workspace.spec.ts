@@ -55,10 +55,10 @@ test("clinical governance is restricted and shows evidence without active diseas
   await expect(
     page.getByRole("heading", { name: "Evidence & rule publication" }),
   ).toBeVisible();
-  await expect(page.getByText("9", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("12", { exact: true }).first()).toBeVisible();
   await page.getByRole("tab", { name: "Rule publication" }).click();
   await expect(
-    page.getByText("No clinical rules have been created"),
+    page.getByText("2026 HF phenotype classification"),
   ).toBeVisible();
   await expect(page.getByText("Maker-checker enforced")).toBeVisible();
   expect(errors).toEqual([]);
@@ -156,6 +156,71 @@ test("follow-up contact records an encounter and satisfies a qualifying mileston
   await expect(
     page.getByText("Contact recorded and milestone satisfied."),
   ).toBeVisible();
+});
+test("heart failure review connects imaging, phenotype, record and timeline", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await enter(page);
+  await page.getByRole("button", { name: "Patients", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Register patient", exact: true })
+    .click();
+  await page.getByLabel("Patient display name").fill("HF Browser Case");
+  await page.getByLabel("Synthetic MRN").fill("SYN-HF-BROWSER");
+  await page.getByLabel("Birth date", { exact: true }).fill("1964-01-01");
+  await page.getByLabel("Sex", { exact: true }).selectOption("Male");
+  await page.getByRole("button", { name: "Create patient" }).click();
+  await expect(
+    page.getByRole("heading", { name: "HF Browser Case" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No structured HF review yet" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Add cardiac imaging" }).click();
+  await page.getByLabel("LVEF (%)").fill("30");
+  await page
+    .getByLabel("Structural context")
+    .fill("Dilated LV in synthetic report");
+  await page
+    .getByRole("button", { name: "Save to longitudinal record" })
+    .click();
+  await expect(page.getByText("30%", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Update HF" }).click();
+  await page.getByLabel("Functional class").selectOption("II");
+  await page.getByLabel("Clinician-confirmed phenotype").selectOption("HFrEF");
+  await page.getByText("Exertional dyspnoea", { exact: true }).click();
+  await page.getByText("Ischaemic", { exact: true }).click();
+  await page
+    .getByLabel("Clinical narrative")
+    .fill("New symptomatic HF after anterior MI");
+  await page
+    .getByRole("button", { name: "Save to longitudinal record" })
+    .click();
+  await expect(page.getByText("HFrEF", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByText("NYHA II", { exact: true }).first(),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Clinical Record" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Heart failure record" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("New symptomatic HF after anterior MI"),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Timeline" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Heart failure journey" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(1280);
+  expect(errors).toEqual([]);
 });
 test("analyst generates CSV and codebook; designer sees no patient navigation", async ({
   page,

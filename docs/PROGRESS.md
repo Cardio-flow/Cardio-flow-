@@ -1,5 +1,13 @@
 # Progress — 16 September 2026
 
+## Release 0.8 — Stage 3 heart failure module (22 September 2026)
+
+Implemented the additive, connected HF clinical record and unified patient experience described in [STAGE3_HEART_FAILURE.md](STAGE3_HEART_FAILURE.md): structured longitudinal reviews, clinician-confirmed phenotype with preferred-Echo provenance, automatic reassessment after new imaging, diagnostic/complication pathways, integrated medication/laboratory context, exact dated device and discharge tasks, rehabilitation assessment, editable note draft, and HF views in Summary, Clinical Record and Timeline.
+
+Added migration `007-heart-failure-intelligence`, three current evidence catalogue records, and the dedicated [HF Clinical Review Pack](HF_CLINICAL_REVIEW_PACK.md). All 15 disease-specific rule candidates remain unpublished in `CLINICAL_REVIEW`; no implementation account self-approved them and no HF recommendation can affect a production patient before licensed evidence extraction, tests and independent clinical approval.
+
+Validation: production build and formatting passed; 47 server/domain/integration tests passed, including eight HF cases and immutable-history/governance assertions; all 15 browser workflows passed on desktop, mobile and tablet. Migration 007 was applied to the configured Neon database before deployment.
+
 ## Release 0.6 — Stage 1.5 clinical governance (22 September 2026)
 
 Implemented the additive evidence and rule-governance layer described in [CLINICAL_GOVERNANCE.md](CLINICAL_GOVERNANCE.md): versioned evidence status and review queue, site guideline preferences, a separate institutional-policy layer, immutable rule metadata and versions, independent maker/checker review, separate technical test-run authority, server-only execution of published rules, reassessment after rule/evidence changes, recommendation traceability, clinician recommendation actions, and the remaining current-value override UI.

@@ -10,6 +10,7 @@ import {
 } from "./clinical-foundation.js";
 import { initializeClinicalGovernance } from "./clinical-governance.js";
 import { initializeMedicationLaboratory } from "./medication-laboratory.js";
+import { initializeHeartFailure } from "./heart-failure.js";
 export interface QueryDB {
   query<T = Record<string, unknown>>(
     sql: string,
@@ -55,6 +56,12 @@ export async function createDb(path?: string, seed = true) {
       "utf8",
     ),
   );
+  await db.exec(
+    await readFile(
+      new URL("./heart-failure-schema.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   await initializeData(db, seed);
   return db;
 }
@@ -63,6 +70,7 @@ export async function initializeData(db: DB, seed = true) {
   await initializeClinicalFoundation(db);
   await initializeClinicalGovernance(db);
   await initializeMedicationLaboratory(db);
+  await initializeHeartFailure(db);
   await db.query(
     "INSERT INTO registry.definition VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
     [
