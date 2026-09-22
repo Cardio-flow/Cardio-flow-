@@ -39,6 +39,30 @@ test("dashboard and registry navigation render without runtime errors", async ({
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
+test("clinical governance is restricted and shows evidence without active disease rules", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await enter(page);
+  await expect(
+    page.getByRole("button", { name: "Clinical governance", exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Demo role").selectOption("reviewer");
+  await page
+    .getByRole("button", { name: "Clinical governance", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Evidence & rule publication" }),
+  ).toBeVisible();
+  await expect(page.getByText("7", { exact: true }).first()).toBeVisible();
+  await page.getByRole("tab", { name: "Rule publication" }).click();
+  await expect(
+    page.getByText("No clinical rules have been created"),
+  ).toBeVisible();
+  await expect(page.getByText("Maker-checker enforced")).toBeVisible();
+  expect(errors).toEqual([]);
+});
 test("register, save CAD with two lesions and one stent, finalize, and independently review", async ({
   page,
 }) => {

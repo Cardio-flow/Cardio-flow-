@@ -31,6 +31,63 @@ export const patientSchema = z
       (v) => v >= "1900-01-01",
       "Date must be 1900 or later",
     ),
+    civil_id: z
+      .string()
+      .trim()
+      .max(40)
+      .transform((value) => value || null)
+      .nullable()
+      .optional()
+      .default(null),
+    phone: z
+      .string()
+      .trim()
+      .max(40)
+      .transform((value) => value || null)
+      .nullable()
+      .optional()
+      .default(null),
+    height_cm: z
+      .preprocess(
+        (value) => (value === "" || value === null ? null : value),
+        z.coerce.number().min(30).max(250).nullable(),
+      )
+      .optional()
+      .default(null),
+    weight_kg: z
+      .preprocess(
+        (value) => (value === "" || value === null ? null : value),
+        z.coerce.number().min(1).max(500).nullable(),
+      )
+      .optional()
+      .default(null),
+    allergies: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
+    smoking_status: z
+      .enum(["Never", "Former", "Current", "Unknown"])
+      .nullable()
+      .default(null),
+    reproductive_status: z
+      .enum([
+        "Not applicable",
+        "Potentially relevant",
+        "Pregnant",
+        "Postpartum",
+        "Unknown",
+      ])
+      .nullable()
+      .default(null),
+    primary_team: z
+      .string()
+      .trim()
+      .max(200)
+      .transform((value) => value || null)
+      .nullable()
+      .optional()
+      .default(null),
+    major_comorbidities: z
+      .array(z.string().trim().min(1).max(200))
+      .max(100)
+      .default([]),
     enroll_cad: z.boolean().default(false),
   })
   .strict();

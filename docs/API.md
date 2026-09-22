@@ -122,4 +122,22 @@ Hosted requests use `/api/auth/*` through the Neon SDK server adapter. `/api/dem
 
 `GET /api/clinical/pathways`, `POST /api/patients/:id/pathways/:key/start`, `GET /api/pathway-sessions/:id` and `POST /api/pathway-sessions/:id/responses` expose the versioned pathway engine.
 
-All writes require the clinician role. Clinical state/catalog/pathway reads permit clinician and reviewer roles. Rules and pathways are installed through governed deployment code; this foundation does not expose an unreviewed rule-publishing API.
+All patient-level writes require the clinician role. Clinical state/catalog/pathway reads permit clinician and reviewer roles.
+
+# Clinical governance
+
+Governance permissions are site-scoped capabilities independent of application roles. Ordinary clinicians cannot access these routes.
+
+| Route                                                                | Capability                            | Behaviour                                                                       |
+| -------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `GET /api/clinical-governance`                                       | Any governance capability             | Evidence, rule/review status, site guideline preferences and policy             |
+| `POST /api/clinical-governance/rules`                                | Clinical rule maker                   | Create the next immutable draft version                                         |
+| `POST /api/clinical-governance/rules/:key/:version/actions`          | Maker or clinical reviewer, by action | Submit, approve, reject, request changes, publish, suspend, supersede or retire |
+| `POST /api/clinical-governance/rules/:key/:version/test-runs`        | Technical admin                       | Append a controlled passed/failed test run                                      |
+| `POST /api/clinical-governance/evidence`                             | Clinical rule maker                   | Register immutable metadata for an evidence version under review                |
+| `POST /api/clinical-governance/evidence/:key/:version/status`        | Clinical rule reviewer                | Append current/superseded/withdrawn/under-review status                         |
+| `POST /api/clinical-governance/evidence/:key/:version/review-events` | Any governance capability             | Flag or resolve a manual evidence-review item                                   |
+| `GET /api/recommendations/:id/traceability`                          | Clinician or reviewer                 | Exact facts, rule, evidence, review, reassessment and action history            |
+| `POST /api/recommendations/:id/actions`                              | Clinician                             | Accept, modify, snooze, dismiss or override with recorded rationale             |
+
+Only a `PUBLISHED` rule version can execute. Publication requires an independent approved review, every clinical checklist item, a latest passing technical test run, a future/current review date, and at least one current verified approved evidence version.

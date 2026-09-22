@@ -18,7 +18,7 @@ import {
   type UnitDefinition,
 } from "../src/clinical-foundation.js";
 
-export const clinicalEngineVersion = "clinical-foundation.1";
+export const clinicalEngineVersion = "clinical-governance.1";
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 
@@ -264,7 +264,7 @@ export async function loadClinicalState(
   const [facts, preferences] = await Promise.all([
     db.query("SELECT * FROM clinical.fact WHERE patient_id=$1", [patientId]),
     db.query(
-      "SELECT * FROM clinical.current_preference WHERE patient_id=$1 ORDER BY created_at",
+      "SELECT * FROM clinical.current_preference WHERE patient_id=$1 ORDER BY event_sequence",
       [patientId],
     ),
   ]);
@@ -392,7 +392,7 @@ async function appendFact(
 async function latestRecommendations(tx: QueryDB, patientId: string) {
   const rows = (
     await tx.query<any>(
-      "SELECT * FROM decision_support.recommendation WHERE patient_id=$1 ORDER BY created_at,id",
+      "SELECT * FROM decision_support.recommendation WHERE patient_id=$1 ORDER BY generation_sequence",
       [patientId],
     )
   ).rows;
@@ -449,13 +449,20 @@ export async function recalculatePatient(
     ),
     ruleRows = (
       await tx.query<any>(
-        "SELECT definition FROM decision_support.rule_definition WHERE status='active' ORDER BY priority,key,version",
+        `SELECT r.* FROM decision_support.rule_current_state r
+         WHERE r.site_id='demo-kuwait' AND r.lifecycle_state='PUBLISHED'
+           AND r.version=(
+             SELECT max(current.version) FROM decision_support.rule_current_state current
+             WHERE current.site_id=r.site_id AND current.key=r.key AND current.lifecycle_state='PUBLISHED'
+           )
+         ORDER BY r.priority,r.key,r.version`,
       )
     ).rows,
     rules = ruleRows.map((row) => row.definition as ClinicalRule),
     evaluations = evaluateRules(rules, state),
     previous = await latestRecommendations(tx, patientId),
-    inserted: string[] = [];
+    inserted: string[] = [],
+    publishedKeys = new Set(rules.map((rule) => rule.key));
   for (const evaluation of evaluations) {
     const old = previous.get(evaluation.rule.key),
       status =
@@ -480,12 +487,25 @@ export async function recalculatePatient(
     );
     if (old?.input_fingerprint === fingerprint) continue;
     if (old) await supersedeRecommendationTasks(tx, old.id, actor);
-    const recommendationId = randomUUID(),
+    const governed = ruleRows.find(
+        (row) =>
+          row.key === evaluation.rule.key &&
+          Number(row.version) === evaluation.rule.version,
+      ),
+      reviewSnapshot = governed
+        ? (
+            await tx.query<any>(
+              "SELECT * FROM decision_support.rule_review WHERE rule_key=$1 AND rule_version=$2 ORDER BY event_sequence",
+              [governed.key, governed.version],
+            )
+          ).rows
+        : [],
+      recommendationId = randomUUID(),
       recommendation = (
         await tx.query<any>(
           `INSERT INTO decision_support.recommendation
-          (id,patient_id,rule_key,rule_version,status,title,recommendation,explanation,missing_concepts,input_fact_ids,evidence_snapshot,input_fingerprint,valid_from,valid_until,trigger_event_id,supersedes_recommendation_id)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+          (id,patient_id,rule_key,rule_version,status,title,recommendation,explanation,missing_concepts,input_fact_ids,evidence_snapshot,input_fingerprint,valid_from,valid_until,trigger_event_id,supersedes_recommendation_id,rule_snapshot,publication_snapshot,review_snapshot)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
           [
             recommendationId,
             patientId,
@@ -503,6 +523,18 @@ export async function recalculatePatient(
             status === "resolved" ? triggerEvent.occurred_at : null,
             triggerEvent.id,
             old?.id ?? null,
+            JSON.stringify(governed?.definition ?? evaluation.rule),
+            JSON.stringify(
+              governed
+                ? {
+                    eventId: governed.lifecycle_event_id,
+                    state: governed.lifecycle_state,
+                    actor: governed.lifecycle_actor,
+                    at: governed.lifecycle_changed_at,
+                  }
+                : {},
+            ),
+            JSON.stringify(reviewSnapshot),
           ],
         )
       ).rows[0];
@@ -549,6 +581,55 @@ export async function recalculatePatient(
           [randomUUID(), taskId, actor],
         );
       }
+  }
+  for (const [key, old] of previous) {
+    if (
+      publishedKeys.has(key) ||
+      !["active", "needs_data", "excluded", "suppressed"].includes(old.status)
+    )
+      continue;
+    await supersedeRecommendationTasks(tx, old.id, actor);
+    const fingerprint = digest(
+      JSON.stringify({
+        engine: clinicalEngineVersion,
+        rule: [old.rule_key, old.rule_version],
+        status: "resolved",
+        reason: "rule_not_published",
+        trigger: triggerEvent.id,
+      }),
+    );
+    const resolved = (
+      await tx.query<any>(
+        `INSERT INTO decision_support.recommendation
+         (id,patient_id,rule_key,rule_version,status,title,recommendation,explanation,missing_concepts,input_fact_ids,evidence_snapshot,input_fingerprint,valid_from,valid_until,trigger_event_id,supersedes_recommendation_id,rule_snapshot,publication_snapshot,review_snapshot)
+         VALUES($1,$2,$3,$4,'resolved',$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        [
+          randomUUID(),
+          patientId,
+          old.rule_key,
+          old.rule_version,
+          old.title,
+          old.recommendation,
+          JSON.stringify([
+            "Recommendation resolved because its rule is no longer published.",
+          ]),
+          JSON.stringify(old.missing_concepts ?? []),
+          JSON.stringify(old.input_fact_ids ?? []),
+          JSON.stringify(old.evidence_snapshot ?? []),
+          fingerprint,
+          triggerEvent.occurred_at,
+          triggerEvent.id,
+          old.id,
+          JSON.stringify(old.rule_snapshot ?? {}),
+          JSON.stringify({
+            state: "not_published",
+            at: triggerEvent.occurred_at,
+          }),
+          JSON.stringify(old.review_snapshot ?? []),
+        ],
+      )
+    ).rows[0];
+    inserted.push(resolved.id);
   }
   await tx.query(
     "INSERT INTO decision_support.recalculation_run(id,patient_id,trigger_event_id,engine_version,result) VALUES($1,$2,$3,$4,$5)",
@@ -730,37 +811,49 @@ async function patientFoundation(
   asOf = new Date().toISOString(),
 ) {
   const state = await loadClinicalState(db, patientId, asOf),
-    [recommendations, alerts, actions, tasks, taskEvents, events, runs] =
-      await Promise.all([
-        db.query<any>(
-          "SELECT * FROM decision_support.recommendation WHERE patient_id=$1 ORDER BY created_at",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT * FROM decision_support.alert WHERE patient_id=$1 ORDER BY created_at",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT aa.* FROM decision_support.alert_action aa JOIN decision_support.alert a ON a.id=aa.alert_id WHERE a.patient_id=$1 ORDER BY aa.created_at",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT * FROM workflow.clinical_task WHERE patient_id=$1 ORDER BY target_date NULLS LAST,created_at",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT te.* FROM workflow.clinical_task_event te JOIN workflow.clinical_task t ON t.id=te.task_id WHERE t.patient_id=$1 ORDER BY te.created_at",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT * FROM clinical.event WHERE patient_id=$1 ORDER BY occurred_at DESC LIMIT 100",
-          [patientId],
-        ),
-        db.query<any>(
-          "SELECT * FROM decision_support.recalculation_run WHERE patient_id=$1 ORDER BY completed_at DESC LIMIT 100",
-          [patientId],
-        ),
-      ]);
+    [
+      recommendations,
+      alerts,
+      actions,
+      tasks,
+      taskEvents,
+      events,
+      runs,
+      preferenceRows,
+    ] = await Promise.all([
+      db.query<any>(
+        "SELECT * FROM decision_support.recommendation WHERE patient_id=$1 ORDER BY generation_sequence",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT * FROM decision_support.alert WHERE patient_id=$1 ORDER BY created_at",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT aa.* FROM decision_support.alert_action aa JOIN decision_support.alert a ON a.id=aa.alert_id WHERE a.patient_id=$1 ORDER BY aa.created_at",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT * FROM workflow.clinical_task WHERE patient_id=$1 ORDER BY target_date NULLS LAST,created_at",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT te.* FROM workflow.clinical_task_event te JOIN workflow.clinical_task t ON t.id=te.task_id WHERE t.patient_id=$1 ORDER BY te.created_at",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT * FROM clinical.event WHERE patient_id=$1 ORDER BY occurred_at DESC LIMIT 100",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT * FROM decision_support.recalculation_run WHERE patient_id=$1 ORDER BY completed_at DESC LIMIT 100",
+        [patientId],
+      ),
+      db.query<any>(
+        "SELECT * FROM clinical.current_preference WHERE patient_id=$1 ORDER BY event_sequence",
+        [patientId],
+      ),
+    ]);
   const currentRecommendations = new Map<string, any>();
   for (const row of recommendations.rows)
     currentRecommendations.set(row.rule_key, row);
@@ -773,6 +866,9 @@ async function patientFoundation(
   );
   const latestTaskEvent = new Map<string, any>();
   for (const row of taskEvents.rows) latestTaskEvent.set(row.task_id, row);
+  const latestPreferences = new Map<string, any>();
+  for (const row of preferenceRows.rows)
+    latestPreferences.set(`${row.concept_system}|${row.concept_code}`, row);
   return {
     engineVersion: clinicalEngineVersion,
     state,
@@ -792,6 +888,7 @@ async function patientFoundation(
     })),
     events: events.rows,
     recalculations: runs.rows,
+    currentPreferences: [...latestPreferences.values()],
   };
 }
 
@@ -861,29 +958,39 @@ export function mountClinicalFoundation(
           .parse(req.body),
         result = await db.transaction(async (tx) => {
           const patient = await ensurePatient(tx, String(req.params.id));
+          let competingFactIds: string[] = [];
           if (input.action === "select") {
-            const fact = (
+            const facts = (
               await tx.query<any>(
-                "SELECT * FROM clinical.fact WHERE id=$1 AND patient_id=$2 AND concept_system=$3 AND concept_code=$4",
-                [
-                  input.fact_id,
-                  patient.id,
-                  input.concept_system,
-                  input.concept_code,
-                ],
+                `SELECT * FROM clinical.fact
+                 WHERE patient_id=$1 AND concept_system=$2 AND concept_code=$3
+                   AND verification_status='verified' AND lifecycle_status='active'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM clinical.fact newer
+                     WHERE newer.logical_id=clinical.fact.logical_id
+                       AND newer.version>clinical.fact.version
+                   )
+                 ORDER BY observed_at DESC,recorded_at DESC`,
+                [patient.id, input.concept_system, input.concept_code],
               )
-            ).rows[0];
+            ).rows;
+            const fact = facts.find(
+              (candidate) => candidate.id === input.fact_id,
+            );
             if (!fact)
               throw new FoundationError(
                 422,
-                "Preferred fact does not match this patient and concept",
+                "Preferred fact must be a verified active value for this patient and concept",
               );
+            competingFactIds = facts
+              .filter((candidate) => candidate.id !== input.fact_id)
+              .map((candidate) => candidate.id);
           }
           const preference = (
             await tx.query<any>(
               `INSERT INTO clinical.current_preference
-            (id,patient_id,concept_system,concept_code,fact_id,action,reason,actor)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+            (id,patient_id,concept_system,concept_code,fact_id,action,reason,actor,competing_fact_ids)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
               [
                 randomUUID(),
                 patient.id,
@@ -893,6 +1000,7 @@ export function mountClinicalFoundation(
                 input.action,
                 input.reason,
                 res.locals.session.actor,
+                JSON.stringify(competingFactIds),
               ],
             )
           ).rows[0];
@@ -1159,6 +1267,11 @@ export async function installRule(
   rule: ClinicalRule,
   actor: string,
 ) {
+  if (rule.status === "active" && !rule.key.startsWith("test."))
+    throw new FoundationError(
+      403,
+      "Active rules must use the governed maker-checker publication workflow",
+    );
   if (rule.status === "active" && !rule.evidence.length)
     throw new FoundationError(
       422,
@@ -1191,6 +1304,25 @@ export async function installRule(
       rule.priority,
       serialized,
       checksum,
+      actor,
+    ],
+  );
+  for (const evidence of rule.evidence)
+    await db.query(
+      `INSERT INTO decision_support.rule_evidence
+       (rule_key,rule_version,evidence_key,evidence_version,relationship,added_by)
+       VALUES($1,$2,$3,$4,'primary',$5) ON CONFLICT DO NOTHING`,
+      [rule.key, rule.version, evidence.key, evidence.version, actor],
+    );
+  await db.query(
+    `INSERT INTO decision_support.rule_lifecycle_event
+     (id,rule_key,rule_version,site_id,state,comment,actor)
+     VALUES($1,$2,$3,'demo-kuwait',$4,'Synthetic test helper; never seeded in production',$5)`,
+    [
+      randomUUID(),
+      rule.key,
+      rule.version,
+      rule.status === "active" ? "PUBLISHED" : "DRAFT",
       actor,
     ],
   );

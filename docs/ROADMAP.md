@@ -2,7 +2,7 @@
 
 ## Authoritative September 2026 sequence
 
-The two master specifications supplied on 22 September 2026 supersede the older sequence below. Their controlled Stage 0–14 roadmap and the implemented Stage 0/1 architecture are recorded in [CLINICAL_FOUNDATION_AUDIT.md](CLINICAL_FOUNDATION_AUDIT.md). Stage 2 disease-independent medication/lab work is next; no disease-specific module should begin before that foundation is governed and validated.
+The two master specifications supplied on 22 September 2026 supersede the older sequence below. Their controlled Stage 0–14 roadmap and the implemented Stage 0/1 architecture are recorded in [CLINICAL_FOUNDATION_AUDIT.md](CLINICAL_FOUNDATION_AUDIT.md). Stage 1.5 evidence control and maker-checker publication are implemented and documented in [CLINICAL_GOVERNANCE.md](CLINICAL_GOVERNANCE.md). Stage 2 disease-independent medication/lab work is next; no disease-specific module has begun.
 
 ## Product baseline restored — continuous care, then complete specialty workflows
 

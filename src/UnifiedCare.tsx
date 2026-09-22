@@ -28,6 +28,12 @@ import {
   type CareKind,
 } from "./care-model";
 import { ageOn, documentationAlerts } from "./clinical-review";
+import type {
+  ClinicalFact,
+  ClinicalPreference,
+  ClinicalState,
+  ClinicalValue,
+} from "./clinical-foundation";
 import type { Patient, Role, Task } from "./types";
 import { Badge, Empty, ErrorBox, Loading, Modal, SectionTitle } from "./ui";
 import {
@@ -58,6 +64,10 @@ type BoardEncounter = CareEncounter & {
   birth_date?: string;
 };
 type BoardData = { entries: BoardEntry[]; encounters: BoardEncounter[] };
+type ClinicalFoundationData = {
+  state: ClinicalState;
+  currentPreferences: ClinicalPreference[];
+};
 
 const patientTabs = ["Summary", "Clinical Record", "Timeline", "Registries"];
 const worklistFilters = [
@@ -399,6 +409,221 @@ function WorklistRow({
   );
 }
 
+function clinicalValueText(value: ClinicalValue) {
+  if (value.type === "quantity") return `${value.value} ${value.unit}`;
+  if (value.type === "coded") return value.display;
+  if (value.type === "boolean") return value.value ? "Yes" : "No";
+  if (value.type === "text") return value.value;
+  return "Structured clinical record";
+}
+
+function clinicalConceptLabel(code: string) {
+  return code
+    .replace(/^investigation\./, "")
+    .replace(/^care\./, "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function latestAssertions(facts: ClinicalFact[]) {
+  const latest = new Map<string, ClinicalFact>();
+  for (const fact of facts) {
+    const prior = latest.get(fact.logical_id);
+    if (!prior || fact.version > prior.version)
+      latest.set(fact.logical_id, fact);
+  }
+  return [...latest.values()].filter(
+    (fact) =>
+      fact.verification_status === "verified" &&
+      fact.lifecycle_status === "active",
+  );
+}
+
+function CurrentDecisionValues({
+  patientId,
+  data,
+  editable,
+  onChanged,
+}: {
+  patientId: string;
+  data: ClinicalFoundationData;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState<{
+      conceptSystem: string;
+      conceptCode: string;
+      factId: string | null;
+      action: "select" | "release";
+    } | null>(null),
+    [reason, setReason] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const preferences = new Map(
+    data.currentPreferences.map((preference) => [
+      `${preference.concept_system}|${preference.concept_code}`,
+      preference,
+    ]),
+  );
+  const concepts = data.state.concepts.filter((concept) => {
+    const candidates = latestAssertions(concept.history);
+    return (
+      candidates.length > 1 ||
+      concept.pending.length > 0 ||
+      preferences.get(`${concept.concept_system}|${concept.concept_code}`)
+        ?.action === "select"
+    );
+  });
+  if (!concepts.length) return null;
+  async function save() {
+    if (!editing || reason.trim().length < 2) {
+      setError("Document why this value should guide current decisions.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/patients/${patientId}/clinical-preferences`, {
+        concept_system: editing.conceptSystem,
+        concept_code: editing.conceptCode,
+        fact_id: editing.factId,
+        action: editing.action,
+        reason: reason.trim(),
+      });
+      setEditing(null);
+      setReason("");
+      onChanged();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel care-section current-values">
+      <SectionTitle
+        title="Current decision values"
+        subtitle="Verified competing values remain in history. A documented clinician selection changes only which value guides current decisions."
+      />
+      <ErrorBox message={error} />
+      <div className="current-value-list">
+        {concepts.map((concept) => {
+          const key = `${concept.concept_system}|${concept.concept_code}`,
+            preference = preferences.get(key),
+            override = preference?.action === "select",
+            candidates = latestAssertions(concept.history);
+          return (
+            <details key={key} className="current-value-card">
+              <summary>
+                <span>
+                  <strong>{clinicalConceptLabel(concept.concept_code)}</strong>
+                  <small>
+                    Current:{" "}
+                    {concept.current
+                      ? clinicalValueText(concept.current.value)
+                      : "No verified current value"}
+                  </small>
+                </span>
+                {override ? (
+                  <Badge tone="warning">Clinician selected</Badge>
+                ) : null}
+              </summary>
+              {override ? (
+                <div className="preference-note">
+                  <strong>Clinician override is active</strong>
+                  <p>{preference.reason}</p>
+                  <small>
+                    Selected by {preference.actor} ·{" "}
+                    {new Date(preference.created_at).toLocaleString()}
+                  </small>
+                </div>
+              ) : null}
+              <div className="candidate-values">
+                {candidates.map((fact) => (
+                  <div
+                    key={fact.id}
+                    className={
+                      fact.id === concept.current?.id ? "selected" : ""
+                    }
+                  >
+                    <span>
+                      <strong>{clinicalValueText(fact.value)}</strong>
+                      <small>
+                        {fact.source_label} ·{" "}
+                        {new Date(fact.observed_at).toLocaleDateString()} ·{" "}
+                        {fact.source_quality} quality
+                      </small>
+                    </span>
+                    {fact.id === concept.current?.id ? (
+                      <Badge tone="active">Current</Badge>
+                    ) : editable ? (
+                      <button
+                        className="secondary small"
+                        onClick={() => {
+                          setEditing({
+                            conceptSystem: concept.concept_system,
+                            conceptCode: concept.concept_code,
+                            factId: fact.id,
+                            action: "select",
+                          });
+                          setReason("");
+                        }}
+                      >
+                        Use as current value
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              {override && editable ? (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setEditing({
+                      conceptSystem: concept.concept_system,
+                      conceptCode: concept.concept_code,
+                      factId: null,
+                      action: "release",
+                    });
+                    setReason("");
+                  }}
+                >
+                  Return to automatic current-value resolution
+                </button>
+              ) : null}
+              {editing?.conceptCode === concept.concept_code ? (
+                <div className="preference-editor">
+                  <label>
+                    Clinical reason
+                    <textarea
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                      placeholder="Document why this value should guide current decisions"
+                      maxLength={1000}
+                    />
+                  </label>
+                  <div>
+                    <button
+                      className="secondary"
+                      onClick={() => setEditing(null)}
+                      disabled={busy}
+                    >
+                      Cancel
+                    </button>
+                    <button className="primary" onClick={save} disabled={busy}>
+                      {busy ? "Saving…" : "Confirm current value"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </details>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 type AddChoice = {
   label: string;
   description: string;
@@ -491,6 +716,10 @@ export function UnifiedPatientWorkspace({
   );
   const { data: patient } = useData<Patient>(`/patients/${id}`, revision);
   const { data: allTasks } = useData<Task[]>("/tasks", revision);
+  const { data: clinicalFoundation } = useData<ClinicalFoundationData>(
+    `/patients/${id}/clinical-state`,
+    revision,
+  );
 
   function saved() {
     setEditor(null);
@@ -674,19 +903,29 @@ export function UnifiedPatientWorkspace({
       ) : null}
       <div role="tabpanel" aria-label={tab}>
         {tab === "Summary" ? (
-          <PatientSummary
-            activeProblems={activeProblems}
-            results={results}
-            medications={activeMedications}
-            pending={pending}
-            tasks={tasks}
-            alerts={alerts}
-            nextEvent={nextEvent}
-            role={role}
-            onEdit={edit}
-            onTask={setFollowup}
-            onRecord={() => setTab("Clinical Record")}
-          />
+          <>
+            <PatientSummary
+              activeProblems={activeProblems}
+              results={results}
+              medications={activeMedications}
+              pending={pending}
+              tasks={tasks}
+              alerts={alerts}
+              nextEvent={nextEvent}
+              role={role}
+              onEdit={edit}
+              onTask={setFollowup}
+              onRecord={() => setTab("Clinical Record")}
+            />
+            {clinicalFoundation ? (
+              <CurrentDecisionValues
+                patientId={id}
+                data={clinicalFoundation}
+                editable={role === "clinician"}
+                onChanged={() => setRevision((value) => value + 1)}
+              />
+            ) : null}
+          </>
         ) : tab === "Clinical Record" ? (
           <section className="panel care-section clinical-record">
             <div className="record-toolbar">

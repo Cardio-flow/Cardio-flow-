@@ -11,6 +11,17 @@ export type Patient = {
   mrn: string;
   sex: string;
   birth_date: string;
+  civil_id?: string | null;
+  phone?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  bmi?: number | null;
+  bsa?: number | null;
+  allergies?: string[];
+  smoking_status?: string | null;
+  reproductive_status?: string | null;
+  primary_team?: string | null;
+  major_comorbidities?: string[];
   crf: number;
   enrollment_id: string;
   episode_count: number;

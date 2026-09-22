@@ -89,7 +89,7 @@ Server-side PGlite (embedded PostgreSQL, persistent on local disk)
   cad.lesion / cad.stent / clinical.encounter
   workflow.followup_task / task_satisfaction
   clinical.fact / current_preference / event
-  decision_support.rule_definition / recommendation / alert / pathway
+  decision_support.evidence / governed rule lifecycle / recommendation / alert / pathway
   workflow.clinical_task / clinical_task_event
   governance.audit_event / record_snapshot / export_job
 ```
@@ -105,6 +105,7 @@ All runtime web assets are bundled locally. No public CDN, HIS connection, clini
 | `server/domain.ts`                      | Input validation, calendar logic, CAD demo definition, CSV escaping             |
 | `server/schema.sql`                     | Relational PostgreSQL development schema and immutable record triggers          |
 | `server/clinical-foundation-schema.sql` | Additive Stage 1 fact, rules, evidence, alert, task and pathway schema          |
+| `server/clinical-governance-schema.sql` | Additive Stage 1.5 evidence control, rule publication and traceability schema   |
 | `src/clinical-foundation.ts`            | Shared state resolver, field/unit primitives, rule evaluator and pathway engine |
 | `server/db.ts`                          | Persistent database initialization and synthetic fixtures                       |
 | `tests/`                                | Domain, API, and browser acceptance checks                                      |
@@ -125,9 +126,9 @@ Browser tests use a separate temporary database and a second local server on por
 npx playwright install --with-deps chromium
 ```
 
-The test suite covers authorization, CSRF/origin checks, duplicate identity, chronology, concurrent-version rejection, finalization transaction behavior, immutable history, independent review, calendar boundaries, follow-up satisfaction, CSV injection protection, scope filtering, exports, and phone layout.
+The test suite covers authorization, CSRF/origin checks, duplicate identity, chronology, concurrent-version rejection, finalization transaction behavior, immutable history, independent clinical-rule review and technical testing, publication/superseding, evidence reassessment, current-value overrides, calendar boundaries, follow-up satisfaction, CSV injection protection, scope filtering, exports, and phone layout.
 
-See [the API guide](docs/API.md) and [release roadmap](docs/ROADMAP.md) for current limitations and the next build stages.
+See [the API guide](docs/API.md), [Stage 1.5 governance report](docs/CLINICAL_GOVERNANCE.md), and [release roadmap](docs/ROADMAP.md) for current limitations and the next build stages.
 
 ## Hosted pilot
 

@@ -1,5 +1,15 @@
 # Progress — 16 September 2026
 
+## Release 0.6 — Stage 1.5 clinical governance (22 September 2026)
+
+Implemented the additive evidence and rule-governance layer described in [CLINICAL_GOVERNANCE.md](CLINICAL_GOVERNANCE.md): versioned evidence status and review queue, site guideline preferences, a separate institutional-policy layer, immutable rule metadata and versions, independent maker/checker review, separate technical test-run authority, server-only execution of published rules, reassessment after rule/evidence changes, recommendation traceability, clinician recommendation actions, and the remaining current-value override UI.
+
+The patient master gained optional reusable Civil ID/file identifier, phone, height, weight, derived BMI/BSA, allergies, smoking/reproductive status, primary team and major comorbidities. Existing clinical facts, patients, registry records, care history, authentication and audit history are preserved.
+
+Seeded metadata-only reference records cover ESC heart failure 2026, ESC/EACTS valvular heart disease 2025, ESC atrial fibrillation 2024, ESC non-cardiac surgery 2022, KDIGO CKD 2024 and ADA 2026. No disease-specific clinical rule is installed or active.
+
+Migration: additive `005-clinical-governance`. Verification: TypeScript/production build passed and all 42 server/domain/auth/foundation/governance tests passed, including lifecycle, rejection, superseding, immutable history, unauthorized publication, separate technical testing, site isolation, evidence update recalculation, traceability, current-value override and unpublished-rule blocking.
+
 ## Release 0.5 — Stage 0 audit and Stage 1 clinical foundation (22 September 2026)
 
 The two September 2026 master specifications are now the controlling product roadmap, with the second specification taking precedence. [CLINICAL_FOUNDATION_AUDIT.md](CLINICAL_FOUNDATION_AUDIT.md) contains the architecture comparison, duplicate-data map, additive design, migration inventory, validation scope and Stage 0–14 sequence.

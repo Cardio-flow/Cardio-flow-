@@ -11,6 +11,7 @@ import {
   FoundationError,
   mountClinicalFoundation,
 } from "./clinical-foundation.js";
+import { mountClinicalGovernance } from "./clinical-governance.js";
 import {
   patientSchema,
   episodeSchema,
@@ -167,7 +168,14 @@ export function createApp(db: DB, hosted?: HostedOptions) {
       .parse(req.query.q ?? "");
     const patients = (
       await db.query(
-        `SELECT p.*, e.id enrollment_id,e.crf,e.registry_key, (SELECT count(*)::int FROM clinical.episode ep WHERE ep.enrollment_id=e.id) episode_count FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD' WHERE p.site_id='demo-kuwait' AND (p.name ILIKE $1 OR p.mrn ILIKE $1) ORDER BY p.created_at DESC,p.name`,
+        `SELECT p.*,
+          CASE WHEN p.height_cm IS NOT NULL AND p.weight_kg IS NOT NULL THEN round((p.weight_kg/power(p.height_cm/100,2))::numeric,1) END bmi,
+          CASE WHEN p.height_cm IS NOT NULL AND p.weight_kg IS NOT NULL THEN round(sqrt((p.height_cm*p.weight_kg)/3600)::numeric,2) END bsa,
+          e.id enrollment_id,e.crf,e.registry_key,
+          (SELECT count(*)::int FROM clinical.episode ep WHERE ep.enrollment_id=e.id) episode_count
+         FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD'
+         WHERE p.site_id='demo-kuwait' AND (p.name ILIKE $1 OR p.mrn ILIKE $1 OR COALESCE(p.civil_id,'') ILIKE $1 OR COALESCE(p.phone,'') ILIKE $1)
+         ORDER BY p.created_at DESC,p.name`,
         ["%" + q + "%"],
       )
     ).rows;
@@ -179,7 +187,9 @@ export function createApp(db: DB, hosted?: HostedOptions) {
       enrollment = randomUUID();
     await db.transaction(async (tx) => {
       await tx.query(
-        "INSERT INTO core.patient(id,name,mrn,sex,birth_date,created_by) VALUES($1,$2,$3,$4,$5,$6)",
+        `INSERT INTO core.patient
+         (id,name,mrn,sex,birth_date,created_by,civil_id,phone,height_cm,weight_kg,allergies,smoking_status,reproductive_status,primary_team,major_comorbidities)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           id,
           input.name,
@@ -187,6 +197,15 @@ export function createApp(db: DB, hosted?: HostedOptions) {
           input.sex,
           input.birth_date,
           res.locals.session.actor,
+          input.civil_id,
+          input.phone,
+          input.height_cm,
+          input.weight_kg,
+          JSON.stringify(input.allergies),
+          input.smoking_status,
+          input.reproductive_status,
+          input.primary_team,
+          JSON.stringify(input.major_comorbidities),
         ],
       );
       if (input.enroll_cad)
@@ -216,7 +235,12 @@ export function createApp(db: DB, hosted?: HostedOptions) {
   const patient = async (db: Pick<DB, "query">, id: string) => {
     const p = await one(
       db,
-      "SELECT p.*,e.id enrollment_id,e.crf,e.registry_key,e.status enrollment_status FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD' WHERE p.id=$1 AND p.site_id='demo-kuwait'",
+      `SELECT p.*,
+        CASE WHEN p.height_cm IS NOT NULL AND p.weight_kg IS NOT NULL THEN round((p.weight_kg/power(p.height_cm/100,2))::numeric,1) END bmi,
+        CASE WHEN p.height_cm IS NOT NULL AND p.weight_kg IS NOT NULL THEN round(sqrt((p.height_cm*p.weight_kg)/3600)::numeric,2) END bsa,
+        e.id enrollment_id,e.crf,e.registry_key,e.status enrollment_status
+       FROM core.patient p LEFT JOIN registry.enrollment e ON e.patient_id=p.id AND e.registry_key='CAD'
+       WHERE p.id=$1 AND p.site_id='demo-kuwait'`,
       [uuid.parse(id)],
     );
     if (!p) throw new ApiError(404, "Patient not found");
@@ -725,6 +749,12 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     allow("clinician", "reviewer"),
     allow("clinician"),
   );
+  mountClinicalGovernance(
+    app,
+    db,
+    allow("clinician", "reviewer"),
+    allow("clinician"),
+  );
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );
@@ -738,7 +768,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     if (err.code === "23505")
       return res.status(409).json({
         error:
-          "This synthetic MRN or enrollment already exists. Search for the existing patient.",
+          "This synthetic MRN, civil ID, or enrollment already exists. Search for the existing patient.",
       });
     if (
       err instanceof ApiError ||

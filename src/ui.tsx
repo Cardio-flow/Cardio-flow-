@@ -107,7 +107,7 @@ export function SectionTitle({
 }: {
   title: string;
   subtitle?: string;
-  action?: string;
+  action?: ReactNode;
   onAction?: () => void;
 }) {
   return (
@@ -116,12 +116,14 @@ export function SectionTitle({
         <h2>{title}</h2>
         {subtitle ? <p>{subtitle}</p> : null}
       </div>
-      {action ? (
+      {typeof action === "string" ? (
         <button className="text-button" onClick={onAction}>
           {action}
           <ArrowUpRight size={16} />
         </button>
-      ) : null}
+      ) : (
+        action
+      )}
     </div>
   );
 }

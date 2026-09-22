@@ -2715,6 +2715,260 @@ input[type="checkbox"] {
   }
 }
 
+/* Clinical governance and explicit current-value resolution */
+.governance-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+.governance-summary > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.governance-summary svg {
+  grid-row: 1 / 3;
+  color: #47745f;
+}
+.governance-summary strong {
+  font-size: 22px;
+  line-height: 1;
+}
+.governance-summary span {
+  color: #6b7c73;
+  font-size: 11px;
+}
+.evidence-list,
+.rule-list,
+.current-value-list {
+  display: grid;
+  gap: 12px;
+}
+.evidence-list > article,
+.rule-card,
+.current-value-card {
+  border: 1px solid #dce5df;
+  border-radius: 10px;
+  background: #fff;
+}
+.evidence-list > article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+}
+.evidence-list h3,
+.rule-card h3 {
+  margin: 5px 0;
+  font-size: 15px;
+}
+.evidence-list p,
+.rule-card p {
+  color: #687a70;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.evidence-status,
+.rule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.evidence-status a {
+  color: #2f6a53;
+  font-size: 11px;
+  font-weight: 650;
+}
+.rule-card {
+  padding: 20px;
+}
+.rule-card-head,
+.policy-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.rule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.rule-meta span {
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #f2f6f3;
+  color: #66766d;
+  font-size: 10px;
+}
+.rule-card details {
+  margin: 15px 0;
+  border-top: 1px solid #e7ece9;
+  padding-top: 12px;
+  color: #576c61;
+  font-size: 12px;
+}
+.rule-actions {
+  border-top: 1px solid #e7ece9;
+  padding-top: 14px;
+}
+.governance-config .section-title,
+.current-values .section-title {
+  padding: 0 0 20px;
+}
+.policy-row {
+  align-items: center;
+  padding: 13px 0;
+  border-top: 1px solid #e7ece9;
+}
+.policy-row strong,
+.policy-row small {
+  display: block;
+}
+.policy-row small {
+  margin-top: 5px;
+  color: #78877f;
+  line-height: 1.45;
+}
+.review-checklist {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid #dce5df;
+  border-radius: 8px;
+}
+.review-checklist label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.current-values {
+  margin-top: 18px;
+}
+.current-value-card {
+  overflow: hidden;
+}
+.current-value-card > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 17px;
+  cursor: pointer;
+}
+.current-value-card > summary strong,
+.current-value-card > summary small,
+.candidate-values strong,
+.candidate-values small {
+  display: block;
+}
+.current-value-card > summary small,
+.candidate-values small {
+  margin-top: 4px;
+  color: #75857c;
+  line-height: 1.45;
+}
+.candidate-values {
+  padding: 0 17px;
+}
+.candidate-values > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 0;
+  border-top: 1px solid #e8edea;
+}
+.candidate-values > div.selected {
+  color: #255c45;
+}
+.preference-note,
+.preference-editor {
+  margin: 0 17px 12px;
+  padding: 13px;
+  border-radius: 8px;
+  background: #fbf6ea;
+  color: #6d5935;
+}
+.preference-note p {
+  margin: 5px 0;
+}
+.preference-editor > label {
+  display: grid;
+  gap: 7px;
+}
+.preference-editor > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.current-value-card > .text-button {
+  margin: 4px 17px 14px;
+}
+.patient-details {
+  border: 1px solid #dce5df;
+  border-radius: 8px;
+  padding: 13px;
+}
+.patient-details > summary {
+  cursor: pointer;
+  color: #315f4c;
+  font-weight: 650;
+}
+.patient-details > .form-grid {
+  margin-top: 16px;
+}
+.input-with-unit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .governance-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .evidence-list > article {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .evidence-status {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 600px) {
+  .governance-summary {
+    grid-template-columns: 1fr;
+  }
+  .rule-card-head,
+  .policy-row,
+  .candidate-values > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .rule-actions {
+    justify-content: stretch;
+  }
+  .rule-actions button {
+    flex: 1;
+  }
+}
+
 /* Clinician-first navigation and unified patient workspace */
 .secondary-label {
   margin-top: 22px;

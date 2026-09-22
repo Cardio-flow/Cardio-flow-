@@ -466,9 +466,11 @@ export type ClinicalRule = {
     alert?: {
       category:
         | "critical"
+        | "warning"
         | "clinical_review"
         | "monitoring"
         | "treatment_opportunity"
+        | "informational"
         | "administrative";
       severity: "critical" | "high" | "moderate" | "low" | "information";
     };

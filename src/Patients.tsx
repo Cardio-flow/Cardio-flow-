@@ -99,6 +99,16 @@ export function NewPatient({
     const form = new FormData(e.currentTarget);
     const data = {
       ...Object.fromEntries(form),
+      allergies: String(form.get("allergies") || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      major_comorbidities: String(form.get("major_comorbidities") || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      smoking_status: form.get("smoking_status") || null,
+      reproductive_status: form.get("reproductive_status") || null,
       enroll_cad: form.get("enroll_cad") === "on",
     };
     try {
@@ -163,6 +173,84 @@ export function NewPatient({
               (optional)
             </span>
           </label>
+          <details className="span-2 patient-details">
+            <summary>Additional reusable patient details</summary>
+            <div className="form-grid">
+              <label>
+                Civil ID / file identifier
+                <input name="civil_id" maxLength={40} placeholder="Optional" />
+              </label>
+              <label>
+                Contact number
+                <input name="phone" maxLength={40} placeholder="Optional" />
+              </label>
+              <label>
+                Height
+                <span className="input-with-unit">
+                  <input
+                    name="height_cm"
+                    type="number"
+                    min="30"
+                    max="250"
+                    step="0.1"
+                  />
+                  <small>cm</small>
+                </span>
+              </label>
+              <label>
+                Weight
+                <span className="input-with-unit">
+                  <input
+                    name="weight_kg"
+                    type="number"
+                    min="1"
+                    max="500"
+                    step="0.1"
+                  />
+                  <small>kg</small>
+                </span>
+              </label>
+              <label>
+                Smoking status
+                <select name="smoking_status">
+                  <option value="">Not recorded</option>
+                  <option>Never</option>
+                  <option>Former</option>
+                  <option>Current</option>
+                  <option>Unknown</option>
+                </select>
+              </label>
+              <label>
+                Primary consultant / team
+                <input name="primary_team" maxLength={200} />
+              </label>
+              <label className="span-2">
+                Allergies
+                <input
+                  name="allergies"
+                  placeholder="Separate entries with commas"
+                />
+              </label>
+              <label className="span-2">
+                Major comorbidities
+                <input
+                  name="major_comorbidities"
+                  placeholder="Separate entries with commas"
+                />
+              </label>
+              <label>
+                Reproductive status when relevant
+                <select name="reproductive_status">
+                  <option value="">Not recorded</option>
+                  <option>Not applicable</option>
+                  <option>Potentially relevant</option>
+                  <option>Pregnant</option>
+                  <option>Postpartum</option>
+                  <option>Unknown</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
         <ErrorBox message={error} />
         <div className="modal-footer">

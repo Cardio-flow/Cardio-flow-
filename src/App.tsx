@@ -26,6 +26,7 @@ import type { Role, Session, Overview, Patient, Task } from "./types";
 import { Mark, Badge, ErrorBox, Loading, SectionTitle } from "./ui";
 import { Patients, NewPatient, PatientTable } from "./Patients";
 import { Exports, Definitions, AuditLog } from "./Workflows";
+import { ClinicalGovernance } from "./ClinicalGovernance";
 const navigation = [
   {
     key: "worklist",
@@ -58,6 +59,12 @@ const secondaryNavigation = [
     label: "Audit history",
     icon: History,
     roles: ["clinician", "reviewer"],
+  },
+  {
+    key: "governance",
+    label: "Clinical governance",
+    icon: ShieldCheck,
+    roles: ["reviewer"],
   },
 ];
 export default function App() {
@@ -384,6 +391,8 @@ export default function App() {
             <RegistryAnalytics revision={revision} />
           ) : view === "exports" ? (
             <Exports />
+          ) : view === "governance" ? (
+            <ClinicalGovernance />
           ) : (
             <AuditLog revision={revision} />
           )}

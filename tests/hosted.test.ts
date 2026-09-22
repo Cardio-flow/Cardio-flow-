@@ -64,7 +64,7 @@ test("hosted mode disables demo access, rejects forged sessions and cross-origin
       403,
     );
     await db.query(
-      "CREATE TABLE governance.membership(email text PRIMARY KEY,user_id text UNIQUE,role text NOT NULL,active boolean DEFAULT true)",
+      "CREATE TABLE IF NOT EXISTS governance.membership(email text PRIMARY KEY,user_id text UNIQUE,role text NOT NULL,active boolean DEFAULT true)",
     );
     const makeCookie = async (verified: boolean, id = "test-user") => {
       const now = new Date().toISOString();
