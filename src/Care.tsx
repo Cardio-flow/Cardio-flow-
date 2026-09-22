@@ -99,7 +99,7 @@ export function CareBoard({
           <p>
             {title === "Today"
               ? "What needs a decision, who owns it, and what happens next."
-              : "Open the same patient record across every encounter."}
+              : "Open the same patient record across every visit and admission."}
           </p>
         </div>
         {role === "clinician" ? (
@@ -161,12 +161,14 @@ export function CareBoard({
               title={
                 title === "Today"
                   ? "Continuing care worklist"
-                  : `${title} encounters`
+                  : title === "Admissions"
+                    ? "Admissions"
+                    : "Clinic visits"
               }
               subtitle={
                 title === "Today"
                   ? "Based on documented plans. An overdue item does not establish that care was missed."
-                  : "Closed encounters retain their handover and ongoing patient plan."
+                  : "Closed visits and admissions retain their handover and ongoing patient plan."
               }
             />
             <label className="care-search">
@@ -229,8 +231,8 @@ export function CareBoard({
                 </button>
               ))
             ) : (
-              <Empty title={`No ${title} encounters recorded`}>
-                Open a patient from Patients and choose Start encounter.
+              <Empty title={`No ${title} care contexts recorded`}>
+                Open a patient from Patients and choose New visit / admission.
               </Empty>
             )}
           </section>
@@ -372,13 +374,14 @@ export function CareWorkspace({
         {role === "clinician" ? (
           <button className="primary" onClick={() => setNewEncounter(true)}>
             <Plus size={17} />
-            Start encounter
+            New visit / admission
           </button>
         ) : null}
       </div>
       <div className="patient-strip">
         <span>
-          {encounters.filter((e) => e.state === "open").length} open encounters
+          {encounters.filter((e) => e.state === "open").length} active care
+          contexts
         </span>
         <span>{pending.length} outstanding reviews</span>
         <span>
@@ -496,7 +499,7 @@ export function CareWorkspace({
             </div>
             <section className="panel care-section">
               <SectionTitle
-                title="Recent encounters"
+                title="Recent care contexts"
                 action="View journey"
                 onAction={() => setTab("Journey")}
               />
@@ -525,7 +528,7 @@ export function CareWorkspace({
         ) : tab === "Journey" ? (
           <section className="panel care-section">
             <SectionTitle
-              title="Connected encounters"
+              title="Connected visits and admissions"
               subtitle="Links are selected by the clinician. Every event retains its origin and date."
             />
             {encounters.map((e) => (
@@ -954,13 +957,13 @@ export function EntryEditor({
             />
           </label>
           <label>
-            Origin encounter
+            Care context
             <select
               name="encounter_id"
               defaultValue={original?.encounter_id ?? ""}
               disabled={!!original}
             >
-              <option value="">Continuing plan / no encounter</option>
+              <option value="">Continuing plan / no specific context</option>
               {encounters.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.kind} · {date(c.started_on)} · {c.reason}
@@ -1073,7 +1076,7 @@ export function EncounterEditor({
     }
   }
   return (
-    <Modal title="Start encounter" onClose={onClose}>
+    <Modal title="Start a visit or admission" onClose={onClose}>
       <form onSubmit={submit}>
         <div className="form-grid">
           <label>
@@ -1095,7 +1098,7 @@ export function EncounterEditor({
             />
           </label>
           <label className="span-2">
-            Reason for encounter
+            Reason for visit / admission
             <input name="reason" required minLength={2} maxLength={300} />
           </label>
           <label className="span-2">
@@ -1103,7 +1106,7 @@ export function EncounterEditor({
             <input name="owner" required minLength={2} maxLength={300} />
           </label>
           <label className="span-2">
-            Connect to previous encounter
+            Connect to previous care context
             <select name="linked_encounter_id">
               <option value="">No connection selected</option>
               {encounters.map((c) => (
@@ -1117,7 +1120,7 @@ export function EncounterEditor({
         <ErrorBox message={error} />
         <div className="modal-footer">
           <button className="primary" disabled={busy}>
-            Open encounter
+            Open care context
           </button>
         </div>
       </form>
@@ -1159,10 +1162,14 @@ export function CloseEncounter({
     }
   }
   return (
-    <Modal wide title="Close encounter and hand over" onClose={onClose}>
+    <Modal
+      wide
+      title={`Close ${encounter.kind} and hand over`}
+      onClose={onClose}
+    >
       <p>
         {pending.length} outstanding patient reviews will remain active after
-        this encounter closes.
+        this care context closes.
       </p>
       <ul className="handover-list">
         {pending.map((e) => (
@@ -1197,7 +1204,7 @@ export function CloseEncounter({
         <ErrorBox message={error} />
         <div className="modal-footer">
           <button className="primary" disabled={busy}>
-            Close encounter; retain care plan
+            Close care context; retain care plan
           </button>
         </div>
       </form>
@@ -1280,7 +1287,7 @@ export function downloadReport(data: CareData) {
           )
           .join(
             "",
-          )}<p>Action: ${escape(e.action)}</p><p>Response: ${escape(e.response)}</p><p>Owner: ${escape(e.owner)} · Review: ${escape(e.due_date || "Not recorded")}</p><small>Origin encounter: ${escape(e.encounter_id || "Continuing plan")} · Updated ${escape(e.updated_at)}</small></article>`,
+          )}<p>Action: ${escape(e.action)}</p><p>Response: ${escape(e.response)}</p><p>Owner: ${escape(e.owner)} · Review: ${escape(e.due_date || "Not recorded")}</p><small>Care context: ${escape(e.encounter_id || "Continuing plan")} · Updated ${escape(e.updated_at)}</small></article>`,
     )
     .join(
       "",

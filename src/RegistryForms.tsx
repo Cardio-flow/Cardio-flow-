@@ -454,7 +454,7 @@ function RegistryEditor({
             </select>
           </label>
           <label>
-            Linked encounter
+            Linked care context
             <select
               disabled={!!original || readOnly}
               value={encounter}

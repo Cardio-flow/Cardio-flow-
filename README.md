@@ -2,7 +2,7 @@
 
 A shared cardiovascular care and registry workspace. The recovered **Final Codex Plan / masterplan v1.2** is the product baseline; see [the recovered brief](docs/MASTERPLAN.md) and [implementation progress](docs/PROGRESS.md). The complete planned platform remains in development.
 
-**Release 0.2 is a synthetic engineering pilot with local and hosted modes. It is not approved for real patient data or clinical use.** The hosted mode uses Neon Auth and shared PostgreSQL; institution approval and clinical release gates remain tracked in [the delivery roadmap](docs/ROADMAP.md).
+**Release 0.5 is a synthetic engineering pilot with local and hosted modes. It is not approved for real patient data or clinical use.** The hosted mode uses Neon Auth and shared PostgreSQL; institution approval and clinical release gates remain tracked in [the Stage 0/1 architecture report](docs/CLINICAL_FOUNDATION_AUDIT.md) and [delivery roadmap](docs/ROADMAP.md).
 
 Hosted site: https://cardio-flow-one.vercel.app. Neon Auth trusted-domain configuration and the first approved membership are active.
 
@@ -39,7 +39,7 @@ Only one server should open a database directory at a time. Use a new directory 
 
 ## Working features
 
-- Today, Admissions, OPD, Registries, Patients and a six-tab longitudinal patient workspace.
+- Worklist, Patients, Registries & Analytics and a unified four-tab patient workspace.
 - Dated clinician-entered problems, decisions, investigations, medications, procedures, complications and review ownership.
 - Explicit encounter connections; closure retains outstanding reviews and records a handover.
 - Versioned care records with immutable revision history and stale-write rejection.
@@ -53,6 +53,9 @@ Only one server should open a database directory at a time. Use a new directory 
 - Read-only registry library with the CAD template and clearly planned HF, EP, and Structural Heart modules.
 - Purpose-bound episode CSV exports and a codebook, with frozen content, row counts, and SHA-256 checksums.
 - Append-only database audit events and final snapshots. No patient records or privileges are stored in browser local storage.
+- Versioned terminology, units and structured-field definitions shared by the clinical foundation.
+- Immutable source-linked clinical facts, current/pending/historical state resolution and clinician-preferred measurements.
+- Persistent change events with centralized, time-aware rule recalculation, versioned evidence, expiring recommendations, alert actions, tasks and interactive pathway infrastructure.
 
 CAD protocol windows (7 days early / 14 days late), contact requirements, and displayed value sets are **demonstration configuration pending named clinical approval**. There are no active treatment recommendations, proprietary scores, or clinical calculators.
 
@@ -85,6 +88,9 @@ Server-side PGlite (embedded PostgreSQL, persistent on local disk)
   care.encounter / care.entry / care.revision
   cad.lesion / cad.stent / clinical.encounter
   workflow.followup_task / task_satisfaction
+  clinical.fact / current_preference / event
+  decision_support.rule_definition / recommendation / alert / pathway
+  workflow.clinical_task / clinical_task_event
   governance.audit_event / record_snapshot / export_job
 ```
 
@@ -92,15 +98,17 @@ PGlite runs **on the server**, not in the browser. It provides real PostgreSQL s
 
 All runtime web assets are bundled locally. No public CDN, HIS connection, clinical browser PIN, or hospital integration is used.
 
-| Directory           | Responsibility                                                         |
-| ------------------- | ---------------------------------------------------------------------- |
-| `src/`              | Responsive React interface and typed API client                        |
-| `server/app.ts`     | Session/role checks and transactional domain API                       |
-| `server/domain.ts`  | Input validation, calendar logic, CAD demo definition, CSV escaping    |
-| `server/schema.sql` | Relational PostgreSQL development schema and immutable record triggers |
-| `server/db.ts`      | Persistent database initialization and synthetic fixtures              |
-| `tests/`            | Domain, API, and browser acceptance checks                             |
-| `docs/`             | Delivery scope, architecture decisions, API guide                      |
+| Directory                               | Responsibility                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/`                                  | Responsive React interface and typed API client                                 |
+| `server/app.ts`                         | Session/role checks and transactional domain API                                |
+| `server/domain.ts`                      | Input validation, calendar logic, CAD demo definition, CSV escaping             |
+| `server/schema.sql`                     | Relational PostgreSQL development schema and immutable record triggers          |
+| `server/clinical-foundation-schema.sql` | Additive Stage 1 fact, rules, evidence, alert, task and pathway schema          |
+| `src/clinical-foundation.ts`            | Shared state resolver, field/unit primitives, rule evaluator and pathway engine |
+| `server/db.ts`                          | Persistent database initialization and synthetic fixtures                       |
+| `tests/`                                | Domain, API, and browser acceptance checks                                      |
+| `docs/`                                 | Delivery scope, architecture decisions, API guide                               |
 
 ## Verification
 

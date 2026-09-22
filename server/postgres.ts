@@ -58,6 +58,10 @@ export async function migrate(db: DB) {
     new URL("./guided-schema.sql", import.meta.url),
     "utf8",
   );
+  const clinicalFoundationSchema = await readFile(
+    new URL("./clinical-foundation-schema.sql", import.meta.url),
+    "utf8",
+  );
   await db.transaction(async (tx) => {
     await tx.query("CREATE SCHEMA IF NOT EXISTS governance");
     await tx.query(
@@ -111,6 +115,25 @@ export async function migrate(db: DB) {
       await tx.query(
         "INSERT INTO governance.migration(name,checksum) VALUES('003-guided-forms',$1)",
         [hash(guidedSchema)],
+      );
+    }
+    const clinicalFoundationMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='004-clinical-foundation'",
+      )
+    ).rows[0];
+    if (
+      clinicalFoundationMigration &&
+      clinicalFoundationMigration.checksum !== hash(clinicalFoundationSchema)
+    )
+      throw new Error(
+        "Clinical foundation migration changed; add a new migration instead",
+      );
+    if (!clinicalFoundationMigration) {
+      await tx.query(clinicalFoundationSchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('004-clinical-foundation',$1)",
+        [hash(clinicalFoundationSchema)],
       );
     }
   });

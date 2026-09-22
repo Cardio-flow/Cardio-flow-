@@ -8,6 +8,10 @@ import { z, ZodError } from "zod";
 import { type DB, audit, hash } from "./db.js";
 import { mountCare, CareError } from "./care.js";
 import {
+  FoundationError,
+  mountClinicalFoundation,
+} from "./clinical-foundation.js";
+import {
   patientSchema,
   episodeSchema,
   historicalDate,
@@ -715,6 +719,12 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     res.status(201).json(job);
   });
   mountCare(app, db);
+  mountClinicalFoundation(
+    app,
+    db,
+    allow("clinician", "reviewer"),
+    allow("clinician"),
+  );
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );
@@ -730,7 +740,11 @@ export function createApp(db: DB, hosted?: HostedOptions) {
         error:
           "This synthetic MRN or enrollment already exists. Search for the existing patient.",
       });
-    if (err instanceof ApiError || err instanceof CareError)
+    if (
+      err instanceof ApiError ||
+      err instanceof CareError ||
+      err instanceof FoundationError
+    )
       return res.status(err.status).json({ error: err.message });
     if (err.type === "entity.parse.failed")
       return res.status(400).json({ error: "Invalid JSON" });

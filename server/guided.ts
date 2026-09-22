@@ -25,6 +25,7 @@ import {
   type Answers,
   type Template,
 } from "../src/guided.js";
+import { projectCareEntry } from "./clinical-foundation.js";
 
 const inputSchema = z
   .object({
@@ -209,7 +210,7 @@ async function checkOrigin(
     )
       throw new CareError(
         422,
-        "Record date must fall within the selected encounter",
+        "Record date must fall within the selected care context",
       );
   }
 }
@@ -290,6 +291,7 @@ export function mountGuided(
           )
         ).rows[0];
         await revision(tx, row, res.locals.session.actor);
+        await projectCareEntry(tx, row, res.locals.session.actor);
         result.push(row);
       }
       return result;
@@ -345,6 +347,7 @@ export function mountGuided(
       if (!row)
         throw new CareError(409, "This record changed. Reload before saving.");
       await revision(tx, row, res.locals.session.actor);
+      await projectCareEntry(tx, row, res.locals.session.actor);
       return row;
     });
     res.json(row);

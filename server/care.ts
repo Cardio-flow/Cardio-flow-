@@ -17,6 +17,7 @@ import {
   needsReview,
   type CareEntry,
 } from "../src/care-model.js";
+import { projectCareEntry } from "./clinical-foundation.js";
 
 export class CareError extends Error {
   constructor(
@@ -138,7 +139,7 @@ export async function encounter(db: QueryDB, id: string, patientId: string) {
     "SELECT * FROM care.encounter WHERE id=$1 AND patient_id=$2",
     [uuid.parse(id), patientId],
   );
-  if (!row) throw new CareError(404, "Encounter not found for this patient");
+  if (!row) throw new CareError(404, "Care context not found for this patient");
   return row;
 }
 export async function record(db: QueryDB, id: string) {
@@ -228,13 +229,16 @@ export function mountCare(app: Express, db: DB) {
     const row = await db.transaction(async (tx) => {
       const p = await patient(tx, String(req.params.id));
       if (input.started_on < p.birth_date)
-        throw new CareError(422, "Encounter cannot precede birth date");
+        throw new CareError(
+          422,
+          "Visit or admission cannot precede birth date",
+        );
       if (input.linked_encounter_id) {
         const linked = await encounter(tx, input.linked_encounter_id, p.id);
         if (linked.started_on > input.started_on)
           throw new CareError(
             422,
-            "A linked encounter cannot start after this encounter",
+            "A linked care context cannot start after this visit or admission",
           );
       }
       const e = await one(
@@ -254,7 +258,7 @@ export function mountCare(app: Express, db: DB) {
       await audit(
         tx,
         res.locals.session.actor,
-        "Care encounter opened",
+        "Clinic visit or admission opened",
         "care_encounter",
         e.id,
         p.id,
@@ -282,10 +286,13 @@ export function mountCare(app: Express, db: DB) {
         if (e.state !== "open" || e.version !== input.version)
           throw new CareError(
             409,
-            "Encounter changed or already closed. Reload before continuing.",
+            "Care context changed or already closed. Reload before continuing.",
           );
         if (input.closed_on < e.started_on)
-          throw new CareError(422, "Closure cannot precede the encounter");
+          throw new CareError(
+            422,
+            "Closure cannot precede the visit or admission",
+          );
         const updated = await one(
           tx,
           "UPDATE care.encounter SET state='closed',closed_on=$1,summary=$2,version=version+1 WHERE id=$3 AND version=$4 AND state='open' RETURNING *",
@@ -294,13 +301,13 @@ export function mountCare(app: Express, db: DB) {
         if (!updated)
           throw new CareError(
             409,
-            "Encounter changed. Reload before continuing.",
+            "Care context changed. Reload before continuing.",
           );
         // Closing the encounter deliberately does not close the patient's ongoing entries.
         await audit(
           tx,
           res.locals.session.actor,
-          "Care encounter closed; continuing plan retained",
+          "Clinic visit or admission closed; continuing plan retained",
           "care_encounter",
           e.id,
           p.id,
@@ -325,7 +332,7 @@ export function mountCare(app: Express, db: DB) {
         )
           throw new CareError(
             422,
-            "Record date must fall within the linked encounter; use the continuing plan for later events",
+            "Record date must fall within the linked care context; use the continuing plan for later events",
           );
       }
       const row = await one(
@@ -350,6 +357,7 @@ export function mountCare(app: Express, db: DB) {
         ],
       );
       await revision(tx, row, res.locals.session.actor);
+      await projectCareEntry(tx, row, res.locals.session.actor);
       return row;
     });
     res.status(201).json(row);
@@ -373,7 +381,7 @@ export function mountCare(app: Express, db: DB) {
       )
         throw new CareError(
           422,
-          "Record type, origin encounter and event date are retained; add a new event for a different encounter",
+          "Record type, care context and event date are retained; add a new event for a different context",
         );
       const row = await one(
         tx,
@@ -396,6 +404,7 @@ export function mountCare(app: Express, db: DB) {
       if (!row)
         throw new CareError(409, "This record changed. Reload before saving.");
       await revision(tx, row, res.locals.session.actor);
+      await projectCareEntry(tx, row, res.locals.session.actor);
       return row;
     });
     res.json(row);

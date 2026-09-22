@@ -1,5 +1,9 @@
 # Delivery roadmap
 
+## Authoritative September 2026 sequence
+
+The two master specifications supplied on 22 September 2026 supersede the older sequence below. Their controlled Stage 0–14 roadmap and the implemented Stage 0/1 architecture are recorded in [CLINICAL_FOUNDATION_AUDIT.md](CLINICAL_FOUNDATION_AUDIT.md). Stage 2 disease-independent medication/lab work is next; no disease-specific module should begin before that foundation is governed and validated.
+
 ## Product baseline restored — continuous care, then complete specialty workflows
 
 The later **Final Codex Plan** takes precedence over the earlier CAD-only interpretation below. See [MASTERPLAN.md](MASTERPLAN.md). The complete release includes HF, CAD, EP, Structural Heart and no-code custom registries. Their staged implementation is not a reduction of scope.

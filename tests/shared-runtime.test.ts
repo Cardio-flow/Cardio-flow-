@@ -18,6 +18,7 @@ test("Shared server/browser models load as emitted Node ESM without a TS resolve
       "clinical-review",
       "care-model",
       "registry-forms",
+      "clinical-foundation",
     ]) {
       const source = await readFile(
         new URL(`../src/${name}.ts`, import.meta.url),
@@ -38,7 +39,7 @@ test("Shared server/browser models load as emitted Node ESM without a TS resolve
       [
         "--input-type=module",
         "-e",
-        "import {templates} from './guided.js'; import './registry-forms.js'; import './care-model.js'; if(templates.length<70) process.exit(2);",
+        "import {templates} from './guided.js'; import './registry-forms.js'; import './care-model.js'; import './clinical-foundation.js'; if(templates.length<70) process.exit(2);",
       ],
       { cwd: dir, encoding: "utf8", env },
     );

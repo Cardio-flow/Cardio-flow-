@@ -440,7 +440,7 @@ export function GuidedEditor({
                 />
               </label>
               <label>
-                Origin encounter
+                Care context
                 <select
                   value={encounterId}
                   disabled={!!original}

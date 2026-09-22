@@ -625,7 +625,7 @@ export function UnifiedPatientWorkspace({
         {role === "clinician" ? (
           <div className="patient-primary-actions">
             <button className="secondary" onClick={() => setNewEncounter(true)}>
-              <CalendarDays size={16} /> Encounter
+              <CalendarDays size={16} /> New visit / admission
             </button>
             <button className="primary" onClick={() => setAddMenu(true)}>
               <Plus size={17} /> Add / Update
@@ -702,12 +702,12 @@ export function UnifiedPatientWorkspace({
                 ))}
               </div>
               <label>
-                Encounter
+                Care context
                 <select
                   value={encounterFilter}
                   onChange={(event) => setEncounterFilter(event.target.value)}
                 >
-                  <option value="all">All encounters</option>
+                  <option value="all">All care contexts</option>
                   <option value="longitudinal">Continuing record only</option>
                   {encounters.map((encounter) => (
                     <option key={encounter.id} value={encounter.id}>
@@ -1209,7 +1209,7 @@ function PatientTimeline({
     <section className="panel care-section patient-timeline">
       <SectionTitle
         title="Longitudinal clinical journey"
-        subtitle="Generated automatically from encounters and documented clinical events."
+        subtitle="Generated automatically from visits, admissions and documented clinical events."
       />
       {events.length ? (
         <div className="timeline-list">

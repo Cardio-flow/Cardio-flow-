@@ -198,7 +198,7 @@ export function Patients({
         <div>
           <span className="eyebrow">LONGITUDINAL CARE</span>
           <h1>Patients</h1>
-          <p>One identity. Every encounter. A connected clinical history.</p>
+          <p>One identity. Every visit and admission. One clinical history.</p>
         </div>
         {onNew ? (
           <button className="primary" onClick={onNew}>

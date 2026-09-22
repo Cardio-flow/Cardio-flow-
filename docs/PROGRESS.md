@@ -1,5 +1,17 @@
 # Progress — 16 September 2026
 
+## Release 0.5 — Stage 0 audit and Stage 1 clinical foundation (22 September 2026)
+
+The two September 2026 master specifications are now the controlling product roadmap, with the second specification taking precedence. [CLINICAL_FOUNDATION_AUDIT.md](CLINICAL_FOUNDATION_AUDIT.md) contains the architecture comparison, duplicate-data map, additive design, migration inventory, validation scope and Stage 0–14 sequence.
+
+Implemented the shared, disease-neutral foundation: versioned terminology and units; immutable structured-field package; append-only clinical facts with provenance, correction and clinician preference; current-state resolution that separates verified, pending, historical and superseded values; persistent clinical events; centralized time-aware rules; evidence snapshots; expiring recommendations; alert actions; event-sourced tasks; pathways that reuse known facts; and synchronous recalculation after new clinical data. Existing care entries are projected idempotently, including during migration.
+
+No disease, medication, device, valve, AF, CKD, GLP-1 or perioperative clinical rule is active. The existing simplified UX, care records, registry data, CAD workflow, audit and auth remain intact. Stage 2 has not started.
+
+Migration: additive `004-clinical-foundation`. Run `npm run db:migrate` before deploying this code to the hosted application.
+
+Checks executed: TypeScript and production build passed; formatting passed; 35 server/domain/foundation tests passed; all 12 existing browser workflows passed. Foundation tests cover non-latest state selection, clinician preference, pending versus verified facts, immutable correction history, missing data, rule priority conflicts, evidence retention, conditional fields, unit conversion, pathway reuse, recommendation invalidation, alert/task generation, task supersession, append-only enforcement, API roles and guided-care projection.
+
 ## Restored baseline
 
 Recovered **Final Codex Plan** and verified all original HF/CAD/EP backups. The complete scope includes HF, CAD, EP, Structural Heart and custom registries. The working Vercel/Neon stack remains in place.

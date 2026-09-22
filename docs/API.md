@@ -105,3 +105,21 @@ The date must not precede admission. Clinic and Telephone are supported. Vital s
 ## Hosted authentication
 
 Hosted requests use `/api/auth/*` through the Neon SDK server adapter. `/api/demo-session` returns 404. Data routes require a verified email and active database membership; the API derives the role and actor. `GET /api/config` exposes only whether hosted mode is active. Mutations retain same-origin and CSRF checks. Neon sign-out uses `/api/auth/sign-out`.
+
+# Clinical foundation
+
+`GET /api/clinical/catalog` returns the versioned terminology, units, structured-field package and evidence catalog.
+
+`GET /api/patients/:id/clinical-state` returns resolved current/pending/historical facts, recommendation history, current alerts, event-sourced tasks and recalculation history.
+
+`POST /api/patients/:id/clinical-facts` appends a source-linked fact. Corrections pass `supersedes_fact_id`; the previous fact is retained.
+
+`POST /api/patients/:id/clinical-preferences` appends a clinician selection or release for a preferred current measurement. A reason is required.
+
+`POST /api/clinical-alerts/:id/actions` appends acknowledge, act, snooze or dismiss actions. Acting or dismissing requires a reason; snoozing requires a time.
+
+`POST /api/patients/:id/clinical-tasks` creates a clinician-owned task. `POST /api/clinical-tasks/:id/events` appends its next state using optimistic versioning.
+
+`GET /api/clinical/pathways`, `POST /api/patients/:id/pathways/:key/start`, `GET /api/pathway-sessions/:id` and `POST /api/pathway-sessions/:id/responses` expose the versioned pathway engine.
+
+All writes require the clinician role. Clinical state/catalog/pathway reads permit clinician and reviewer roles. Rules and pathways are installed through governed deployment code; this foundation does not expose an unreviewed rule-publishing API.

@@ -23,12 +23,14 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     page.getByRole("heading", { name: "Care Journey Sample" }),
   ).toBeVisible();
   await expect(page.getByText("0 active problems")).toBeVisible();
-  await page.getByRole("button", { name: "Encounter", exact: true }).click();
+  await page.getByRole("button", { name: "New visit / admission" }).click();
   await page.getByLabel("Care setting").selectOption("Admission");
   await page.getByLabel("Start date").fill("2025-02-01");
-  await page.getByLabel("Reason for encounter").fill("Synthetic ACS admission");
+  await page
+    .getByLabel("Reason for visit / admission")
+    .fill("Synthetic ACS admission");
   await page.getByLabel("Responsible clinician / team").fill("Ward team");
-  await page.getByRole("button", { name: "Open encounter" }).click();
+  await page.getByRole("button", { name: "Open care context" }).click();
   await page.getByRole("button", { name: "Add / Update" }).click();
   await page.getByRole("button", { name: /^Care plan item/ }).click();
   await page
@@ -36,7 +38,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     .fill("Review residual disease");
   await page.getByLabel("Clinical family").selectOption("CAD");
   await page.getByLabel("Event date").fill("2025-02-02");
-  await page.getByLabel("Origin encounter").selectOption({
+  await page.getByLabel("Care context").selectOption({
     label: "Admission · 1 Feb 2025 · Synthetic ACS admission",
   });
   await page.getByLabel("Responsible clinician / team").fill("OPD team");
@@ -59,7 +61,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
       "OPD team to review residual disease and document the selected strategy.",
     );
   await page
-    .getByRole("button", { name: "Close encounter; retain care plan" })
+    .getByRole("button", { name: "Close care context; retain care plan" })
     .click();
   await page.getByRole("tab", { name: "Timeline", exact: true }).click();
   await page
@@ -71,17 +73,17 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
       "OPD team to review residual disease and document the selected strategy.",
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Encounter", exact: true }).click();
+  await page.getByRole("button", { name: "New visit / admission" }).click();
   await page.getByLabel("Care setting").selectOption("OPD");
   await page.getByLabel("Start date").fill("2025-02-10");
   await page
-    .getByLabel("Reason for encounter")
+    .getByLabel("Reason for visit / admission")
     .fill("Post-discharge reassessment");
   await page.getByLabel("Responsible clinician / team").fill("OPD team");
-  await page.getByLabel("Connect to previous encounter").selectOption({
+  await page.getByLabel("Connect to previous care context").selectOption({
     label: "Admission · 1 Feb 2025 · Synthetic ACS admission",
   });
-  await page.getByRole("button", { name: "Open encounter" }).click();
+  await page.getByRole("button", { name: "Open care context" }).click();
   await page
     .locator("summary")
     .filter({ hasText: "Post-discharge reassessment" })
