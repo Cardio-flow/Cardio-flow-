@@ -180,12 +180,21 @@ export function mountCare(app: Express, db: DB) {
   mountGuided(app, db, read, write);
   mountRegistryForms(app, db, read, write);
   app.get("/api/care/board", read, async (_req, res) => {
-    const [entries, encounters] = await Promise.all([
+    const [entries, encounters, clinicalTasks] = await Promise.all([
       db.query<CareEntry>(
         "SELECT e.*,p.name,p.mrn,p.sex,p.birth_date FROM care.entry e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.due_date NULLS LAST,e.updated_at DESC",
       ),
       db.query(
         "SELECT e.*,p.name,p.mrn,p.sex,p.birth_date FROM care.encounter e JOIN core.patient p ON p.id=e.patient_id WHERE p.site_id='demo-kuwait' ORDER BY e.started_on DESC,e.created_at DESC",
+      ),
+      db.query(
+        `SELECT t.*,e.status current_status,p.name,p.mrn,p.sex,p.birth_date
+         FROM workflow.clinical_task t
+         JOIN core.patient p ON p.id=t.patient_id
+         LEFT JOIN workflow.clinical_task_event e ON e.task_id=t.id
+          AND e.version=(SELECT max(latest.version) FROM workflow.clinical_task_event latest WHERE latest.task_id=t.id)
+         WHERE p.site_id='demo-kuwait' AND COALESCE(e.status,'open') NOT IN ('completed','cancelled','superseded')
+         ORDER BY t.target_date NULLS LAST,t.created_at DESC`,
       ),
     ]);
     res.json({
@@ -195,6 +204,7 @@ export function mountCare(app: Express, db: DB) {
           (entry.kind === "problem" && entry.status !== "resolved"),
       ),
       encounters: encounters.rows,
+      clinicalTasks: clinicalTasks.rows,
     });
   });
   app.get("/api/patients/:id/care", read, async (req, res) => {

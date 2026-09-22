@@ -12,6 +12,7 @@ import {
   mountClinicalFoundation,
 } from "./clinical-foundation.js";
 import { mountClinicalGovernance } from "./clinical-governance.js";
+import { mountMedicationLaboratory } from "./medication-laboratory.js";
 import {
   patientSchema,
   episodeSchema,
@@ -750,6 +751,12 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     allow("clinician"),
   );
   mountClinicalGovernance(
+    app,
+    db,
+    allow("clinician", "reviewer"),
+    allow("clinician"),
+  );
+  mountMedicationLaboratory(
     app,
     db,
     allow("clinician", "reviewer"),

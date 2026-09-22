@@ -557,23 +557,56 @@ export async function recalculatePatient(
       );
     if (status === "active")
       for (const proposed of evaluation.rule.output.tasks ?? []) {
-        const taskId = randomUUID();
+        const taskId = randomUUID(),
+          targetDate =
+            proposed.dueInDays === undefined
+              ? null
+              : addDays(triggerEvent.occurred_at, proposed.dueInDays),
+          therapy = proposed.medicationId
+            ? (
+                await tx.query<any>(
+                  `SELECT id FROM medication.current_therapy
+                   WHERE patient_id=$1 AND medication_id=$2
+                     AND status IN ('ACTIVE','TEMPORARILY_HELD','PLANNED')
+                   ORDER BY effective_at DESC LIMIT 1`,
+                  [patientId, proposed.medicationId],
+                )
+              ).rows[0]
+            : null;
         await tx.query(
           `INSERT INTO workflow.clinical_task
-          (id,patient_id,kind,purpose,related_concept,target_date,assigned_to,source_type,source_id,details,created_by)
-          VALUES($1,$2,$3,$4,$5,$6,'Clinical team','recommendation',$7,$8,$9)`,
+          (id,patient_id,kind,purpose,related_concept,target_date,assigned_to,source_type,source_id,details,created_by,
+           medication_therapy_id,acceptable_window_start,acceptable_window_end,rule_key,rule_version)
+          VALUES($1,$2,$3,$4,$5,$6,'Clinical team','recommendation',$7,$8,$9,$10,$11,$12,$13,$14)`,
           [
             taskId,
             patientId,
             proposed.kind,
             proposed.purpose,
             proposed.relatedConcept ?? null,
-            proposed.dueInDays === undefined
-              ? null
-              : addDays(triggerEvent.occurred_at, proposed.dueInDays),
+            targetDate,
             recommendation.id,
-            JSON.stringify({ rule: evaluation.rule.key }),
+            JSON.stringify({
+              rule: evaluation.rule.key,
+              medicationId: proposed.medicationId ?? null,
+              evidence: evaluation.rule.evidence,
+            }),
             actor,
+            therapy?.id ?? null,
+            targetDate && proposed.acceptableWindowBeforeDays !== undefined
+              ? addDays(
+                  `${targetDate}T00:00:00.000Z`,
+                  -proposed.acceptableWindowBeforeDays,
+                )
+              : null,
+            targetDate && proposed.acceptableWindowAfterDays !== undefined
+              ? addDays(
+                  `${targetDate}T00:00:00.000Z`,
+                  proposed.acceptableWindowAfterDays,
+                )
+              : null,
+            evaluation.rule.key,
+            evaluation.rule.version,
           ],
         );
         await tx.query(
@@ -581,6 +614,63 @@ export async function recalculatePatient(
           [randomUUID(), taskId, actor],
         );
       }
+    const titration = evaluation.rule.output.titration;
+    if (status === "active" && titration) {
+      const therapy = (
+        await tx.query<any>(
+          `SELECT * FROM medication.current_therapy
+           WHERE patient_id=$1 AND medication_id=$2
+             AND status IN ('ACTIVE','TEMPORARILY_HELD','PLANNED')
+           ORDER BY effective_at DESC LIMIT 1`,
+          [patientId, titration.medicationId],
+        )
+      ).rows[0];
+      if (therapy) {
+        const planId = randomUUID();
+        await tx.query(
+          "INSERT INTO medication.titration_plan(id,patient_id,therapy_id,created_by) VALUES($1,$2,$3,$4)",
+          [planId, patientId, therapy.id, actor],
+        );
+        await tx.query(
+          `INSERT INTO medication.titration_event
+           (id,plan_id,version,state,current_dose,required_checks,earliest_review_date,planned_titration_date,
+            next_laboratory_date,limitation_type,limitation_reason,clinician_confirmed,note,actor)
+           VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12)`,
+          [
+            randomUUID(),
+            planId,
+            titration.state,
+            JSON.stringify({
+              value: therapy.dose_value,
+              unit: therapy.dose_unit,
+            }),
+            JSON.stringify(titration.requiredChecks ?? []),
+            titration.earliestReviewInDays === undefined
+              ? null
+              : addDays(
+                  triggerEvent.occurred_at,
+                  titration.earliestReviewInDays,
+                ),
+            titration.plannedTitrationInDays === undefined
+              ? null
+              : addDays(
+                  triggerEvent.occurred_at,
+                  titration.plannedTitrationInDays,
+                ),
+            titration.nextLaboratoryInDays === undefined
+              ? null
+              : addDays(
+                  triggerEvent.occurred_at,
+                  titration.nextLaboratoryInDays,
+                ),
+            titration.limitationType ?? null,
+            titration.limitationReason ?? "",
+            `Generated for clinician review by published rule ${evaluation.rule.key} v${evaluation.rule.version}; no dose was changed.`,
+            actor,
+          ],
+        );
+      }
+    }
   }
   for (const [key, old] of previous) {
     if (

@@ -2715,6 +2715,282 @@ input[type="checkbox"] {
   }
 }
 
+.medication-lab-overview {
+  margin-top: 18px;
+}
+.intelligence-columns,
+.medication-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.subsection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.subsection-heading h3,
+.why-alert h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #233b34;
+  font-size: 0.96rem;
+}
+.intelligence-list,
+.lab-trend-list,
+.dose-history {
+  display: grid;
+  gap: 7px;
+}
+.intelligence-list > button,
+.lab-trend-list > div {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  gap: 12px;
+}
+.intelligence-list > button:hover {
+  border-color: #74ac8d;
+  background: #f4f9f6;
+}
+.intelligence-list span,
+.lab-trend-list span,
+.dose-history span,
+.monitoring-item span {
+  display: grid;
+  gap: 2px;
+}
+.intelligence-list small,
+.lab-trend-list small,
+.dose-history small,
+.monitoring-item small {
+  color: var(--muted);
+}
+.medication-state-stack,
+.trend-value {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px !important;
+}
+.medication-state-stack em {
+  font-size: 0.71rem;
+  font-style: normal;
+  border-radius: 999px;
+  padding: 3px 7px;
+}
+.stable-state {
+  color: #236748;
+  background: #e8f4ed;
+}
+.monitoring-state {
+  color: #795b00;
+  background: #fff4cd;
+}
+.overdue-state,
+.issue-state {
+  color: #9b2d24;
+  background: #ffebe8;
+}
+.planned-state {
+  color: #315b8a;
+  background: #eaf2fb;
+}
+.medication-detail-grid > section {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 15px;
+}
+.medication-detail-grid h3 {
+  margin: 7px 0 2px;
+}
+.compact-definition-list {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0 0;
+}
+.compact-definition-list > div {
+  display: grid;
+  grid-template-columns: 105px 1fr;
+  gap: 10px;
+}
+.compact-definition-list dt {
+  color: var(--muted);
+}
+.compact-definition-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+.monitoring-item,
+.dose-history > div {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: 9px 0;
+}
+.titration-summary small {
+  color: var(--muted);
+}
+.why-alert {
+  margin-top: 16px;
+  border-radius: 12px;
+  padding: 15px;
+  background: #f7faf8;
+  border: 1px solid var(--line);
+}
+.why-alert > div {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.why-alert p {
+  margin: 5px 0;
+}
+.medication-editor > section {
+  position: relative;
+  padding: 4px 0 18px 38px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+.medication-editor > section h3 {
+  margin: 0 0 11px;
+}
+.step-number {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--forest);
+  color: white;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+.medication-search-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 0.7fr);
+  gap: 10px;
+}
+.medication-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 10px;
+}
+.medication-results button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+}
+.medication-results button.selected {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(45, 113, 82, 0.12);
+  background: #f4f9f6;
+}
+.medication-results button span {
+  display: grid;
+  gap: 2px;
+}
+.medication-results button small {
+  color: var(--muted);
+}
+.medication-results button em {
+  font-size: 0.7rem;
+  font-style: normal;
+  color: #236748;
+}
+.checkbox-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 13px;
+}
+.checkbox-chip-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.clinical-warning,
+.clinical-clear,
+.review-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 9px 0;
+}
+.clinical-warning {
+  background: #fff2e8;
+  color: #843d12;
+  border: 1px solid #f4c7a5;
+}
+.clinical-clear {
+  background: #ebf6ef;
+  color: #276347;
+  border: 1px solid #bedbc9;
+}
+.clinical-warning span {
+  display: grid;
+  gap: 3px;
+}
+.context-note {
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: #f4f7f5;
+  margin: 10px 0;
+}
+.context-note p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.review-confirm {
+  border: 1px solid var(--line);
+  background: white;
+}
+.compact-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.lab-editor .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+  .intelligence-columns,
+  .medication-detail-grid,
+  .medication-search-row,
+  .medication-results,
+  .compact-form,
+  .lab-editor .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Clinical governance and explicit current-value resolution */
 .governance-summary {
   display: grid;

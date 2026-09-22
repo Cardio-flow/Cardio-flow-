@@ -66,6 +66,10 @@ export async function migrate(db: DB) {
     new URL("./clinical-governance-schema.sql", import.meta.url),
     "utf8",
   );
+  const medicationLaboratorySchema = await readFile(
+    new URL("./medication-laboratory-schema.sql", import.meta.url),
+    "utf8",
+  );
   await db.transaction(async (tx) => {
     await tx.query("CREATE SCHEMA IF NOT EXISTS governance");
     await tx.query(
@@ -157,6 +161,26 @@ export async function migrate(db: DB) {
       await tx.query(
         "INSERT INTO governance.migration(name,checksum) VALUES('005-clinical-governance',$1)",
         [hash(clinicalGovernanceSchema)],
+      );
+    }
+    const medicationLaboratoryMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='006-medication-laboratory-intelligence'",
+      )
+    ).rows[0];
+    if (
+      medicationLaboratoryMigration &&
+      medicationLaboratoryMigration.checksum !==
+        hash(medicationLaboratorySchema)
+    )
+      throw new Error(
+        "Medication and laboratory intelligence migration changed; add a new migration instead",
+      );
+    if (!medicationLaboratoryMigration) {
+      await tx.query(medicationLaboratorySchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('006-medication-laboratory-intelligence',$1)",
+        [hash(medicationLaboratorySchema)],
       );
     }
   });

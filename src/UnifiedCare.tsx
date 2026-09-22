@@ -50,6 +50,13 @@ import { GuidedEditor } from "./GuidedEditor";
 import { RegistryForms } from "./RegistryForms";
 import { PatientWorkspace } from "./Patients";
 import { FollowupContact } from "./Workflows";
+import {
+  LaboratoryEditor,
+  MedicationEditor,
+  MedicationLaboratoryOverview,
+  type LaboratoryData,
+  type MedicationData,
+} from "./MedicationLaboratory";
 
 type BoardEntry = CareEntry & {
   name: string;
@@ -63,7 +70,24 @@ type BoardEncounter = CareEncounter & {
   sex?: string;
   birth_date?: string;
 };
-type BoardData = { entries: BoardEntry[]; encounters: BoardEncounter[] };
+type BoardClinicalTask = {
+  id: string;
+  patient_id: string;
+  name: string;
+  mrn: string;
+  sex?: string;
+  birth_date?: string;
+  purpose: string;
+  target_date: string | null;
+  current_status: string;
+  kind: string;
+  medication_therapy_id: string | null;
+};
+type BoardData = {
+  entries: BoardEntry[];
+  encounters: BoardEncounter[];
+  clinicalTasks: BoardClinicalTask[];
+};
 type ClinicalFoundationData = {
   state: ClinicalState;
   currentPreferences: ClinicalPreference[];
@@ -119,6 +143,7 @@ export function Worklist({
     entries: BoardEntry[];
     encounters: BoardEncounter[];
     tasks: Task[];
+    clinicalTasks: BoardClinicalTask[];
   };
   const grouped = new Map<string, PatientWork>();
   function getPatient(
@@ -135,6 +160,7 @@ export function Worklist({
         entries: [],
         encounters: [],
         tasks: [],
+        clinicalTasks: [],
       });
     return grouped.get(id)!;
   }
@@ -143,6 +169,9 @@ export function Worklist({
   );
   data?.encounters.forEach((encounter) =>
     getPatient(encounter.patient_id, encounter).encounters.push(encounter),
+  );
+  data?.clinicalTasks?.forEach((task) =>
+    getPatient(task.patient_id, task).clinicalTasks.push(task),
   );
   tasks
     ?.filter(isOpenTask)
@@ -156,6 +185,7 @@ export function Worklist({
       const dates = [
         ...item.entries.map((entry) => entry.due_date),
         ...item.tasks.map((task) => task.due_date),
+        ...item.clinicalTasks.map((task) => task.target_date),
       ].filter(Boolean) as string[];
       if (filter === "Inpatients")
         return open.some((encounter) => encounter.kind === "Admission");
@@ -174,6 +204,7 @@ export function Worklist({
         ...item.encounters.map(
           (encounter) => `${encounter.reason} ${encounter.owner}`,
         ),
+        ...item.clinicalTasks.map((task) => task.purpose),
       ]
         .join(" ")
         .toLowerCase()
@@ -185,6 +216,7 @@ export function Worklist({
     const dates = [
       ...item.entries.map((entry) => entry.due_date),
       ...item.tasks.map((task) => task.due_date),
+      ...item.clinicalTasks.map((task) => task.target_date),
     ].filter(Boolean) as string[];
     if (dates.some((value) => value < day)) return 0;
     if (dates.some((value) => value === day)) return 1;
@@ -254,6 +286,9 @@ export function Worklist({
                     ...(tasks ?? [])
                       .filter(isOpenTask)
                       .map((task) => task.due_date),
+                    ...(data.clinicalTasks ?? []).map(
+                      (task) => task.target_date,
+                    ),
                   ].filter((value) => value && value < today).length
                 }
               </strong>{" "}
@@ -324,6 +359,7 @@ function WorklistRow({
     entries: BoardEntry[];
     encounters: BoardEncounter[];
     tasks: Task[];
+    clinicalTasks: BoardClinicalTask[];
   };
   today: string;
   onOpen: (id: string) => void;
@@ -342,6 +378,9 @@ function WorklistRow({
     (entry) => entry.due_date && entry.due_date < today,
   );
   const overdueTask = item.tasks.find((task) => task.due_date < today);
+  const overdueClinicalTask = item.clinicalTasks.find(
+    (task) => task.target_date && task.target_date < today,
+  );
   const outstanding =
     overdueEntry ?? item.entries.find(needsReview) ?? item.entries[0];
   const next = [
@@ -352,6 +391,9 @@ function WorklistRow({
       date: task.due_date,
       title: `${task.milestone}-month CAD follow-up`,
     })),
+    ...item.clinicalTasks
+      .filter((task) => task.target_date)
+      .map((task) => ({ date: task.target_date!, title: task.purpose })),
   ].sort((a, b) => a.date.localeCompare(b.date))[0];
   const admissionDay =
     context?.kind === "Admission" && context.state === "open"
@@ -387,11 +429,19 @@ function WorklistRow({
       </span>
       <span className="work-attention">
         <small>Needs attention</small>
-        <strong className={overdueEntry || overdueTask ? "danger-text" : ""}>
+        <strong
+          className={
+            overdueEntry || overdueTask || overdueClinicalTask
+              ? "danger-text"
+              : ""
+          }
+        >
           {overdueEntry?.title ??
-            (overdueTask
-              ? `${overdueTask.milestone}-month registry follow-up overdue`
-              : (outstanding?.title ?? "Review current plan"))}
+            (overdueClinicalTask
+              ? `Monitoring overdue · ${overdueClinicalTask.purpose}`
+              : overdueTask
+                ? `${overdueTask.milestone}-month registry follow-up overdue`
+                : (outstanding?.title ?? "Review current plan"))}
         </strong>
         <em>
           {activeProblem
@@ -629,6 +679,7 @@ type AddChoice = {
   description: string;
   kind: CareKind;
   custom?: boolean;
+  smart?: "medication" | "laboratory";
 };
 
 const addChoices: AddChoice[] = [
@@ -644,8 +695,20 @@ const addChoices: AddChoice[] = [
   },
   {
     label: "Medication",
-    description: "Record a prescription, hold or change",
+    description: "Start or change a structured medication course",
     kind: "medication",
+    smart: "medication",
+  },
+  {
+    label: "Medication Record",
+    description: "Use the existing guided medication assessment",
+    kind: "medication",
+  },
+  {
+    label: "Laboratory result",
+    description: "Add a structured, unit-normalized result",
+    kind: "investigation",
+    smart: "laboratory",
   },
   {
     label: "Procedure",
@@ -700,6 +763,9 @@ export function UnifiedPatientWorkspace({
     [customEditor, setCustomEditor] = useState(false),
     [editorLabel, setEditorLabel] = useState(""),
     [editor, setEditor] = useState<CareKind | CareEntry | null>(null),
+    [smartEditor, setSmartEditor] = useState<
+      "medication" | "laboratory" | null
+    >(null),
     [newEncounter, setNewEncounter] = useState(false),
     [closing, setClosing] = useState<CareEncounter | null>(null),
     [history, setHistory] = useState<CareEntry | null>(null),
@@ -720,9 +786,18 @@ export function UnifiedPatientWorkspace({
     `/patients/${id}/clinical-state`,
     revision,
   );
+  const { data: medicationIntelligence } = useData<MedicationData>(
+    `/patients/${id}/medications`,
+    revision,
+  );
+  const { data: laboratoryIntelligence } = useData<LaboratoryData>(
+    `/patients/${id}/laboratory`,
+    revision,
+  );
 
   function saved() {
     setEditor(null);
+    setSmartEditor(null);
     setCustomEditor(false);
     setEditorLabel("");
     setAddMenu(false);
@@ -908,6 +983,8 @@ export function UnifiedPatientWorkspace({
               activeProblems={activeProblems}
               results={results}
               medications={activeMedications}
+              structuredMedications={medicationIntelligence?.current ?? []}
+              structuredLabs={laboratoryIntelligence?.trends ?? []}
               pending={pending}
               tasks={tasks}
               alerts={alerts}
@@ -916,6 +993,15 @@ export function UnifiedPatientWorkspace({
               onEdit={edit}
               onTask={setFollowup}
               onRecord={() => setTab("Clinical Record")}
+            />
+            <MedicationLaboratoryOverview
+              patientId={id}
+              revision={revision}
+              role={role}
+              owner={owner}
+              onAddMedication={() => setSmartEditor("medication")}
+              onAddLab={() => setSmartEditor("laboratory")}
+              onChanged={saved}
             />
             {clinicalFoundation ? (
               <CurrentDecisionValues
@@ -1084,7 +1170,8 @@ export function UnifiedPatientWorkspace({
                   }
                   setCustomEditor(!!choice.custom);
                   setEditorLabel(choice.custom ? choice.label : "");
-                  setEditor(choice.kind);
+                  if (choice.smart) setSmartEditor(choice.smart);
+                  else setEditor(choice.kind);
                   setAddMenu(false);
                 }}
               >
@@ -1143,6 +1230,22 @@ export function UnifiedPatientWorkspace({
           onSaved={saved}
         />
       ) : null}
+      {smartEditor === "medication" ? (
+        <MedicationEditor
+          patientId={id}
+          owner={owner}
+          encounters={encounters}
+          onClose={() => setSmartEditor(null)}
+          onSaved={saved}
+        />
+      ) : smartEditor === "laboratory" ? (
+        <LaboratoryEditor
+          patientId={id}
+          encounters={encounters}
+          onClose={() => setSmartEditor(null)}
+          onSaved={saved}
+        />
+      ) : null}
       {newEncounter ? (
         <EncounterEditor
           patient={person}
@@ -1181,6 +1284,8 @@ function PatientSummary({
   activeProblems,
   results,
   medications,
+  structuredMedications,
+  structuredLabs,
   pending,
   tasks,
   alerts,
@@ -1193,6 +1298,8 @@ function PatientSummary({
   activeProblems: CareEntry[];
   results: CareEntry[];
   medications: CareEntry[];
+  structuredMedications: import("./medication-laboratory").CurrentTherapy[];
+  structuredLabs: import("./medication-laboratory").LabTrend[];
   pending: CareEntry[];
   tasks: Task[];
   alerts: ReturnType<typeof documentationAlerts>;
@@ -1293,40 +1400,99 @@ function PatientSummary({
           icon={<FlaskConical size={18} />}
           title="Important Recent Results"
           empty="No recent results documented."
-          action="View all"
-          onAction={onRecord}
+          action={structuredLabs.length ? "Details" : "View all"}
+          onAction={() =>
+            structuredLabs.length
+              ? document
+                  .getElementById("medication-laboratory-intelligence")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              : onRecord()
+          }
         >
-          {results.slice(0, 5).map((entry) => (
-            <button key={entry.id} onClick={() => openEntry(entry)}>
-              <span>
-                <strong>{entry.title}</strong>
-                <small>
-                  {entry.details.value
-                    ? `${entry.details.value}${entry.details.unit ? ` ${entry.details.unit}` : ""}`
-                    : stateLabel(entry.status)}{" "}
-                  · {date(entry.occurred_on)}
-                </small>
-              </span>
-              <ArrowRight size={15} />
-            </button>
-          ))}
+          {structuredLabs.length
+            ? structuredLabs.slice(0, 5).map((trend) => (
+                <button
+                  key={trend.test_id}
+                  onClick={() =>
+                    document
+                      .getElementById("medication-laboratory-intelligence")
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                >
+                  <span>
+                    <strong>{trend.display}</strong>
+                    <small>
+                      {trend.latest.canonical_value} {trend.canonical_unit} ·{" "}
+                      {date(trend.latest.collected_at)}
+                    </small>
+                  </span>
+                  <ArrowRight size={15} />
+                </button>
+              ))
+            : results.slice(0, 5).map((entry) => (
+                <button key={entry.id} onClick={() => openEntry(entry)}>
+                  <span>
+                    <strong>{entry.title}</strong>
+                    <small>
+                      {entry.details.value
+                        ? `${entry.details.value}${entry.details.unit ? ` ${entry.details.unit}` : ""}`
+                        : stateLabel(entry.status)}{" "}
+                      · {date(entry.occurred_on)}
+                    </small>
+                  </span>
+                  <ArrowRight size={15} />
+                </button>
+              ))}
         </SummarySection>
         <SummarySection
           icon={<Pill size={18} />}
           title="Current Medications"
           empty="No current medications documented."
-          action="View all"
-          onAction={onRecord}
+          action={structuredMedications.length ? "Details" : "View all"}
+          onAction={() =>
+            structuredMedications.length
+              ? document
+                  .getElementById("medication-laboratory-intelligence")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              : onRecord()
+          }
         >
-          {medications.slice(0, 6).map((entry) => (
-            <button key={entry.id} onClick={() => openEntry(entry)}>
-              <span>
-                <strong>{entry.title}</strong>
-                <small>{entry.details.dose || stateLabel(entry.status)}</small>
-              </span>
-              <ArrowRight size={15} />
-            </button>
-          ))}
+          {structuredMedications.length
+            ? structuredMedications
+                .filter((therapy) => therapy.status !== "STOPPED")
+                .slice(0, 6)
+                .map((therapy) => (
+                  <button
+                    key={therapy.id}
+                    onClick={() =>
+                      document
+                        .getElementById("medication-laboratory-intelligence")
+                        ?.scrollIntoView({ behavior: "smooth" })
+                    }
+                  >
+                    <span>
+                      <strong>{therapy.generic_name}</strong>
+                      <small>
+                        {therapy.dose_value !== null
+                          ? `${therapy.dose_value} ${therapy.dose_unit ?? ""}`
+                          : stateLabel(therapy.status)}
+                        {therapy.frequency ? ` · ${therapy.frequency}` : ""}
+                      </small>
+                    </span>
+                    <ArrowRight size={15} />
+                  </button>
+                ))
+            : medications.slice(0, 6).map((entry) => (
+                <button key={entry.id} onClick={() => openEntry(entry)}>
+                  <span>
+                    <strong>{entry.title}</strong>
+                    <small>
+                      {entry.details.dose || stateLabel(entry.status)}
+                    </small>
+                  </span>
+                  <ArrowRight size={15} />
+                </button>
+              ))}
         </SummarySection>
         <SummarySection
           icon={<ClipboardList size={18} />}

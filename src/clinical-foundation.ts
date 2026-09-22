@@ -448,6 +448,30 @@ export type RuleTaskProposal = {
   purpose: string;
   dueInDays?: number;
   relatedConcept?: string;
+  acceptableWindowBeforeDays?: number;
+  acceptableWindowAfterDays?: number;
+  medicationId?: string;
+};
+
+export type RuleTitrationProposal = {
+  medicationId: string;
+  state:
+    | "TITRATION_PLANNED"
+    | "WAITING_FOR_MONITORING"
+    | "READY_FOR_REVIEW"
+    | "TITRATION_DEFERRED"
+    | "TARGET_ACHIEVED"
+    | "MAXIMALLY_TOLERATED"
+    | "STOPPED";
+  requiredChecks?: string[];
+  earliestReviewInDays?: number;
+  plannedTitrationInDays?: number;
+  nextLaboratoryInDays?: number;
+  limitationType?:
+    | "ABSOLUTE_CONTRAINDICATION"
+    | "DOSE_LIMITATION"
+    | "CURRENT_TITRATION_LIMITATION";
+  limitationReason?: string;
 };
 
 export type ClinicalRule = {
@@ -475,6 +499,8 @@ export type ClinicalRule = {
       severity: "critical" | "high" | "moderate" | "low" | "information";
     };
     tasks?: RuleTaskProposal[];
+    medicationId?: string;
+    titration?: RuleTitrationProposal;
   };
   evidence: EvidenceReference[];
 };

@@ -55,7 +55,7 @@ test("clinical governance is restricted and shows evidence without active diseas
   await expect(
     page.getByRole("heading", { name: "Evidence & rule publication" }),
   ).toBeVisible();
-  await expect(page.getByText("7", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("9", { exact: true }).first()).toBeVisible();
   await page.getByRole("tab", { name: "Rule publication" }).click();
   await expect(
     page.getByText("No clinical rules have been created"),

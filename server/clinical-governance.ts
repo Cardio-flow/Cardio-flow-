@@ -375,6 +375,50 @@ const evidenceReferenceSchema = z
   })
   .strict();
 
+const ruleTaskSchema = z
+  .object({
+    kind: z.enum([
+      "clinical_review",
+      "laboratory",
+      "follow_up",
+      "reassessment",
+    ]),
+    purpose: z.string().trim().min(2).max(500),
+    dueInDays: z.number().int().nonnegative().optional(),
+    relatedConcept: z.string().max(200).optional(),
+    acceptableWindowBeforeDays: z.number().int().nonnegative().optional(),
+    acceptableWindowAfterDays: z.number().int().nonnegative().optional(),
+    medicationId: z.string().max(120).optional(),
+  })
+  .strict();
+
+const titrationProposalSchema = z
+  .object({
+    medicationId: z.string().min(1).max(120),
+    state: z.enum([
+      "TITRATION_PLANNED",
+      "WAITING_FOR_MONITORING",
+      "READY_FOR_REVIEW",
+      "TITRATION_DEFERRED",
+      "TARGET_ACHIEVED",
+      "MAXIMALLY_TOLERATED",
+      "STOPPED",
+    ]),
+    requiredChecks: z.array(z.string().max(200)).default([]),
+    earliestReviewInDays: z.number().int().nonnegative().optional(),
+    plannedTitrationInDays: z.number().int().nonnegative().optional(),
+    nextLaboratoryInDays: z.number().int().nonnegative().optional(),
+    limitationType: z
+      .enum([
+        "ABSOLUTE_CONTRAINDICATION",
+        "DOSE_LIMITATION",
+        "CURRENT_TITRATION_LIMITATION",
+      ])
+      .optional(),
+    limitationReason: z.string().max(1000).optional(),
+  })
+  .strict();
+
 export const governedRuleSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9][a-z0-9._-]{2,119}$/),
@@ -396,6 +440,9 @@ export const governedRuleSchema = z
     priority: z.number().int().min(1).max(6),
     conflict_group: z.string().trim().max(120).nullable().default(null),
     follow_up_implications: z.record(z.string(), z.json()).default({}),
+    medication_id: z.string().max(120).nullable().default(null),
+    tasks: z.array(ruleTaskSchema).default([]),
+    titration: titrationProposalSchema.nullable().default(null),
     recommendation_class: z.string().trim().max(80).nullable().default(null),
     evidence_level: z.string().trim().max(80).nullable().default(null),
     evidence_strength: z.string().trim().max(120).nullable().default(null),
@@ -556,6 +603,9 @@ export async function createRuleDraft(
             category: input.recommendation_category,
             severity: input.alert_severity,
           },
+          ...(input.medication_id ? { medicationId: input.medication_id } : {}),
+          ...(input.tasks.length ? { tasks: input.tasks } : {}),
+          ...(input.titration ? { titration: input.titration } : {}),
         },
         evidence: evidence.map(
           ({ relationship: _relationship, ...item }) => item,
