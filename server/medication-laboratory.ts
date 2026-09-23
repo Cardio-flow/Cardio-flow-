@@ -584,6 +584,7 @@ const labSeeds = [
   ["non-hdl-c", "Non-HDL cholesterol", "Lipids", "mmol/L", ["mmol/L"]],
   ["apob", "Apolipoprotein B", "Lipids", "g/L", ["g/L"]],
   ["lpa", "Lipoprotein(a)", "Lipids", "nmol/L", ["nmol/L"]],
+  ["lpa-mgdl", "Lipoprotein(a) (mass)", "Lipids", "mg/dL", ["mg/dL"]],
   ["alt", "ALT", "Hepatic", "U/L", ["U/L"]],
   ["ast", "AST", "Hepatic", "U/L", ["U/L"]],
   ["alp", "ALP", "Hepatic", "U/L", ["U/L"]],
@@ -594,6 +595,20 @@ const labSeeds = [
   [
     "hs-troponin",
     "High-sensitivity troponin",
+    "Cardiac biomarkers",
+    "ng/L",
+    ["ng/L"],
+  ],
+  [
+    "hs-troponin-i",
+    "High-sensitivity cardiac troponin I",
+    "Cardiac biomarkers",
+    "ng/L",
+    ["ng/L"],
+  ],
+  [
+    "hs-troponin-t",
+    "High-sensitivity cardiac troponin T",
     "Cardiac biomarkers",
     "ng/L",
     ["ng/L"],

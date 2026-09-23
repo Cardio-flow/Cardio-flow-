@@ -1024,6 +1024,8 @@ export function LaboratoryEditor({
     [resulted, setResulted] = useState(`${currentDate()}T10:00`),
     [source, setSource] = useState("Hospital laboratory"),
     [lab, setLab] = useState(""),
+    [assay, setAssay] = useState(""),
+    [referenceHigh, setReferenceHigh] = useState(""),
     [verification, setVerification] = useState("verified"),
     [encounterId, setEncounterId] = useState(""),
     [busy, setBusy] = useState(false),
@@ -1045,9 +1047,13 @@ export function LaboratoryEditor({
         source_id: `manual-${crypto.randomUUID()}`,
         source_label: source,
         laboratory_name: lab || null,
+        reference_high: referenceHigh ? Number(referenceHigh) : null,
         abnormal_flag: null,
         verification_status: verification,
-        provenance: { entryMethod: "clinician_structured_entry" },
+        provenance: {
+          entryMethod: "clinician_structured_entry",
+          ...(testId.startsWith("hs-troponin") && assay ? { assay } : {}),
+        },
         encounter_id: encounterId || null,
       });
       onSaved();
@@ -1168,6 +1174,29 @@ export function LaboratoryEditor({
                 placeholder="If known"
               />
             </label>
+            {testId.startsWith("hs-troponin") ? (
+              <>
+                <label>
+                  Assay / platform
+                  <input
+                    value={assay}
+                    onChange={(event) => setAssay(event.target.value)}
+                    placeholder="Manufacturer and assay, if known"
+                  />
+                </label>
+                <label>
+                  Assay-specific upper reference limit (ng/L)
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={referenceHigh}
+                    onChange={(event) => setReferenceHigh(event.target.value)}
+                    placeholder="If provided by laboratory"
+                  />
+                </label>
+              </>
+            ) : null}
             <label>
               Verification
               <select

@@ -15,6 +15,7 @@ import { mountClinicalGovernance } from "./clinical-governance.js";
 import { mountMedicationLaboratory } from "./medication-laboratory.js";
 import { mountHeartFailure } from "./heart-failure.js";
 import { mountEchoValve } from "./echo-valve.js";
+import { mountCoronary, CoronaryError } from "./coronary.js";
 import {
   patientSchema,
   episodeSchema,
@@ -771,6 +772,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     allow("clinician"),
   );
   mountEchoValve(app, db, allow("clinician", "reviewer"), allow("clinician"));
+  mountCoronary(app, db, allow("clinician", "reviewer"), allow("clinician"));
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );
@@ -789,7 +791,8 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     if (
       err instanceof ApiError ||
       err instanceof CareError ||
-      err instanceof FoundationError
+      err instanceof FoundationError ||
+      err instanceof CoronaryError
     )
       return res.status(err.status).json({ error: err.message });
     if (err.type === "entity.parse.failed")

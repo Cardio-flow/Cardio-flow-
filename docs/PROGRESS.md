@@ -1,5 +1,13 @@
 # Progress — 23 September 2026
 
+## Release 1.0 — Stage 5 connected coronary care (23 September 2026)
+
+Implemented the additive coronary architecture in [STAGE5_CORONARY.md](STAGE5_CORONARY.md): one longitudinal coronary state, reusable ECG record, ACS event and milestone capture, structured angiography/lesions/physiology/imaging, lesion-linked PCI and stents, combined antiplatelet/OAC plans, CCS and ANOCA/INOCA pathways, complication reassessment, prevention/rehabilitation plans, exact-date tasks, six editable report drafts and shared clinical-fact projection.
+
+The CAD registry draft now reuses supported presentation, procedure, stent, medication, laboratory and Echo data with source provenance. Existing CAD episodes remain accessible. Migration `009-coronary-intelligence` is additive and preserves Stage 0–4 records.
+
+Four dedicated review packs contain 22 evidence-linked candidates across ACS, CCS/ANOCA, PCI/antiplatelet and secondary prevention. All remain unpublished in `CLINICAL_REVIEW`; no treatment threshold, duration, score or intervention recommendation executes before independent review, testing and publication.
+
 ## Release 0.9 — Stage 4 shared Echo and valve intelligence (23 September 2026)
 
 Implemented the additive architecture in [STAGE4_ECHO_VALVE.md](STAGE4_ECHO_VALVE.md): one append-only structured Echo source, versioned cardiologist reports, adaptive TTE capture, source-quality-aware current-value resolution, longitudinal comparison, shared HF consumption, structured native/prosthetic valve findings, combined valve state, clinician-authored intervention pathways, Heart Team workflow, exact-date surveillance, prosthesis and post-intervention records, report-quality checks and patient Summary/Clinical Record/Timeline integration.

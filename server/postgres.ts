@@ -78,6 +78,10 @@ export async function migrate(db: DB) {
     new URL("./echo-valve-schema.sql", import.meta.url),
     "utf8",
   );
+  const coronarySchema = await readFile(
+    new URL("./coronary-schema.sql", import.meta.url),
+    "utf8",
+  );
   await db.transaction(async (tx) => {
     await tx.query("CREATE SCHEMA IF NOT EXISTS governance");
     await tx.query(
@@ -227,6 +231,25 @@ export async function migrate(db: DB) {
       await tx.query(
         "INSERT INTO governance.migration(name,checksum) VALUES('008-echo-valve-intelligence',$1)",
         [hash(echoValveSchema)],
+      );
+    }
+    const coronaryMigration = (
+      await tx.query<{ checksum: string }>(
+        "SELECT checksum FROM governance.migration WHERE name='009-coronary-intelligence'",
+      )
+    ).rows[0];
+    if (
+      coronaryMigration &&
+      coronaryMigration.checksum !== hash(coronarySchema)
+    )
+      throw new Error(
+        "Coronary intelligence migration changed; add a new migration instead",
+      );
+    if (!coronaryMigration) {
+      await tx.query(coronarySchema);
+      await tx.query(
+        "INSERT INTO governance.migration(name,checksum) VALUES('009-coronary-intelligence',$1)",
+        [hash(coronarySchema)],
       );
     }
   });

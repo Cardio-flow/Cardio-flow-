@@ -69,6 +69,14 @@ import {
   EchoValveTimeline,
 } from "./EchoValve";
 import type { EchoStudy } from "./echo-valve";
+import {
+  CoronaryDashboard,
+  CoronaryClinicalRecord,
+  CoronaryTimeline,
+  CoronaryRegistryProjection,
+  CoronaryEditor,
+} from "./Coronary";
+import type { CoronaryRecord } from "./coronary-model";
 
 type BoardEntry = CareEntry & {
   name: string;
@@ -691,7 +699,7 @@ type AddChoice = {
   description: string;
   kind: CareKind;
   custom?: boolean;
-  smart?: "medication" | "laboratory" | "echo";
+  smart?: "medication" | "laboratory" | "echo" | "coronary";
 };
 
 const addChoices: AddChoice[] = [
@@ -710,6 +718,12 @@ const addChoices: AddChoice[] = [
     description: "Structured TTE, valve findings and longitudinal comparison",
     kind: "investigation",
     smart: "echo",
+  },
+  {
+    label: "Coronary care",
+    description: "ECG, ACS, angiography, PCI and longitudinal plan",
+    kind: "procedure",
+    smart: "coronary",
   },
   {
     label: "Medication",
@@ -782,7 +796,7 @@ export function UnifiedPatientWorkspace({
     [editorLabel, setEditorLabel] = useState(""),
     [editor, setEditor] = useState<CareKind | CareEntry | null>(null),
     [smartEditor, setSmartEditor] = useState<
-      "medication" | "laboratory" | "echo" | null
+      "medication" | "laboratory" | "echo" | "coronary" | null
     >(null),
     [newEncounter, setNewEncounter] = useState(false),
     [closing, setClosing] = useState<CareEncounter | null>(null),
@@ -814,6 +828,10 @@ export function UnifiedPatientWorkspace({
   );
   const { data: echoValveIntelligence } = useData<{ studies: EchoStudy[] }>(
     `/patients/${id}/echo-valve`,
+    revision,
+  );
+  const { data: coronaryIntelligence } = useData<CoronaryRecord>(
+    `/patients/${id}/coronary`,
     revision,
   );
 
@@ -1030,6 +1048,13 @@ export function UnifiedPatientWorkspace({
               encounters={encounters}
               onChanged={saved}
             />
+            <CoronaryDashboard
+              patientId={id}
+              revision={revision}
+              role={role}
+              encounters={encounters}
+              onChanged={saved}
+            />
             <MedicationLaboratoryOverview
               patientId={id}
               revision={revision}
@@ -1050,6 +1075,7 @@ export function UnifiedPatientWorkspace({
           </>
         ) : tab === "Clinical Record" ? (
           <>
+            <CoronaryClinicalRecord patientId={id} revision={revision} />
             <EchoValveClinicalRecord patientId={id} revision={revision} />
             <HeartFailureClinicalRecord patientId={id} revision={revision} />
             <section className="panel care-section clinical-record">
@@ -1107,6 +1133,7 @@ export function UnifiedPatientWorkspace({
           </>
         ) : tab === "Timeline" ? (
           <>
+            <CoronaryTimeline patientId={id} revision={revision} />
             <EchoValveTimeline patientId={id} revision={revision} />
             <HeartFailureTimeline patientId={id} revision={revision} />
             <PatientTimeline
@@ -1120,6 +1147,7 @@ export function UnifiedPatientWorkspace({
           </>
         ) : (
           <>
+            <CoronaryRegistryProjection patientId={id} revision={revision} />
             <section className="panel care-section registry-intro">
               <div>
                 <span className="eyebrow">STRUCTURED OUTPUT OF CARE</span>
@@ -1138,8 +1166,8 @@ export function UnifiedPatientWorkspace({
             </section>
             <section className="panel care-section legacy-registry-summary">
               <SectionTitle
-                title="CAD registry"
-                subtitle="The existing versioned CAD episode remains available inside this patient workspace."
+                title="Legacy CAD episode history"
+                subtitle="Existing versioned episodes remain readable. Record new coronary care once through Add / Update and review its registry draft below."
               />
               {patient?.enrollment_id ? (
                 <div className="registry-status-row">
@@ -1155,11 +1183,25 @@ export function UnifiedPatientWorkspace({
                   </button>
                 </div>
               ) : role === "clinician" ? (
-                <button className="primary" disabled={busy} onClick={enroll}>
-                  Start CAD episode workflow
-                </button>
+                <div className="registry-status-row">
+                  <p className="muted">
+                    No legacy CAD episode. New coronary care can populate the
+                    registry draft below without one.
+                  </p>
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={enroll}
+                  >
+                    Start CAD episode workflow
+                  </button>
+                </div>
               ) : (
-                <p className="muted">No CAD registry enrollment.</p>
+                <p className="muted">
+                  No legacy CAD episode. The connected clinical record can
+                  populate the CAD registry draft without starting a duplicate
+                  episode workflow.
+                </p>
               )}
             </section>
             <RegistryForms
@@ -1294,6 +1336,15 @@ export function UnifiedPatientWorkspace({
           patientId={id}
           encounters={encounters}
           studies={echoValveIntelligence?.studies ?? []}
+          onClose={() => setSmartEditor(null)}
+          onSaved={saved}
+        />
+      ) : smartEditor === "coronary" && coronaryIntelligence ? (
+        <CoronaryEditor
+          mode="state"
+          patientId={id}
+          encounters={encounters}
+          record={coronaryIntelligence}
           onClose={() => setSmartEditor(null)}
           onSaved={saved}
         />

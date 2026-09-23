@@ -11,6 +11,7 @@ import {
 } from "./registry-forms";
 import type { Answer, Answers, Field } from "./guided";
 import type { CareEncounter, CareEntry } from "./care-model";
+import type { CoronaryRecord } from "./coronary-model";
 import type { Patient, Role } from "./types";
 const contextName = (s: string) =>
   ({
@@ -60,6 +61,7 @@ function registryPrefill(
   pkg: RegistryPackage,
   context: string,
   entries: CareEntry[],
+  coronary?: CoronaryRecord,
 ) {
   const answers: Answers = {};
   const newest = [...entries].sort((a, b) =>
@@ -97,12 +99,110 @@ function registryPrefill(
     pci_done: pci ? "Yes" : undefined,
     pci_date: pci?.occurred_on,
   };
+  const latestAcs = coronary?.acsEvents?.[0];
+  const latestAngiogram = coronary?.angiograms?.[0];
+  const latestPci = coronary?.pcis?.[0];
+  const currentMedications = coronary?.medications ?? [];
+  const medicationActive = (pattern: RegExp) =>
+    currentMedications.some((medication) =>
+      pattern.test(
+        `${medication.medication_id ?? ""} ${medication.generic_name ?? ""}`.toLowerCase(),
+      ),
+    )
+      ? "Yes"
+      : undefined;
+  const echoLvef = coronary?.latestEcho?.measurements?.find(
+    (measurement: Record<string, unknown>) =>
+      /(^|\.)lvef$/i.test(
+        String(measurement.concept_code ?? measurement.parameter_code ?? ""),
+      ),
+  );
+  const troponins = (coronary?.troponins ?? [])
+    .map((result) => Number(result.original_value))
+    .filter(Number.isFinite);
+  const latestLdl = coronary?.lipids?.find((result) =>
+    /(^|[-_])ldl($|[-_])|low.?density/i.test(
+      `${result.test_id ?? ""} ${result.display ?? ""}`,
+    ),
+  );
+  const presentation =
+    latestAcs?.diagnosis === "UNSTABLE_ANGINA"
+      ? "Unstable Angina"
+      : ["STEMI", "NSTEMI"].includes(latestAcs?.diagnosis)
+        ? latestAcs?.diagnosis
+        : coronary?.currentState?.state === "CCS"
+          ? "Stable Angina"
+          : undefined;
+  const staged =
+    latestPci?.revascularization_status === "STAGED" || latestPci?.staged_plan
+      ? "Yes"
+      : undefined;
+  const lvefValue =
+    (echoLvef?.value_number as Answer | undefined) ??
+    (echoLvef?.numeric_value as Answer | undefined);
+  const coronaryFacts: Record<string, Answer | undefined> = {
+    presentation_type: presentation,
+    index_admission_date: latestAcs?.presented_at?.slice(0, 10),
+    angio_date: latestAngiogram?.performed_at?.slice(0, 10),
+    access_site: latestAngiogram?.access_site,
+    management_decision: latestPci ? "PCI" : undefined,
+    pci_date: latestPci?.performed_at?.slice(0, 10),
+    cag_pci_done: latestPci ? "Yes" : undefined,
+    v_proc_pci_done: latestPci ? "Yes" : undefined,
+    prior_pci:
+      latestPci ||
+      coronary?.states?.some((item) => item.state === "PREVIOUS_PCI")
+        ? "Yes"
+        : undefined,
+    staged_pci_planned: staged,
+    total_stents: latestPci ? String(latestPci.stents?.length ?? 0) : undefined,
+    cag_stents_number: latestPci
+      ? String(latestPci.stents?.length ?? 0)
+      : undefined,
+    culprit_vessel: latestPci?.target_vessel,
+    vessel_treated: latestPci?.target_vessel,
+    aspirin: medicationActive(/aspirin/),
+    on_aspirin: medicationActive(/aspirin/),
+    clopidogrel: medicationActive(/clopidogrel/),
+    prasugrel: medicationActive(/prasugrel/),
+    ticagrelor: medicationActive(/ticagrelor/),
+    apixaban: medicationActive(/apixaban/),
+    rivaroxaban: medicationActive(/rivaroxaban/),
+    dabigatran: medicationActive(/dabigatran/),
+    edoxaban: medicationActive(/edoxaban/),
+    warfarin: medicationActive(/warfarin/),
+    ezetimibe: medicationActive(/ezetimibe/),
+    on_p2y12: medicationActive(/clopidogrel|prasugrel|ticagrelor/),
+    on_statin: medicationActive(
+      /atorvastatin|rosuvastatin|simvastatin|pravastatin/,
+    ),
+    lvef: lvefValue,
+    cmr_lvef: lvefValue,
+    troponin: troponins[0],
+    troponin_peak: troponins.length ? Math.max(...troponins) : undefined,
+    ldl: latestLdl?.original_value as Answer | undefined,
+    lab_ldl: latestLdl?.original_value as Answer | undefined,
+  };
   pkg.fields
     .filter((field) => field.context === context && !field.blocked)
     .forEach((field) => {
       const source = field.sourceKey.toLowerCase();
-      let fact: Answer | undefined;
-      if (source === "presentation_type") fact = facts.presentation;
+      let fact: Answer | undefined = coronaryFacts[source];
+      if (fact !== undefined) {
+        // Reuse the connected coronary record before falling back to legacy care entries.
+      } else if (/pci_done$/.test(source)) {
+        fact = latestPci ? "Yes" : undefined;
+      } else if (/pci_date$/.test(source)) {
+        fact = latestPci?.performed_at?.slice(0, 10);
+      } else if (/stents_number$|stent_count$/.test(source)) {
+        fact = latestPci ? String(latestPci.stents?.length ?? 0) : undefined;
+      } else if (/^(v_)?(lab_)?ldl(_fu)?$/.test(source)) {
+        fact = latestLdl?.original_value;
+      } else if (/^(v_)?(cmr_)?lvef(_followup)?$/.test(source)) {
+        fact = lvefValue;
+      } else if (/^(v_)?cag_access$/.test(source)) {
+        fact = latestAngiogram?.access_site;
+      } else if (source === "presentation_type") fact = facts.presentation;
       else if (/lvef/.test(source)) fact = facts.lvef;
       else if (/creat/.test(source) && !/ratio|clearance|crcl/.test(source))
         fact = facts.creatinine;
@@ -156,6 +256,10 @@ export function RegistryForms({
     useData<RegistryPackage[]>("/registry-forms");
   const { data: assessments, error } = useData<RegistryAssessment[]>(
     `/patients/${patient.id}/registry-forms`,
+    revision,
+  );
+  const { data: coronary } = useData<CoronaryRecord>(
+    `/patients/${patient.id}/coronary`,
     revision,
   );
   return (
@@ -304,6 +408,7 @@ export function RegistryForms({
           patient={patient}
           encounters={encounters}
           entries={entries}
+          coronary={coronary ?? undefined}
           pkg={editor.pkg}
           original={editor.original}
           readOnly={role !== "clinician"}
@@ -328,6 +433,7 @@ function RegistryEditor({
   patient,
   encounters,
   entries,
+  coronary,
   pkg,
   original,
   readOnly,
@@ -337,6 +443,7 @@ function RegistryEditor({
   patient: Patient;
   encounters: CareEncounter[];
   entries: CareEntry[];
+  coronary?: CoronaryRecord;
   pkg: RegistryPackage;
   original?: RegistryAssessment;
   readOnly: boolean;
@@ -345,7 +452,7 @@ function RegistryEditor({
 }) {
   const contexts = [...new Set(pkg.fields.map((f) => f.context))];
   const initialContext = original?.context ?? contexts[0];
-  const mappedPrefill = registryPrefill(pkg, initialContext, entries);
+  const mappedPrefill = registryPrefill(pkg, initialContext, entries, coronary);
   const initialPrefill = original
     ? { ...mappedPrefill, ...original.answers }
     : mappedPrefill;
@@ -441,7 +548,9 @@ function RegistryEditor({
               onChange={(e) => {
                 setContext(e.target.value);
                 setSection("");
-                setAnswers(registryPrefill(pkg, e.target.value, entries));
+                setAnswers(
+                  registryPrefill(pkg, e.target.value, entries, coronary),
+                );
                 setSearch("");
                 setMode("required");
               }}
