@@ -86,6 +86,7 @@ import {
 import {
   AlertAction,
   PlanAction,
+  PlanNote,
   type ClinicalTask,
   type PublishedAlert,
 } from "./PlanAction";
@@ -832,6 +833,7 @@ export function UnifiedPatientWorkspace({
     [registry, setRegistry] = useState(false),
     [followup, setFollowup] = useState<Task | null>(null),
     [planTask, setPlanTask] = useState<ClinicalTask | "new" | null>(null),
+    [planNote, setPlanNote] = useState(false),
     [publishedAlert, setPublishedAlert] = useState<PublishedAlert | null>(null),
     [clinicalFocus, setClinicalFocus] = useState<
       "hf" | "echo" | "coronary" | null
@@ -882,6 +884,7 @@ export function UnifiedPatientWorkspace({
     setClosing(null);
     setFollowup(null);
     setPlanTask(null);
+    setPlanNote(false);
     setPublishedAlert(null);
     setRevision((value) => value + 1);
     onSaved();
@@ -1446,9 +1449,26 @@ export function UnifiedPatientWorkspace({
                 </p>
               </div>
               {role === "clinician" ? (
-                <button className="primary" onClick={() => setPlanTask("new")}>
-                  <Plus size={16} /> Plan next action
-                </button>
+                <div className="journey-intro-actions">
+                  <button
+                    className="secondary"
+                    onClick={() => setPlanNote(true)}
+                    disabled={
+                      !clinicalFoundation ||
+                      !medicationIntelligence ||
+                      !laboratoryIntelligence
+                    }
+                    title="Available when current clinical data has loaded"
+                  >
+                    Draft plan note
+                  </button>
+                  <button
+                    className="primary"
+                    onClick={() => setPlanTask("new")}
+                  >
+                    <Plus size={16} /> Plan next action
+                  </button>
+                </div>
               ) : null}
             </div>
             <section className="panel care-section plan-workspace">
@@ -1837,6 +1857,45 @@ export function UnifiedPatientWorkspace({
           owner={currentEncounter?.owner ?? owner}
           task={planTask === "new" ? undefined : planTask}
           onClose={() => setPlanTask(null)}
+          onSaved={saved}
+        />
+      ) : null}
+      {planNote ? (
+        <PlanNote
+          patientId={id}
+          encounterId={currentEncounter?.id ?? null}
+          owner={currentEncounter?.owner ?? owner}
+          problems={[
+            ...specialtyProblems.map((item) => item.title),
+            ...visibleCareProblems.map((item) => item.title),
+          ].slice(0, 12)}
+          medications={(medicationIntelligence?.current ?? [])
+            .filter((item) => item.status === "ACTIVE")
+            .map((item) =>
+              `${item.generic_name}${item.dose_value != null ? ` ${item.dose_value} ${item.dose_unit ?? ""}` : ""}${item.frequency ? ` ${item.frequency}` : ""}`.trim(),
+            )
+            .slice(0, 16)}
+          results={(laboratoryIntelligence?.trends ?? [])
+            .slice(0, 12)
+            .map(
+              (item) =>
+                `${item.display} ${item.latest.original_value} ${item.latest.original_unit} (${date(item.latest.resulted_at)}; ${item.latest.verification_status})`,
+            )}
+          actions={[
+            ...clinicalTasks.map((item) => ({
+              purpose: item.purpose,
+              target_date: item.target_date,
+            })),
+            ...pending.map((item) => ({
+              purpose: item.title,
+              target_date: item.due_date,
+            })),
+            ...tasks.map((item) => ({
+              purpose: `${item.milestone}-month CAD follow-up`,
+              target_date: item.due_date,
+            })),
+          ].slice(0, 20)}
+          onClose={() => setPlanNote(false)}
           onSaved={saved}
         />
       ) : null}

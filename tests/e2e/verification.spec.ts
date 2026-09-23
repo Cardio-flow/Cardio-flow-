@@ -114,7 +114,7 @@ test("hosted login opens the dashboard without reloading the document", async ({
 test("a failed JavaScript download shows recovery instead of a blank page", async ({
   page,
 }) => {
-  await page.route("**/src/main.tsx", (route) => route.abort());
+  await page.route("**/src/main.tsx*", (route) => route.abort());
   await page.goto("/");
   await expect(
     page.getByText("The app could not load. Reload to get the latest version."),

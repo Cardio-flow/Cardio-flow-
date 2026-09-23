@@ -3901,6 +3901,12 @@ input[type="checkbox"] {
   margin: 0;
   color: #61776c;
 }
+.journey-intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
 .journey-specialty-history {
   margin: 18px 0;
 }

@@ -16,6 +16,109 @@ export type ClinicalTask = {
   current: { status: string; version: number; note: string } | null;
 };
 
+function noteItems(items: string[], limit: number) {
+  if (!items.length) return "none shown";
+  const shown = items
+    .slice(0, limit)
+    .map((item) =>
+      item.length > 100 ? `${item.slice(0, 90)}… (see chart)` : item,
+    );
+  return `${shown.join("; ")}${items.length > limit ? `; ${items.length - limit} more in the chart` : ""}`;
+}
+
+export function PlanNote({
+  patientId,
+  encounterId,
+  owner,
+  problems,
+  medications,
+  results,
+  actions,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  encounterId: string | null;
+  owner: string;
+  problems: string[];
+  medications: string[];
+  results: string[];
+  actions: Array<{ purpose: string; target_date: string | null }>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const datedActions = actions.map(
+    (item) =>
+      `${item.purpose}${item.target_date ? ` (due ${date(item.target_date)})` : ""}`,
+  );
+  const initial = [
+    "Clinical plan review",
+    `Selected active problems: ${noteItems(problems, 8)}.`,
+    `Selected current structured medications: ${noteItems(medications, 12)}.`,
+    `Selected recent structured results: ${noteItems(results, 8)}.`,
+    `Selected continuing actions: ${noteItems(datedActions, 12)}.`,
+  ].join("\n");
+  const [narrative, setNarrative] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/patients/${patientId}/care/entries`, {
+        kind: "decision",
+        family: "General",
+        title: "Clinical plan note",
+        status: "completed",
+        occurred_on: currentDate(),
+        encounter_id: encounterId,
+        owner,
+        due_date: null,
+        assessment: narrative.trim(),
+        action: "Clinician reviewed and documented the current plan.",
+        response: "Dated actions remain in the longitudinal care plan.",
+        details: {},
+      });
+      onSaved();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal title="Draft clinical plan note" onClose={onClose} wide>
+      <p className="modal-intro">
+        This is a snapshot of the current record and open plan. Review and edit
+        it before saving; source records and dated actions remain separate.
+      </p>
+      <ErrorBox message={error} />
+      <form className="plan-action-form" onSubmit={submit}>
+        <label>
+          Editable plan note
+          <textarea
+            value={narrative}
+            onChange={(event) => setNarrative(event.target.value)}
+            minLength={10}
+            maxLength={6000}
+            rows={12}
+            required
+          />
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={busy}>
+            {busy ? "Saving…" : "Save reviewed note"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 const taskKinds: Record<ClinicalTask["kind"], string> = {
   clinical_review: "Clinical review",
   laboratory: "Investigation / lab",

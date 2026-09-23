@@ -43,6 +43,17 @@ test("quick multi-lab entry, dated plan and next visit share one patient journey
     page.getByRole("button", { name: /Review renal profile/ }),
   ).toBeVisible();
 
+  await page.getByRole("button", { name: "Draft plan note" }).click();
+  await expect(page.getByLabel("Editable plan note")).toHaveValue(
+    /Review renal profile/,
+  );
+  await page
+    .getByLabel("Editable plan note")
+    .fill("Renal profile reviewed. Repeat renal monitoring is planned.");
+  await page.getByRole("button", { name: "Save reviewed note" }).click();
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await expect(page.getByText("Clinical plan note").first()).toBeVisible();
+
   await page.getByRole("button", { name: "New visit / admission" }).click();
   await expect(
     page.getByLabel("Since last review").getByText("Review renal profile"),
