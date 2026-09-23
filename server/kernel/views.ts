@@ -4,6 +4,7 @@ import { DIAGNOSIS, MEASURES, PURPOSE_ORDER, doseLabel, MEDICATION, formatNumber
 import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { loadState, latestDischarge, openContext, type PatientState } from "./state.js";
 
+const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 
 export async function recommendations(tx: Q, patientId: string) {
@@ -33,7 +34,7 @@ export function header(s: PatientState) {
     allergies: s.patient.allergies,
     where,
     openContext: ctx,
-    diagnoses: s.conditions.map((c) => ({
+    diagnoses: [...s.conditions].sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code]?.family ?? "") - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code]?.family ?? "")).map((c) => ({
       id: c.logical_id,
       code: c.code,
       label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display} · EF ${formatNumber(ef.value_num, 0)}%` : c.display,
@@ -121,7 +122,7 @@ export function whatChanged(s: PatientState) {
     const out = (x: number) => !!ref && ((ref.high != null && x > ref.high) || (ref.low != null && x < ref.low));
     const outOfRange = out(now.value_num!);
     // small moves inside the reference range are noise, not change
-    if (!outOfRange && !out(before.value_num!) && Math.abs(diff) / Math.max(Math.abs(before.value_num!), 1e-9) < 0.1) continue;
+    if (ref && !outOfRange && !out(before.value_num!) && Math.abs(diff) / Math.max(Math.abs(before.value_num!), 1e-9) < 0.1) continue;
     items.push({
       kind: "value",
       label: def.display,

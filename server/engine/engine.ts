@@ -32,8 +32,8 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   for (const rule of RULES) {
     const version = versions.get(rule.id);
     const active = (
-      await tx.query<{ id: string; fingerprint: string }>(
-        `SELECT id,fingerprint FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND status='active'`,
+      await tx.query<{ id: string; fingerprint: string; rule_status: string; rule_version: number }>(
+        `SELECT id,fingerprint,rule_status,rule_version FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND status='active'`,
         [patientId, rule.id],
       )
     ).rows;
@@ -52,9 +52,14 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
       const fingerprint = `${f.key}|${f.signature}`;
       seen.add(f.key);
       const same = active.find((a) => a.fingerprint === fingerprint);
-      if (same) continue;
+      if (same) {
+        // same finding, but the rule was since approved/published: keep it, relabel it
+        if (same.rule_status !== version.status || same.rule_version !== version.version)
+          await tx.query(`UPDATE cf.recommendation SET rule_status=$2, rule_version=$3 WHERE id=$1`, [same.id, version.status, version.version]);
+        continue;
+      }
       const decided = (
-        await tx.query(`SELECT 1 FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND fingerprint=$3 AND status IN ('decided','resolved') LIMIT 1`, [
+        await tx.query(`SELECT 1 FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND fingerprint=$3 AND status='decided' LIMIT 1`, [
           patientId, rule.id, fingerprint,
         ])
       ).rows[0];

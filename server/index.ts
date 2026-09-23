@@ -18,7 +18,7 @@ if (process.env.APP_BUILD === "1") {
   app.get("/{*path}", (_req, res) => res.sendFile(path.resolve("dist/index.html")));
 } else {
   const { createServer } = await import("vite");
-  const vite = await createServer({ server: { middlewareMode: true, hmr: { server } }, appType: "spa" });
+  const vite = await createServer({ server: { middlewareMode: true, ws: { server } } as any, appType: "spa" });
   app.use(vite.middlewares);
 }
 const port = Number(process.env.PORT || 4310);

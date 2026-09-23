@@ -2,7 +2,7 @@
 // engine only re-runs rules that read them.
 import type { Q } from "../db/db.js";
 import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
-import { addDays, ageOn, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
+import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, uuid, type Actor } from "./base.js";
 
 export type Changed = string[];
@@ -357,7 +357,9 @@ export async function completeMatching(
     const c = a.completes_on ?? {};
     if (c.type !== trigger.type) continue;
     if (new Date(trigger.at) < new Date(a.created_at) && trigger.type !== "visit") continue;
-    const windowDays = trigger.type === "lab" ? 7 : trigger.type === "visit" ? 7 : 30;
+    // how early a result may count: never more than half the planned interval (max 7 days; 30 for Echo)
+    const interval = a.due_date ? Math.max(0, daysBetween(new Date(a.created_at).toISOString(), String(a.due_date).slice(0, 10))) : 0;
+    const windowDays = trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
     if (a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
     if (trigger.type === "lab" && !(c.codes ?? []).every((code: string) => trigger.codes.includes(code))) continue;
     if (trigger.type === "study" && c.kind !== trigger.kind) continue;

@@ -80,33 +80,32 @@ export type PatientState = {
 export async function loadState(tx: Q, patientId: string): Promise<PatientState> {
   const p = (await tx.query("SELECT * FROM cf.patient WHERE id=$1", [patientId])).rows[0];
   const today = todayFn();
-  const [conds, obs, meds, events, plan, contexts, studies, prefs] = await Promise.all([
-    tx.query<ConditionRow>(
+  // sequential on purpose: one connection per transaction must not run queries concurrently
+  const conds = await tx.query<ConditionRow>(
       `SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC`,
       [patientId],
-    ),
-    tx.query<Obs>(
+    );
+  const obs = await tx.query<Obs>(
       `SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
        FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC`,
       [patientId],
-    ),
-    tx.query(`SELECT * FROM cf.medication WHERE patient_id=$1 ORDER BY created_at`, [patientId]),
-    tx.query(
+    );
+  const meds = await tx.query(`SELECT * FROM cf.medication WHERE patient_id=$1 ORDER BY created_at`, [patientId]);
+  const events = await tx.query(
       `SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at FROM cf.medication_event WHERE patient_id=$1 ORDER BY effective_at, recorded_at`,
       [patientId],
-    ),
-    tx.query<PlanRow>(
+    );
+  const plan = await tx.query<PlanRow>(
       `SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version
        FROM cf.plan_action WHERE patient_id=$1 ORDER BY due_date NULLS LAST, created_at`,
       [patientId],
-    ),
-    tx.query<ContextRow>(
+    );
+  const contexts = await tx.query<ContextRow>(
       `SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1 ORDER BY started_at`,
       [patientId],
-    ),
-    tx.query<StudyRow>(`SELECT id,kind,performed_at,quality,findings,conclusion FROM cf.study WHERE patient_id=$1 ORDER BY performed_at`, [patientId]),
-    tx.query<{ code: string; observation_id: string }>(`SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active`, [patientId]),
-  ]);
+    );
+  const studies = await tx.query<StudyRow>(`SELECT id,kind,performed_at,quality,findings,conclusion FROM cf.study WHERE patient_id=$1 ORDER BY performed_at`, [patientId]);
+  const prefs = await tx.query<{ code: string; observation_id: string }>(`SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active`, [patientId]);
   const conditions = conds.rows.filter((c) => c.status === "active");
   const tags = new Set<string>(conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []));
   const preferences = Object.fromEntries(prefs.rows.map((r) => [r.code, r.observation_id]));

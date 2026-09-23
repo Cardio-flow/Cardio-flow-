@@ -14,7 +14,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const fact = (code: string, tone?: string) => {
     const c = s.resolved(code).current;
     if (!c) return { label: MEASURES[code]?.display ?? code, value: "Not available", tone: "orange" };
-    return { label: MEASURES[code].display, value: `${formatNumber(c.value_num!, MEASURES[code].decimals)} ${MEASURES[code].unit}`, date: c.effective_at, tone };
+    return { label: code === "sbp" ? "Systolic BP" : code === "hr" ? "Heart rate" : MEASURES[code].short === "Cr" ? "Creatinine" : MEASURES[code].short, value: `${formatNumber(c.value_num!, MEASURES[code].decimals)} ${MEASURES[code].unit}`, date: c.effective_at, tone };
   };
   const detected: Record<string, string[]> = { contributors: [] };
   const cr = series(s, "creatinine");
@@ -29,7 +29,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
       detected.contributors.push("diuretic");
   }
   const code = wizardId === "hyperkalaemia" ? "potassium" : "creatinine";
-  const hist = series(s, code).slice(0, 4).reverse();
+  const hist = series(s, code).slice(0, 3).reverse();
   const facts =
     wizardId === "hyperkalaemia"
       ? [fact("creatinine"), fact("egfr"), fact("sbp"), fact("hr")]

@@ -7,6 +7,8 @@ import { hostedAuth } from "./server/auth.js";
 import { mountFrontend } from "./server/frontend.js";
 import { boot } from "./server/boot.js";
 
+// synthetic demo users are for the local sandbox only
+process.env.CARDIO_DEMO_USERS ??= "0";
 const { DATABASE_URL, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET } = process.env;
 const origin = process.env.CARDIO_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
 if (!DATABASE_URL || !NEON_AUTH_BASE_URL || !NEON_AUTH_COOKIE_SECRET || !origin)

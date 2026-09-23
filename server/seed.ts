@@ -6,6 +6,11 @@ import * as K from "./kernel/clinical.js";
 import { reassess } from "./engine/engine.js";
 
 const at = (day: string, time = "09:00") => new Date(`${day}T${time}:00+03:00`).toISOString();
+// "earlier today" that is never in the future and never yesterday
+const earlierToday = (day: string, hoursAgo: number) => {
+  const startOfDay = Date.parse(`${day}T00:01:00+03:00`);
+  return new Date(Math.max(startOfDay, Date.now() - hoursAgo * 3600_000)).toISOString();
+};
 
 export async function seedSynthetic(db: DB, siteId: string) {
   const T = today();
@@ -75,7 +80,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
     });
     await K.recordObservations(tx, sys, k, { effectiveAt: at(d(-4), "08:20"), items: [{ code: "weight", value: 78 }], silentEvent: true });
     await K.recordObservations(tx, sys, k, {
-      effectiveAt: at(d(0), "07:45"),
+      effectiveAt: earlierToday(d(0), 0.25),
       items: [{ code: "creatinine", value: 186 }, { code: "potassium", value: 5.8 }, { code: "sodium", value: 136 }, { code: "urea", value: 11.2 }],
     });
 
