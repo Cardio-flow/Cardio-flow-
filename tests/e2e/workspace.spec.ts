@@ -203,16 +203,42 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Update HF" }).click();
-  await page.getByLabel("Functional class").selectOption("II");
-  await page.getByLabel("Clinician-confirmed phenotype").selectOption("HFrEF");
-  await page.getByText("Exertional dyspnoea", { exact: true }).click();
-  await page.getByText("Ischaemic", { exact: true }).click();
-  await page
-    .getByLabel("Clinical narrative")
-    .fill("New symptomatic HF after anterior MI");
-  await page
-    .getByRole("button", { name: "Save to longitudinal record" })
+  const wizard = page.getByRole("dialog", { name: "Heart failure review" });
+  await wizard.getByRole("button", { name: "Stable", exact: true }).click();
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard
+    .getByRole("button", { name: "Exertional dyspnoea", exact: true })
     .click();
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard.getByRole("button", { name: "NYHA II", exact: true }).click();
+  await wizard.getByText("Phenotype and aetiology").click();
+  await wizard.getByRole("button", { name: "HFrEF" }).click();
+  await wizard.getByRole("button", { name: "Ischaemic" }).click();
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard
+    .getByRole("button", { name: "Current medicines reviewed" })
+    .click();
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard
+    .getByLabel("Additional clinical context")
+    .fill("New symptomatic HF after anterior MI");
+  await wizard.getByRole("button", { name: "Add planned action" }).click();
+  await wizard
+    .getByLabel("Action 1", { exact: true })
+    .fill("Review renal profile");
+  await wizard.getByLabel("Due date 1").fill("2026-09-30");
+  await wizard.getByRole("button", { name: "Continue" }).click();
+  await wizard
+    .getByLabel("Review note")
+    .fill("Clinician edited HF review: New symptomatic HF after anterior MI");
+  await page.screenshot({
+    path: "test-results/stage55-hf-wizard.png",
+    animations: "disabled",
+  });
+  await wizard
+    .getByRole("button", { name: "Save HF review and plan" })
+    .dispatchEvent("click");
   await expect(page.getByText("HFrEF", { exact: true }).first()).toBeVisible();
   await expect(
     page.getByText("NYHA II", { exact: true }).first(),
@@ -229,6 +255,7 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
   await expect(
     page.getByRole("button", { name: /Heart failure review Clinical review/ }),
   ).toBeVisible();
+  await expect(page.getByText("Review renal profile").first()).toBeVisible();
   await page.screenshot({
     path: "test-results/stage55-hf-summary.png",
     fullPage: true,
@@ -241,12 +268,37 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
     page.getByRole("heading", { name: "Heart failure record" }),
   ).toBeVisible();
   await expect(
-    page.getByText("New symptomatic HF after anterior MI"),
+    page.getByText(
+      "Clinician edited HF review: New symptomatic HF after anterior MI",
+    ),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Journey" }).click();
   await page.getByText("Specialty event details").click();
   await expect(
     page.getByRole("heading", { name: "Heart failure journey" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Current Visit" }).click();
+  await page.getByRole("button", { name: "Assess clinical issue" }).click();
+  const issue = page.getByRole("dialog", { name: "HF complication review" });
+  await issue.getByLabel("Issue").selectOption("HYPERKALAEMIA");
+  await issue.getByRole("button", { name: "Continue" }).click();
+  await issue
+    .getByLabel("Current state")
+    .fill("Potassium source result under review");
+  await issue.getByRole("button", { name: "Continue" }).click();
+  await issue.getByRole("button", { name: "Renal function" }).click();
+  await issue.getByRole("button", { name: "Continue" }).click();
+  await issue
+    .getByLabel("Clinician decision / escalation")
+    .fill("Review result and patient context");
+  await issue
+    .getByLabel("Monitoring plan")
+    .fill("Repeat laboratory assessment");
+  await issue.getByRole("button", { name: "Save complication review" }).click();
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await page.getByText("Specialty event details").click();
+  await expect(
+    page.getByText("Hyperkalaemia", { exact: true }).first(),
   ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),

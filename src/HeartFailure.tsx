@@ -26,6 +26,8 @@ import {
 } from "./heart-failure";
 import type { Role } from "./types";
 import { Empty, ErrorBox, Loading, Modal, SectionTitle } from "./ui";
+import { HfComplicationWizard, HfJourneyWizard } from "./HfJourneyWizard";
+import { HfDischargeWizard } from "./HfDischargeWizard";
 
 type HfTask = {
   id: string;
@@ -110,6 +112,7 @@ export function HeartFailureDashboard({
     revision,
   );
   const [action, setAction] = useState<Action | null>(null);
+  const [initialComplication, setInitialComplication] = useState("");
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading />;
   const review = data.currentReview;
@@ -124,8 +127,9 @@ export function HeartFailureDashboard({
       "bnp",
     ].includes(item.test_id),
   );
-  const done = () => {
-    setAction(null);
+  const done = (complication?: string) => {
+    setInitialComplication(complication ?? "");
+    setAction(complication ? "pathway" : null);
     onChanged();
   };
   return (
@@ -322,7 +326,39 @@ export function HeartFailureDashboard({
           </button>
         </div>
       ) : null}
-      {action && action !== "note" ? (
+      {action === "review" ? (
+        <HfJourneyWizard
+          patientId={patientId}
+          data={data}
+          encounters={encounters}
+          onClose={() => setAction(null)}
+          onSaved={done}
+        />
+      ) : null}
+      {action === "pathway" ? (
+        <HfComplicationWizard
+          patientId={patientId}
+          data={data}
+          encounters={encounters}
+          initialType={initialComplication}
+          onClose={() => setAction(null)}
+          onSaved={() => done()}
+        />
+      ) : null}
+      {action === "discharge" ? (
+        <HfDischargeWizard
+          patientId={patientId}
+          data={data}
+          encounters={encounters}
+          onClose={() => setAction(null)}
+          onSaved={() => done()}
+        />
+      ) : null}
+      {action &&
+      action !== "review" &&
+      action !== "pathway" &&
+      action !== "discharge" &&
+      action !== "note" ? (
         <HfActionModal
           action={action}
           patientId={patientId}

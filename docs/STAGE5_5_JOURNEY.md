@@ -10,6 +10,9 @@ Status: in progress. This is a staged UX rebuild, not a new disease module or a 
 - Registration uses a searchable comorbidity multi-select. Existing structured diagnosis templates remain the route for adding active problems.
 - Opening a visit shows prior open care actions and automatically selects the latest encounter link. Dated plan actions use the existing clinical task engine, appear in Worklist, survive visits and reloads, and require an outcome before completion.
 - Specialist review dashboards are now focused choices within Current Visit. Existing registry and historical CAD episode workflows remain available.
+- HF review now uses a step-by-step journey for clinical course, symptoms, function/congestion, current treatment, complications and dated plan actions. It generates an editable review narrative and saves it to the existing versioned HF record. The focused complication review shows current laboratory and medication context and records the clinician's assessment in the existing HF pathway history.
+- HF discharge now guides reconciliation and scheduling. The existing discharge engine creates dated laboratory, clinic, imaging and device-review tasks that carry into the next OPD visit; an admission can be closed from the same review only after clinical stability is confirmed.
+- Visit/admission reasons have quick clinical choices while preserving an editable reason for other contexts. The start-of-visit flow can show the patient's active problems, medicines, recent results and imaging already in the record, alongside open actions from the prior visit.
 
 No database migration was needed for this increment. It changes presentation and reuses existing records, endpoints and task history. No historical data was transformed or removed.
 
@@ -17,8 +20,8 @@ No database migration was needed for this increment. It changes presentation and
 
 - Dose presets cannot safely be shown yet: the installed medication catalog marks dose content `not_clinically_curated` and has no independently reviewed presets. The UI will expose presets only when reviewed metadata is present; clinical review and publication must precede that rollout.
 - Diagnosis matching is a navigation aid over documented names and catalog groups, not clinical treatment logic. It needs a governed terminology mapping before it can drive medication recommendations or safety decisions.
-- HF review and complication flows still contain form-first sections. They need focused step-by-step wizards and structured management choices, with published rules before patient-specific action suggestions.
-- Plans currently create dated tasks but do not yet generate an editable clinical note. Admission/discharge notes and the task engine are connected in the patient record, but a dedicated structured handover wizard remains to be built.
+- HF review, complication and discharge now have focused steps, but clinician-selected management choices cannot be generated from unpublished disease rules. The complication wizard records assessment and monitoring without suggesting treatment. Independent clinical publication is required before patient-specific management options can appear.
+- The generated HF review narrative can be edited before save, but the wider cross-specialty plan still lacks a shared note generator. The generic admission/discharge flow remains available for non-HF care.
 - Registry source projection is retained; automatic reuse is limited to existing supported mappings. It is not a claim of complete registry coverage.
 - The global More actions menu remains for less common legacy editors. The old specialty editors are still active behind focused review choices. A clinician UX review should guide their final retirement.
 - No new disease-specific clinical rule has been published. Safety action prompts appear only for server-returned published alerts.

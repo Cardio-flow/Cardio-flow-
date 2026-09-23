@@ -1785,6 +1785,25 @@ export function UnifiedPatientWorkspace({
           encounters={encounters}
           pending={pending}
           pendingTasks={clinicalTasks}
+          clinicalContext={{
+            problems: [
+              ...specialtyProblems.map((item) => item.title),
+              ...activeProblems.map((item) => item.title),
+            ].slice(0, 6),
+            medications: (medicationIntelligence?.current ?? [])
+              .filter((item) => item.status === "ACTIVE")
+              .slice(0, 6)
+              .map((item) => item.generic_name),
+            results: (laboratoryIntelligence?.trends ?? [])
+              .slice(0, 6)
+              .map(
+                (item) =>
+                  `${item.display} ${item.latest.original_value} ${item.latest.original_unit}`,
+              ),
+            imaging: echoValveIntelligence?.studies?.length
+              ? `${echoValveIntelligence.studies[0].source_label} · ${date(echoValveIntelligence.studies[0].performed_at)}`
+              : null,
+          }}
           onClose={() => setNewEncounter(false)}
           onSaved={saved}
         />

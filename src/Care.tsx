@@ -1050,6 +1050,7 @@ export function EncounterEditor({
   encounters,
   pending = [],
   pendingTasks = [],
+  clinicalContext,
   onClose,
   onSaved,
 }: {
@@ -1057,11 +1058,18 @@ export function EncounterEditor({
   encounters: CareEncounter[];
   pending?: CareEntry[];
   pendingTasks?: { id: string; purpose: string; target_date: string | null }[];
+  clinicalContext?: {
+    problems: string[];
+    medications: string[];
+    results: string[];
+    imaging: string | null;
+  };
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState("");
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -1116,6 +1124,35 @@ export function EncounterEditor({
           )}
         </section>
       ) : null}
+      {clinicalContext &&
+      (clinicalContext.problems.length ||
+        clinicalContext.medications.length ||
+        clinicalContext.results.length ||
+        clinicalContext.imaging) ? (
+        <details className="visit-current-context">
+          <summary>Current clinical record available for this visit</summary>
+          <div className="visit-context-grid">
+            <div>
+              <strong>Active problems</strong>
+              <p>{clinicalContext.problems.join(" · ") || "None documented"}</p>
+            </div>
+            <div>
+              <strong>Current medicines</strong>
+              <p>
+                {clinicalContext.medications.join(" · ") || "None documented"}
+              </p>
+            </div>
+            <div>
+              <strong>Recent results</strong>
+              <p>{clinicalContext.results.join(" · ") || "None documented"}</p>
+            </div>
+            <div>
+              <strong>Cardiac imaging</strong>
+              <p>{clinicalContext.imaging || "None documented"}</p>
+            </div>
+          </div>
+        </details>
+      ) : null}
       <form onSubmit={submit}>
         <div className="form-grid">
           <label>
@@ -1136,10 +1173,40 @@ export function EncounterEditor({
               defaultValue={currentDate()}
             />
           </label>
-          <label className="span-2">
-            Reason for visit / admission
-            <input name="reason" required minLength={2} maxLength={300} />
-          </label>
+          <div className="span-2">
+            <span>Common reasons</span>
+            <div className="encounter-reasons">
+              {[
+                "ACS",
+                "Heart failure",
+                "Arrhythmia",
+                "Valve disease",
+                "Syncope",
+                "Chest pain",
+              ].map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={reason === value ? "selected" : ""}
+                  onClick={() => setReason(value)}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <label>
+              Reason for visit / admission
+              <input
+                name="reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Choose a reason or describe it"
+                required
+                minLength={2}
+                maxLength={300}
+              />
+            </label>
+          </div>
           <label className="span-2">
             Responsible clinician / team
             <input name="owner" required minLength={2} maxLength={300} />
