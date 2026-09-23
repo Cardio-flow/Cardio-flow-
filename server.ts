@@ -10,7 +10,14 @@ import { boot } from "./server/boot.js";
 // synthetic demo users are for the local sandbox only
 process.env.CARDIO_DEMO_USERS ??= "0";
 const { DATABASE_URL, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET } = process.env;
-const origin = process.env.CARDIO_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
+// production uses the project domain; a Vercel preview uses its own branch URL automatically
+const origin =
+  process.env.CARDIO_ORIGIN ||
+  (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_BRANCH_URL
+    ? `https://${process.env.VERCEL_BRANCH_URL}`
+    : process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "");
 if (!DATABASE_URL || !NEON_AUTH_BASE_URL || !NEON_AUTH_COOKIE_SECRET || !origin)
   throw new Error("Hosted database, identity and origin configuration are required");
 const db = connectPostgres(DATABASE_URL);
