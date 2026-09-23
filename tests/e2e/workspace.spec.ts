@@ -55,7 +55,11 @@ test("clinical governance is restricted and shows evidence without active diseas
   await expect(
     page.getByRole("heading", { name: "Evidence & rule publication" }),
   ).toBeVisible();
-  await expect(page.getByText("12", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Guidelines for the Standardization of Adult Echocardiography Reporting",
+    }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "Rule publication" }).click();
   await expect(
     page.getByText("2026 HF phenotype classification"),
@@ -188,7 +192,11 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
   await page
     .getByRole("button", { name: "Save to longitudinal record" })
     .click();
-  await expect(page.getByText("30%", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Heart failure" })
+      .getByText("30%", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Update HF" }).click();
   await page.getByLabel("Functional class").selectOption("II");

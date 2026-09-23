@@ -62,6 +62,13 @@ import {
   HeartFailureDashboard,
   HeartFailureTimeline,
 } from "./HeartFailure";
+import {
+  EchoStudyEditor,
+  EchoValveClinicalRecord,
+  EchoValveDashboard,
+  EchoValveTimeline,
+} from "./EchoValve";
+import type { EchoStudy } from "./echo-valve";
 
 type BoardEntry = CareEntry & {
   name: string;
@@ -684,7 +691,7 @@ type AddChoice = {
   description: string;
   kind: CareKind;
   custom?: boolean;
-  smart?: "medication" | "laboratory";
+  smart?: "medication" | "laboratory" | "echo";
 };
 
 const addChoices: AddChoice[] = [
@@ -697,6 +704,12 @@ const addChoices: AddChoice[] = [
     label: "Investigation / result",
     description: "Order, result or review an investigation",
     kind: "investigation",
+  },
+  {
+    label: "Echo study",
+    description: "Structured TTE, valve findings and longitudinal comparison",
+    kind: "investigation",
+    smart: "echo",
   },
   {
     label: "Medication",
@@ -769,7 +782,7 @@ export function UnifiedPatientWorkspace({
     [editorLabel, setEditorLabel] = useState(""),
     [editor, setEditor] = useState<CareKind | CareEntry | null>(null),
     [smartEditor, setSmartEditor] = useState<
-      "medication" | "laboratory" | null
+      "medication" | "laboratory" | "echo" | null
     >(null),
     [newEncounter, setNewEncounter] = useState(false),
     [closing, setClosing] = useState<CareEncounter | null>(null),
@@ -797,6 +810,10 @@ export function UnifiedPatientWorkspace({
   );
   const { data: laboratoryIntelligence } = useData<LaboratoryData>(
     `/patients/${id}/laboratory`,
+    revision,
+  );
+  const { data: echoValveIntelligence } = useData<{ studies: EchoStudy[] }>(
+    `/patients/${id}/echo-valve`,
     revision,
   );
 
@@ -1006,6 +1023,13 @@ export function UnifiedPatientWorkspace({
               encounters={encounters}
               onChanged={saved}
             />
+            <EchoValveDashboard
+              patientId={id}
+              revision={revision}
+              role={role}
+              encounters={encounters}
+              onChanged={saved}
+            />
             <MedicationLaboratoryOverview
               patientId={id}
               revision={revision}
@@ -1026,6 +1050,7 @@ export function UnifiedPatientWorkspace({
           </>
         ) : tab === "Clinical Record" ? (
           <>
+            <EchoValveClinicalRecord patientId={id} revision={revision} />
             <HeartFailureClinicalRecord patientId={id} revision={revision} />
             <section className="panel care-section clinical-record">
               <div className="record-toolbar">
@@ -1082,6 +1107,7 @@ export function UnifiedPatientWorkspace({
           </>
         ) : tab === "Timeline" ? (
           <>
+            <EchoValveTimeline patientId={id} revision={revision} />
             <HeartFailureTimeline patientId={id} revision={revision} />
             <PatientTimeline
               entries={entries}
@@ -1260,6 +1286,14 @@ export function UnifiedPatientWorkspace({
         <LaboratoryEditor
           patientId={id}
           encounters={encounters}
+          onClose={() => setSmartEditor(null)}
+          onSaved={saved}
+        />
+      ) : smartEditor === "echo" ? (
+        <EchoStudyEditor
+          patientId={id}
+          encounters={encounters}
+          studies={echoValveIntelligence?.studies ?? []}
           onClose={() => setSmartEditor(null)}
           onSaved={saved}
         />

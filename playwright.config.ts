@@ -5,13 +5,14 @@ import path from "node:path";
 const useChrome =
   process.platform === "darwin" &&
   existsSync("/Applications/Google Chrome.app");
+const e2ePort = process.env.E2E_PORT ?? "4311";
 export default defineConfig({
   testDir: "./tests/e2e",
   workers: 1,
   fullyParallel: false,
   timeout: 45000,
   use: {
-    baseURL: "http://127.0.0.1:4311",
+    baseURL: `http://127.0.0.1:${e2ePort}`,
     ...devices["Desktop Chrome"],
     ...(useChrome ? { channel: "chrome" } : {}),
     screenshot: "only-on-failure",
@@ -19,11 +20,11 @@ export default defineConfig({
   },
   webServer: {
     command: "npm run dev",
-    url: "http://127.0.0.1:4311/api/health",
+    url: `http://127.0.0.1:${e2ePort}/api/health`,
     reuseExistingServer: false,
     timeout: 45000,
     env: {
-      PORT: "4311",
+      PORT: e2ePort,
       CARDIO_DATA_DIR: path.join(tmpdir(), "cardio-e2e-" + Date.now()),
     },
   },

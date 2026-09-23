@@ -1,4 +1,12 @@
-# Progress — 16 September 2026
+# Progress — 23 September 2026
+
+## Release 0.9 — Stage 4 shared Echo and valve intelligence (23 September 2026)
+
+Implemented the additive architecture in [STAGE4_ECHO_VALVE.md](STAGE4_ECHO_VALVE.md): one append-only structured Echo source, versioned cardiologist reports, adaptive TTE capture, source-quality-aware current-value resolution, longitudinal comparison, shared HF consumption, structured native/prosthetic valve findings, combined valve state, clinician-authored intervention pathways, Heart Team workflow, exact-date surveillance, prosthesis and post-intervention records, report-quality checks and patient Summary/Clinical Record/Timeline integration.
+
+Migration `008-echo-valve-intelligence` preserves the immutable Stage 3 HF Echo table and idempotently backfills it into the shared source. New writes through both the comprehensive editor and legacy HF endpoint now use the shared model. Repeat finalized imaging supersedes obsolete HF review tasks and valve surveillance plans/tasks without deleting history.
+
+The [Echo Clinical Review Pack](ECHO_CLINICAL_REVIEW_PACK.md) contains 10 candidates and the [Valve Clinical Review Pack](VALVE_CLINICAL_REVIEW_PACK.md) contains 13. All remain unpublished in `CLINICAL_REVIEW`; no Stage 4 clinical threshold or intervention recommendation executes before licensed evidence extraction and independent clinical approval.
 
 ## Release 0.8 — Stage 3 heart failure module (22 September 2026)
 

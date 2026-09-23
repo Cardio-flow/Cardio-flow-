@@ -14,6 +14,7 @@ import {
 import { mountClinicalGovernance } from "./clinical-governance.js";
 import { mountMedicationLaboratory } from "./medication-laboratory.js";
 import { mountHeartFailure } from "./heart-failure.js";
+import { mountEchoValve } from "./echo-valve.js";
 import {
   patientSchema,
   episodeSchema,
@@ -769,6 +770,7 @@ export function createApp(db: DB, hosted?: HostedOptions) {
     allow("clinician", "reviewer"),
     allow("clinician"),
   );
+  mountEchoValve(app, db, allow("clinician", "reviewer"), allow("clinician"));
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );

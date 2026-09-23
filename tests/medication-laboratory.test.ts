@@ -535,8 +535,15 @@ test("Stage 2 medication, laboratory, safety, monitoring and titration foundatio
     const task = clinical.data.tasks.find(
       (item: any) => item.purpose === "Synthetic repeat potassium",
     );
-    assert.equal(task.target_date, "2026-09-25");
-    assert.equal(task.acceptable_window_end, "2026-09-27");
+    const expectedTarget = new Date();
+    expectedTarget.setUTCDate(expectedTarget.getUTCDate() + 3);
+    const expectedWindowEnd = new Date(expectedTarget);
+    expectedWindowEnd.setUTCDate(expectedWindowEnd.getUTCDate() + 2);
+    assert.equal(task.target_date, expectedTarget.toISOString().slice(0, 10));
+    assert.equal(
+      task.acceptable_window_end,
+      expectedWindowEnd.toISOString().slice(0, 10),
+    );
     assert.equal(task.medication_therapy_id, therapyId);
     assert.ok(
       (

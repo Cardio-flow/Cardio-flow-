@@ -14,6 +14,8 @@ import {
   type HfEcho,
   type HfReview,
 } from "../src/heart-failure.js";
+import { createSharedEchoStudy, loadEchoStudies } from "./echo-valve.js";
+import type { EchoStudy } from "../src/echo-valve.js";
 
 const SITE = "demo-kuwait";
 const VERIFIED_ON = "2026-09-22";
@@ -809,7 +811,7 @@ export async function loadHeartFailureState(db: QueryDB, patientId: string) {
     };
   const [
     reviewsResult,
-    echoesResult,
+    sharedEchoes,
     pathwaysResult,
     devicesResult,
     dischargeResult,
@@ -819,10 +821,7 @@ export async function loadHeartFailureState(db: QueryDB, patientId: string) {
       "SELECT * FROM heart_failure.review_event WHERE profile_id=$1 ORDER BY observed_at DESC,version DESC",
       [profile.id],
     ),
-    db.query<any>(
-      "SELECT * FROM heart_failure.echo_observation WHERE profile_id=$1 ORDER BY observed_at DESC,created_at DESC",
-      [profile.id],
-    ),
+    loadEchoStudies(db, patientId),
     db.query<any>(
       "SELECT * FROM heart_failure.pathway_assessment WHERE profile_id=$1 ORDER BY observed_at DESC,created_at DESC",
       [profile.id],
@@ -841,13 +840,13 @@ export async function loadHeartFailureState(db: QueryDB, patientId: string) {
     ),
   ]);
   const reviews = reviewsResult.rows.map(parseReview),
-    echoes = echoesResult.rows.map(parseEcho),
+    echoes = sharedEchoes.map(sharedEchoForHeartFailure),
     currentReview = reviews[0] ?? null,
     preferredLvef = clinical.concepts.find(
-      (item) => item.concept_code === "heart_failure.lvef",
+      (item) => item.concept_code === "echo.lvef",
     )?.current,
     preferredEcho =
-      echoes.find((echo) => echo.lvef_fact_id === preferredLvef?.id) ??
+      echoes.find((echo) => echo.id === preferredLvef?.source_id) ??
       echoes[0] ??
       null,
     phenotype = resolveHfPhenotypeState(currentReview, preferredEcho),
@@ -985,6 +984,66 @@ function parseEcho(row: any): HfEcho {
     ...row,
     lvef: row.lvef === null ? null : Number(row.lvef),
     valve_summary: parsed(row.valve_summary ?? []),
+  };
+}
+function sharedEchoForHeartFailure(study: EchoStudy): HfEcho {
+  const lvef = study.measurements.find(
+      (item) => item.parameter_code === "lvef",
+    ),
+    findings = study.structured_findings as Record<string, unknown>,
+    legacyValveSummary = Array.isArray(findings.legacyValveSummary)
+      ? findings.legacyValveSummary.map(String)
+      : [],
+    valveSummary = study.valve_findings.length
+      ? study.valve_findings.map(
+          (item) =>
+            `${item.valve_name} ${item.lesion_type}: ${item.clinician_severity}`,
+        )
+      : legacyValveSummary;
+  return {
+    id: study.study_id,
+    study_type:
+      study.study_type === "COMPLETE_TTE"
+        ? "FORMAL_TTE"
+        : study.study_type === "BEDSIDE_FOCUSED"
+          ? "LIMITED_TTE"
+          : study.study_type,
+    study_quality:
+      study.study_quality === "ADEQUATE"
+        ? "FAIR"
+        : ["TECHNICALLY_LIMITED", "VERY_LIMITED"].includes(study.study_quality)
+          ? "POOR"
+          : study.study_quality,
+    observed_at: study.performed_at,
+    lvef:
+      lvef?.value_number === null || lvef?.value_number === undefined
+        ? null
+        : Number(lvef.value_number),
+    lvef_fact_id: lvef?.fact_id ?? null,
+    rv_function:
+      typeof findings.rvFunction === "string" ? findings.rvFunction : null,
+    valve_summary: valveSummary,
+    pulmonary_pressure_context:
+      typeof findings.pulmonaryPressureContext === "string"
+        ? findings.pulmonaryPressureContext
+        : "",
+    diastolic_context:
+      typeof findings.diastolicContext === "string"
+        ? findings.diastolicContext
+        : "",
+    pericardial_context:
+      typeof findings.pericardialContext === "string"
+        ? findings.pericardialContext
+        : "",
+    structural_context:
+      typeof findings.structuralContext === "string"
+        ? findings.structuralContext
+        : study.interpretation,
+    source_label: study.source_label,
+    verification_status: ["FINAL", "AMENDED"].includes(study.status)
+      ? "verified"
+      : "preliminary",
+    author: study.reporting_cardiologist,
   };
 }
 const parsePathway = (row: any) => ({
@@ -1162,8 +1221,8 @@ export function mountHeartFailure(
         input.phenotype_source_echo_id &&
         !(
           await db.query(
-            "SELECT id FROM heart_failure.echo_observation WHERE id=$1 AND profile_id=$2",
-            [input.phenotype_source_echo_id, profile.id],
+            "SELECT id FROM imaging.echo_study WHERE id=$1 AND patient_id=$2",
+            [input.phenotype_source_echo_id, person.id],
           )
         ).rows[0]
       )
@@ -1303,119 +1362,80 @@ export function mountHeartFailure(
         input = echoSchema.parse(req.body),
         actor = res.locals.session.email ?? `demo:${res.locals.session.role}`;
       await ensureEncounter(db, input.encounter_id, person.id);
-      const profile = await ensureProfile(db, person.id, actor),
-        id = randomUUID();
-      const quality =
-        input.study_type === "FORMAL_TTE" && input.study_quality === "GOOD"
-          ? "high"
-          : input.study_quality === "POOR"
-            ? "low"
-            : "moderate";
-      const observation = await recordClinicalFact(
+      await ensureProfile(db, person.id, actor);
+      const study = await createSharedEchoStudy(
         db,
         person.id,
         {
-          concept_system: "cardioflow",
-          concept_code: "heart_failure.echo_observation",
-          concept_version: 1,
-          value: { type: "json", value: input as any },
-          observed_at: input.observed_at,
           encounter_id: input.encounter_id,
-          source_type: "heart_failure_echo",
-          source_id: id,
+          study_type:
+            input.study_type === "FORMAL_TTE"
+              ? "COMPLETE_TTE"
+              : input.study_type === "CMR"
+                ? "OTHER"
+                : input.study_type,
+          formality:
+            input.study_type === "FORMAL_TTE" ? "FORMAL" : "BEDSIDE_LIMITED",
+          performed_at: input.observed_at,
+          location: "",
+          comparison_study_id: null,
+          status:
+            input.verification_status === "verified" ? "FINAL" : "PRELIMINARY",
+          indication: ["Heart failure"],
+          priority: "ROUTINE",
+          study_quality:
+            input.study_quality === "FAIR"
+              ? "ADEQUATE"
+              : input.study_quality === "POOR"
+                ? "TECHNICALLY_LIMITED"
+                : input.study_quality === "NOT_RECORDED"
+                  ? "ADEQUATE"
+                  : input.study_quality,
+          quality_reasons: [],
+          rhythm_context: "",
+          heart_rate: null,
+          blood_pressure: "",
+          contrast_used: false,
+          structured_findings: {
+            rvFunction: input.rv_function,
+            pulmonaryPressureContext: input.pulmonary_pressure_context,
+            diastolicContext: input.diastolic_context,
+            pericardialContext: input.pericardial_context,
+            structuralContext: input.structural_context,
+            legacyValveSummary: input.valve_summary,
+          },
+          interpretation: input.structural_context,
+          comparison_summary: "",
+          conclusion:
+            input.structural_context ||
+            (input.verification_status === "verified"
+              ? "Clinician-verified HF cardiac imaging assessment"
+              : ""),
+          clinician_override_reason: "",
+          reporting_cardiologist: actor,
+          amendment_reason: "",
           source_label: input.source_label,
-          source_quality: quality,
-          verification_status: input.verification_status,
-          lifecycle_status: "active",
+          measurements:
+            input.lvef === null
+              ? []
+              : [
+                  {
+                    section: "LV",
+                    parameter_code: "lvef",
+                    label: "LVEF",
+                    value_number: input.lvef,
+                    value_text: null,
+                    unit: "%",
+                    method: "HF quick entry",
+                    context: "",
+                    sequence: 0,
+                  },
+                ],
+          valve_findings: [],
         },
         actor,
       );
-      const lvefFact =
-        input.lvef === null
-          ? null
-          : await recordClinicalFact(
-              db,
-              person.id,
-              {
-                concept_system: "cardioflow",
-                concept_code: "heart_failure.lvef",
-                concept_version: 1,
-                value: { type: "quantity", value: input.lvef, unit: "%" },
-                observed_at: input.observed_at,
-                encounter_id: input.encounter_id,
-                source_type: "heart_failure_echo",
-                source_id: id,
-                source_label: input.source_label,
-                source_quality: quality,
-                verification_status: input.verification_status,
-                lifecycle_status: "active",
-              },
-              actor,
-            );
-      const row = (
-        await db.query<any>(
-          `INSERT INTO heart_failure.echo_observation
-      (id,profile_id,encounter_id,study_type,study_quality,observed_at,lvef,lvef_fact_id,rv_function,valve_summary,pulmonary_pressure_context,diastolic_context,pericardial_context,structural_context,source_label,verification_status,author)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-          [
-            id,
-            profile.id,
-            input.encounter_id,
-            input.study_type,
-            input.study_quality,
-            input.observed_at,
-            input.lvef,
-            lvefFact?.id ?? null,
-            input.rv_function,
-            json(input.valve_summary),
-            input.pulmonary_pressure_context,
-            input.diastolic_context,
-            input.pericardial_context,
-            input.structural_context,
-            input.source_label,
-            input.verification_status,
-            actor,
-          ],
-        )
-      ).rows[0];
-      const currentReview = (
-        await db.query<any>(
-          "SELECT * FROM heart_failure.current_review WHERE profile_id=$1",
-          [profile.id],
-        )
-      ).rows[0];
-      if (
-        currentReview?.clinician_phenotype &&
-        currentReview.phenotype_source_echo_id !== id
-      ) {
-        await supersedeSourceTasks(
-          db,
-          person.id,
-          "heart_failure_echo_review",
-          actor,
-        );
-        await createTask(
-          db,
-          person.id,
-          input.encounter_id,
-          "heart_failure_echo_review",
-          id,
-          "clinical_review",
-          "Review HF phenotype after new cardiac imaging",
-          input.observed_at.slice(0, 10),
-          actor,
-        );
-      }
-      await audit(
-        db,
-        actor,
-        "HF cardiac imaging recorded",
-        "heart_failure_echo",
-        id,
-        person.id,
-        { observationFactId: observation.id, lvefFactId: lvefFact?.id ?? null },
-      );
-      res.status(201).json(parseEcho(row));
+      res.status(201).json(sharedEchoForHeartFailure(study));
     },
   );
 
