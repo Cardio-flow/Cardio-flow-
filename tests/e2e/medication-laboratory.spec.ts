@@ -86,6 +86,25 @@ test("clinician records a medication and normalized laboratory trends through th
     }),
   ).toBeVisible();
 
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await expect(
+    page
+      .locator(".patient-timeline summary")
+      .filter({ hasText: "Potassium 4.8" }),
+  ).toBeVisible();
+  const medicationEvent = page
+    .locator(".patient-timeline .timeline-item")
+    .filter({ hasText: "Spironolactone" })
+    .first();
+  await medicationEvent.locator("summary").click();
+  await medicationEvent
+    .getByRole("button", { name: "Open medications details" })
+    .click();
+  await expect(page.getByRole("tab", { name: "Medications" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
   await intelligencePanel
     .getByRole("button", { name: /Spironolactone 12.5 mg/ })
     .click();

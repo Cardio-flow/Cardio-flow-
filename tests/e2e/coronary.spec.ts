@@ -80,7 +80,9 @@ test("clinician documents coronary care once and reuses it across the patient wo
     page.getByRole("heading", { name: "Coronary journey", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("NSTEMI presentation", { exact: true }),
+    page
+      .locator(".coronary-timeline")
+      .getByText("NSTEMI presentation", { exact: true }),
   ).toBeVisible();
 
   await page.getByRole("tab", { name: "Registries", exact: true }).click();

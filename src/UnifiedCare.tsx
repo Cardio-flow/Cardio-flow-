@@ -132,6 +132,23 @@ type HfSummaryState = {
   currentReview: HfReview | null;
   phenotype: HfPhenotypeState;
   preferredEcho: { lvef: number | null; observed_at: string } | null;
+  timeline?: Array<{
+    id: string;
+    type: string;
+    date: string;
+    title: string;
+    detail: string;
+  }>;
+};
+
+type ProjectedJourneyEvent = {
+  id: string;
+  date: string;
+  title: string;
+  subtitle: string;
+  detail: string;
+  destination: "Medications" | "Investigations" | "Current Visit";
+  focus?: "hf" | "echo" | "coronary";
 };
 
 const patientTabs = [
@@ -861,10 +878,22 @@ export function UnifiedPatientWorkspace({
     `/patients/${id}/laboratory`,
     revision,
   );
-  const { data: echoValveIntelligence } = useData<{ studies: EchoStudy[] }>(
-    `/patients/${id}/echo-valve`,
-    revision,
-  );
+  const { data: echoValveIntelligence } = useData<{
+    studies: EchoStudy[];
+    procedures?: Array<{
+      id: string;
+      procedure_date: string;
+      procedure_type: string;
+      result: string;
+    }>;
+    heartTeam?: Array<{
+      id: string;
+      observed_at: string;
+      status: string;
+      decision: string;
+      rationale: string;
+    }>;
+  }>(`/patients/${id}/echo-valve`, revision);
   const { data: coronaryIntelligence } = useData<CoronaryRecord>(
     `/patients/${id}/coronary`,
     revision,
@@ -1007,6 +1036,101 @@ export function UnifiedPatientWorkspace({
   const currentEncounter = encounters.find(
     (encounter) => encounter.state === "open",
   );
+  const projectedJourney: ProjectedJourneyEvent[] = [
+    ...(medicationIntelligence?.history ?? []).map((item) => ({
+      id: `medication-${item.id}`,
+      date: item.effective_at,
+      title: item.generic_name,
+      subtitle: `Medication · ${item.event_type.replaceAll("_", " ")}`,
+      detail: `${item.dose_value != null ? `${item.dose_value} ${item.dose_unit ?? ""}` : "Dose not recorded"}${item.frequency ? ` · ${item.frequency}` : ""}`,
+      destination: "Medications" as const,
+    })),
+    ...(laboratoryIntelligence?.trends ?? []).flatMap((trend) =>
+      trend.results.map((item) => ({
+        id: `laboratory-${item.id}`,
+        date: item.resulted_at,
+        title: `${trend.display} ${item.original_value} ${item.original_unit}`,
+        subtitle: "Laboratory result",
+        detail: `${item.verification_status} · ${item.source_label}`,
+        destination: "Investigations" as const,
+      })),
+    ),
+    ...(hfSummary?.timeline ?? [])
+      .filter((item) => item.type !== "Cardiac imaging")
+      .map((item) => ({
+        id: `hf-${item.type}-${item.id}`,
+        date: item.date,
+        title: displayHfCode(item.title),
+        subtitle: item.type,
+        detail: displayHfCode(item.detail),
+        destination: "Current Visit" as const,
+        focus: "hf" as const,
+      })),
+    ...(echoValveIntelligence?.studies ?? []).map((item) => ({
+      id: `echo-${item.study_id}`,
+      date: item.performed_at,
+      title: item.source_label,
+      subtitle: "Echo",
+      detail: item.conclusion || item.interpretation || item.status,
+      destination: "Current Visit" as const,
+      focus: "echo" as const,
+    })),
+    ...(echoValveIntelligence?.procedures ?? []).map((item) => ({
+      id: `valve-procedure-${item.id}`,
+      date: item.procedure_date,
+      title: item.procedure_type.replaceAll("_", " "),
+      subtitle: "Valve intervention",
+      detail: item.result || "Procedure documented",
+      destination: "Current Visit" as const,
+      focus: "echo" as const,
+    })),
+    ...(echoValveIntelligence?.heartTeam ?? []).map((item) => ({
+      id: `heart-team-${item.id}`,
+      date: item.observed_at,
+      title: `Heart Team · ${item.status.replaceAll("_", " ")}`,
+      subtitle: "Clinical decision",
+      detail: item.decision || item.rationale || "Heart Team review documented",
+      destination: "Current Visit" as const,
+      focus: "echo" as const,
+    })),
+    ...(coronaryIntelligence?.acsEvents ?? []).map((item) => ({
+      id: `acs-${item.id}`,
+      date: item.presented_at,
+      title: `${prettyCoronary(item.diagnosis)} presentation`,
+      subtitle: "Coronary event",
+      detail: item.clinical_interpretation || "Presentation documented",
+      destination: "Current Visit" as const,
+      focus: "coronary" as const,
+    })),
+    ...(coronaryIntelligence?.ecgs ?? []).map((item) => ({
+      id: `ecg-${item.id}`,
+      date: item.performed_at,
+      title: "ECG",
+      subtitle: "Coronary investigation",
+      detail:
+        item.clinician_interpretation || item.st_changes || "ECG documented",
+      destination: "Current Visit" as const,
+      focus: "coronary" as const,
+    })),
+    ...(coronaryIntelligence?.angiograms ?? []).map((item) => ({
+      id: `angiogram-${item.id}`,
+      date: item.performed_at,
+      title: "Coronary angiography",
+      subtitle: "Coronary investigation",
+      detail: item.conclusion || "Angiography documented",
+      destination: "Current Visit" as const,
+      focus: "coronary" as const,
+    })),
+    ...(coronaryIntelligence?.pcis ?? []).map((item) => ({
+      id: `pci-${item.id}`,
+      date: item.performed_at,
+      title: `PCI ${item.target_vessel ?? ""}`.trim(),
+      subtitle: "Coronary procedure",
+      detail: item.result || "PCI documented",
+      destination: "Current Visit" as const,
+      focus: "coronary" as const,
+    })),
+  ].filter((item) => !!item.date);
   const currentContext = currentEncounter ?? encounters[0];
   const alerts = documentationAlerts(entries, currentDate());
   const nextEvent = [
@@ -1230,10 +1354,15 @@ export function UnifiedPatientWorkspace({
             <PatientTimeline
               entries={entries}
               encounters={encounters}
+              projectedEvents={projectedJourney}
               role={role}
               onEdit={edit}
               onHistory={setHistory}
               onCloseEncounter={setClosing}
+              onOpenContext={(event) => {
+                setTab(event.destination);
+                if (event.focus) setClinicalFocus(event.focus);
+              }}
             />
             <details className="journey-specialty-history">
               <summary>Specialty event details</summary>
@@ -2334,17 +2463,21 @@ function SummarySection({
 function PatientTimeline({
   entries,
   encounters,
+  projectedEvents,
   role,
   onEdit,
   onHistory,
   onCloseEncounter,
+  onOpenContext,
 }: {
   entries: CareEntry[];
   encounters: CareEncounter[];
+  projectedEvents: ProjectedJourneyEvent[];
   role: Role;
   onEdit: (entry: CareEntry) => void;
   onHistory: (entry: CareEntry) => void;
   onCloseEncounter: (encounter: CareEncounter) => void;
+  onOpenContext: (event: ProjectedJourneyEvent) => void;
 }) {
   const events = [
     ...encounters.map((encounter) => ({
@@ -2358,6 +2491,12 @@ function PatientTimeline({
       date: entry.occurred_on,
       type: "entry" as const,
       entry,
+    })),
+    ...projectedEvents.map((event) => ({
+      id: event.id,
+      date: event.date,
+      type: "projected" as const,
+      event,
     })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   return (
@@ -2377,18 +2516,24 @@ function PatientTimeline({
                   <strong>
                     {event.type === "encounter"
                       ? event.encounter.reason
-                      : event.entry.title}
+                      : event.type === "entry"
+                        ? event.entry.title
+                        : event.event.title}
                   </strong>
                   <small>
                     {event.type === "encounter"
                       ? `${event.encounter.kind} · ${event.encounter.owner}`
-                      : `${careKinds[event.entry.kind].label} · ${event.entry.owner}`}
+                      : event.type === "entry"
+                        ? `${careKinds[event.entry.kind].label} · ${event.entry.owner}`
+                        : event.event.subtitle}
                   </small>
                 </span>
                 <Badge>
                   {event.type === "encounter"
                     ? event.encounter.state
-                    : stateLabel(event.entry.status)}
+                    : event.type === "entry"
+                      ? stateLabel(event.entry.status)
+                      : "Recorded"}
                 </Badge>
               </summary>
               <div className="timeline-details">
@@ -2405,7 +2550,7 @@ function PatientTimeline({
                         : undefined
                     }
                   />
-                ) : (
+                ) : event.type === "entry" ? (
                   <EntryCard
                     entry={event.entry}
                     encounter={encounters.find(
@@ -2418,6 +2563,16 @@ function PatientTimeline({
                     }
                     onHistory={() => onHistory(event.entry)}
                   />
+                ) : (
+                  <div className="projected-journey-detail">
+                    <p>{event.event.detail}</p>
+                    <button
+                      className="text-button"
+                      onClick={() => onOpenContext(event.event)}
+                    >
+                      Open {event.event.destination.toLowerCase()} details
+                    </button>
+                  </div>
                 )}
               </div>
             </details>

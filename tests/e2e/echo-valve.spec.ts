@@ -69,9 +69,11 @@ test("clinician records one shared Echo and reviews it across Summary, Record an
     page.getByRole("heading", { name: "Echo & valve journey" }),
   ).toBeVisible();
   await expect(
-    page.getByText(
-      "Reduced LV systolic function with clinician-confirmed severe aortic stenosis.",
-    ),
+    page
+      .locator(".echo-timeline")
+      .getByText(
+        "Reduced LV systolic function with clinician-confirmed severe aortic stenosis.",
+      ),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

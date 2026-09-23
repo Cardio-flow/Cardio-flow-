@@ -4707,6 +4707,13 @@ input[type="checkbox"] {
 .timeline-details .encounter-card {
   background: #f8faf8;
 }
+.projected-journey-detail {
+  padding: 4px 0 2px;
+}
+.projected-journey-detail p {
+  margin: 0 0 9px;
+  color: #465e51;
+}
 
 .registry-intro,
 .registry-status-row {
