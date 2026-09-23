@@ -4,6 +4,7 @@ import { ErrorBox, Modal } from "./ui";
 
 export type ClinicalTask = {
   id: string;
+  encounter_id: string | null;
   kind:
     | "clinical_review"
     | "laboratory"
@@ -13,8 +14,90 @@ export type ClinicalTask = {
   purpose: string;
   target_date: string | null;
   assigned_to: string;
-  current: { status: string; version: number; note: string } | null;
+  details?: { plan?: { reason: string; category: string; subject: string } };
+  created_at?: string;
+  current: {
+    status: string;
+    version: number;
+    note: string;
+    created_at?: string;
+  } | null;
 };
+
+const planCategories = {
+  medication: {
+    label: "Medication",
+    actions: ["Start", "Continue", "Increase", "Reduce", "Hold", "Stop"],
+    subjects: [] as string[],
+  },
+  investigation: {
+    label: "Investigation",
+    actions: ["Order", "Repeat", "Review"],
+    subjects: [
+      "Renal profile",
+      "Electrolytes",
+      "Blood count",
+      "Lipids",
+      "Echo",
+      "ECG",
+    ],
+  },
+  monitoring: {
+    label: "Monitoring",
+    actions: ["Check", "Repeat", "Review"],
+    subjects: [
+      "Renal profile",
+      "Potassium",
+      "Blood pressure",
+      "Heart rate",
+      "ECG",
+      "Echo",
+    ],
+  },
+  follow_up: {
+    label: "Follow-up",
+    actions: ["Schedule", "Review"],
+    subjects: [
+      "General cardiology clinic",
+      "HF clinic",
+      "Valve clinic",
+      "Post-ACS clinic",
+      "Post-discharge clinic",
+      "Phone review",
+    ],
+  },
+  referral: {
+    label: "Referral",
+    actions: ["Refer to"],
+    subjects: [
+      "HF service",
+      "EP service",
+      "Structural heart",
+      "Heart Team",
+      "Cardiac rehabilitation",
+    ],
+  },
+  procedure_review: {
+    label: "Procedure review",
+    actions: ["Review"],
+    subjects: [
+      "Coronary angiography",
+      "PCI",
+      "Valve intervention",
+      "Device procedure",
+    ],
+  },
+  education: {
+    label: "Education",
+    actions: ["Discuss"],
+    subjects: [
+      "Medication plan",
+      "Symptoms and escalation",
+      "Cardiac rehabilitation",
+    ],
+  },
+} as const;
+type PlanCategory = keyof typeof planCategories;
 
 function noteItems(items: string[], limit: number) {
   if (!items.length) return "none shown";
@@ -43,13 +126,17 @@ export function PlanNote({
   problems: string[];
   medications: string[];
   results: string[];
-  actions: Array<{ purpose: string; target_date: string | null }>;
+  actions: Array<{
+    purpose: string;
+    target_date: string | null;
+    reason?: string;
+  }>;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const datedActions = actions.map(
     (item) =>
-      `${item.purpose}${item.target_date ? ` (due ${date(item.target_date)})` : ""}`,
+      `${item.purpose}${item.target_date ? ` (due ${date(item.target_date)})` : ""}${item.reason ? ` — ${item.reason}` : ""}`,
   );
   const initial = [
     "Clinical plan review",
@@ -119,18 +206,12 @@ export function PlanNote({
   );
 }
 
-const taskKinds: Record<ClinicalTask["kind"], string> = {
-  clinical_review: "Clinical review",
-  laboratory: "Investigation / lab",
-  follow_up: "Follow-up",
-  reassessment: "Reassessment",
-  administrative: "Care coordination",
-};
-
 export function PlanAction({
   patientId,
   encounterId,
   owner,
+  problems = [],
+  medications = [],
   task,
   onClose,
   onSaved,
@@ -138,17 +219,28 @@ export function PlanAction({
   patientId: string;
   encounterId: string | null;
   owner: string;
+  problems?: string[];
+  medications?: string[];
   task?: ClinicalTask;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [kind, setKind] = useState<ClinicalTask["kind"]>("clinical_review");
-  const [purpose, setPurpose] = useState("");
+  const [category, setCategory] = useState<PlanCategory>("monitoring");
+  const [action, setAction] = useState("Review");
+  const [subject, setSubject] = useState("Renal profile");
+  const [customSubject, setCustomSubject] = useState("");
+  const [reasonChoice, setReasonChoice] = useState(problems[0] ?? "other");
+  const [customReason, setCustomReason] = useState("");
   const [targetDate, setTargetDate] = useState(currentDate());
   const [assignedTo, setAssignedTo] = useState(owner);
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const subjects =
+    category === "medication" ? medications : planCategories[category].subjects;
+  const finalSubject = subject === "other" ? customSubject.trim() : subject;
+  const finalReason =
+    reasonChoice === "other" ? customReason.trim() : reasonChoice;
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -163,9 +255,14 @@ export function PlanAction({
       } else {
         await api(`/patients/${patientId}/clinical-tasks`, {
           encounter_id: encounterId,
-          kind,
-          purpose: purpose.trim(),
-          related_concept: null,
+          plan: {
+            category,
+            action,
+            subject: finalSubject,
+            reason: finalReason,
+            related_problem: reasonChoice === "other" ? null : reasonChoice,
+            related_medication: category === "medication" ? finalSubject : null,
+          },
           target_date: targetDate,
           assigned_to: assignedTo.trim(),
         });
@@ -208,42 +305,97 @@ export function PlanAction({
         ) : (
           <>
             <p className="modal-intro">
-              A dated action appears in the patient plan and worklist and
-              continues across visits.
+              Choose the action, reason and date. The resulting plan item is
+              also the dated task in Worklist and future visits.
             </p>
             <div className="form-grid">
               <label>
-                Action type
+                Plan category
                 <select
-                  value={kind}
-                  onChange={(event) =>
-                    setKind(event.target.value as ClinicalTask["kind"])
-                  }
+                  value={category}
+                  onChange={(event) => {
+                    const next = event.target.value as PlanCategory;
+                    setCategory(next);
+                    setAction(planCategories[next].actions[0]);
+                    setSubject(
+                      next === "medication"
+                        ? (medications[0] ?? "other")
+                        : planCategories[next].subjects[0],
+                    );
+                  }}
                 >
-                  {Object.entries(taskKinds).map(([value, label]) => (
+                  {Object.entries(planCategories).map(([value, option]) => (
                     <option key={value} value={value}>
-                      {label}
+                      {option.label}
                     </option>
                   ))}
                 </select>
               </label>
+              <label>
+                Action
+                <select
+                  value={action}
+                  onChange={(event) => setAction(event.target.value)}
+                >
+                  {planCategories[category].actions.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                What is the action for?
+                <select
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                >
+                  {subjects.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              {subject === "other" ? (
+                <label>
+                  Specify action target
+                  <input
+                    value={customSubject}
+                    onChange={(event) => setCustomSubject(event.target.value)}
+                    minLength={2}
+                    maxLength={160}
+                    required
+                  />
+                </label>
+              ) : null}
+              <label>
+                Reason / related problem
+                <select
+                  value={reasonChoice}
+                  onChange={(event) => setReasonChoice(event.target.value)}
+                >
+                  {problems.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                  <option value="other">Other reason</option>
+                </select>
+              </label>
+              {reasonChoice === "other" ? (
+                <label>
+                  Clinical reason
+                  <input
+                    value={customReason}
+                    onChange={(event) => setCustomReason(event.target.value)}
+                    minLength={2}
+                    maxLength={500}
+                    required
+                  />
+                </label>
+              ) : null}
               <label>
                 Due date
                 <input
                   type="date"
                   value={targetDate}
                   onChange={(event) => setTargetDate(event.target.value)}
-                  required
-                />
-              </label>
-              <label className="span-2">
-                What needs to happen?
-                <input
-                  value={purpose}
-                  onChange={(event) => setPurpose(event.target.value)}
-                  placeholder="e.g. Review renal profile"
-                  minLength={2}
-                  maxLength={500}
                   required
                 />
               </label>
@@ -258,6 +410,12 @@ export function PlanAction({
                 />
               </label>
             </div>
+            {category === "medication" ? (
+              <p className="muted">
+                This schedules a clinician action; it does not start, change or
+                stop a medication course.
+              </p>
+            ) : null}
           </>
         )}
         <div className="modal-actions">

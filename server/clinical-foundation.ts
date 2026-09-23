@@ -1152,51 +1152,90 @@ export function mountClinicalFoundation(
     res.status(201).json(action);
   });
   app.post("/api/patients/:id/clinical-tasks", write, async (req, res) => {
+    const planSchema = z
+      .object({
+        category: z.enum([
+          "medication",
+          "investigation",
+          "monitoring",
+          "follow_up",
+          "referral",
+          "procedure_review",
+          "education",
+        ]),
+        action: z.string().trim().min(2).max(80),
+        subject: z.string().trim().min(2).max(160),
+        reason: z.string().trim().min(2).max(500),
+        related_problem: z.string().trim().max(200).nullable(),
+        related_medication: z.string().trim().max(200).nullable(),
+      })
+      .strict();
     const input = z
         .object({
           encounter_id: z.string().uuid().nullable().default(null),
-          kind: z.enum([
-            "clinical_review",
-            "laboratory",
-            "follow_up",
-            "reassessment",
-            "administrative",
-          ]),
-          purpose: z.string().trim().min(2).max(500),
+          kind: z
+            .enum([
+              "clinical_review",
+              "laboratory",
+              "follow_up",
+              "reassessment",
+              "administrative",
+            ])
+            .optional(),
+          purpose: z.string().trim().min(2).max(500).optional(),
+          plan: planSchema.optional(),
           related_concept: z.string().max(200).nullable().default(null),
           target_date: z.string().date().nullable().default(null),
           assigned_to: z.string().trim().min(2).max(300),
         })
         .strict()
         .parse(req.body),
-      task = await db.transaction(async (tx) => {
-        const patient = await ensurePatient(tx, String(req.params.id)),
-          id = randomUUID(),
-          row = (
-            await tx.query<any>(
-              `INSERT INTO workflow.clinical_task
-              (id,patient_id,encounter_id,kind,purpose,related_concept,target_date,assigned_to,source_type,source_id,created_by)
-              VALUES($1,$2,$3,$4,$5,$6,$7,$8,'clinician',$9,$10) RETURNING *`,
-              [
-                id,
-                patient.id,
-                input.encounter_id,
-                input.kind,
-                input.purpose,
-                input.related_concept,
-                input.target_date,
-                input.assigned_to,
-                id,
-                res.locals.session.actor,
-              ],
-            )
-          ).rows[0];
-        await tx.query(
-          "INSERT INTO workflow.clinical_task_event(id,task_id,version,status,actor) VALUES($1,$2,1,'open',$3)",
-          [randomUUID(), id, res.locals.session.actor],
-        );
-        return row;
-      });
+      kind = input.plan
+        ? input.plan.category === "investigation" ||
+          input.plan.category === "monitoring"
+          ? "laboratory"
+          : input.plan.category === "follow_up"
+            ? "follow_up"
+            : "clinical_review"
+        : input.kind,
+      purpose = input.plan
+        ? `${input.plan.action} ${input.plan.subject}`
+        : input.purpose;
+    if (!kind || !purpose)
+      throw new FoundationError(
+        422,
+        "Choose a structured plan or task purpose",
+      );
+    const details = input.plan ? { plan: input.plan } : {};
+    const task = await db.transaction(async (tx) => {
+      const patient = await ensurePatient(tx, String(req.params.id)),
+        id = randomUUID(),
+        row = (
+          await tx.query<any>(
+            `INSERT INTO workflow.clinical_task
+              (id,patient_id,encounter_id,kind,purpose,related_concept,target_date,assigned_to,source_type,source_id,details,created_by)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,'clinician',$9,$10,$11) RETURNING *`,
+            [
+              id,
+              patient.id,
+              input.encounter_id,
+              kind,
+              purpose,
+              input.plan?.related_problem ?? input.related_concept,
+              input.target_date,
+              input.assigned_to,
+              id,
+              JSON.stringify(details),
+              res.locals.session.actor,
+            ],
+          )
+        ).rows[0];
+      await tx.query(
+        "INSERT INTO workflow.clinical_task_event(id,task_id,version,status,actor) VALUES($1,$2,1,'open',$3)",
+        [randomUUID(), id, res.locals.session.actor],
+      );
+      return row;
+    });
     res.status(201).json(task);
   });
   app.post("/api/clinical-tasks/:id/events", write, async (req, res) => {

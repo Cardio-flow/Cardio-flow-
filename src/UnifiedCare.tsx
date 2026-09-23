@@ -147,7 +147,8 @@ type ProjectedJourneyEvent = {
   title: string;
   subtitle: string;
   detail: string;
-  destination: "Medications" | "Investigations" | "Current Visit";
+  destination:
+    "Medications" | "Investigations" | "Current Visit" | "Plan & Follow-up";
   focus?: "hf" | "echo" | "coronary";
 };
 
@@ -1036,6 +1037,13 @@ export function UnifiedPatientWorkspace({
   const currentEncounter = encounters.find(
     (encounter) => encounter.state === "open",
   );
+  const previousPlanTasks = (clinicalFoundation?.tasks ?? [])
+    .filter(
+      (task) =>
+        (!currentEncounter || task.encounter_id !== currentEncounter.id) &&
+        !["cancelled", "superseded"].includes(task.current?.status ?? "open"),
+    )
+    .slice(0, 6);
   const projectedJourney: ProjectedJourneyEvent[] = [
     ...(medicationIntelligence?.history ?? []).map((item) => ({
       id: `medication-${item.id}`,
@@ -1130,6 +1138,19 @@ export function UnifiedPatientWorkspace({
       destination: "Current Visit" as const,
       focus: "coronary" as const,
     })),
+    ...(clinicalFoundation?.tasks ?? [])
+      .filter(
+        (task) =>
+          task.current?.status === "completed" && task.current.created_at,
+      )
+      .map((task) => ({
+        id: `completed-task-${task.id}`,
+        date: task.current!.created_at!,
+        title: `${task.purpose} completed`,
+        subtitle: "Completed plan action",
+        detail: `${task.current?.note ?? "Completed"}${task.details?.plan?.reason ? ` · Reason: ${task.details.plan.reason}` : ""}`,
+        destination: "Plan & Follow-up" as const,
+      })),
   ].filter((item) => !!item.date);
   const currentContext = currentEncounter ?? encounters[0];
   const alerts = documentationAlerts(entries, currentDate());
@@ -1431,6 +1452,53 @@ export function UnifiedPatientWorkspace({
                     ))
                 : null}
             </section>
+            <section className="panel care-section visit-previous-plan">
+              <SectionTitle
+                title="From previous plan"
+                subtitle="Actions carried forward from earlier care, with their reason and outcome."
+              />
+              {previousPlanTasks.map((task) => {
+                const status = task.current?.status ?? "open";
+                const timing =
+                  status === "completed"
+                    ? "Completed"
+                    : task.target_date && task.target_date < currentDate()
+                      ? "Overdue"
+                      : task.target_date === currentDate()
+                        ? "Due today"
+                        : "Pending";
+                return (
+                  <button
+                    key={task.id}
+                    className="plan-followup-row"
+                    onClick={() => {
+                      if (role === "clinician" && status !== "completed")
+                        setPlanTask(task);
+                      else setTab("Plan & Follow-up");
+                    }}
+                  >
+                    <CalendarDays size={17} />
+                    <span>
+                      <strong>{task.purpose}</strong>
+                      <small>
+                        {timing}
+                        {task.target_date ? ` · ${date(task.target_date)}` : ""}
+                      </small>
+                      {task.details?.plan?.reason ? (
+                        <small>Why: {task.details.plan.reason}</small>
+                      ) : null}
+                      {status === "completed" && task.current?.note ? (
+                        <small>Outcome: {task.current.note}</small>
+                      ) : null}
+                    </span>
+                    <ArrowRight size={16} />
+                  </button>
+                );
+              })}
+              {!previousPlanTasks.length ? (
+                <p className="muted">No prior plan actions recorded.</p>
+              ) : null}
+            </section>
             <section className="panel care-section visit-review-picker">
               <SectionTitle
                 title="Focused clinical review"
@@ -1622,6 +1690,9 @@ export function UnifiedPatientWorkspace({
                         : "date not set"}{" "}
                       · {task.assigned_to}
                     </small>
+                    {task.details?.plan?.reason ? (
+                      <small>Reason: {task.details.plan.reason}</small>
+                    ) : null}
                   </span>
                   <ArrowRight size={16} />
                 </button>
@@ -1985,6 +2056,13 @@ export function UnifiedPatientWorkspace({
           patientId={id}
           encounterId={currentEncounter?.id ?? null}
           owner={currentEncounter?.owner ?? owner}
+          problems={[
+            ...specialtyProblems.map((item) => item.title),
+            ...visibleCareProblems.map((item) => item.title),
+          ]}
+          medications={(medicationIntelligence?.current ?? [])
+            .filter((item) => item.status === "ACTIVE")
+            .map((item) => item.generic_name)}
           task={planTask === "new" ? undefined : planTask}
           onClose={() => setPlanTask(null)}
           onSaved={saved}
@@ -2015,6 +2093,7 @@ export function UnifiedPatientWorkspace({
             ...clinicalTasks.map((item) => ({
               purpose: item.purpose,
               target_date: item.target_date,
+              reason: item.details?.plan?.reason,
             })),
             ...pending.map((item) => ({
               purpose: item.title,

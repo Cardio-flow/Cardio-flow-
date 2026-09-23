@@ -1367,7 +1367,7 @@ export function mountMedicationLaboratory(
       .toLowerCase();
     const group = z.string().max(100).optional().parse(req.query.group);
     const patientId = z.string().uuid().optional().parse(req.query.patientId);
-    const [definitions, groups, products, recent, formulations] =
+    const [definitions, groups, products, recent, formulations, monitoring] =
       await Promise.all([
         db.query<any>(
           `SELECT * FROM medication.generic_definition WHERE status='active' AND version=(SELECT max(v.version) FROM medication.generic_definition v WHERE v.medication_id=medication.generic_definition.medication_id) ORDER BY generic_name`,
@@ -1385,6 +1385,9 @@ export function mountMedicationLaboratory(
         ),
         db.query<any>(
           `SELECT medication_id,route FROM medication.formulation WHERE status='active'`,
+        ),
+        db.query<any>(
+          `SELECT medication_id,parameter_code,purpose FROM medication.monitoring_relation ORDER BY medication_id,parameter_code`,
         ),
       ]);
     const groupByMedication = new Map<string, any[]>(),
@@ -1473,6 +1476,7 @@ export function mountMedicationLaboratory(
         code,
         display,
       })),
+      monitoringRelations: monitoring.rows,
       patientSafety,
     });
   });

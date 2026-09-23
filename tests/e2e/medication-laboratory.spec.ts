@@ -38,9 +38,14 @@ test("clinician records a medication and normalized laboratory trends through th
     .click();
   await page.getByText("HFrEF", { exact: true }).click();
   await page.getByLabel("Dose", { exact: true }).fill("25");
+  await page.getByLabel("Frequency").selectOption("Once daily");
+  await expect(
+    page.getByRole("heading", { name: "Before starting" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Missing before assessment:/)).toBeVisible();
   await page
     .getByLabel(
-      "I reviewed the current medication, reaction and monitoring context.",
+      "I reviewed the available medication, reaction and monitoring data, including missing items.",
     )
     .check();
   await page.getByRole("button", { name: "Confirm medication" }).click();
@@ -53,7 +58,7 @@ test("clinician records a medication and normalized laboratory trends through th
   await intelligencePanel
     .getByRole("button", { name: /Spironolactone 25 mg/ })
     .click();
-  await page.getByRole("button", { name: "Update medication" }).click();
+  await page.getByRole("button", { name: "Change dose" }).click();
   await page.getByLabel("Change").selectOption("dose_decreased");
   await page.getByLabel("Dose", { exact: true }).fill("12.5");
   await page.getByRole("button", { name: "Confirm update" }).click();

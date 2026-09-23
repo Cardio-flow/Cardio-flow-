@@ -36,16 +36,16 @@ test("quick multi-lab entry, dated plan and next visit share one patient journey
 
   await page.getByRole("tab", { name: "Plan & Follow-up" }).click();
   await page.getByRole("button", { name: "Plan next action" }).click();
-  await page.getByLabel("Action type").selectOption("laboratory");
-  await page.getByLabel("What needs to happen?").fill("Review renal profile");
+  await expect(page.getByLabel("Plan category")).toHaveValue("monitoring");
+  await page.getByLabel("Clinical reason").fill("Renal function monitoring");
   await page.getByRole("button", { name: "Add to plan" }).click();
   await expect(
-    page.getByRole("button", { name: /Review renal profile/ }),
+    page.getByRole("button", { name: /Review Renal profile/ }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Draft plan note" }).click();
   await expect(page.getByLabel("Editable plan note")).toHaveValue(
-    /Review renal profile/,
+    /Review Renal profile/,
   );
   await page
     .getByLabel("Editable plan note")
@@ -56,11 +56,18 @@ test("quick multi-lab entry, dated plan and next visit share one patient journey
 
   await page.getByRole("button", { name: "New visit / admission" }).click();
   await expect(
-    page.getByLabel("Since last review").getByText("Review renal profile"),
+    page.getByLabel("Since last review").getByText("Review Renal profile"),
   ).toBeVisible();
   await page.getByLabel("Reason for visit / admission").fill("Renal review");
   await page.getByLabel("Responsible clinician / team").fill("Cardiology team");
   await page.getByRole("button", { name: "Open care context" }).click();
+  await page.getByRole("tab", { name: "Current Visit" }).click();
+  await expect(
+    page.getByRole("heading", { name: "From previous plan" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".visit-previous-plan").getByText("Renal function monitoring"),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "Journey" }).click();
   await expect(
     page
@@ -69,19 +76,25 @@ test("quick multi-lab entry, dated plan and next visit share one patient journey
   ).toBeVisible();
   await page.getByRole("tab", { name: "Plan & Follow-up" }).click();
   await expect(
-    page.getByRole("button", { name: /Review renal profile/ }),
+    page.getByRole("button", { name: /Review Renal profile/ }),
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Patients", exact: true }).click();
   await page.getByRole("button", { name: "Open Journey Flow Sample" }).click();
   await page.getByRole("tab", { name: "Plan & Follow-up" }).click();
-  await page.getByRole("button", { name: /Review renal profile/ }).click();
+  await page.getByRole("button", { name: /Review Renal profile/ }).click();
   await page
     .getByLabel("Outcome / action taken")
     .fill("Renal profile reviewed at OPD follow-up");
   await page.getByRole("button", { name: "Complete action" }).click();
   await expect(
-    page.getByRole("button", { name: /Review renal profile/ }),
+    page.getByRole("button", { name: /Review Renal profile/ }),
   ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await expect(
+    page
+      .locator(".patient-timeline summary")
+      .filter({ hasText: "Review Renal profile completed" }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });

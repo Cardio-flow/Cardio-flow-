@@ -16,6 +16,7 @@ import {
 import { api, currentDate, date, useData } from "./api";
 import type { CareEncounter } from "./care-model";
 import type { CareEntry } from "./care-model";
+import type { ClinicalState, ClinicalValue } from "./clinical-foundation";
 import {
   documentedContexts,
   medicationContexts,
@@ -68,6 +69,7 @@ export type MedicationData = {
 
 export type LaboratoryData = { results: unknown[]; trends: LabTrend[] };
 type ClinicalIntelligence = {
+  state?: ClinicalState;
   alerts: {
     id: string;
     title: string;
@@ -107,10 +109,119 @@ type ClinicalIntelligence = {
   };
 };
 
+function clinicalValueText(value: ClinicalValue) {
+  if (value.type === "quantity") return `${value.value} ${value.unit}`;
+  if (value.type === "coded") return value.display;
+  if (value.type === "text") return value.value;
+  if (value.type === "boolean") return value.value ? "Yes" : "No";
+  return "Structured value recorded";
+}
+
+function MedicationPreStartReview({
+  medicationId,
+  relations,
+  laboratory,
+  clinical,
+  title = "Before starting",
+}: {
+  medicationId: string;
+  relations: Catalog["monitoringRelations"];
+  laboratory: LaboratoryData;
+  clinical: ClinicalIntelligence;
+  title?: string;
+}) {
+  const applicableRelations = relations.filter(
+    (item) => item.medication_id === medicationId,
+  );
+  const unique = [
+    ...new Map(
+      applicableRelations.map((item) => [item.parameter_code, item]),
+    ).values(),
+  ];
+  const missing: string[] = [];
+  const rows = unique.map((item) => {
+    const trend = laboratory.trends.find(
+      (entry) => entry.test_id === item.parameter_code,
+    );
+    const fact = clinical.state?.concepts.find(
+      (entry) => entry.concept_code === item.parameter_code,
+    )?.current;
+    if (!trend && !fact) missing.push(item.purpose);
+    return {
+      code: item.parameter_code,
+      purpose: item.purpose,
+      value: trend
+        ? `${trend.latest.original_value} ${trend.latest.original_unit}`
+        : fact
+          ? clinicalValueText(fact.value)
+          : "Not available",
+      source: trend
+        ? `${date(trend.latest.resulted_at)} · ${trend.latest.verification_status}`
+        : fact
+          ? `${date(fact.observed_at)} · ${fact.verification_status}`
+          : "Needs clinician review",
+    };
+  });
+  const recommendations = clinical.recommendations.current.filter((item) =>
+    item.rule_key.includes(medicationId),
+  );
+  return (
+    <div className="medication-prestart-review">
+      <h4>{title}</h4>
+      {rows.length ? (
+        <div className="medication-prestart-list">
+          {rows.map((item) => (
+            <div key={item.code}>
+              <span>
+                <strong>{item.purpose}</strong>
+                <small>{item.source}</small>
+              </span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">
+          No medication-specific review parameters are configured for this
+          catalog entry. Assess the patient context before confirming.
+        </p>
+      )}
+      {missing.length ? (
+        <p className="clinical-warning">
+          <AlertTriangle size={17} /> Missing before assessment:{" "}
+          {missing.join("; ")}. The clinician may proceed after reviewing this
+          limitation.
+        </p>
+      ) : null}
+      {recommendations.map((item) => (
+        <div className="clinical-warning" key={item.id}>
+          <ShieldAlert size={17} />
+          <span>
+            <strong>{item.title}</strong>
+            <small>
+              {item.recommendation} · Published rule {item.rule_key} v
+              {item.rule_version}
+            </small>
+          </span>
+        </div>
+      ))}
+      <small className="muted">
+        Values are shown for review. This panel does not interpret them as safe
+        or unsafe without a published rule.
+      </small>
+    </div>
+  );
+}
+
 type Catalog = {
   medications: MedicationDefinition[];
   groups: { group_id: string; name: string }[];
   indications: { code: string; display: string }[];
+  monitoringRelations: {
+    medication_id: string;
+    parameter_code: string;
+    purpose: string;
+  }[];
   patientSafety: {
     currentMedicationIds: string[];
     adverseReactions: Reaction[];
@@ -347,7 +458,9 @@ function MedicationDetail({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [updating, setUpdating] = useState(false);
+  const [updating, setUpdating] = useState<
+    "dose_increased" | "held" | "stopped" | "restarted" | null
+  >(null);
   const history = data.history.filter(
     (event) => event.therapy_id === therapy.id,
   );
@@ -411,9 +524,37 @@ function MedicationDetail({
             </div>
           </dl>
           {editable ? (
-            <button className="secondary" onClick={() => setUpdating(true)}>
-              Update medication
-            </button>
+            <div className="medication-quick-actions">
+              <button
+                className="secondary"
+                onClick={() => setUpdating("dose_increased")}
+              >
+                Change dose
+              </button>
+              {therapy.status === "TEMPORARILY_HELD" ? (
+                <button
+                  className="secondary"
+                  onClick={() => setUpdating("restarted")}
+                >
+                  Restart
+                </button>
+              ) : therapy.status === "ACTIVE" ? (
+                <>
+                  <button
+                    className="secondary"
+                    onClick={() => setUpdating("held")}
+                  >
+                    Hold
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setUpdating("stopped")}
+                  >
+                    Stop
+                  </button>
+                </>
+              ) : null}
+            </div>
           ) : null}
         </section>
         <section>
@@ -511,7 +652,11 @@ function MedicationDetail({
         <MedicationEventEditor
           therapy={therapy}
           owner={owner}
-          onClose={() => setUpdating(false)}
+          monitoringRelations={data.monitoringRelations}
+          laboratory={laboratory}
+          clinical={clinical}
+          initialEventType={updating}
+          onClose={() => setUpdating(null)}
           onSaved={onChanged}
         />
       ) : null}
@@ -522,17 +667,25 @@ function MedicationDetail({
 function MedicationEventEditor({
   therapy,
   owner,
+  monitoringRelations,
+  laboratory,
+  clinical,
+  initialEventType,
   onClose,
   onSaved,
 }: {
   therapy: CurrentTherapy;
   owner: string;
+  monitoringRelations: MedicationData["monitoringRelations"];
+  laboratory: LaboratoryData;
+  clinical: ClinicalIntelligence;
+  initialEventType: "dose_increased" | "held" | "stopped" | "restarted";
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [eventType, setEventType] = useState<
       "dose_increased" | "dose_decreased" | "held" | "restarted" | "stopped"
-    >("dose_increased"),
+    >(initialEventType),
     [dose, setDose] = useState(
       therapy.dose_value === null ? "" : String(therapy.dose_value),
     ),
@@ -591,6 +744,19 @@ function MedicationEventEditor({
   const needsReason = eventType === "held" || eventType === "stopped";
   return (
     <Modal title={`Update ${therapy.generic_name}`} onClose={onClose}>
+      <p className="modal-intro">
+        Current dose: {therapy.dose_value ?? "not recorded"}{" "}
+        {therapy.dose_unit ?? ""}
+        {therapy.frequency ? ` · ${therapy.frequency}` : ""}. Confirm the change
+        after reviewing the current clinical context.
+      </p>
+      <MedicationPreStartReview
+        medicationId={therapy.medication_id}
+        relations={monitoringRelations}
+        laboratory={laboratory}
+        clinical={clinical}
+        title="Before changing"
+      />
       <div className="form-grid">
         <label>
           Change
@@ -707,15 +873,21 @@ export function MedicationEditor({
   const { data, error: loadError } = useData<Catalog>(
     `/medications/catalog?patientId=${patientId}`,
   );
+  const { data: laboratory, error: laboratoryError } = useData<LaboratoryData>(
+    `/patients/${patientId}/laboratory`,
+  );
+  const { data: clinical, error: clinicalError } =
+    useData<ClinicalIntelligence>(`/patients/${patientId}/clinical-state`);
   const [query, setQuery] = useState(""),
+    [indicationQuery, setIndicationQuery] = useState(""),
     [group, setGroup] = useState(""),
     [scope, setScope] = useState("relevant"),
     [selectedId, setSelectedId] = useState(""),
     [indications, setIndications] = useState<string[]>([]),
     [dose, setDose] = useState(""),
     [doseUnit, setDoseUnit] = useState("mg"),
-    [frequency, setFrequency] = useState("Once daily"),
-    [route, setRoute] = useState("Oral"),
+    [frequency, setFrequency] = useState(""),
+    [route, setRoute] = useState(""),
     [startDate, setStartDate] = useState(currentDate()),
     [encounterId, setEncounterId] = useState(
       encounters.find((item) => item.state === "open")?.id ?? "",
@@ -772,7 +944,35 @@ export function MedicationEditor({
     : [];
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!selected || !reviewed || !effectiveIndications.length) return;
+    if (
+      !selected ||
+      !reviewed ||
+      !effectiveIndications.length ||
+      !dose ||
+      !frequency ||
+      !route ||
+      !laboratory ||
+      !clinical
+    )
+      return;
+    const unavailableChecks = [
+      ...new Map(
+        data!.monitoringRelations
+          .filter((item) => item.medication_id === selected.medication_id)
+          .map((item) => [item.parameter_code, item]),
+      ).values(),
+    ]
+      .filter(
+        (item) =>
+          !laboratory.trends.some(
+            (trend) => trend.test_id === item.parameter_code,
+          ) &&
+          !clinical.state?.concepts.some(
+            (concept) =>
+              concept.concept_code === item.parameter_code && concept.current,
+          ),
+      )
+      .map((item) => item.parameter_code);
     setBusy(true);
     setError("");
     try {
@@ -793,9 +993,10 @@ export function MedicationEditor({
           indications: effectiveIndications,
           prescribing_clinician: owner,
           reason:
-            matchedContexts.length === 1
-              ? "Indication matched to documented active problem; clinician reviewed"
-              : "Indication selected by clinician",
+            `${matchedContexts.length === 1 ? "Indication matched to documented active problem; clinician reviewed" : "Indication selected by clinician"}${unavailableChecks.length ? `; pre-start data unavailable: ${unavailableChecks.join(", ")}` : ""}`.slice(
+              0,
+              1000,
+            ),
         },
       });
       onSaved();
@@ -922,8 +1123,8 @@ export function MedicationEditor({
                     setIndications([]);
                     setDose("");
                     setDoseUnit("mg");
-                    setRoute(item.routes?.[0] ?? "Oral");
-                    setFrequency(item.common_frequencies[0] ?? "Once daily");
+                    setRoute(item.routes?.length === 1 ? item.routes[0] : "");
+                    setFrequency("");
                     setReviewed(false);
                   }}
                 >
@@ -959,23 +1160,43 @@ export function MedicationEditor({
                   </p>
                 )}
                 {matchedContexts.length !== 1 ? (
-                  <div className="checkbox-chip-list">
-                    {data.indications.map((item) => (
-                      <label key={item.code}>
-                        <input
-                          type="checkbox"
-                          checked={indications.includes(item.code)}
-                          onChange={() =>
-                            setIndications((values) =>
-                              values.includes(item.code)
-                                ? values.filter((value) => value !== item.code)
-                                : [...values, item.code],
-                            )
-                          }
-                        />
-                        {item.display}
-                      </label>
-                    ))}
+                  <div>
+                    <label>
+                      Search structured indications
+                      <input
+                        value={indicationQuery}
+                        onChange={(event) =>
+                          setIndicationQuery(event.target.value)
+                        }
+                        placeholder="Find a diagnosis or reason"
+                      />
+                    </label>
+                    <div className="checkbox-chip-list">
+                      {data.indications
+                        .filter((item) =>
+                          `${item.display} ${item.code}`
+                            .toLowerCase()
+                            .includes(indicationQuery.toLowerCase()),
+                        )
+                        .map((item) => (
+                          <label key={item.code}>
+                            <input
+                              type="checkbox"
+                              checked={indications.includes(item.code)}
+                              onChange={() =>
+                                setIndications((values) =>
+                                  values.includes(item.code)
+                                    ? values.filter(
+                                        (value) => value !== item.code,
+                                      )
+                                    : [...values, item.code],
+                                )
+                              }
+                            />
+                            {item.display}
+                          </label>
+                        ))}
+                    </div>
                   </div>
                 ) : null}
                 {dosePresets.length ? (
@@ -1031,7 +1252,9 @@ export function MedicationEditor({
                     <select
                       value={frequency}
                       onChange={(event) => setFrequency(event.target.value)}
+                      required
                     >
+                      <option value="">Choose frequency</option>
                       {selected.common_frequencies.map((item) => (
                         <option key={item}>{item}</option>
                       ))}
@@ -1042,7 +1265,9 @@ export function MedicationEditor({
                     <select
                       value={route}
                       onChange={(event) => setRoute(event.target.value)}
+                      required
                     >
+                      <option value="">Choose route</option>
                       {[
                         ...new Set([
                           ...(selected.routes?.length
@@ -1084,6 +1309,17 @@ export function MedicationEditor({
               <section className="safety-confirm">
                 <span className="step-number">3</span>
                 <h3>Review safety context</h3>
+                <ErrorBox message={laboratoryError || clinicalError} />
+                {laboratory && clinical ? (
+                  <MedicationPreStartReview
+                    medicationId={selected.medication_id}
+                    relations={data.monitoringRelations}
+                    laboratory={laboratory}
+                    clinical={clinical}
+                  />
+                ) : (
+                  <Loading />
+                )}
                 {reactions.length ? (
                   <div className="clinical-warning">
                     <AlertTriangle size={18} />
@@ -1136,8 +1372,8 @@ export function MedicationEditor({
                     checked={reviewed}
                     onChange={(event) => setReviewed(event.target.checked)}
                   />
-                  I reviewed the current medication, reaction and monitoring
-                  context.
+                  I reviewed the available medication, reaction and monitoring
+                  data, including missing items.
                 </label>
               </section>
               <div className="modal-actions">
@@ -1150,6 +1386,11 @@ export function MedicationEditor({
                     busy ||
                     !reviewed ||
                     !effectiveIndications.length ||
+                    !dose ||
+                    !frequency ||
+                    !route ||
+                    !laboratory ||
+                    !clinical ||
                     (duplicate && !confirmDuplicate)
                   }
                 >

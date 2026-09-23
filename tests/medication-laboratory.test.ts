@@ -215,6 +215,14 @@ test("Stage 2 medication, laboratory, safety, monitoring and titration foundatio
         (group: any) => group.group_id === "dual-gip-glp1",
       ),
     );
+    assert.ok(
+      catalog.data.monitoringRelations.some(
+        (relation: any) =>
+          relation.medication_id === "spironolactone" &&
+          relation.parameter_code === "potassium",
+      ),
+      "pre-start monitoring context is available before a medication is active",
+    );
 
     const reaction = await call(`/patients/${patientId}/adverse-reactions`, {
       medication_id: "ramipril",

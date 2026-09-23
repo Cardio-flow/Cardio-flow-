@@ -2,7 +2,7 @@
 
 ## Stage 5.5 patient journey UX — in progress
 
-The staged implementation and full acceptance tracking are described in [STAGE5_5_JOURNEY.md](STAGE5_5_JOURNEY.md). Patient-journey navigation, concise Summary/What Changed, quick single and multi-lab entry, diagnosis-context medication browsing, searchable comorbidities, guided HF and complication review, HF discharge handover, dated plan actions and an editable general plan-note draft are implemented on the development branch. The underlying clinical, registry, audit and governance records remain unchanged. Stage 5.5 remains open pending governed dose content, published management rules, wider registry/event mapping, legacy-form retirement, clinician workflow review and production release.
+The staged implementation and full acceptance tracking are described in [STAGE5_5_JOURNEY.md](STAGE5_5_JOURNEY.md). Patient-journey navigation, concise Summary/What Changed, quick single and multi-lab entry, diagnosis-context medication browsing, pre-start monitoring context, searchable comorbidities, guided HF and complication review, HF discharge handover, structured dated plan actions connected to tasks and Journey, previous-plan context in the next visit, and an editable general plan-note draft are implemented on the development branch. The underlying clinical, registry, audit and governance records remain unchanged; this continuation required no migration. Stage 5.5 remains open pending governed dose content, published management rules, medication quick actions/titration, wider registry/event mapping, legacy-form retirement and hands-on clinician workflow review. It has not been deployed.
 
 ## Release 1.0 — Stage 5 connected coronary care (23 September 2026)
 
