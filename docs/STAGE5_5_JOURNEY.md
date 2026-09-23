@@ -14,6 +14,7 @@ Status: in progress. This is a staged UX rebuild, not a new disease module or a 
 - HF discharge now guides reconciliation and scheduling. The existing discharge engine creates dated laboratory, clinic, imaging and device-review tasks that carry into the next OPD visit; an admission can be closed from the same review only after clinical stability is confirmed.
 - Visit/admission reasons have quick clinical choices while preserving an editable reason for other contexts. The start-of-visit flow can show the patient's active problems, medicines, recent results and imaging already in the record, alongside open actions from the prior visit.
 - The general Plan & Follow-up workspace now drafts an editable note from active problems, current medications, recent results and dated actions. Saving creates a clinician-authored, visit-linked and versioned clinical decision record. The source records and actionable tasks remain independent; the generated narrative is a reviewed snapshot, not a new source of clinical truth.
+- The legacy More actions menu is visually secondary to the contextual clinical actions on Summary, Current Visit, Medications, Investigations and Plan & Follow-up. It remains available for less common records until each old editor has a safe replacement.
 
 No database migration was needed for this increment. It changes presentation and reuses existing records, endpoints and task history. No historical data was transformed or removed.
 

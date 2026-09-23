@@ -1092,7 +1092,7 @@ export function UnifiedPatientWorkspace({
             <button className="secondary" onClick={() => setNewEncounter(true)}>
               <CalendarDays size={16} /> New visit / admission
             </button>
-            <button className="primary" onClick={() => setAddMenu(true)}>
+            <button className="secondary" onClick={() => setAddMenu(true)}>
               <Plus size={17} /> More actions
             </button>
           </div>
@@ -1584,7 +1584,8 @@ export function UnifiedPatientWorkspace({
                 </div>
               ) : (
                 <Empty title="No records in this view">
-                  Use Add / Update to document clinical information once.
+                  Use the relevant patient action to document clinical
+                  information once.
                 </Empty>
               )}
             </section>
@@ -1611,7 +1612,7 @@ export function UnifiedPatientWorkspace({
             <section className="panel care-section legacy-registry-summary">
               <SectionTitle
                 title="Legacy CAD episode history"
-                subtitle="Existing versioned episodes remain readable. Record new coronary care once through Add / Update and review its registry draft below."
+                subtitle="Existing versioned episodes remain readable. Record new coronary care in Current Visit and review its registry draft below."
               />
               {patient?.enrollment_id ? (
                 <div className="registry-status-row">
