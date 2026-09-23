@@ -55,6 +55,13 @@ type EchoValveData = {
   pathways: any[];
   heartTeam: any[];
   prostheses: any[];
+  prostheticComparisons: {
+    prosthesis_id: string;
+    position: string;
+    baselineStudy: EchoStudy;
+    currentStudy: EchoStudy;
+    changes: EchoValveData["comparison"];
+  }[];
   procedures: any[];
   surveillance: any[];
   tasks: any[];
@@ -223,6 +230,21 @@ export function EchoValveDashboard({
                 <p>{preferred.conclusion}</p>
               </div>
             ) : null}
+            {data.prostheticComparisons?.map((comparison) => (
+              <div className="echo-conclusion" key={comparison.prosthesis_id}>
+                <span>
+                  {displayEchoCode(comparison.position)} prosthesis · baseline
+                  comparison
+                </span>
+                <p>
+                  Baseline {date(comparison.baselineStudy.performed_at)} →
+                  current {date(comparison.currentStudy.performed_at)}.{" "}
+                  {comparison.changes.length} structured prosthetic/valve
+                  changes require clinician review; no mechanism is diagnosed
+                  automatically.
+                </p>
+              </div>
+            ))}
           </>
         )}
         {role === "clinician" ? (
@@ -315,6 +337,14 @@ type DraftMeasurement = {
   method: string;
   context: string;
 };
+type DraftValveFinding = {
+  id: string;
+  valve_name: string;
+  lesion_type: string;
+  clinician_severity: string;
+  mechanism: string;
+  discordant: boolean;
+};
 export function EchoStudyEditor({
   patientId,
   encounters,
@@ -348,15 +378,23 @@ export function EchoStudyEditor({
     [mechanism, setMechanism] = useState(""),
     [discordant, setDiscordant] = useState(false),
     [supporting, setSupporting] = useState<string[]>([]),
+    [additionalValves, setAdditionalValves] = useState<DraftValveFinding[]>([]),
+    [lvFindings, setLvFindings] = useState(""),
+    [wallMotion, setWallMotion] = useState(""),
     [rvFunction, setRvFunction] = useState(""),
+    [atria, setAtria] = useState(""),
     [diastolic, setDiastolic] = useState(""),
     [pulmonary, setPulmonary] = useState(""),
     [aorta, setAorta] = useState(""),
+    [ivc, setIvc] = useState(""),
     [pericardium, setPericardium] = useState(""),
+    [massesShunts, setMassesShunts] = useState(""),
+    [prostheticDevices, setProstheticDevices] = useState(""),
     [comparisonId, setComparisonId] = useState(studies[0]?.study_id ?? ""),
     [comparison, setComparison] = useState(""),
     [interpretation, setInterpretation] = useState(""),
     [conclusion, setConclusion] = useState(""),
+    [overrideReason, setOverrideReason] = useState(""),
     [location, setLocation] = useState(""),
     [reporter, setReporter] = useState("Cardiology team"),
     [busy, setBusy] = useState(false),
@@ -420,22 +458,28 @@ export function EchoStudyEditor({
         blood_pressure: "",
         contrast_used: studyType === "CONTRAST_ECHO",
         structured_findings: {
+          lvFindings,
+          wallMotion,
           rvFunction,
+          atrialFindings: atria,
           diastolicContext: diastolic,
           pulmonaryPressureContext: pulmonary,
           aortaContext: aorta,
+          ivcContext: ivc,
           pericardialContext: pericardium,
+          massesShunts,
+          prostheticDevices,
         },
         interpretation,
         comparison_summary: comparison,
         conclusion,
-        clinician_override_reason: "",
+        clinician_override_reason: overrideReason,
         reporting_cardiologist: reporter,
         amendment_reason: "",
         source_label: `${displayEchoCode(studyType)} · ${performedAt.slice(0, 10)}`,
         measurements: mapped,
-        valve_findings:
-          lesion === "NONE"
+        valve_findings: [
+          ...(lesion === "NONE"
             ? []
             : [
                 {
@@ -450,7 +494,24 @@ export function EchoStudyEditor({
                   narrative: "",
                   override_reason: "",
                 },
-              ],
+              ]),
+          ...additionalValves
+            .filter((item) => item.lesion_type !== "NONE")
+            .map((item) => ({
+              valve_name: item.valve_name,
+              lesion_type: item.lesion_type,
+              mechanism: item.mechanism,
+              clinician_severity: item.clinician_severity,
+              calculated_assessment: null,
+              discordant: item.discordant,
+              supporting_parameters: mapped.map(
+                (measurement) => measurement.parameter_code,
+              ),
+              morphology: "",
+              narrative: "",
+              override_reason: "",
+            })),
+        ],
       });
       onSaved();
     } catch (caught) {
@@ -681,10 +742,32 @@ export function EchoStudyEditor({
           <h3>Integrated findings</h3>
           <div className="form-grid">
             <label>
+              LV size/function and geometry
+              <textarea
+                value={lvFindings}
+                onChange={(e) => setLvFindings(e.target.value)}
+              />
+            </label>
+            <label>
+              Regional wall motion
+              <textarea
+                value={wallMotion}
+                onChange={(e) => setWallMotion(e.target.value)}
+                placeholder="Normal, hypokinetic, akinetic, dyskinetic or aneurysmal by segment/territory"
+              />
+            </label>
+            <label>
               RV size/function
               <textarea
                 value={rvFunction}
                 onChange={(e) => setRvFunction(e.target.value)}
+              />
+            </label>
+            <label>
+              LA / RA findings
+              <textarea
+                value={atria}
+                onChange={(e) => setAtria(e.target.value)}
               />
             </label>
             <label>
@@ -709,10 +792,28 @@ export function EchoStudyEditor({
               />
             </label>
             <label>
+              IVC / estimated RA pressure context
+              <textarea value={ivc} onChange={(e) => setIvc(e.target.value)} />
+            </label>
+            <label>
               Pericardium
               <textarea
                 value={pericardium}
                 onChange={(e) => setPericardium(e.target.value)}
+              />
+            </label>
+            <label>
+              Intracardiac masses / shunts
+              <textarea
+                value={massesShunts}
+                onChange={(e) => setMassesShunts(e.target.value)}
+              />
+            </label>
+            <label>
+              Prosthetic valves / devices
+              <textarea
+                value={prostheticDevices}
+                onChange={(e) => setProstheticDevices(e.target.value)}
               />
             </label>
           </div>
@@ -806,6 +907,139 @@ export function EchoStudyEditor({
               </div>
             </>
           ) : null}
+          {additionalValves.map((finding, index) => (
+            <div className="additional-valve" key={finding.id}>
+              <strong>Additional valve finding {index + 1}</strong>
+              <div className="form-grid four">
+                <label>
+                  Valve
+                  <select
+                    value={finding.valve_name}
+                    onChange={(e) =>
+                      setAdditionalValves((items) =>
+                        items.map((item) =>
+                          item.id === finding.id
+                            ? { ...item, valve_name: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {valveNames.map((item) => (
+                      <option key={item} value={item}>
+                        {displayEchoCode(item)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Lesion
+                  <select
+                    value={finding.lesion_type}
+                    onChange={(e) =>
+                      setAdditionalValves((items) =>
+                        items.map((item) =>
+                          item.id === finding.id
+                            ? { ...item, lesion_type: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {valveLesions.map((item) => (
+                      <option key={item} value={item}>
+                        {displayEchoCode(item)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Severity
+                  <select
+                    value={finding.clinician_severity}
+                    onChange={(e) =>
+                      setAdditionalValves((items) =>
+                        items.map((item) =>
+                          item.id === finding.id
+                            ? { ...item, clinician_severity: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {valveSeverities.map((item) => (
+                      <option key={item} value={item}>
+                        {displayEchoCode(item)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Mechanism
+                  <input
+                    value={finding.mechanism}
+                    onChange={(e) =>
+                      setAdditionalValves((items) =>
+                        items.map((item) =>
+                          item.id === finding.id
+                            ? { ...item, mechanism: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              </div>
+              <div className="additional-valve-actions">
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={finding.discordant}
+                    onChange={(e) =>
+                      setAdditionalValves((items) =>
+                        items.map((item) =>
+                          item.id === finding.id
+                            ? { ...item, discordant: e.target.checked }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                  Discordant / requires confirmation
+                </label>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() =>
+                    setAdditionalValves((items) =>
+                      items.filter((item) => item.id !== finding.id),
+                    )
+                  }
+                >
+                  Remove finding
+                </button>
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="secondary add-valve-finding"
+            onClick={() =>
+              setAdditionalValves((items) => [
+                ...items,
+                {
+                  id: crypto.randomUUID(),
+                  valve_name: "MITRAL",
+                  lesion_type: "REGURGITATION",
+                  clinician_severity: "INDETERMINATE",
+                  mechanism: "",
+                  discordant: false,
+                },
+              ])
+            }
+          >
+            <Plus size={15} /> Add another valve finding
+          </button>
         </section>
         <section className="guided-section">
           <h3>Comparison and conclusion</h3>
@@ -845,6 +1079,13 @@ export function EchoStudyEditor({
                 value={conclusion}
                 onChange={(e) => setConclusion(e.target.value)}
                 placeholder="Required before finalization"
+              />
+            </label>
+            <label className="span-2">
+              Clinician override reason (when choosing a competing measurement)
+              <textarea
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
               />
             </label>
           </div>

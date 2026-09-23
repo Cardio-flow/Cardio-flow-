@@ -2906,6 +2906,27 @@ input[type="checkbox"] {
   display: grid;
   gap: 8px;
 }
+.additional-valve {
+  border-top: 1px solid #dfe7dc;
+  margin-top: 17px;
+  padding-top: 16px;
+}
+.additional-valve > strong {
+  display: block;
+  color: #34533c;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.additional-valve-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+}
+.add-valve-finding {
+  margin-top: 15px;
+}
 .echo-measurements article {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) 150px minmax(170px, 1fr) auto;

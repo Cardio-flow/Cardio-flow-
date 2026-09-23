@@ -466,6 +466,9 @@ test("Stage 4 connects twelve Echo and valve cases while candidate guidance rema
       ["Mechanism", "Multimodality imaging if clinically indicated"],
     );
     assert.doesNotMatch(prostheticPath.state, /thrombosis/i);
+    state = (await call(`/patients/${prosthetic}/echo-valve`)).data;
+    assert.equal(state.prostheticComparisons.length, 1);
+    assert.ok(state.prostheticComparisons[0].changes.length >= 1);
 
     // 10 Post-TAVI procedure, prosthesis and Echo share one timeline source.
     const postTavi = await person("Post TAVI"),
@@ -567,6 +570,23 @@ test("Stage 4 connects twelve Echo and valve cases while candidate guidance rema
       report.data.draft,
       /requires cardiologist editing and final approval/i,
     );
+    const history = await call(`/echo-studies/${severe.study_id}/history`);
+    assert.equal(history.data.revisions.length, 1);
+    const crossPatientBaseline = await call(
+      `/patients/${progressive}/valve/prostheses`,
+      {
+        position: "AORTIC",
+        prosthesis_type: "UNKNOWN",
+        manufacturer: "",
+        model: "",
+        size_label: "",
+        implanted_on: null,
+        implantation_route: "UNKNOWN",
+        baseline_echo_id: discordantEcho.study_id,
+        antithrombotic_context: "",
+      },
+    );
+    assert.equal(crossPatientBaseline.status, 422);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

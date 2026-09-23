@@ -1200,8 +1200,10 @@ export async function createSharedEchoStudy(
 async function loadEchoStudy(db: QueryDB, id: string): Promise<EchoStudy> {
   const row = (
     await db.query<any>(
-      "SELECT * FROM imaging.current_echo_revision WHERE study_id=$1",
-      [id],
+      `SELECT e.* FROM imaging.current_echo_revision e
+       JOIN core.patient p ON p.id=e.patient_id
+       WHERE e.study_id=$1 AND p.site_id=$2`,
+      [id, SITE],
     )
   ).rows[0];
   if (!row) throw new FoundationError(404, "Echo study not found");
@@ -1539,6 +1541,24 @@ export async function loadEchoValveState(db: QueryDB, patientId: string) {
       [patientId],
     ),
   ]);
+  const prostheticComparisons = [];
+  for (const prosthesis of prostheses.rows) {
+    if (!prosthesis.baseline_echo_id || !preferred) continue;
+    const baseline = studies.find(
+      (item) => item.study_id === prosthesis.baseline_echo_id,
+    );
+    if (!baseline || baseline.study_id === preferred.study_id) continue;
+    prostheticComparisons.push({
+      prosthesis_id: prosthesis.id,
+      position: prosthesis.position,
+      baselineStudy: baseline,
+      currentStudy: preferred,
+      changes: compareEchoStudies(preferred, baseline).filter(
+        (item) =>
+          item.code.startsWith("prosthetic_") || item.code.startsWith("valve."),
+      ),
+    });
+  }
   return {
     studies,
     latestStudy:
@@ -1564,6 +1584,7 @@ export async function loadEchoValveState(db: QueryDB, patientId: string) {
     })),
     heartTeam: heartTeam.rows,
     prostheses: prostheses.rows,
+    prostheticComparisons,
     procedures: procedures.rows.map((item) => ({
       ...item,
       complications: parse(item.complications),
@@ -1618,6 +1639,19 @@ export function mountEchoValve(
   app.get("/api/echo-studies/:id", read, async (req, res) =>
     res.json(await loadEchoStudy(db, String(req.params.id))),
   );
+  app.get("/api/echo-studies/:id/history", read, async (req, res) => {
+    const study = await loadEchoStudy(db, String(req.params.id));
+    const revisions = (
+      await db.query<any>(
+        `SELECT r.id,r.version,r.status,r.study_quality,r.conclusion,
+                r.amendment_reason,r.reporting_cardiologist,r.created_at
+         FROM imaging.echo_revision r
+         WHERE r.study_id=$1 ORDER BY r.version DESC`,
+        [study.study_id],
+      )
+    ).rows;
+    res.json({ study_id: study.study_id, revisions });
+  });
   app.post("/api/patients/:id/echo-studies", write, async (req, res) => {
     const actor = res.locals.session.email ?? `demo:${res.locals.session.role}`;
     res
@@ -1628,9 +1662,12 @@ export function mountEchoValve(
   });
   app.post("/api/echo-studies/:id/revisions", write, async (req, res) => {
     const study = (
-      await db.query<any>("SELECT * FROM imaging.echo_study WHERE id=$1", [
-        z.string().uuid().parse(String(req.params.id)),
-      ])
+      await db.query<any>(
+        `SELECT s.* FROM imaging.echo_study s
+         JOIN core.patient p ON p.id=s.patient_id
+         WHERE s.id=$1 AND p.site_id=$2`,
+        [z.string().uuid().parse(String(req.params.id)), SITE],
+      )
     ).rows[0];
     if (!study) throw new FoundationError(404, "Echo study not found");
     const body = revisionBody.parse(req.body),
@@ -1757,6 +1794,19 @@ export function mountEchoValve(
         .parse(req.body),
       actor = res.locals.session.email ?? `demo:${res.locals.session.role}`;
     await ensureEncounter(db, input.encounter_id, person.id);
+    if (
+      input.source_pathway_id &&
+      !(
+        await db.query(
+          "SELECT id FROM valve.pathway_assessment WHERE id=$1 AND patient_id=$2",
+          [input.source_pathway_id, person.id],
+        )
+      ).rows[0]
+    )
+      throw new FoundationError(
+        422,
+        "Heart Team source pathway does not belong to patient",
+      );
     const id = randomUUID();
     const row = (
       await db.query<any>(
@@ -1812,6 +1862,19 @@ export function mountEchoValve(
       actor = res.locals.session.email ?? `demo:${res.locals.session.role}`,
       sourceType = `valve_surveillance_${input.valve_name}_${input.lesion_type}`;
     await ensureEncounter(db, input.encounter_id, person.id);
+    if (
+      input.source_study_id &&
+      !(
+        await db.query(
+          "SELECT id FROM imaging.echo_study WHERE id=$1 AND patient_id=$2",
+          [input.source_study_id, person.id],
+        )
+      ).rows[0]
+    )
+      throw new FoundationError(
+        422,
+        "Surveillance source Echo does not belong to patient",
+      );
     await supersedeTasks(db, person.id, sourceType, actor);
     const prior = (
       await db.query<any>(
@@ -1910,6 +1973,19 @@ export function mountEchoValve(
         .parse(req.body),
       actor = res.locals.session.email ?? `demo:${res.locals.session.role}`,
       id = randomUUID();
+    if (
+      input.baseline_echo_id &&
+      !(
+        await db.query(
+          "SELECT id FROM imaging.echo_study WHERE id=$1 AND patient_id=$2",
+          [input.baseline_echo_id, person.id],
+        )
+      ).rows[0]
+    )
+      throw new FoundationError(
+        422,
+        "Prosthetic baseline Echo does not belong to patient",
+      );
     const row = (
       await db.query<any>(
         `INSERT INTO valve.prosthesis(id,patient_id,position,prosthesis_type,manufacturer,model,size_label,implanted_on,implantation_route,baseline_echo_id,antithrombotic_context,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
@@ -1961,6 +2037,19 @@ export function mountEchoValve(
         .parse(req.body),
       actor = res.locals.session.email ?? `demo:${res.locals.session.role}`;
     await ensureEncounter(db, input.encounter_id, person.id);
+    if (
+      input.prosthesis_id &&
+      !(
+        await db.query(
+          "SELECT id FROM valve.prosthesis WHERE id=$1 AND patient_id=$2",
+          [input.prosthesis_id, person.id],
+        )
+      ).rows[0]
+    )
+      throw new FoundationError(
+        422,
+        "Procedure prosthesis does not belong to patient",
+      );
     const id = randomUUID(),
       row = (
         await db.query<any>(
