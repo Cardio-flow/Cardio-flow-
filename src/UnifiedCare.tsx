@@ -1043,6 +1043,14 @@ export function UnifiedPatientWorkspace({
         (!currentEncounter || task.encounter_id !== currentEncounter.id) &&
         !["cancelled", "superseded"].includes(task.current?.status ?? "open"),
     )
+    .sort((left, right) => {
+      const leftDone = left.current?.status === "completed" ? 1 : 0;
+      const rightDone = right.current?.status === "completed" ? 1 : 0;
+      return (
+        leftDone - rightDone ||
+        (left.target_date ?? "9999").localeCompare(right.target_date ?? "9999")
+      );
+    })
     .slice(0, 6);
   const projectedJourney: ProjectedJourneyEvent[] = [
     ...(medicationIntelligence?.history ?? []).map((item) => ({
