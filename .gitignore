@@ -1,5 +1,6 @@
 node_modules/
 dist/
+public/
 .data/
 .env
 .env.*
@@ -8,11 +9,6 @@ test-results/
 playwright-report/
 .DS_Store
 .vercel
-.env*
-
-public/
-
 .agents/
 skills-lock.json
-
 screenshots/

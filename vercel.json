@@ -4,7 +4,7 @@
   "buildCommand": "npm run build:hosted",
   "functions": {
     "server.ts": {
-      "includeFiles": "{public/**,server/*.sql}",
+      "includeFiles": "{public/**,server/db/*.sql}",
       "maxDuration": 60
     }
   },
