@@ -6,20 +6,20 @@ import {
   extractNeonAuthCookies,
   serializeSetCookie,
 } from "@neondatabase/auth/server";
-import type { DB } from "./db.js";
-import type { HostedOptions, Session } from "./app.js";
+import type { DB } from "./db/db.js";
+import type { HostedAuth, Session } from "./app.js";
 export function hostedAuth(
   db: DB,
   origin: string,
   baseUrl: string,
   cookieSecret: string,
-): HostedOptions {
+): HostedAuth {
   if (new URL(origin).protocol !== "https:" || cookieSecret.length < 32)
     throw new Error("Hosted authentication requires HTTPS and a cookie secret");
   const config = { baseUrl, cookieSecret, sessionDataTtl: 60 };
   return {
     origin,
-    mountAuth(app) {
+    mount(app) {
       app.use("/api/auth", express.raw({ type: "*/*", limit: "20kb" }));
       app.all("/api/auth/*splat", async (req, res) => {
         const headers = new Headers();
@@ -77,30 +77,24 @@ export function hostedAuth(
       }
       const email = data.user.email.toLowerCase();
       const member = (
-        await db.query<{ role: Session["role"]; user_id: string | null }>(
-          "SELECT role,user_id FROM governance.membership WHERE email=$1 AND active=true",
+        await db.query<{ role: Session["role"]; user_id: string | null; site_id: string; display_name: string }>(
+          "SELECT role,user_id,site_id,display_name FROM cf.member WHERE email=$1 AND active=true",
           [email],
         )
       ).rows[0];
       if (!member || (member.user_id && member.user_id !== data.user.id)) {
-        res.status(403).json({
-          error: "Your account is signed in and awaiting workspace approval.",
-        });
+        res.status(403).json({ error: "Your account is signed in and awaiting workspace approval." });
         return null;
       }
-      const linked = await db.query(
-        "UPDATE governance.membership SET user_id=$1 WHERE email=$2 AND active=true AND (user_id IS NULL OR user_id=$1) RETURNING role",
-        [data.user.id, email],
-      );
-      if (!linked.rows.length) return null;
+      if (!member.user_id) await db.query("UPDATE cf.member SET user_id=$1 WHERE email=$2 AND user_id IS NULL", [data.user.id, email]);
       return {
-        actor: data.user.id,
+        id: email,
+        name: member.display_name,
         role: member.role,
+        siteId: member.site_id,
         email,
         expires: new Date(data.session.expiresAt).getTime(),
-        csrf: createHmac("sha256", cookieSecret)
-          .update(data.session.id)
-          .digest("hex"),
+        csrf: createHmac("sha256", cookieSecret).update(data.session.id).digest("hex"),
       };
     },
   };

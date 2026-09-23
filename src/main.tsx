@@ -1,35 +1,12 @@
-import { StrictMode, Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import "@fontsource/plus-jakarta-sans/400.css";
+import "@fontsource/plus-jakarta-sans/500.css";
+import "@fontsource/plus-jakarta-sans/600.css";
+import "@fontsource/plus-jakarta-sans/700.css";
+import "@fontsource/plus-jakarta-sans/800.css";
+import "@fontsource/outfit/700.css";
 import "./styles.css";
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: boolean }
-> {
-  state = { error: false };
-  static getDerivedStateFromError() {
-    return { error: true };
-  }
-  render() {
-    return this.state.error ? (
-      <div className="empty">
-        <h1>Unable to display this workspace</h1>
-        <p>Your saved data remains on the server.</p>
-        <button className="primary" onClick={() => window.location.reload()}>
-          Reload workspace
-        </button>
-      </div>
-    ) : (
-      this.props.children
-    );
-  }
-}
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+import { App } from "./App";
 
+createRoot(document.getElementById("root")!).render(<App />);
 window.dispatchEvent(new Event("cardio:ready"));
