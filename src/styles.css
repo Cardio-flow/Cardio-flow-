@@ -3871,8 +3871,228 @@ input[type="checkbox"] {
   margin-top: 14px;
 }
 .patient-tabs button {
-  min-width: 130px;
+  min-width: 112px;
   font-size: 14px;
+}
+.journey-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 18px 0 24px;
+}
+.journey-quick-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.journey-page-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin: 22px 0 16px;
+}
+.journey-page-intro h2 {
+  margin: 3px 0;
+  font-size: 25px;
+  letter-spacing: -0.035em;
+}
+.journey-page-intro p {
+  margin: 0;
+  color: #61776c;
+}
+.journey-specialty-history {
+  margin: 18px 0;
+}
+.journey-specialty-history > summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 16px;
+}
+.review-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.review-choice-row button {
+  min-width: 150px;
+  text-align: center;
+}
+.review-choice-row button.selected {
+  color: #fff;
+  border-color: #174a3d;
+  background: #174a3d;
+}
+.visit-handover-preview {
+  padding: 16px;
+  margin-bottom: 18px;
+  border: 1px solid #dce5df;
+  border-radius: 10px;
+  background: #f7faf7;
+}
+.visit-handover-preview h3 {
+  margin: 0 0 7px;
+}
+.visit-handover-preview p {
+  margin: 5px 0 10px;
+  color: #61776c;
+}
+.visit-handover-preview ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.plan-followup-row span {
+  display: grid;
+  gap: 3px;
+}
+.plan-followup-row small {
+  color: #61776c;
+}
+.plan-action-form {
+  display: grid;
+  gap: 14px;
+}
+.summary-changes {
+  padding: 20px;
+  margin-bottom: 18px;
+}
+.summary-changes .summary-section-title {
+  margin-bottom: 10px;
+}
+.investigation-list article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 15px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.investigation-list article:last-child {
+  border-bottom: 0;
+}
+.investigation-list article > div {
+  display: grid;
+  gap: 4px;
+}
+.investigation-list article > div:last-child {
+  text-align: right;
+}
+.investigation-list small {
+  color: #61776c;
+}
+.plan-followup-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-top: 12px;
+  text-align: left;
+}
+.plan-followup-row span {
+  flex: 1;
+}
+.quick-labs h3 {
+  margin: 0;
+}
+.quick-labs p {
+  color: #61776c;
+}
+.quick-lab-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.quick-lab-heading p {
+  margin: 5px 0 0;
+}
+.quick-lab-heading label {
+  min-width: 185px;
+}
+.quick-lab-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.quick-lab-presets button {
+  padding: 8px 12px;
+}
+.quick-lab-rows {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.quick-lab-row {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 2fr) minmax(100px, 1fr) minmax(110px, 1fr)
+    40px;
+  align-items: end;
+  gap: 10px;
+}
+.quick-lab-row label {
+  min-width: 0;
+}
+.quick-lab-row select,
+.quick-lab-row input {
+  width: 100%;
+}
+.quick-lab-row .icon-button {
+  height: 40px;
+}
+.quick-lab-advanced {
+  margin: 20px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.quick-lab-advanced > summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.medication-context-bar,
+.medication-group-chips,
+.medication-dose-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.medication-context-bar small {
+  flex-basis: 100%;
+  color: #61776c;
+  line-height: 1.5;
+}
+.medication-context-bar button,
+.medication-group-chips button,
+.medication-dose-presets button {
+  padding: 8px 12px;
+  border-radius: 9px;
+}
+.medication-context-bar button.selected,
+.medication-group-chips button.selected,
+.medication-dose-presets button.selected {
+  color: #fff;
+  background: #174a3d;
+  border-color: #174a3d;
+}
+@media (max-width: 760px) {
+  .journey-page-intro,
+  .quick-lab-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .quick-lab-row {
+    grid-template-columns: 1fr 1fr 40px;
+  }
+  .quick-lab-row label:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .needs-attention {
@@ -4165,7 +4385,6 @@ input[type="checkbox"] {
   background: #e9f3ee;
 }
 .summary-section {
-  min-height: 250px;
   padding: 20px;
 }
 .summary-section-title {

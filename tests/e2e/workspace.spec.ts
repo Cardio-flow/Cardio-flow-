@@ -180,6 +180,10 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
   await expect(
     page.getByRole("heading", { name: "HF Browser Case" }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Current Visit" }).click();
+  await page
+    .getByRole("button", { name: "Heart failure", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "No structured HF review yet" }),
   ).toBeVisible();
@@ -213,15 +217,34 @@ test("heart failure review connects imaging, phenotype, record and timeline", as
   await expect(
     page.getByText("NYHA II", { exact: true }).first(),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Summary" }).click();
+  await expect(
+    page.getByRole("heading", { name: "What Changed" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: /HFrEF Chronic Stable · NYHA II · EF 30%/,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Heart failure review Clinical review/ }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/stage55-hf-summary.png",
+    fullPage: true,
+    animations: "disabled",
+  });
 
-  await page.getByRole("tab", { name: "Clinical Record" }).click();
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await expect(
     page.getByRole("heading", { name: "Heart failure record" }),
   ).toBeVisible();
   await expect(
     page.getByText("New symptomatic HF after anterior MI"),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Timeline" }).click();
+  await page.getByRole("tab", { name: "Journey" }).click();
+  await page.getByText("Specialty event details").click();
   await expect(
     page.getByRole("heading", { name: "Heart failure journey" }),
   ).toBeVisible();

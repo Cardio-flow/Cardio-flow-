@@ -22,12 +22,16 @@ test("clinician records a medication and normalized laboratory trends through th
   await expect(
     page.getByRole("heading", { name: "Medication Lab Sample" }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Medications" }).click();
   await expect(
     page.getByRole("heading", { name: "Medication & laboratory intelligence" }),
   ).toBeVisible();
   const intelligencePanel = page.locator("#medication-laboratory-intelligence");
-  await page.getByRole("button", { name: "Add / Update" }).click();
-  await page.getByRole("button", { name: /^Medication Start/ }).click();
+  await page
+    .locator(".journey-page-intro")
+    .getByRole("button", { name: "Add medication" })
+    .click();
+  await page.getByRole("button", { name: "Search all medications" }).click();
   await page.getByLabel("Search medication").fill("Spironolactone");
   await page
     .getByRole("button", { name: /Spironolactone Steroidal MRA/ })
@@ -58,21 +62,21 @@ test("clinician records a medication and normalized laboratory trends through th
       name: /Spironolactone 12.5 mg/,
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Add / Update" }).click();
-  await page.getByRole("button", { name: /^Laboratory result/ }).click();
+  await page.getByRole("tab", { name: "Investigations" }).click();
+  await page.getByRole("button", { name: "Add labs" }).click();
   await page.getByLabel("Test").selectOption("potassium");
-  await page.getByLabel("Value").fill("4.8");
+  await page.getByLabel("Result", { exact: true }).fill("4.8");
   await page.getByRole("button", { name: "Save result" }).click();
-  await expect(page.getByText("4.8", { exact: true })).toBeVisible();
+  await expect(page.getByText("4.8 mmol/L", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Add result" }).click();
+  await page.getByRole("button", { name: "Add labs" }).click();
   await page.getByLabel("Test").selectOption("creatinine");
-  await page.getByLabel("Value").fill("88.4");
-  await page.getByLabel("Original unit").selectOption("µmol/L");
-  await expect(
-    page.getByText(/separate 2021 CKD-EPI eGFR and Cockcroft/),
-  ).toBeVisible();
+  await page.getByLabel("Result", { exact: true }).fill("88.4");
+  await expect(page.getByLabel("Unit")).toHaveValue("µmol/L");
+  await page.getByText("Advanced details").click();
+  await page.getByLabel("Verification").selectOption("verified");
   await page.getByRole("button", { name: "Save result" }).click();
+  await page.getByRole("tab", { name: "Medications" }).click();
   await expect(
     intelligencePanel.getByText("Creatinine", { exact: true }),
   ).toBeVisible();

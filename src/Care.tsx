@@ -1048,11 +1048,15 @@ export function EntryEditor({
 export function EncounterEditor({
   patient,
   encounters,
+  pending = [],
+  pendingTasks = [],
   onClose,
   onSaved,
 }: {
   patient: Patient;
   encounters: CareEncounter[];
+  pending?: CareEntry[];
+  pendingTasks?: { id: string; purpose: string; target_date: string | null }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1077,6 +1081,41 @@ export function EncounterEditor({
   }
   return (
     <Modal title="Start a visit or admission" onClose={onClose}>
+      {encounters.length || pending.length || pendingTasks.length ? (
+        <section
+          className="visit-handover-preview"
+          aria-label="Since last review"
+        >
+          <h3>Since last review</h3>
+          {encounters.length ? (
+            <p>
+              Previous {encounters[0].kind.toLowerCase()}:{" "}
+              {encounters[0].reason} · {date(encounters[0].started_on)}
+            </p>
+          ) : null}
+          {pending.length || pendingTasks.length ? (
+            <>
+              <strong>Open actions carried into this visit</strong>
+              <ul>
+                {pending.slice(0, 5).map((entry) => (
+                  <li key={entry.id}>
+                    {entry.title}
+                    {entry.due_date ? ` · due ${date(entry.due_date)}` : ""}
+                  </li>
+                ))}
+                {pendingTasks.slice(0, 5).map((task) => (
+                  <li key={task.id}>
+                    {task.purpose}
+                    {task.target_date ? ` · due ${date(task.target_date)}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>No open care-plan items recorded.</p>
+          )}
+        </section>
+      ) : null}
       <form onSubmit={submit}>
         <div className="form-grid">
           <label>
@@ -1107,7 +1146,10 @@ export function EncounterEditor({
           </label>
           <label className="span-2">
             Connect to previous care context
-            <select name="linked_encounter_id">
+            <select
+              name="linked_encounter_id"
+              defaultValue={encounters[0]?.id ?? ""}
+            >
               <option value="">No connection selected</option>
               {encounters.map((c) => (
                 <option key={c.id} value={c.id}>

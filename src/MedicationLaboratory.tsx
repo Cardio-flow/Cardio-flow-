@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import { api, currentDate, date, useData } from "./api";
 import type { CareEncounter } from "./care-model";
+import type { CareEntry } from "./care-model";
+import {
+  documentedContexts,
+  medicationContexts,
+  reviewedDosePresets,
+} from "./medication-context";
 import type {
   CurrentTherapy,
   LabDefinition,
@@ -685,12 +691,16 @@ export function MedicationEditor({
   patientId,
   owner,
   encounters,
+  activeProblems,
+  comorbidities,
   onClose,
   onSaved,
 }: {
   patientId: string;
   owner: string;
   encounters: CareEncounter[];
+  activeProblems: CareEntry[];
+  comorbidities: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -699,6 +709,7 @@ export function MedicationEditor({
   );
   const [query, setQuery] = useState(""),
     [group, setGroup] = useState(""),
+    [scope, setScope] = useState("relevant"),
     [selectedId, setSelectedId] = useState(""),
     [indications, setIndications] = useState<string[]>([]),
     [dose, setDose] = useState(""),
@@ -706,11 +717,14 @@ export function MedicationEditor({
     [frequency, setFrequency] = useState("Once daily"),
     [route, setRoute] = useState("Oral"),
     [startDate, setStartDate] = useState(currentDate()),
-    [encounterId, setEncounterId] = useState(""),
+    [encounterId, setEncounterId] = useState(
+      encounters.find((item) => item.state === "open")?.id ?? "",
+    ),
     [confirmDuplicate, setConfirmDuplicate] = useState(false),
     [reviewed, setReviewed] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const patientContexts = documentedContexts(activeProblems, comorbidities);
   const visible = useMemo(
     () =>
       (data?.medications ?? [])
@@ -724,13 +738,25 @@ export function MedicationEditor({
           ]
             .join(" ")
             .toLowerCase();
-          return groupMatch && values.includes(query.toLowerCase());
+          const relevanceMatch =
+            scope !== "relevant" ||
+            !patientContexts.length ||
+            medicationContexts(item, patientContexts).length > 0;
+          return (
+            groupMatch && relevanceMatch && values.includes(query.toLowerCase())
+          );
         })
         .slice(0, 12),
-    [data, group, query],
+    [data, group, query, scope, patientContexts.join("|")],
   );
   const selected =
     data?.medications.find((item) => item.medication_id === selectedId) ?? null;
+  const matchedContexts = selected
+    ? medicationContexts(selected, patientContexts)
+    : [];
+  const effectiveIndications =
+    matchedContexts.length === 1 ? matchedContexts : indications;
+  const dosePresets = selected ? reviewedDosePresets(selected) : [];
   const duplicate =
     !!selected &&
     !!data?.patientSafety?.currentMedicationIds.includes(
@@ -746,7 +772,7 @@ export function MedicationEditor({
     : [];
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!selected || !reviewed) return;
+    if (!selected || !reviewed || !effectiveIndications.length) return;
     setBusy(true);
     setError("");
     try {
@@ -764,8 +790,12 @@ export function MedicationEditor({
           frequency: frequency || null,
           route: route || null,
           effective_at: `${startDate}T09:00:00.000Z`,
-          indications,
+          indications: effectiveIndications,
           prescribing_clinician: owner,
+          reason:
+            matchedContexts.length === 1
+              ? "Indication matched to documented active problem; clinician reviewed"
+              : "Indication selected by clinician",
         },
       });
       onSaved();
@@ -784,7 +814,78 @@ export function MedicationEditor({
         <form className="medication-editor" onSubmit={submit}>
           <section>
             <span className="step-number">1</span>
-            <h3>Search and select medication</h3>
+            <h3>Choose a clinical group and medication</h3>
+            <div
+              className="medication-context-bar"
+              aria-label="Medication context"
+            >
+              <button
+                type="button"
+                className={scope === "relevant" ? "selected" : "secondary"}
+                onClick={() => {
+                  setScope("relevant");
+                  setGroup("");
+                }}
+              >
+                Most relevant
+              </button>
+              <button
+                type="button"
+                className={scope === "all" ? "selected" : "secondary"}
+                onClick={() => {
+                  setScope("all");
+                  setGroup("");
+                }}
+              >
+                Search all medications
+              </button>
+              {patientContexts.length ? (
+                <small>
+                  Based on documented problems:{" "}
+                  {patientContexts
+                    .map(
+                      (item) =>
+                        data.indications.find((entry) => entry.code === item)
+                          ?.display ?? item,
+                    )
+                    .join(", ")}
+                  . This is a navigation aid, not a treatment recommendation.
+                </small>
+              ) : (
+                <small>
+                  No matching structured diagnosis documented. Search all
+                  medications or add a diagnosis.
+                </small>
+              )}
+            </div>
+            {scope === "relevant" && patientContexts.length ? (
+              <div className="medication-group-chips">
+                {data.groups
+                  .filter((item) =>
+                    data.medications.some(
+                      (medication) =>
+                        medication.groups?.some(
+                          (entry) => entry.group_id === item.group_id,
+                        ) &&
+                        medicationContexts(medication, patientContexts).length,
+                    ),
+                  )
+                  .map((item) => (
+                    <button
+                      type="button"
+                      key={item.group_id}
+                      className={
+                        group === item.group_id ? "selected" : "secondary"
+                      }
+                      onClick={() =>
+                        setGroup(group === item.group_id ? "" : item.group_id)
+                      }
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
             <div className="medication-search-row">
               <label className="global-search compact">
                 <Search size={16} />
@@ -818,6 +919,11 @@ export function MedicationEditor({
                   key={item.medication_id}
                   onClick={() => {
                     setSelectedId(item.medication_id);
+                    setIndications([]);
+                    setDose("");
+                    setDoseUnit("mg");
+                    setRoute(item.routes?.[0] ?? "Oral");
+                    setFrequency(item.common_frequencies[0] ?? "Once daily");
                     setReviewed(false);
                   }}
                 >
@@ -836,25 +942,72 @@ export function MedicationEditor({
             <>
               <section>
                 <span className="step-number">2</span>
-                <h3>Indication and dose</h3>
-                <div className="checkbox-chip-list">
-                  {data.indications.map((item) => (
-                    <label key={item.code}>
-                      <input
-                        type="checkbox"
-                        checked={indications.includes(item.code)}
-                        onChange={() =>
-                          setIndications((values) =>
-                            values.includes(item.code)
-                              ? values.filter((value) => value !== item.code)
-                              : [...values, item.code],
-                          )
+                <h3>Dose and context</h3>
+                {matchedContexts.length === 1 ? (
+                  <p className="context-note">
+                    Linked to the documented{" "}
+                    {data.indications.find(
+                      (item) => item.code === matchedContexts[0],
+                    )?.display ?? matchedContexts[0]}{" "}
+                    context. Confirm this at the safety review.
+                  </p>
+                ) : (
+                  <p className="context-note">
+                    {matchedContexts.length > 1
+                      ? "More than one documented context matches. Choose the primary indication."
+                      : "No matching documented diagnosis. Choose an indication before saving."}
+                  </p>
+                )}
+                {matchedContexts.length !== 1 ? (
+                  <div className="checkbox-chip-list">
+                    {data.indications.map((item) => (
+                      <label key={item.code}>
+                        <input
+                          type="checkbox"
+                          checked={indications.includes(item.code)}
+                          onChange={() =>
+                            setIndications((values) =>
+                              values.includes(item.code)
+                                ? values.filter((value) => value !== item.code)
+                                : [...values, item.code],
+                            )
+                          }
+                        />
+                        {item.display}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+                {dosePresets.length ? (
+                  <div
+                    className="medication-dose-presets"
+                    aria-label="Reviewed dose options"
+                  >
+                    {dosePresets.map((preset) => (
+                      <button
+                        type="button"
+                        className={
+                          dose === String(preset.value) &&
+                          doseUnit === preset.unit
+                            ? "selected"
+                            : "secondary"
                         }
-                      />
-                      {item.display}
-                    </label>
-                  ))}
-                </div>
+                        key={`${preset.value}-${preset.unit}`}
+                        onClick={() => {
+                          setDose(String(preset.value));
+                          setDoseUnit(preset.unit);
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">
+                    No independently reviewed dose presets are published for
+                    this medication. Enter the clinician-selected dose.
+                  </p>
+                )}
                 <div className="form-grid compact-form">
                   <label>
                     Dose
@@ -890,10 +1043,16 @@ export function MedicationEditor({
                       value={route}
                       onChange={(event) => setRoute(event.target.value)}
                     >
-                      <option>Oral</option>
-                      <option>Intravenous</option>
-                      <option>Subcutaneous</option>
-                      <option>Other</option>
+                      {[
+                        ...new Set([
+                          ...(selected.routes?.length
+                            ? selected.routes
+                            : ["Oral"]),
+                          "Other",
+                        ]),
+                      ].map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
                     </select>
                   </label>
                   <label>
@@ -988,7 +1147,10 @@ export function MedicationEditor({
                 <button
                   className="primary"
                   disabled={
-                    busy || !reviewed || (duplicate && !confirmDuplicate)
+                    busy ||
+                    !reviewed ||
+                    !effectiveIndications.length ||
+                    (duplicate && !confirmDuplicate)
                   }
                 >
                   {busy ? "Saving…" : "Confirm medication"}

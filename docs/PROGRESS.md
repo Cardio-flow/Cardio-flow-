@@ -1,5 +1,9 @@
 # Progress — 23 September 2026
 
+## Stage 5.5 patient journey UX — in progress
+
+The first increment is described in [STAGE5_5_JOURNEY.md](STAGE5_5_JOURNEY.md). It introduces patient-journey navigation, concise Summary/What Changed, quick single and multi-lab entry, diagnosis-context medication browsing, searchable comorbidities, focused specialist review choices, and dated plan actions connected to Worklist and future visits. The underlying clinical, registry, audit and governance records remain unchanged. Stage 5.5 is not yet complete; reviewed dose presets, HF complication wizards, structured handover and wider registry mapping remain open.
+
 ## Release 1.0 — Stage 5 connected coronary care (23 September 2026)
 
 Implemented the additive coronary architecture in [STAGE5_CORONARY.md](STAGE5_CORONARY.md): one longitudinal coronary state, reusable ECG record, ACS event and milestone capture, structured angiography/lesions/physiology/imaging, lesion-linked PCI and stents, combined antiplatelet/OAC plans, CCS and ANOCA/INOCA pathways, complication reassessment, prevention/rehabilitation plans, exact-date tasks, six editable report drafts and shared clinical-fact projection.

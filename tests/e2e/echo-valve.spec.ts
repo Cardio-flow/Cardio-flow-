@@ -16,7 +16,7 @@ test("clinician records one shared Echo and reviews it across Summary, Record an
   await page.getByLabel("Sex", { exact: true }).selectOption("Male");
   await page.getByRole("button", { name: "Create patient" }).click();
 
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Echo study/ }).click();
   const editor = page.getByRole("dialog", {
     name: "Add structured Echo study",
@@ -35,6 +35,8 @@ test("clinician records one shared Echo and reviews it across Summary, Record an
     );
   await editor.getByRole("button", { name: "Finalize Echo" }).click();
 
+  await page.getByRole("tab", { name: "Current Visit" }).click();
+  await page.getByRole("button", { name: "Echo & valve", exact: true }).click();
   await expect(page.getByText("Current preferred study")).toBeVisible();
   await expect(page.getByText("32%", { exact: true })).toBeVisible();
   await expect(page.getByText("Severe", { exact: true })).toBeVisible();
@@ -55,12 +57,14 @@ test("clinician records one shared Echo and reviews it across Summary, Record an
     .fill("Complete symptom review and discuss with Heart Team.");
   await pathway.getByRole("button", { name: "Save", exact: true }).click();
 
-  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await expect(
     page.getByRole("heading", { name: "Echo & valve record" }),
   ).toBeVisible();
   await expect(page.getByText("Severe As", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByText("Specialty event details").click();
   await expect(
     page.getByRole("heading", { name: "Echo & valve journey" }),
   ).toBeVisible();

@@ -31,7 +31,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
     .fill("Synthetic ACS admission");
   await page.getByLabel("Responsible clinician / team").fill("Ward team");
   await page.getByRole("button", { name: "Open care context" }).click();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Care plan item/ }).click();
   await page
     .getByLabel("Title", { exact: true })
@@ -63,7 +63,7 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await page
     .getByRole("button", { name: "Close care context; retain care plan" })
     .click();
-  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
   await page
     .locator("summary")
     .filter({ hasText: "Synthetic ACS admission" })
@@ -99,7 +99,8 @@ test("Care-only admission, discharge, linked OPD review, history and report pers
   await expect(
     page.getByRole("button", { name: /Review residual disease/ }).first(),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await page.getByRole("button", { name: "Review / update" }).click();
   await page.getByLabel("Status", { exact: true }).selectOption("completed");
   await page

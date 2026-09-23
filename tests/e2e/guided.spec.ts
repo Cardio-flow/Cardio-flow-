@@ -10,7 +10,7 @@ test("Risk and dose previews require confirmation and retain their calculated ev
   await page
     .getByRole("button", { name: "Open Hassan Sample", exact: true })
     .click();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Procedure/ }).click();
   await page
     .getByRole("button", { name: /^Noncardiac surgery assessment/ })
@@ -41,13 +41,14 @@ test("Risk and dose previews require confirmation and retain their calculated ev
   await expect(page.getByText("3 / 6 points", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Save 1 guided record" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await page.getByRole("button", { name: "Procedures", exact: true }).click();
   await page
     .getByText("Saved reference assessment · draft", { exact: true })
     .click();
   await expect(page.getByText("3 / 6 points", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: /^Medication Record/ })
@@ -107,7 +108,7 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await page.getByLabel("Birth date", { exact: true }).fill("1940-01-01");
   await page.getByLabel("Sex", { exact: true }).selectOption("Female");
   await page.getByRole("button", { name: "Create patient" }).click();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Problem \/ diagnosis/ }).click();
   await page.getByRole("button", { name: /^Heart failure HF/ }).click();
   await page
@@ -146,7 +147,7 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await expect(
     page.getByRole("button", { name: /^Heart failure HF/ }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Complication/ }).click();
   await page.getByRole("button", { name: /^Hyperkalaemia/ }).click();
   await page.getByRole("button", { name: "Continue with 1 selection" }).click();
@@ -176,7 +177,8 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await page
     .getByRole("button", { name: "Open Guided Workflow Sample", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await page.getByRole("button", { name: "Problems", exact: true }).click();
   const afCard = page.locator(".care-card").filter({
     has: page.getByRole("heading", {
@@ -225,7 +227,7 @@ test("Multiple cardiac problems, branching complications, source registry drafts
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Summary", exact: true }).click();
-  await page.getByRole("button", { name: "Add / Update" }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: /^Problem \/ diagnosis/ }).click();
   await page.getByLabel("Search guided forms").fill("valv");
   await page.getByRole("button", { name: /^Valvular heart disease/ }).click();

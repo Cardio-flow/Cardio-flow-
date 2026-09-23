@@ -91,7 +91,29 @@ export function NewPatient({
   onCreated: (id: string) => void;
 }) {
   const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [comorbidities, setComorbidities] = useState<string[]>([]),
+    [comorbidityQuery, setComorbidityQuery] = useState("");
+  const comorbidityChoices = [
+    "Hypertension",
+    "Type 2 diabetes",
+    "Chronic kidney disease",
+    "Atrial fibrillation",
+    "Dyslipidaemia",
+    "Prior stroke / TIA",
+    "Peripheral arterial disease",
+    "Chronic obstructive pulmonary disease",
+    "Obesity",
+    "Anaemia",
+    "Sleep apnoea",
+  ];
+  function toggleComorbidity(value: string) {
+    setComorbidities((items) =>
+      items.includes(value)
+        ? items.filter((item) => item !== value)
+        : [...items, value],
+    );
+  }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -103,10 +125,7 @@ export function NewPatient({
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean),
-      major_comorbidities: String(form.get("major_comorbidities") || "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
+      major_comorbidities: comorbidities,
       smoking_status: form.get("smoking_status") || null,
       reproductive_status: form.get("reproductive_status") || null,
       enroll_cad: form.get("enroll_cad") === "on",
@@ -231,13 +250,63 @@ export function NewPatient({
                   placeholder="Separate entries with commas"
                 />
               </label>
-              <label className="span-2">
-                Major comorbidities
+              <fieldset className="span-2 comorbidity-picker">
+                <legend>Major comorbidities</legend>
                 <input
-                  name="major_comorbidities"
-                  placeholder="Separate entries with commas"
+                  aria-label="Search comorbidities"
+                  value={comorbidityQuery}
+                  onChange={(event) => setComorbidityQuery(event.target.value)}
+                  placeholder="Search or enter another condition"
                 />
-              </label>
+                <div className="choice-chips">
+                  {comorbidityChoices
+                    .filter((item) =>
+                      item
+                        .toLowerCase()
+                        .includes(comorbidityQuery.toLowerCase()),
+                    )
+                    .map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        aria-pressed={comorbidities.includes(item)}
+                        className={
+                          comorbidities.includes(item)
+                            ? "choice-chip selected"
+                            : "choice-chip"
+                        }
+                        onClick={() => toggleComorbidity(item)}
+                      >
+                        {comorbidities.includes(item) ? (
+                          <Check size={14} />
+                        ) : (
+                          <Plus size={14} />
+                        )}{" "}
+                        {item}
+                      </button>
+                    ))}
+                  {comorbidityQuery.trim() &&
+                  !comorbidityChoices.some(
+                    (item) =>
+                      item.toLowerCase() ===
+                      comorbidityQuery.trim().toLowerCase(),
+                  ) ? (
+                    <button
+                      type="button"
+                      className="choice-chip"
+                      onClick={() => {
+                        toggleComorbidity(comorbidityQuery.trim());
+                        setComorbidityQuery("");
+                      }}
+                    >
+                      <Plus size={14} /> Add “{comorbidityQuery.trim()}”
+                    </button>
+                  ) : null}
+                </div>
+                {comorbidities.length ? (
+                  <small>Selected: {comorbidities.join(", ")}</small>
+                ) : null}
+              </fieldset>
               <label>
                 Reproductive status when relevant
                 <select name="reproductive_status">

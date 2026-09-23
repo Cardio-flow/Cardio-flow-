@@ -16,8 +16,11 @@ test("clinician documents coronary care once and reuses it across the patient wo
   await page.getByLabel("Sex", { exact: true }).selectOption("Male");
   await page.getByRole("button", { name: "Create patient" }).click();
 
-  await page.getByRole("button", { name: "Add / Update" }).click();
-  await page.getByRole("button", { name: /^Coronary care/ }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page
+    .getByRole("dialog", { name: "Add or update the patient record" })
+    .getByRole("button", { name: /^Coronary care/ })
+    .click();
   let editor = page.getByRole("dialog", { name: "Record coronary care" });
   await editor.getByLabel("Coronary state").selectOption("SUSPECTED_CAD");
   await editor
@@ -25,13 +28,24 @@ test("clinician documents coronary care once and reuses it across the patient wo
     .fill("Exertional chest discomfort under assessment");
   await editor.getByRole("button", { name: "Save to patient record" }).click();
 
+  await page.getByRole("tab", { name: "Current Visit" }).click();
+  await page
+    .getByRole("button", { name: "Coronary care", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Coronary disease" }),
   ).toBeVisible();
-  await expect(page.getByText("SUSPECTED CAD", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("tabpanel", { name: "Current Visit" })
+      .getByText("SUSPECTED CAD", { exact: true }),
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "Add / Update" }).click();
-  await page.getByRole("button", { name: /^Coronary care/ }).click();
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page
+    .getByRole("dialog", { name: "Add or update the patient record" })
+    .getByRole("button", { name: /^Coronary care/ })
+    .click();
   editor = page.getByRole("dialog", { name: "Record coronary care" });
   await editor.getByRole("button", { name: "ACS presentation" }).click();
   await editor.getByLabel("Working diagnosis").selectOption("NSTEMI");
@@ -42,12 +56,17 @@ test("clinician documents coronary care once and reuses it across the patient wo
     .fill("Clinician-confirmed synthetic NSTEMI presentation");
   await editor.getByRole("button", { name: "Save to patient record" }).click();
 
-  await expect(page.getByText("CURRENT ACS", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("tabpanel", { name: "Current Visit" })
+      .getByText("CURRENT ACS", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.locator(".coronary-dashboard strong").filter({ hasText: /^NSTEMI$/ }),
   ).toBeVisible();
 
-  await page.getByRole("tab", { name: "Clinical Record", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByRole("button", { name: "View full clinical record" }).click();
   await expect(
     page.getByRole("heading", { name: "Coronary clinical record" }),
   ).toBeVisible();
@@ -55,9 +74,10 @@ test("clinician documents coronary care once and reuses it across the patient wo
     page.getByText("Clinician-confirmed synthetic NSTEMI presentation"),
   ).toBeVisible();
 
-  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await page.getByRole("tab", { name: "Journey", exact: true }).click();
+  await page.getByText("Specialty event details").click();
   await expect(
-    page.getByRole("heading", { name: "Coronary journey" }),
+    page.getByRole("heading", { name: "Coronary journey", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("NSTEMI presentation", { exact: true }),

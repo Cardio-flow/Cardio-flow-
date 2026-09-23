@@ -1367,24 +1367,29 @@ export function mountMedicationLaboratory(
       .toLowerCase();
     const group = z.string().max(100).optional().parse(req.query.group);
     const patientId = z.string().uuid().optional().parse(req.query.patientId);
-    const [definitions, groups, products, recent] = await Promise.all([
-      db.query<any>(
-        `SELECT * FROM medication.generic_definition WHERE status='active' AND version=(SELECT max(v.version) FROM medication.generic_definition v WHERE v.medication_id=medication.generic_definition.medication_id) ORDER BY generic_name`,
-      ),
-      db.query<any>(
-        `SELECT gm.medication_id,g.group_id,g.name FROM medication.group_member gm JOIN medication.clinical_group g ON g.group_id=gm.group_id AND g.version=gm.group_version WHERE g.status='active'`,
-      ),
-      db.query<any>(
-        `SELECT p.*,e.formulary_status,e.note FROM medication.site_product p LEFT JOIN medication.site_product_event e ON e.product_id=p.id AND e.version=(SELECT max(v.version) FROM medication.site_product_event v WHERE v.product_id=p.id) WHERE p.site_id=$1`,
-        [SITE],
-      ),
-      db.query<any>(
-        `SELECT t.medication_id,max(t.created_at) last_used,count(*)::int use_count FROM medication.therapy t JOIN core.patient p ON p.id=t.patient_id WHERE p.site_id=$1 GROUP BY t.medication_id`,
-        [SITE],
-      ),
-    ]);
+    const [definitions, groups, products, recent, formulations] =
+      await Promise.all([
+        db.query<any>(
+          `SELECT * FROM medication.generic_definition WHERE status='active' AND version=(SELECT max(v.version) FROM medication.generic_definition v WHERE v.medication_id=medication.generic_definition.medication_id) ORDER BY generic_name`,
+        ),
+        db.query<any>(
+          `SELECT gm.medication_id,g.group_id,g.name FROM medication.group_member gm JOIN medication.clinical_group g ON g.group_id=gm.group_id AND g.version=gm.group_version WHERE g.status='active'`,
+        ),
+        db.query<any>(
+          `SELECT p.*,e.formulary_status,e.note FROM medication.site_product p LEFT JOIN medication.site_product_event e ON e.product_id=p.id AND e.version=(SELECT max(v.version) FROM medication.site_product_event v WHERE v.product_id=p.id) WHERE p.site_id=$1`,
+          [SITE],
+        ),
+        db.query<any>(
+          `SELECT t.medication_id,max(t.created_at) last_used,count(*)::int use_count FROM medication.therapy t JOIN core.patient p ON p.id=t.patient_id WHERE p.site_id=$1 GROUP BY t.medication_id`,
+          [SITE],
+        ),
+        db.query<any>(
+          `SELECT medication_id,route FROM medication.formulation WHERE status='active'`,
+        ),
+      ]);
     const groupByMedication = new Map<string, any[]>(),
       productByMedication = new Map<string, any[]>(),
+      routeByMedication = new Map<string, string[]>(),
       recentByMedication = new Map(
         recent.rows.map((row) => [row.medication_id, row]),
       );
@@ -1397,6 +1402,13 @@ export function mountMedicationLaboratory(
       productByMedication.set(row.medication_id, [
         ...(productByMedication.get(row.medication_id) ?? []),
         row,
+      ]);
+    for (const row of formulations.rows)
+      routeByMedication.set(row.medication_id, [
+        ...new Set([
+          ...(routeByMedication.get(row.medication_id) ?? []),
+          row.route,
+        ]),
       ]);
     let current = new Set<string>();
     if (patientId) {
@@ -1415,6 +1427,7 @@ export function mountMedicationLaboratory(
         ...row,
         groups: groupByMedication.get(row.medication_id) ?? [],
         products: productByMedication.get(row.medication_id) ?? [],
+        routes: routeByMedication.get(row.medication_id) ?? [],
         recently_used: recentByMedication.get(row.medication_id) ?? null,
         current_for_patient: current.has(row.medication_id),
       }))

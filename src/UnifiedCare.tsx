@@ -51,12 +51,12 @@ import { RegistryForms } from "./RegistryForms";
 import { PatientWorkspace } from "./Patients";
 import { FollowupContact } from "./Workflows";
 import {
-  LaboratoryEditor,
   MedicationEditor,
   MedicationLaboratoryOverview,
   type LaboratoryData,
   type MedicationData,
 } from "./MedicationLaboratory";
+import { QuickLabs } from "./QuickLabs";
 import {
   HeartFailureClinicalRecord,
   HeartFailureDashboard,
@@ -77,6 +77,18 @@ import {
   CoronaryEditor,
 } from "./Coronary";
 import type { CoronaryRecord } from "./coronary-model";
+import { prettyCoronary } from "./coronary-model";
+import {
+  displayHfCode,
+  type HfReview,
+  type HfPhenotypeState,
+} from "./heart-failure";
+import {
+  AlertAction,
+  PlanAction,
+  type ClinicalTask,
+  type PublishedAlert,
+} from "./PlanAction";
 
 type BoardEntry = CareEntry & {
   name: string;
@@ -111,9 +123,25 @@ type BoardData = {
 type ClinicalFoundationData = {
   state: ClinicalState;
   currentPreferences: ClinicalPreference[];
+  tasks: ClinicalTask[];
+  alerts: PublishedAlert[];
+};
+type HfSummaryState = {
+  profile: { id: string } | null;
+  currentReview: HfReview | null;
+  phenotype: HfPhenotypeState;
+  preferredEcho: { lvef: number | null; observed_at: string } | null;
 };
 
-const patientTabs = ["Summary", "Clinical Record", "Timeline", "Registries"];
+const patientTabs = [
+  "Summary",
+  "Journey",
+  "Current Visit",
+  "Medications",
+  "Investigations",
+  "Plan & Follow-up",
+  "Registries",
+];
 const worklistFilters = [
   "All",
   "Inpatients",
@@ -803,6 +831,11 @@ export function UnifiedPatientWorkspace({
     [history, setHistory] = useState<CareEntry | null>(null),
     [registry, setRegistry] = useState(false),
     [followup, setFollowup] = useState<Task | null>(null),
+    [planTask, setPlanTask] = useState<ClinicalTask | "new" | null>(null),
+    [publishedAlert, setPublishedAlert] = useState<PublishedAlert | null>(null),
+    [clinicalFocus, setClinicalFocus] = useState<
+      "hf" | "echo" | "coronary" | null
+    >(null),
     [recordFilter, setRecordFilter] = useState("All"),
     [encounterFilter, setEncounterFilter] = useState("all"),
     [notice, setNotice] = useState(""),
@@ -834,6 +867,10 @@ export function UnifiedPatientWorkspace({
     `/patients/${id}/coronary`,
     revision,
   );
+  const { data: hfSummary } = useData<HfSummaryState>(
+    `/patients/${id}/heart-failure`,
+    revision,
+  );
 
   function saved() {
     setEditor(null);
@@ -844,6 +881,8 @@ export function UnifiedPatientWorkspace({
     setNewEncounter(false);
     setClosing(null);
     setFollowup(null);
+    setPlanTask(null);
+    setPublishedAlert(null);
     setRevision((value) => value + 1);
     onSaved();
   }
@@ -877,10 +916,85 @@ export function UnifiedPatientWorkspace({
   const tasks = (allTasks ?? []).filter(
     (task) => task.patient_id === id && isOpenTask(task),
   );
+  const clinicalTasks = (clinicalFoundation?.tasks ?? []).filter(
+    (task) =>
+      !["completed", "cancelled", "superseded"].includes(
+        task.current?.status ?? "open",
+      ),
+  );
+  const activeAlerts = (clinicalFoundation?.alerts ?? []).filter(
+    (alert) => !["act", "dismiss"].includes(alert.action?.action ?? ""),
+  );
   const pending = entries.filter(needsReview);
   const activeProblems = entries.filter(
     (entry) => entry.kind === "problem" && entry.status !== "resolved",
   );
+  const specialtyProblems: {
+    title: string;
+    detail: string;
+    focus: "hf" | "coronary";
+  }[] = [];
+  if (hfSummary?.profile && hfSummary.currentReview)
+    specialtyProblems.push({
+      title:
+        hfSummary.phenotype.value &&
+        hfSummary.phenotype.value !== "UNCLASSIFIED"
+          ? hfSummary.phenotype.value
+          : "Heart failure review",
+      detail: `${displayHfCode(hfSummary.currentReview.presentation)}${hfSummary.currentReview.nyha_class && hfSummary.currentReview.nyha_class !== "NOT_ASSESSED" ? ` · NYHA ${hfSummary.currentReview.nyha_class}` : ""}${hfSummary.preferredEcho?.lvef != null ? ` · EF ${hfSummary.preferredEcho.lvef}%` : ""}`,
+      focus: "hf",
+    });
+  if (
+    coronaryIntelligence?.currentState &&
+    coronaryIntelligence.currentState.state !== "NO_ESTABLISHED_CAD"
+  )
+    specialtyProblems.push({
+      title: prettyCoronary(coronaryIntelligence.currentState.state),
+      detail: coronaryIntelligence.acsEvents[0]?.diagnosis
+        ? `Latest ACS: ${prettyCoronary(coronaryIntelligence.acsEvents[0].diagnosis)}`
+        : "Coronary care",
+      focus: "coronary",
+    });
+  const visibleCareProblems = activeProblems.filter(
+    (entry) =>
+      !specialtyProblems.some(
+        (item) =>
+          (item.focus === "hf" && entry.family === "HF") ||
+          (item.focus === "coronary" && entry.family === "CAD"),
+      ),
+  );
+  const specialtyChanges = [
+    ...(hfSummary?.currentReview
+      ? [
+          {
+            id: `hf-${hfSummary.currentReview.id}`,
+            title: "Heart failure review",
+            when: hfSummary.currentReview.observed_at,
+            focus: "hf" as const,
+          },
+        ]
+      : []),
+    ...(coronaryIntelligence?.acsEvents[0]
+      ? [
+          {
+            id: `acs-${coronaryIntelligence.acsEvents[0].id}`,
+            title: `${prettyCoronary(coronaryIntelligence.acsEvents[0].diagnosis)} presentation`,
+            when: coronaryIntelligence.acsEvents[0].presented_at,
+            focus: "coronary" as const,
+          },
+        ]
+      : []),
+    ...(echoValveIntelligence?.studies[0]
+      ? [
+          {
+            id: `echo-${echoValveIntelligence.studies[0].study_id}`,
+            title: "Cardiac imaging",
+            when: echoValveIntelligence.studies[0].performed_at,
+            focus: "echo" as const,
+          },
+        ]
+      : []),
+  ].filter((item) => !!item.when);
   const activeMedications = entries.filter(
     (entry) =>
       entry.kind === "medication" &&
@@ -900,6 +1014,9 @@ export function UnifiedPatientWorkspace({
       date: task.due_date,
       label: `${task.milestone}-month CAD follow-up`,
     })),
+    ...clinicalTasks
+      .filter((task) => task.target_date)
+      .map((task) => ({ date: task.target_date!, label: task.purpose })),
   ].sort((a, b) => a.date.localeCompare(b.date))[0];
 
   const recordFilters = [
@@ -961,7 +1078,8 @@ export function UnifiedPatientWorkspace({
             <strong className="current-context">
               {currentContext
                 ? `${currentContext.reason} · ${currentContext.kind}${currentContext.state === "open" ? " · current" : ""}`
-                : (activeProblems[0]?.title ??
+                : (specialtyProblems[0]?.title ??
+                  activeProblems[0]?.title ??
                   "Longitudinal cardiology record")}
             </strong>
           </div>
@@ -972,14 +1090,20 @@ export function UnifiedPatientWorkspace({
               <CalendarDays size={16} /> New visit / admission
             </button>
             <button className="primary" onClick={() => setAddMenu(true)}>
-              <Plus size={17} /> Add / Update
+              <Plus size={17} /> More actions
             </button>
           </div>
         ) : null}
       </header>
       <div className="patient-status-line">
-        <span>{activeProblems.length} active problems</span>
-        <span>{pending.length + tasks.length} outstanding actions</span>
+        <span>
+          {visibleCareProblems.length + specialtyProblems.length} active
+          problems
+        </span>
+        <span>
+          {pending.length + tasks.length + clinicalTasks.length} outstanding
+          actions
+        </span>
         {currentEncounter && role === "clinician" ? (
           <button
             className="text-button"
@@ -1020,41 +1144,236 @@ export function UnifiedPatientWorkspace({
         {tab === "Summary" ? (
           <>
             <PatientSummary
-              activeProblems={activeProblems}
+              activeProblems={visibleCareProblems}
+              specialtyProblems={specialtyProblems}
               results={results}
               medications={activeMedications}
               structuredMedications={medicationIntelligence?.current ?? []}
               structuredLabs={laboratoryIntelligence?.trends ?? []}
               pending={pending}
               tasks={tasks}
+              clinicalTasks={clinicalTasks}
+              publishedAlerts={activeAlerts}
               alerts={alerts}
               nextEvent={nextEvent}
               role={role}
               onEdit={edit}
               onTask={setFollowup}
+              onClinicalTask={setPlanTask}
+              onAlert={setPublishedAlert}
               onRecord={() => setTab("Clinical Record")}
+              onSpecialty={(focus) => {
+                setClinicalFocus(focus);
+                setTab("Current Visit");
+              }}
+              onJourney={() => setTab("Journey")}
+              onInvestigations={() => setTab("Investigations")}
+              onMedications={() => setTab("Medications")}
+              recentEntries={entries}
+              specialtyChanges={specialtyChanges}
             />
-            <HeartFailureDashboard
-              patientId={id}
-              revision={revision}
-              role={role}
+            <div
+              className="journey-quick-actions"
+              aria-label="Quick clinical actions"
+            >
+              {role === "clinician" ? (
+                <>
+                  <button
+                    className="primary"
+                    onClick={() => setSmartEditor("laboratory")}
+                  >
+                    <FlaskConical size={17} /> Add labs
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setSmartEditor("medication")}
+                  >
+                    <Pill size={17} /> Add medication
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setEditor("problem")}
+                  >
+                    <HeartPulse size={17} /> Add diagnosis
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setTab("Current Visit")}
+                  >
+                    <Stethoscope size={17} /> Review visit
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </>
+        ) : tab === "Journey" ? (
+          <>
+            <div className="journey-page-intro">
+              <div>
+                <span className="eyebrow">ONE PATIENT, CONTINUOUS CARE</span>
+                <h2>Patient journey</h2>
+                <p>
+                  Visits, admissions, procedures and continuing care in one
+                  sequence.
+                </p>
+              </div>
+              <button
+                className="secondary"
+                onClick={() => setTab("Clinical Record")}
+              >
+                View full clinical record
+              </button>
+            </div>
+            <PatientTimeline
+              entries={entries}
               encounters={encounters}
-              onChanged={saved}
-            />
-            <EchoValveDashboard
-              patientId={id}
-              revision={revision}
               role={role}
-              encounters={encounters}
-              onChanged={saved}
+              onEdit={edit}
+              onHistory={setHistory}
+              onCloseEncounter={setClosing}
             />
-            <CoronaryDashboard
-              patientId={id}
-              revision={revision}
-              role={role}
-              encounters={encounters}
-              onChanged={saved}
-            />
+            <details className="journey-specialty-history">
+              <summary>Specialty event details</summary>
+              <CoronaryTimeline patientId={id} revision={revision} />
+              <EchoValveTimeline patientId={id} revision={revision} />
+              <HeartFailureTimeline patientId={id} revision={revision} />
+            </details>
+          </>
+        ) : tab === "Current Visit" ? (
+          <>
+            <section className="panel care-section visit-context">
+              <SectionTitle
+                title={
+                  currentEncounter
+                    ? `${currentEncounter.kind} · ${currentEncounter.reason}`
+                    : "Continuing care"
+                }
+                subtitle={
+                  currentEncounter
+                    ? `${date(currentEncounter.started_on)} · ${currentEncounter.owner}`
+                    : "Open a visit when documenting a new OPD assessment or admission."
+                }
+              />
+              <p className="muted">
+                Outstanding plan items and historical results remain available
+                throughout this visit.
+              </p>
+              <div className="journey-quick-actions">
+                {role === "clinician" ? (
+                  <button
+                    className="primary"
+                    onClick={() => setNewEncounter(true)}
+                  >
+                    <Plus size={16} /> Start visit / admission
+                  </button>
+                ) : null}
+                <button
+                  className="secondary"
+                  onClick={() => setTab("Plan & Follow-up")}
+                >
+                  Review previous plan
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => setTab("Investigations")}
+                >
+                  Review results
+                </button>
+              </div>
+              {currentEncounter
+                ? entries
+                    .filter(
+                      (entry) => entry.encounter_id === currentEncounter.id,
+                    )
+                    .slice(0, 6)
+                    .map((entry) => (
+                      <EntryCard
+                        key={entry.id}
+                        entry={entry}
+                        encounter={currentEncounter}
+                        onEdit={
+                          role === "clinician" ? () => edit(entry) : undefined
+                        }
+                        onHistory={() => setHistory(entry)}
+                      />
+                    ))
+                : null}
+            </section>
+            <section className="panel care-section visit-review-picker">
+              <SectionTitle
+                title="Focused clinical review"
+                subtitle="Open the review relevant to the current clinical question."
+              />
+              <div className="review-choice-row">
+                <button
+                  className={clinicalFocus === "hf" ? "selected" : "secondary"}
+                  onClick={() => setClinicalFocus("hf")}
+                >
+                  Heart failure
+                </button>
+                <button
+                  className={
+                    clinicalFocus === "coronary" ? "selected" : "secondary"
+                  }
+                  onClick={() => setClinicalFocus("coronary")}
+                >
+                  Coronary care
+                </button>
+                <button
+                  className={
+                    clinicalFocus === "echo" ? "selected" : "secondary"
+                  }
+                  onClick={() => setClinicalFocus("echo")}
+                >
+                  Echo & valve
+                </button>
+              </div>
+            </section>
+            {clinicalFocus === "hf" ? (
+              <HeartFailureDashboard
+                patientId={id}
+                revision={revision}
+                role={role}
+                encounters={encounters}
+                onChanged={saved}
+              />
+            ) : null}
+            {clinicalFocus === "echo" ? (
+              <EchoValveDashboard
+                patientId={id}
+                revision={revision}
+                role={role}
+                encounters={encounters}
+                onChanged={saved}
+              />
+            ) : null}
+            {clinicalFocus === "coronary" ? (
+              <CoronaryDashboard
+                patientId={id}
+                revision={revision}
+                role={role}
+                encounters={encounters}
+                onChanged={saved}
+              />
+            ) : null}
+          </>
+        ) : tab === "Medications" ? (
+          <>
+            <div className="journey-page-intro">
+              <div>
+                <span className="eyebrow">CURRENT TREATMENT</span>
+                <h2>Medications</h2>
+                <p>Current therapies, changes and monitoring in one place.</p>
+              </div>
+              {role === "clinician" ? (
+                <button
+                  className="primary"
+                  onClick={() => setSmartEditor("medication")}
+                >
+                  <Plus size={16} /> Add medication
+                </button>
+              ) : null}
+            </div>
             <MedicationLaboratoryOverview
               patientId={id}
               revision={revision}
@@ -1064,6 +1383,125 @@ export function UnifiedPatientWorkspace({
               onAddLab={() => setSmartEditor("laboratory")}
               onChanged={saved}
             />
+          </>
+        ) : tab === "Investigations" ? (
+          <>
+            <div className="journey-page-intro">
+              <div>
+                <span className="eyebrow">RESULTS & IMAGING</span>
+                <h2>Investigations</h2>
+                <p>
+                  Recent values and trends with their original source and date.
+                </p>
+              </div>
+              {role === "clinician" ? (
+                <button
+                  className="primary"
+                  onClick={() => setSmartEditor("laboratory")}
+                >
+                  <Plus size={16} /> Add labs
+                </button>
+              ) : null}
+            </div>
+            <section className="panel care-section investigation-list">
+              {laboratoryIntelligence?.trends.length ? (
+                laboratoryIntelligence.trends.map((trend) => (
+                  <article key={trend.test_id}>
+                    <div>
+                      <strong>{trend.display}</strong>
+                      <small>
+                        {date(trend.latest.collected_at)} ·{" "}
+                        {trend.latest.verification_status} ·{" "}
+                        {trend.latest.source_label}
+                      </small>
+                    </div>
+                    <div>
+                      <strong>
+                        {trend.latest.original_value}{" "}
+                        {trend.latest.original_unit}
+                      </strong>
+                      <small>
+                        {trend.previous
+                          ? `Previous ${trend.previous.original_value} ${trend.previous.original_unit}`
+                          : "First recorded result"}
+                      </small>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <Empty title="No structured laboratory results yet" />
+              )}
+            </section>
+            <EchoValveClinicalRecord patientId={id} revision={revision} />
+          </>
+        ) : tab === "Plan & Follow-up" ? (
+          <>
+            <div className="journey-page-intro">
+              <div>
+                <span className="eyebrow">CONTINUITY OF CARE</span>
+                <h2>Plan & follow-up</h2>
+                <p>
+                  These open actions continue across discharge and future
+                  visits.
+                </p>
+              </div>
+              {role === "clinician" ? (
+                <button className="primary" onClick={() => setPlanTask("new")}>
+                  <Plus size={16} /> Plan next action
+                </button>
+              ) : null}
+            </div>
+            <section className="panel care-section plan-workspace">
+              {!pending.length && !clinicalTasks.length && !tasks.length ? (
+                <Empty title="No open plan items" />
+              ) : null}
+              {clinicalTasks.map((task) => (
+                <button
+                  key={task.id}
+                  className="plan-followup-row"
+                  onClick={() =>
+                    role === "clinician" ? setPlanTask(task) : undefined
+                  }
+                >
+                  <CalendarDays size={17} />
+                  <span>
+                    <strong>{task.purpose}</strong>
+                    <small>
+                      Due{" "}
+                      {task.target_date
+                        ? date(task.target_date)
+                        : "date not set"}{" "}
+                      · {task.assigned_to}
+                    </small>
+                  </span>
+                  <ArrowRight size={16} />
+                </button>
+              ))}
+              {pending.map((entry) => (
+                <EntryCard
+                  key={entry.id}
+                  entry={entry}
+                  encounter={encounters.find(
+                    (item) => item.id === entry.encounter_id,
+                  )}
+                  onEdit={role === "clinician" ? () => edit(entry) : undefined}
+                  onHistory={() => setHistory(entry)}
+                />
+              ))}
+              {tasks.map((task) => (
+                <button
+                  key={task.id}
+                  className="plan-followup-row"
+                  onClick={() => setFollowup(task)}
+                >
+                  <CalendarDays size={17} />
+                  <span>
+                    {task.milestone}-month CAD follow-up · {date(task.due_date)}
+                  </span>
+                  <ArrowRight size={16} />
+                </button>
+              ))}
+            </section>
             {clinicalFoundation ? (
               <CurrentDecisionValues
                 patientId={id}
@@ -1130,20 +1568,6 @@ export function UnifiedPatientWorkspace({
                 </Empty>
               )}
             </section>
-          </>
-        ) : tab === "Timeline" ? (
-          <>
-            <CoronaryTimeline patientId={id} revision={revision} />
-            <EchoValveTimeline patientId={id} revision={revision} />
-            <HeartFailureTimeline patientId={id} revision={revision} />
-            <PatientTimeline
-              entries={entries}
-              encounters={encounters}
-              role={role}
-              onEdit={edit}
-              onHistory={setHistory}
-              onCloseEncounter={setClosing}
-            />
           </>
         ) : (
           <>
@@ -1321,15 +1745,21 @@ export function UnifiedPatientWorkspace({
           patientId={id}
           owner={owner}
           encounters={encounters}
+          activeProblems={activeProblems}
+          comorbidities={person.major_comorbidities ?? []}
           onClose={() => setSmartEditor(null)}
           onSaved={saved}
         />
       ) : smartEditor === "laboratory" ? (
-        <LaboratoryEditor
+        <QuickLabs
           patientId={id}
           encounters={encounters}
           onClose={() => setSmartEditor(null)}
           onSaved={saved}
+          onPartialSaved={() => {
+            setRevision((value) => value + 1);
+            onSaved();
+          }}
         />
       ) : smartEditor === "echo" ? (
         <EchoStudyEditor
@@ -1353,6 +1783,8 @@ export function UnifiedPatientWorkspace({
         <EncounterEditor
           patient={person}
           encounters={encounters}
+          pending={pending}
+          pendingTasks={clinicalTasks}
           onClose={() => setNewEncounter(false)}
           onSaved={saved}
         />
@@ -1379,38 +1811,86 @@ export function UnifiedPatientWorkspace({
           }}
         />
       ) : null}
+      {planTask ? (
+        <PlanAction
+          patientId={id}
+          encounterId={currentEncounter?.id ?? null}
+          owner={currentEncounter?.owner ?? owner}
+          task={planTask === "new" ? undefined : planTask}
+          onClose={() => setPlanTask(null)}
+          onSaved={saved}
+        />
+      ) : null}
+      {publishedAlert ? (
+        <AlertAction
+          alert={publishedAlert}
+          onClose={() => setPublishedAlert(null)}
+          onSaved={saved}
+        />
+      ) : null}
     </>
   );
 }
 
 function PatientSummary({
   activeProblems,
+  specialtyProblems,
   results,
   medications,
   structuredMedications,
   structuredLabs,
   pending,
   tasks,
+  clinicalTasks,
+  publishedAlerts,
   alerts,
   nextEvent,
   role,
   onEdit,
   onTask,
+  onClinicalTask,
+  onAlert,
   onRecord,
+  onSpecialty,
+  onJourney,
+  onInvestigations,
+  onMedications,
+  recentEntries,
+  specialtyChanges,
 }: {
   activeProblems: CareEntry[];
+  specialtyProblems: {
+    title: string;
+    detail: string;
+    focus: "hf" | "coronary";
+  }[];
   results: CareEntry[];
   medications: CareEntry[];
   structuredMedications: import("./medication-laboratory").CurrentTherapy[];
   structuredLabs: import("./medication-laboratory").LabTrend[];
   pending: CareEntry[];
   tasks: Task[];
+  clinicalTasks: ClinicalTask[];
+  publishedAlerts: PublishedAlert[];
   alerts: ReturnType<typeof documentationAlerts>;
   nextEvent?: { date: string; label: string };
   role: Role;
   onEdit: (entry: CareEntry) => void;
   onTask: (task: Task) => void;
+  onClinicalTask: (task: ClinicalTask) => void;
+  onAlert: (alert: PublishedAlert) => void;
   onRecord: () => void;
+  onSpecialty: (focus: "hf" | "coronary" | "echo") => void;
+  onJourney: () => void;
+  onInvestigations: () => void;
+  onMedications: () => void;
+  recentEntries: CareEntry[];
+  specialtyChanges: {
+    id: string;
+    title: string;
+    when: string;
+    focus: "hf" | "coronary" | "echo";
+  }[];
 }) {
   const openEntry = (entry: CareEntry) =>
     role === "clinician" ? onEdit(entry) : onRecord();
@@ -1418,6 +1898,12 @@ function PatientSummary({
     (entry) => entry.due_date && entry.due_date < currentDate(),
   );
   const attention = [
+    ...publishedAlerts.map((alert) => ({
+      id: alert.id,
+      title: alert.title,
+      detail: alert.detail,
+      publishedAlert: alert,
+    })),
     ...overdue.map((entry) => ({
       id: entry.id,
       title: entry.title,
@@ -1443,7 +1929,50 @@ function PatientSummary({
             : "Registry follow-up due today",
         task,
       })),
+    ...clinicalTasks
+      .filter((task) => task.target_date && task.target_date <= currentDate())
+      .map((task) => ({
+        id: task.id,
+        title: task.purpose,
+        detail:
+          task.target_date! < currentDate()
+            ? "Planned action overdue"
+            : "Planned action due today",
+        clinicalTask: task,
+      })),
   ];
+  const whatChanged = [
+    ...specialtyChanges.map((event) => ({
+      id: event.id,
+      label: event.title,
+      detail: `Clinical review · ${date(event.when)}`,
+      when: event.when,
+      action: () => onSpecialty(event.focus),
+    })),
+    ...recentEntries.map((entry) => ({
+      id: `care-${entry.id}`,
+      label: entry.title,
+      detail: `${careKinds[entry.kind].label} · ${date(entry.occurred_on)}`,
+      when: entry.updated_at || entry.occurred_on,
+      action: () => openEntry(entry),
+    })),
+    ...structuredLabs.map((trend) => ({
+      id: `lab-${trend.latest.id}`,
+      label: `${trend.display} ${trend.latest.original_value} ${trend.latest.original_unit}`,
+      detail: `Result · ${date(trend.latest.collected_at)}`,
+      when: trend.latest.collected_at,
+      action: onInvestigations,
+    })),
+    ...structuredMedications.map((therapy) => ({
+      id: `med-${therapy.id}`,
+      label: `${therapy.generic_name} · ${stateLabel(therapy.event_type)}`,
+      detail: `Treatment · ${date(therapy.effective_at)}`,
+      when: therapy.effective_at,
+      action: onMedications,
+    })),
+  ]
+    .sort((a, b) => b.when.localeCompare(a.when))
+    .slice(0, 4);
   return (
     <>
       <section className="needs-attention" aria-label="Needs attention">
@@ -1462,11 +1991,19 @@ function PatientSummary({
                 onClick={() =>
                   "entry" in item && item.entry
                     ? openEntry(item.entry)
-                    : "task" in item && item.task
+                    : "publishedAlert" in item && item.publishedAlert
                       ? role === "clinician"
-                        ? onTask(item.task)
+                        ? onAlert(item.publishedAlert)
                         : onRecord()
-                      : undefined
+                      : "clinicalTask" in item && item.clinicalTask
+                        ? role === "clinician"
+                          ? onClinicalTask(item.clinicalTask)
+                          : onRecord()
+                        : "task" in item && item.task
+                          ? role === "clinician"
+                            ? onTask(item.task)
+                            : onRecord()
+                          : undefined
                 }
               >
                 <strong>{item.title}</strong>
@@ -1481,12 +2018,50 @@ function PatientSummary({
           </div>
         )}
       </section>
+      <section className="panel summary-changes" aria-label="What changed">
+        <div className="summary-section-title">
+          <span>
+            <History size={18} />
+          </span>
+          <h2>What Changed</h2>
+          <button className="text-button" onClick={onJourney}>
+            View journey
+          </button>
+        </div>
+        {whatChanged.length ? (
+          <div className="summary-list">
+            {whatChanged.map((event) => (
+              <button key={event.id} onClick={event.action}>
+                <span>
+                  <strong>{event.label}</strong>
+                  <small>{event.detail}</small>
+                </span>
+                <ArrowRight size={15} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No recent clinical changes documented.</p>
+        )}
+      </section>
       <div className="summary-grid">
         <SummarySection
           icon={<HeartPulse size={18} />}
           title="Active Problems"
           empty="No active problems documented."
         >
+          {specialtyProblems.map((problem) => (
+            <button
+              key={problem.focus}
+              onClick={() => onSpecialty(problem.focus)}
+            >
+              <span>
+                <strong>{problem.title}</strong>
+                <small>{problem.detail}</small>
+              </span>
+              <ArrowRight size={15} />
+            </button>
+          ))}
           {activeProblems.slice(0, 5).map((entry) => (
             <button key={entry.id} onClick={() => openEntry(entry)}>
               <span>
@@ -1504,24 +2079,11 @@ function PatientSummary({
           title="Important Recent Results"
           empty="No recent results documented."
           action={structuredLabs.length ? "Details" : "View all"}
-          onAction={() =>
-            structuredLabs.length
-              ? document
-                  .getElementById("medication-laboratory-intelligence")
-                  ?.scrollIntoView({ behavior: "smooth" })
-              : onRecord()
-          }
+          onAction={onInvestigations}
         >
           {structuredLabs.length
             ? structuredLabs.slice(0, 5).map((trend) => (
-                <button
-                  key={trend.test_id}
-                  onClick={() =>
-                    document
-                      .getElementById("medication-laboratory-intelligence")
-                      ?.scrollIntoView({ behavior: "smooth" })
-                  }
-                >
+                <button key={trend.test_id} onClick={onInvestigations}>
                   <span>
                     <strong>{trend.display}</strong>
                     <small>
@@ -1552,27 +2114,14 @@ function PatientSummary({
           title="Current Medications"
           empty="No current medications documented."
           action={structuredMedications.length ? "Details" : "View all"}
-          onAction={() =>
-            structuredMedications.length
-              ? document
-                  .getElementById("medication-laboratory-intelligence")
-                  ?.scrollIntoView({ behavior: "smooth" })
-              : onRecord()
-          }
+          onAction={onMedications}
         >
           {structuredMedications.length
             ? structuredMedications
                 .filter((therapy) => therapy.status !== "STOPPED")
                 .slice(0, 6)
                 .map((therapy) => (
-                  <button
-                    key={therapy.id}
-                    onClick={() =>
-                      document
-                        .getElementById("medication-laboratory-intelligence")
-                        ?.scrollIntoView({ behavior: "smooth" })
-                    }
-                  >
+                  <button key={therapy.id} onClick={onMedications}>
                     <span>
                       <strong>{therapy.generic_name}</strong>
                       <small>
@@ -1623,6 +2172,25 @@ function PatientSummary({
               <span>
                 <strong>{task.milestone}-month CAD follow-up</strong>
                 <small>Due {date(task.due_date)} · registry milestone</small>
+              </span>
+              <ArrowRight size={15} />
+            </button>
+          ))}
+          {clinicalTasks.slice(0, 3).map((task) => (
+            <button
+              key={task.id}
+              onClick={() =>
+                role === "clinician" ? onClinicalTask(task) : onRecord()
+              }
+            >
+              <span className="plan-number">A</span>
+              <span>
+                <strong>{task.purpose}</strong>
+                <small>
+                  Due{" "}
+                  {task.target_date ? date(task.target_date) : "date not set"} ·{" "}
+                  {task.assigned_to}
+                </small>
               </span>
               <ArrowRight size={15} />
             </button>

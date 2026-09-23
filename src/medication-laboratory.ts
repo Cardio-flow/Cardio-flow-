@@ -33,6 +33,7 @@ export type MedicationDefinition = {
   reviewed_on: string | null;
   groups?: { group_id: string; name: string }[];
   products?: SiteProduct[];
+  routes?: string[];
   current_for_patient?: boolean;
   recently_used?: { last_used: string; use_count: number } | null;
 };
