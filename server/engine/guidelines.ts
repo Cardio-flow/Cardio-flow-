@@ -509,7 +509,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
   },
   {
     id: "dm.hba1c-due",
-    kind: "operational",
+    kind: "clinical",
     title: "HbA1c monitoring in diabetes",
     inputs: ["hba1c", "conditions"],
     defaultParams: { days: 180 },

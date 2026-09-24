@@ -101,3 +101,14 @@ test("targets panel reports % of HF target dose and the LDL goal by risk", async
   assert.equal(lipidRisk(salem)!.goal, 1.4);
   assert.equal(today().length, 10);
 });
+
+test("guideline goals stay off production sites, and the HbA1c rule is in clinical review", async () => {
+  const { summary } = await import("../server/kernel/views.js");
+  const pid = await byName("Salem Al-Rashidi");
+  const prod = await db.transaction((tx) => summary(tx, pid, "production"));
+  const sand = await db.transaction((tx) => summary(tx, pid, "sandbox"));
+  assert.equal(prod.targets, null);
+  assert.ok(sand.targets);
+  const r = (await db.query(`SELECT status FROM cf.rule_version WHERE rule_id='dm.hba1c-due'`)).rows as any[];
+  assert.deepEqual(r.map((x) => x.status), ["CLINICAL_REVIEW"]);
+});

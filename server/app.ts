@@ -147,7 +147,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json((await patientInSite(db, actor(res), id), await summary(db, id)));
+    res.json((await patientInSite(db, actor(res), id), await summary(db, id, await siteMode(db, actor(res).siteId))));
   }));
   app.get("/api/patients/:id/journey", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

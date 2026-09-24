@@ -178,7 +178,8 @@ export function planView(s: PatientState) {
   return withState.sort((a, b) => order[a.view] - order[b.view] || (a.dueDate ?? "9") .localeCompare(b.dueDate ?? "9"));
 }
 
-export async function summary(tx: Q, patientId: string) {
+// Guideline goals are clinical content still in review: shown on sandbox sites only.
+export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "production" = "production") {
   const s = await loadState(tx, patientId);
   const plan = planView(s);
   // the active plan: what came out of the most recent plan-making context plus anything still open
@@ -202,7 +203,7 @@ export async function summary(tx: Q, patientId: string) {
       return cur ? { code: c, value: cur.value_num, at: cur.effective_at } : null;
     }).filter(Boolean),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
-    targets: targets(s),
+    targets: siteMode === "sandbox" ? targets(s) : null,
   };
 }
 

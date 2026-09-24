@@ -88,7 +88,24 @@ export async function seedRules(tx: Q) {
   let added = 0;
   for (const rule of RULES) {
     const exists = (await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id=$1 LIMIT 1`, [rule.id])).rows[0];
-    if (exists) continue;
+    if (exists) {
+      // A rule reclassified as clinical must not stay auto-published by the build: send it back to review.
+      if (rule.kind === "clinical") {
+        const demoted = (
+          await tx.query<{ version: number }>(
+            `UPDATE cf.rule_version SET status='CLINICAL_REVIEW', kind='clinical', published_by=NULL, updated_at=now()
+             WHERE rule_id=$1 AND status='PUBLISHED' AND published_by='system:v2-build' RETURNING version`,
+            [rule.id],
+          )
+        ).rows;
+        for (const d of demoted)
+          await tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,$3,'PUBLISHED','CLINICAL_REVIEW','system:v2-build',$4)`, [
+            uuid(), rule.id, d.version, "Reclassified as a clinical rule: returned to clinical review.",
+          ]);
+        added += demoted.length;
+      }
+      continue;
+    }
     added++;
     const status = rule.kind === "operational" ? "PUBLISHED" : "CLINICAL_REVIEW";
     await tx.query(
