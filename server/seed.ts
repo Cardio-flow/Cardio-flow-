@@ -146,6 +146,66 @@ export async function seedSynthetic(db: DB, siteId: string) {
     await K.recordEcho(tx, sys, yi, { date: at(d(-5)), quality: "formal", lvef: 42, findings: ["LV size normalised"] });
     await K.recordEcho(tx, sys, yi, { date: at(d(-1), "16:00"), quality: "bedside", lvef: 35, findings: ["Limited windows"] });
   });
+  await enrichSynthetic(db, siteId);
   for (const id of ids) await db.transaction((tx: Q) => reassess(tx, id, "sandbox"));
   return ids;
+}
+
+// Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
+// cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
+// that was seeded by an earlier build. Returns true when it changed anything.
+export const SEED_VERSION = 2;
+export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
+  const T = today();
+  const d = (n: number) => addDays(T, n);
+  const sys: Actor = { id: "system:synthetic-seed", name: "Synthetic seed", role: "admin", siteId };
+  const touched: string[] = [];
+  await db.transaction(async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock(431002)");
+    const site = (await tx.query<{ mode: string; settings: any }>(`SELECT mode, settings FROM cf.site WHERE id=$1`, [siteId])).rows[0];
+    const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
+    if (!site || site.mode !== "sandbox" || Number(settings.seedVersion ?? 1) >= SEED_VERSION) return;
+    const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND mrn=$2`, [siteId, mrn])).rows[0]?.id ?? null;
+    const obs = async (id: string | null, day: string, items: { code: string; value: number }[], silentEvent = true) => {
+      if (!id) return;
+      await K.recordObservations(tx, sys, id, { effectiveAt: at(day, "08:30"), items, silentEvent });
+      touched.push(id);
+    };
+    // Khaled: HFrEF + post-PCI + T2DM + CKD — LDL above goal on high-intensity statin, albuminuria, iron deficiency
+    const k = await byMrn("100482317");
+    await obs(k, d(-400), [{ code: "height", value: 172 }]);
+    await obs(k, d(-60), [{ code: "hba1c", value: 7.6 }, { code: "uacr", value: 34 }, { code: "ldl-c", value: 2.1 }, { code: "total-cholesterol", value: 4.0 }, { code: "hdl-c", value: 0.9 }, { code: "triglycerides", value: 2.2 }]);
+    await obs(k, d(-12), [{ code: "ferritin", value: 85 }, { code: "tsat", value: 16 }]);
+    // Fatma: NSTEMI + AF on apixaban — LDL above goal, weight for DOAC dose check
+    const f = await byMrn("100391054");
+    await obs(f, d(-2), [{ code: "height", value: 156 }, { code: "weight", value: 58 }, { code: "sbp", value: 132 }, { code: "hr", value: 76 }]);
+    await obs(f, d(-2), [{ code: "ldl-c", value: 3.1 }, { code: "hba1c", value: 5.6 }]);
+    // Hamad: HFrEF below target doses, stable — uptitration opportunities
+    const h = await byMrn("100457208");
+    await obs(h, d(-60), [{ code: "height", value: 178 }]);
+    // Mariam: severe AS, CKD 3a, BP above target
+    const mh = await byMrn("100266781");
+    await obs(mh, d(-6), [{ code: "creatinine", value: 95 }, { code: "potassium", value: 4.4 }, { code: "sbp", value: 148 }, { code: "dbp", value: 78 }, { code: "hr", value: 70 }, { code: "height", value: 158 }, { code: "weight", value: 66 }]);
+    // Noura: post-STEMI, obesity without diabetes
+    const nk = await byMrn("100502663");
+    await obs(nk, d(-32), [{ code: "height", value: 160 }, { code: "weight", value: 84 }, { code: "sbp", value: 124 }, { code: "hr", value: 68 }, { code: "hba1c", value: 5.7 }]);
+    // Yousef: T2DM + HFrEF on full therapy
+    const yi = await byMrn("100277190");
+    await obs(yi, d(-20), [{ code: "height", value: 176 }, { code: "weight", value: 86 }, { code: "sbp", value: 116 }, { code: "hr", value: 64 }]);
+    // New: Salem — previous MI, T2DM, obesity, hypertension: the cardiometabolic picture
+    if (!(await byMrn("100611478"))) {
+      const sa = await K.createPatient(tx, sys, {
+        name: "Salem Al-Rashidi", mrn: "100611478", sex: "Male", birthDate: addDays(T, -(59 * 365 + 45)), allergies: "No known drug allergies",
+        conditions: ["prior-mi", "t2dm", "obesity", "htn"],
+      });
+      for (const [code, dose, freq, ind] of [["ramipril", 5, "OD", "htn"], ["rosuvastatin", 10, "OD", "cad"], ["aspirin", 100, "OD", "cad"], ["metformin", 1000, "BID", "dm"], ["bisoprolol", 5, "OD", "cad"]] as const)
+        await K.startMedication(tx, sys, sa, { code, doseValue: dose, frequency: freq, route: "PO", indication: ind, effectiveAt: at(d(-500)) });
+      await obs(sa, d(-9), [{ code: "height", value: 175 }, { code: "weight", value: 104 }, { code: "sbp", value: 146 }, { code: "dbp", value: 88 }, { code: "hr", value: 66 }]);
+      await obs(sa, d(-9), [{ code: "ldl-c", value: 2.6 }, { code: "total-cholesterol", value: 4.6 }, { code: "triglycerides", value: 2.4 }, { code: "hba1c", value: 8.1 }, { code: "creatinine", value: 90 }, { code: "potassium", value: 4.4 }, { code: "uacr", value: 12 }], false);
+      await K.addPlanAction(tx, sys, sa, { category: "follow_up", title: "Cardiometabolic clinic review", dueDate: d(2), completesOn: { type: "visit" } });
+    }
+    await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
+  });
+  if (reassessAfter) for (const id of new Set(touched)) await db.transaction((tx: Q) => reassess(tx, id, "sandbox"));
+  return touched.length > 0;
 }

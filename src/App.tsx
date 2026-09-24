@@ -50,7 +50,7 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
     api("/health").then((h) => setToday(h.today));
   }, []);
   useEffect(() => {
-    api("/worklist").then((w) => setAttention(w.rows.filter((r: any) => r.alert && (r.alert.severity === "red" || r.alert.severity === "orange")).length));
+    api("/attention-count").then((r) => setAttention(r.count)).catch(() => {});
   }, [path]);
   const section = path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : "worklist";
   const patientMatch = path.match(/^\/patients\/([0-9a-f-]{36})(?:\/(\w+))?/);

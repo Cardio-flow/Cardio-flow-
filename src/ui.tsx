@@ -92,11 +92,14 @@ export function Drawer({
   title: string; subtitle?: string; icon: ReactNode; tone?: Sev; wide?: boolean; onClose(): void; children: ReactNode; footer?: ReactNode; head?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // keep the latest onClose without re-running the mount effect (which would steal focus on every keystroke)
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const first = ref.current?.querySelector<HTMLElement>("input,button:not([aria-label='Close']),select,textarea");
     first?.focus();
-    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const key = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
     window.addEventListener("keydown", key);
     document.body.style.overflow = "hidden";
     return () => {
@@ -104,10 +107,10 @@ export function Drawer({
       document.body.style.overflow = "";
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <>
-      <div className="scrim" onClick={onClose} />
+      <div className="scrim" onClick={() => closeRef.current()} />
       <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={`drawer ${wide ? "wide" : ""}`}>
         <div className="drawer-head">
           <div className={`drawer-title sev-${tone}`}>

@@ -5,7 +5,7 @@ import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
-import { journey, summary, worklist, planView, results } from "./kernel/views.js";
+import { attentionCount, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
@@ -44,7 +44,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   hosted?.mount(app);
   app.use(express.json({ limit: "512kb" }));
   app.get("/api/config", (_req, res) => res.json({ hosted: !!hosted }));
-  app.get("/api/health", (_req, res) => res.json({ status: "ok", today: today() }));
+  app.get("/api/health", async (_req, res) => {
+    const t = Date.now();
+    await db.query("SELECT 1");
+    // region only (from the host name) so the server can be placed next to the database
+    const host = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname; } catch { return ""; } })();
+    res.json({ status: "ok", today: today(), dbRoundTripMs: Date.now() - t, dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
+  });
 
   // Local sandbox sign-in: choose one of the seeded synthetic team members.
   app.get("/api/demo-users", async (_req, res) => {
@@ -108,8 +114,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- worklist & patients ----------
+  app.get("/api/attention-count", route(async (_req, res) => res.json({ count: await attentionCount(db, actor(res).siteId) })));
   app.get("/api/worklist", route(async (_req, res) => {
-    const rows = await db.transaction((tx) => worklist(tx, actor(res).siteId));
+    const rows = await worklist(db, actor(res).siteId);
     res.json({ today: today(), rows });
   }));
   app.get("/api/patients", route(async (req, res) => {
@@ -140,16 +147,16 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), summary(tx, id))));
+    res.json((await patientInSite(db, actor(res), id), await summary(db, id)));
   }));
   app.get("/api/patients/:id/journey", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), journey(tx, id))));
+    res.json((await patientInSite(db, actor(res), id), await journey(db, id)));
   }));
   app.get("/api/patients/:id/record", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json(
-      await db.transaction(async (tx) => {
+      await (async (tx) => {
         await patientInSite(tx, actor(res), id);
         const s = await loadState(tx, id);
         const meds = s.meds.map((m) => ({ ...m, events: m.events }));
@@ -168,7 +175,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           contexts: s.contexts,
           conditions: s.conditions,
         };
-      }),
+      })(db),
     );
   }));
 

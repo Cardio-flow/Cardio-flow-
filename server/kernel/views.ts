@@ -1,8 +1,10 @@
+import { targets } from "../engine/guidelines.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
 import { DIAGNOSIS, MEASURES, PURPOSE_ORDER, doseLabel, MEDICATION, formatNumber } from "../../shared/catalog.js";
-import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
+import { ageOn, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { loadState, latestDischarge, openContext, type PatientState } from "./state.js";
+import { today as todayFn } from "./base.js";
 
 const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
@@ -200,6 +202,7 @@ export async function summary(tx: Q, patientId: string) {
       return cur ? { code: c, value: cur.value_num, at: cur.effective_at } : null;
     }).filter(Boolean),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
+    targets: targets(s),
   };
 }
 
@@ -233,44 +236,85 @@ export async function journey(tx: Q, patientId: string) {
   return { today: s.today, events: [...events, ...planned], contexts };
 }
 
-export async function worklist(tx: Q, siteId: string) {
-  const patients = (await tx.query(`SELECT id FROM cf.patient WHERE site_id=$1 ORDER BY name`, [siteId])).rows as { id: string }[];
-  const rows = [];
-  for (const { id } of patients) {
-    const s = await loadState(tx, id);
-    const recs = await recommendations(tx, id);
-    const h = header(s);
-    const open = s.plan.filter((p) => p.status === "planned" && p.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!));
-    const next = open[0] ?? null;
-    const overdue = open.filter((p) => p.due_date! < s.today).length;
-    const dueToday = open.filter((p) => p.due_date === s.today).length;
-    const main = s.conditions.filter((c) => ["Heart failure", "Coronary", "Valve", "Arrhythmia"].includes(DIAGNOSIS[c.code]?.family ?? "")).map((c) => c.display);
-    const ckd = s.conditions.find((c) => c.code.startsWith("ckd"));
-    rows.push({
-      id,
-      name: h.name,
-      mrn: h.mrn,
-      age: h.age,
-      sex: h.sex,
-      where: h.where,
-      inpatient: h.openContext?.kind === "admission",
-      postDischarge: h.where.startsWith("Post-discharge"),
-      problem: [...main.slice(0, 2), ...(ckd ? [ckd.display] : [])].join(" · ") || s.conditions[0]?.display || "—",
-      alert: recs[0] ? { severity: recs[0].severity, title: recs[0].title, draft: recs[0].rule_status !== "PUBLISHED" } : null,
-      alertCounts: {
-        red: recs.filter((r) => r.severity === "red").length,
-        orange: recs.filter((r) => r.severity === "orange").length,
-        yellow: recs.filter((r) => r.severity === "yellow").length,
-        blue: recs.filter((r) => r.severity === "blue").length,
-      },
-      next: next ? { title: next.title, dueDate: next.due_date, view: planStatusView(next.status, next.due_date, s.today) } : null,
-      overdue,
-      dueToday,
-    });
-  }
+// One set-based query for the whole list (latency to the database dominates, not query cost).
+export async function worklist(q: Q, siteId: string) {
+  const today = todayFn();
+  const rows = (
+    await q.query<any>(
+      `SELECT p.id, p.name, p.mrn, p.sex, p.birth_date,
+         oc.kind AS open_kind, oc.location AS open_location, oc.service AS open_service,
+         ld.ended_at AS last_discharge,
+         coalesce(cd.codes, '{}') AS codes,
+         tr.severity AS top_severity, tr.title AS top_title, tr.rule_status AS top_status,
+         coalesce(rc.red,0) red, coalesce(rc.orange,0) orange, coalesce(rc.yellow,0) yellow, coalesce(rc.blue,0) blue,
+         nx.title AS next_title, nx.due_date AS next_due,
+         coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today
+       FROM cf.patient p
+       LEFT JOIN LATERAL (SELECT kind, location, service FROM cf.care_context c WHERE c.patient_id=p.id AND c.status='open' ORDER BY started_at DESC LIMIT 1) oc ON true
+       LEFT JOIN LATERAL (SELECT ended_at FROM cf.care_context c WHERE c.patient_id=p.id AND c.kind='admission' AND c.status='closed' ORDER BY ended_at DESC LIMIT 1) ld ON true
+       LEFT JOIN LATERAL (
+         SELECT array_agg(code) codes FROM (SELECT DISTINCT ON (logical_id) code, status FROM cf.condition c WHERE c.patient_id=p.id ORDER BY logical_id, version DESC) x WHERE status='active'
+       ) cd ON true
+       LEFT JOIN LATERAL (
+         SELECT severity, title, rule_status FROM cf.recommendation r WHERE r.patient_id=p.id AND r.status='active'
+         ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'orange' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END, created_at DESC LIMIT 1
+       ) tr ON true
+       LEFT JOIN LATERAL (
+         SELECT count(*) FILTER (WHERE severity='red') red, count(*) FILTER (WHERE severity='orange') orange,
+                count(*) FILTER (WHERE severity='yellow') yellow, count(*) FILTER (WHERE severity='blue') blue
+         FROM cf.recommendation r WHERE r.patient_id=p.id AND r.status='active'
+       ) rc ON true
+       LEFT JOIN LATERAL (SELECT title, due_date FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned' AND a.due_date IS NOT NULL ORDER BY due_date LIMIT 1) nx ON true
+       LEFT JOIN LATERAL (
+         SELECT count(*) FILTER (WHERE due_date < $2::date) overdue, count(*) FILTER (WHERE due_date = $2::date) due_today
+         FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned'
+       ) pc ON true
+       WHERE p.site_id=$1`,
+      [siteId, today],
+    )
+  ).rows;
+  const out = rows.map((r) => {
+    const codes: string[] = r.codes ?? [];
+    const conds = codes.map((c) => DIAGNOSIS[c]).filter(Boolean);
+    const main = conds.filter((d) => ["Heart failure", "Coronary", "Valve", "Arrhythmia"].includes(d.family)).map((d) => d.display);
+    const ckd = conds.find((d) => d.code.startsWith("ckd"));
+    let where = "Outpatient";
+    if (r.open_kind === "admission") where = `Inpatient · ${r.open_location ?? "ward"}`;
+    else if (r.open_kind === "clinic_visit") where = `In clinic · ${r.open_service ?? "OPD"}`;
+    else if (r.last_discharge && daysBetween(new Date(r.last_discharge).toISOString(), today) <= 30)
+      where = `Post-discharge · day ${daysBetween(new Date(r.last_discharge).toISOString(), today)}`;
+    const nextDue = r.next_due ? String(r.next_due).slice(0, 10) : null;
+    return {
+      id: r.id,
+      name: r.name,
+      mrn: r.mrn,
+      age: ageOn(String(r.birth_date).slice(0, 10), today),
+      sex: r.sex,
+      where,
+      inpatient: r.open_kind === "admission",
+      postDischarge: where.startsWith("Post-discharge"),
+      problem: [...main.slice(0, 2), ...(ckd ? [ckd.display] : [])].join(" · ") || conds[0]?.display || "—",
+      alert: r.top_severity ? { severity: r.top_severity, title: r.top_title, draft: r.top_status !== "PUBLISHED" } : null,
+      alertCounts: { red: Number(r.red), orange: Number(r.orange), yellow: Number(r.yellow), blue: Number(r.blue) },
+      next: r.next_title ? { title: r.next_title, dueDate: nextDue, view: planStatusView("planned", nextDue, today) } : null,
+      overdue: Number(r.overdue),
+      dueToday: Number(r.due_today),
+    };
+  });
   const rank = (r: any) => (r.alert ? SEVERITY_ORDER[r.alert.severity as keyof typeof SEVERITY_ORDER] : 9) * 10 - (r.overdue ? 1 : 0);
-  rows.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  return rows;
+  out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  return out;
+}
+
+export async function attentionCount(q: Q, siteId: string) {
+  const r = (
+    await q.query<{ n: number }>(
+      `SELECT count(DISTINCT r.patient_id)::int n FROM cf.recommendation r JOIN cf.patient p ON p.id=r.patient_id
+       WHERE p.site_id=$1 AND r.status='active' AND r.severity IN ('red','orange')`,
+      [siteId],
+    )
+  ).rows[0];
+  return Number(r?.n ?? 0);
 }
 
 export { fmtDay };

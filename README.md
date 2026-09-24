@@ -14,6 +14,7 @@ This branch is a clean rebuild. The previous implementation is preserved at git 
 - **Medications:** context-aware add (relevant groups first, indication inferred from diagnoses or required), label-strength dose chips, pre-start check with missing-data warnings, optional monitoring booking; quick dose change / hold / stop / restart with reason and follow-up.
 - **Admission → discharge → clinic:** admission confirms (never copies) prior history; discharge reconciles medications and creates a dated plan; the clinic visit shows the previous plan's status, records vitals/NYHA/congestion, surfaces decisions, and drafts the clinic note.
 - **Echo:** one source; a later limited/bedside study does not silently replace a recent formal one; clinicians can override. Improved EF resolves the device alert and raises an LVEF-change review.
+- **Guideline decision support:** HF foundational therapy gaps and safe titration to target doses, LDL-C goals with an escalation ladder (statin → ezetimibe → PCSK9/bempedoic acid), GLP-1 RA and SGLT2i in diabetes/obesity, finerenone, kidney screening, CHA2DS2-VA and DOAC dosing, BP target, DAPT, iron deficiency. Every suggestion cites its ESC source and opens a prefilled drawer; the Summary shows a *Therapy & targets* panel.
 - **Rule governance:** versions, parameters, maker/checker, separate publisher; production sites run only published rules.
 
 ## Run locally

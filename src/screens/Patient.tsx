@@ -16,8 +16,8 @@ import { AddDiagnosis } from "../drawers/NewPatient";
 export type Open =
   | { kind: "labs"; codes?: string[] }
   | { kind: "wizard"; wizard: string; recommendationId?: string }
-  | { kind: "med-add" }
-  | { kind: "med-action"; medId: string; action?: string }
+  | { kind: "med-add"; code?: string; dose?: number; reason?: string }
+  | { kind: "med-action"; medId: string; action?: string; dose?: number; reason?: string }
   | { kind: "plan-add"; template?: string; medicationId?: string }
   | { kind: "plan-item"; planId: string }
   | { kind: "echo" }
@@ -136,8 +136,8 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
 
       {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} onClose={close} onDone={done} />}
       {open?.kind === "wizard" && <WizardDrawer patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.recommendationId} contextId={ctx?.id} onClose={close} onDone={done} />}
-      {open?.kind === "med-add" && <AddMedication patientId={id} summary={s} contextId={ctx?.id} onClose={close} onDone={done} />}
-      {open?.kind === "med-action" && <MedicationAction patientId={id} summary={s} medId={open.medId} initial={open.action} contextId={ctx?.id} onClose={close} onDone={done} />}
+      {open?.kind === "med-add" && <AddMedication patientId={id} summary={s} contextId={ctx?.id} preset={open.code ? { code: open.code, dose: open.dose, reason: open.reason } : undefined} onClose={close} onDone={done} />}
+      {open?.kind === "med-action" && <MedicationAction patientId={id} summary={s} medId={open.medId} initial={open.action} initialDose={open.dose} initialReason={open.reason} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-add" && <AddPlan patientId={id} template={open.template} medicationId={open.medicationId} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-item" && <PlanItem patientId={id} planId={open.planId} onClose={close} onDone={done} open={setOpen} />}
       {open?.kind === "echo" && <AddEcho patientId={id} contextId={ctx?.id} onClose={close} onDone={done} />}

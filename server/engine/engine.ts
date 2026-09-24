@@ -29,14 +29,17 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   const versions = await activeRuleVersions(tx, siteMode);
   const result: ReassessResult = { created: [], resolved: 0, superseded: 0 };
   const shouldRun = (rule: RuleDef) => !changed || rule.inputs.some((i) => changed.includes(i));
+  // Two reads for the whole patient instead of per rule (the database may be far away).
+  const existing = (
+    await tx.query<{ id: string; rule_id: string; fingerprint: string; rule_status: string; rule_version: number; status: string }>(
+      `SELECT id,rule_id,fingerprint,rule_status,rule_version,status FROM cf.recommendation WHERE patient_id=$1 AND status IN ('active','decided')`,
+      [patientId],
+    )
+  ).rows;
+  const decidedSet = new Set(existing.filter((r) => r.status === "decided").map((r) => r.rule_id + "#" + r.fingerprint));
   for (const rule of RULES) {
     const version = versions.get(rule.id);
-    const active = (
-      await tx.query<{ id: string; fingerprint: string; rule_status: string; rule_version: number }>(
-        `SELECT id,fingerprint,rule_status,rule_version FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND status='active'`,
-        [patientId, rule.id],
-      )
-    ).rows;
+    const active = existing.filter((r) => r.status === "active" && r.rule_id === rule.id);
     if (!version) {
       // rule not runnable at this site (e.g. unpublished in production): nothing it said stays active
       for (const r of active) {
@@ -58,12 +61,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
           await tx.query(`UPDATE cf.recommendation SET rule_status=$2, rule_version=$3 WHERE id=$1`, [same.id, version.status, version.version]);
         continue;
       }
-      const decided = (
-        await tx.query(`SELECT 1 FROM cf.recommendation WHERE patient_id=$1 AND rule_id=$2 AND fingerprint=$3 AND status='decided' LIMIT 1`, [
-          patientId, rule.id, fingerprint,
-        ])
-      ).rows[0];
-      if (decided) continue;
+      if (decidedSet.has(rule.id + "#" + fingerprint)) continue;
       const id = uuid();
       await tx.query(
         `INSERT INTO cf.recommendation(id,patient_id,rule_id,rule_version,rule_status,fingerprint,severity,title,detail,facts,missing,action,status)
@@ -87,9 +85,11 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
 }
 
 export async function seedRules(tx: Q) {
+  let added = 0;
   for (const rule of RULES) {
     const exists = (await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id=$1 LIMIT 1`, [rule.id])).rows[0];
     if (exists) continue;
+    added++;
     const status = rule.kind === "operational" ? "PUBLISHED" : "CLINICAL_REVIEW";
     await tx.query(
       `INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author,published_by) VALUES($1,1,$2,$3,$4,$5,$6,'system:v2-build',$7)`,
@@ -100,4 +100,5 @@ export async function seedRules(tx: Q) {
       rule.kind === "operational" ? "Workflow rule (no clinical threshold) published at build." : "Clinical candidate awaiting independent review. Runs only on sandbox sites.",
     ]);
   }
+  return added;
 }

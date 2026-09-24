@@ -1,19 +1,21 @@
 import type { DB } from "./db/db.js";
 import { migrate } from "./db/db.js";
-import { seedRules } from "./engine/engine.js";
-import { seedSynthetic } from "./seed.js";
+import { reassess, seedRules } from "./engine/engine.js";
+import { RULESET } from "./engine/rules.js";
+import { enrichSynthetic, seedSynthetic } from "./seed.js";
 
 export const SITE_ID = process.env.CARDIO_SITE_ID || "sacc";
 
 // Idempotent: safe to run on every cold start.
 export async function boot(db: DB, opts: { seed: boolean }) {
   await migrate(db);
+  let newRules = 0;
   await db.transaction(async (tx) => {
     await tx.query(
       `INSERT INTO cf.site(id,name,mode,settings) VALUES($1,$2,$3,'{}') ON CONFLICT (id) DO NOTHING`,
       [SITE_ID, process.env.CARDIO_SITE_NAME || "Sabah Al-Ahmad Cardiac Centre", process.env.CARDIO_SITE_MODE === "production" ? "production" : "sandbox"],
     );
-    await seedRules(tx);
+    newRules = await seedRules(tx);
     // Carry approved users over from the v1 (Codex) membership table if it exists.
     const legacy = (await tx.query(`SELECT to_regclass('governance.membership') AS t`)).rows[0]?.t;
     if (legacy) {
@@ -37,5 +39,14 @@ export async function boot(db: DB, opts: { seed: boolean }) {
     const mode = (await db.query(`SELECT mode FROM cf.site WHERE id=$1`, [SITE_ID])).rows[0]?.mode;
     const any = (await db.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 LIMIT 1`, [SITE_ID])).rows[0];
     if (mode === "sandbox" && !any) await seedSynthetic(db, SITE_ID);
+    else if (mode === "sandbox") await enrichSynthetic(db, SITE_ID);
+  }
+  // New or changed rules shipped with this build: evaluate every patient once.
+  const site = (await db.query(`SELECT mode, settings FROM cf.site WHERE id=$1`, [SITE_ID])).rows[0] as any;
+  const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
+  if (newRules || settings.ruleset !== RULESET) {
+    const ids = (await db.query(`SELECT id FROM cf.patient WHERE site_id=$1`, [SITE_ID])).rows as { id: string }[];
+    for (const { id } of ids) await db.transaction((tx) => reassess(tx, id, site?.mode ?? "production"));
+    await db.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [SITE_ID, JSON.stringify({ ruleset: RULESET })]);
   }
 }

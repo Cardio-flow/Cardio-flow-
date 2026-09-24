@@ -78,34 +78,35 @@ export type PatientState = {
 };
 
 export async function loadState(tx: Q, patientId: string): Promise<PatientState> {
-  const p = (await tx.query("SELECT * FROM cf.patient WHERE id=$1", [patientId])).rows[0];
   const today = todayFn();
-  // sequential on purpose: one connection per transaction must not run queries concurrently
-  const conds = await tx.query<ConditionRow>(
-      `SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC`,
+  // One round trip per patient: every table is aggregated to JSON in a single statement.
+  // (The database may be far from the server; latency, not query cost, dominates.)
+  const bundle = (
+    await tx.query<any>(
+      `SELECT
+        (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies FROM cf.patient WHERE id=$1) pt) AS patient,
+        (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
+        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
+            FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
+        (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1) AS meds,
+        (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at FROM cf.medication_event WHERE patient_id=$1) e) AS events,
+        (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
+        (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
+        (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion FROM cf.study WHERE patient_id=$1) st) AS studies,
+        (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs`,
       [patientId],
-    );
-  const obs = await tx.query<Obs>(
-      `SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
-       FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC`,
-      [patientId],
-    );
-  const meds = await tx.query(`SELECT * FROM cf.medication WHERE patient_id=$1 ORDER BY created_at`, [patientId]);
-  const events = await tx.query(
-      `SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at FROM cf.medication_event WHERE patient_id=$1 ORDER BY effective_at, recorded_at`,
-      [patientId],
-    );
-  const plan = await tx.query<PlanRow>(
-      `SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version
-       FROM cf.plan_action WHERE patient_id=$1 ORDER BY due_date NULLS LAST, created_at`,
-      [patientId],
-    );
-  const contexts = await tx.query<ContextRow>(
-      `SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1 ORDER BY started_at`,
-      [patientId],
-    );
-  const studies = await tx.query<StudyRow>(`SELECT id,kind,performed_at,quality,findings,conclusion FROM cf.study WHERE patient_id=$1 ORDER BY performed_at`, [patientId]);
-  const prefs = await tx.query<{ code: string; observation_id: string }>(`SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active`, [patientId]);
+    )
+  ).rows[0];
+  const p = typeof bundle.patient === "string" ? JSON.parse(bundle.patient) : bundle.patient;
+  const j = (v: any) => ({ rows: (typeof v === "string" ? JSON.parse(v) : v) as any[] });
+  const conds = j(bundle.conds) as { rows: ConditionRow[] };
+  const obs = j(bundle.obs) as { rows: Obs[] };
+  const meds = j(bundle.meds);
+  const events = j(bundle.events);
+  const plan = j(bundle.plan) as { rows: PlanRow[] };
+  const contexts = j(bundle.contexts) as { rows: ContextRow[] };
+  const studies = j(bundle.studies) as { rows: StudyRow[] };
+  const prefs = j(bundle.prefs) as { rows: { code: string; observation_id: string }[] };
   const conditions = conds.rows.filter((c) => c.status === "active");
   const tags = new Set<string>(conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []));
   const preferences = Object.fromEntries(prefs.rows.map((r) => [r.code, r.observation_id]));
@@ -169,7 +170,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     observations: obs.rows.map(normaliseTime),
     resolved,
     meds: medStates,
-    plan: plan.rows.map((r) => ({ ...r, due_date: r.due_date?.slice(0, 10) ?? null })),
+    plan: plan.rows.map((r) => ({ ...normaliseTime(r), due_date: r.due_date ? String(r.due_date).slice(0, 10) : null })),
     contexts: contexts.rows.map(normaliseTime),
     studies: studies.rows.map(normaliseTime),
     preferences,

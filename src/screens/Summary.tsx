@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { BookOpen, Check } from "lucide-react";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
 import { fmtDay, fmtTime } from "../../shared/clinical";
 import { formatNumber } from "../../shared/catalog";
@@ -11,6 +11,7 @@ export function SummaryTab({ s, open }: { s: any; open(o: Open): void }) {
       <div className="grid-main">
         <div className="stack">
           <Attention s={s} open={open} />
+          <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
         </div>
@@ -81,8 +82,26 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "tab")
     return (
       <Link className="go" to={`${location.pathname.replace(/\/(journey|visits|medications|investigations|plan|registries)$/, "")}/${act.tab}`}>
-        Review plan
+        {act.tab === "medications" ? "Review medications" : "Review plan"}
       </Link>
+    );
+  if (act.type === "start-med")
+    return (
+      <button className="go" onClick={() => open({ kind: "med-add", code: act.code, dose: act.dose, reason: a.title })}>
+        {act.label}
+      </button>
+    );
+  if (act.type === "titrate")
+    return (
+      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.direction, dose: act.dose, reason: act.direction === "increase" ? "Titration toward target" : undefined })}>
+        {act.label}
+      </button>
+    );
+  if (act.type === "add-labs")
+    return (
+      <button className="go" onClick={() => open({ kind: "labs", codes: act.codes })}>
+        {act.label}
+      </button>
     );
   return null;
 }
@@ -97,7 +116,7 @@ export function WhyPanel({ a }: { a: any }) {
         </span>
       </div>
       <div className="facts">
-        {a.facts.map((f: any, i: number) => (
+        {a.facts.filter((f: any) => f.label !== "Guideline").map((f: any, i: number) => (
           <div className="fact" key={i}>
             <small>
               {f.label}
@@ -107,6 +126,11 @@ export function WhyPanel({ a }: { a: any }) {
           </div>
         ))}
       </div>
+      {a.facts.filter((f: any) => f.label === "Guideline").map((f: any, i: number) => (
+        <div className="guideline-src" key={"g" + i}>
+          <BookOpen size={14} /> {f.value}
+        </div>
+      ))}
       {a.missing.length > 0 && (
         <div className="small" style={{ fontWeight: 700, color: "var(--orange-ink)" }}>
           Assessment incomplete: {a.missing.join(", ")} not available. Missing data is never assumed normal.
@@ -318,3 +342,94 @@ function Upcoming({ s }: { s: any }) {
   );
 }
 export { fmtTime };
+
+// ---------- Therapy & targets: guideline goals at a glance ----------
+function Targets({ s, open }: { s: any; open(o: Open): void }) {
+  const t = s.targets;
+  if (!t) return null;
+  const blocks = [t.hf, t.ldl, t.bp, t.metabolic, t.af].filter(Boolean);
+  if (!blocks.length && t.kidney.egfr == null) return null;
+  const num = (v: number | null, d = 0) => (v == null ? "—" : formatNumber(v, d));
+  return (
+    <section className="card pad targets" aria-labelledby="tgt">
+      <div className="card-head">
+        <h2 id="tgt">Therapy &amp; targets</h2>
+        <span className="meta">ESC guideline goals · suggestions need clinician confirmation</span>
+      </div>
+      {t.hf && (
+        <div className="tgt-block">
+          <div className="tgt-title">
+            <span>Heart failure therapy · {t.hf.phenotype}{t.hf.lvef != null ? ` · LVEF ${num(t.hf.lvef)}%` : ""}</span>
+          </div>
+          <div className="pillars">
+            {t.hf.pillars.map((p: any) => (
+              <div key={p.key} className={`pillar st-${p.state}`}>
+                <small>{p.label}</small>
+                <b>{p.med ?? (p.state === "blocked" ? "Not now" : "Not started")}</b>
+                {p.percentOfTarget != null && (
+                  <span className="bar" aria-label={`${p.percentOfTarget}% of target dose`}>
+                    <i style={{ width: `${Math.min(100, p.percentOfTarget)}%` }} />
+                  </span>
+                )}
+                <em>{p.percentOfTarget != null ? `${p.percentOfTarget}% of target ${p.target}` : p.note ?? (p.state === "missing" ? "Foundational therapy" : "")}</em>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="tgt-grid">
+        {t.ldl && (
+          <Goal
+            label="LDL-C"
+            value={t.ldl.value != null ? `${num(t.ldl.value, 2)} mmol/L` : "Not measured"}
+            goal={`Goal <${t.ldl.goal} · ${t.ldl.category} risk`}
+            met={t.ldl.met}
+            sub={t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy"}
+            onAdd={() => open({ kind: "labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"] })}
+          />
+        )}
+        {t.bp && (
+          <Goal label="Blood pressure" value={t.bp.sbp != null ? (t.bp.dbp != null ? `${num(t.bp.sbp)}/${num(t.bp.dbp)} mmHg` : `SBP ${num(t.bp.sbp)} mmHg`) : "Not measured"} goal={`Goal SBP ${t.bp.target}`} met={t.bp.met} sub={t.bp.at ? fmtDay(t.bp.at) : ""} />
+        )}
+        {t.metabolic && (
+          <Goal
+            label="Cardiometabolic"
+            value={[t.metabolic.bmi != null ? `BMI ${num(t.metabolic.bmi, 1)}` : null, t.metabolic.hba1c != null ? `HbA1c ${num(t.metabolic.hba1c, 1)}%` : null].filter(Boolean).join(" · ") || "No BMI or HbA1c"}
+            goal={[t.metabolic.sglt2.length ? "SGLT2i ✓" : "SGLT2i —", t.metabolic.glp1.length ? "GLP-1 RA ✓" : "GLP-1 RA —"].join(" · ")}
+            met={t.metabolic.sglt2.length > 0 && t.metabolic.glp1.length > 0 ? true : null}
+            sub={[...t.metabolic.sglt2, ...t.metabolic.glp1].join(" · ")}
+          />
+        )}
+        {t.af && (
+          <Goal label="AF stroke risk" value={`CHA₂DS₂-VA ${t.af.score}`} goal={t.af.score >= 2 ? "OAC recommended" : t.af.score === 1 ? "Consider OAC" : "No OAC indicated"} met={t.af.score === 0 || t.af.oac.length > 0} sub={t.af.oac.length ? t.af.oac.join(" · ") : t.af.items.join(" · ")} />
+        )}
+        <Goal
+          label="Kidney"
+          value={[t.kidney.egfr != null ? `eGFR ${num(t.kidney.egfr)}` : null, t.kidney.uacr != null ? `UACR ${num(t.kidney.uacr, 1)}` : null].filter(Boolean).join(" · ") || "No eGFR"}
+          goal={t.kidney.uacr == null ? "UACR not measured" : t.kidney.uacr >= 3 ? "Albuminuria" : "No albuminuria"}
+          met={t.kidney.uacr == null ? null : t.kidney.uacr < 3 && (t.kidney.egfr ?? 90) >= 60}
+          sub={t.kidney.egfrAt ? fmtDay(t.kidney.egfrAt) : ""}
+        />
+      </div>
+    </section>
+  );
+}
+
+function Goal({ label, value, goal, met, sub, onAdd }: { label: string; value: string; goal: string; met: boolean | null; sub?: string; onAdd?(): void }) {
+  return (
+    <div className={`goal ${met === true ? "met" : met === false ? "unmet" : "unknown"}`}>
+      <small>{label}</small>
+      <b>{value}</b>
+      <span className="g">
+        {met === true ? "✓ " : met === false ? "▲ " : ""}
+        {goal}
+      </span>
+      {sub && <em>{sub}</em>}
+      {onAdd && met === null && (
+        <button className="btn ghost small" onClick={onAdd}>
+          Add result
+        </button>
+      )}
+    </div>
+  );
+}

@@ -5,6 +5,7 @@
 import { MEASURES, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { latestDischarge, medsWithTag, series, type PatientState } from "../kernel/state.js";
+import { GUIDELINE_RULES } from "./guidelines.js";
 
 export type Fact = { label: string; value: string; date?: string; tone?: "red" | "orange" | "yellow" | "blue" | "green" };
 export type Finding = {
@@ -15,7 +16,16 @@ export type Finding = {
   detail: string;
   facts: Fact[];
   missing: string[];
-  action: { type: "wizard"; wizard: string } | { type: "plan"; planId: string } | { type: "add-plan"; template: string; medicationId?: string } | { type: "tab"; tab: string };
+  action:
+    | { type: "wizard"; wizard: string }
+    | { type: "plan"; planId: string }
+    | { type: "add-plan"; template: string; medicationId?: string }
+    | { type: "tab"; tab: string }
+    | { type: "start-med"; code: string; dose?: number; label: string }
+    | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
+    | { type: "add-labs"; codes: string[]; label: string };
+  // guideline provenance shown in "Why?"
+  source?: string;
 };
 export type RuleDef = {
   id: string;
@@ -151,7 +161,7 @@ export const RULES: RuleDef[] = [
     title: "LVEF category change",
     inputs: ["lvef"],
     defaultParams: {},
-    evidence: "Universal definition of HF categories (≤40 / 41–49 / ≥50%). Pending clinical review.",
+    evidence: "2026 ESC HF guidelines: HFrEF = LVEF <50%, HFpEF ≥50%; LVEF ≤35% is the device threshold. Continue foundational therapy when EF improves. Pending clinical review.",
     evaluate(s) {
       const hist = s.resolved("lvef").history.filter((o) => o.status === "final");
       if (hist.length < 2) return [];
@@ -159,7 +169,7 @@ export const RULES: RuleDef[] = [
       const older = hist.filter((o) => o.effective_at < now.effective_at);
       const before = older.find((o) => o.quality === "formal") ?? older[0];
       if (!before) return [];
-      const cat = (x: number) => (x <= 40 ? "reduced" : x < 50 ? "mildly reduced" : "preserved");
+      const cat = (x: number) => (x <= 35 ? "≤35% (device range)" : x < 50 ? "36–49% (reduced, above the device threshold)" : "≥50%");
       if (cat(now.value_num!) === cat(before.value_num!)) return [];
       if (Math.abs(daysBetween(now.effective_at, s.today)) > 60) return [];
       return [
@@ -168,7 +178,7 @@ export const RULES: RuleDef[] = [
           signature: now.id,
           severity: "blue",
           title: `LVEF ${formatNumber(before.value_num!, 0)}% → ${formatNumber(now.value_num!, 0)}%: review HF classification and plan`,
-          detail: `Now ${cat(now.value_num!)}. Earlier device and titration plans may no longer apply.`,
+          detail: `Now ${cat(now.value_num!)}. Recheck device plans; keep foundational therapy (withdrawal risks relapse).`,
           facts: [
             { label: "Previous LVEF", value: `${formatNumber(before.value_num!, 0)}%`, date: before.effective_at },
             { label: "Current LVEF", value: `${formatNumber(now.value_num!, 0)}%`, date: now.effective_at, tone: "blue" },
@@ -237,7 +247,11 @@ export const RULES: RuleDef[] = [
         });
     },
   },
+  ...GUIDELINE_RULES,
 ];
+
+// Bump when rule logic changes so every patient is re-evaluated once on the next boot.
+export const RULESET = "2026-09-24.1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

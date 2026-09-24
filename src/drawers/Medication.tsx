@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pill, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
@@ -9,7 +9,7 @@ function patientTags(summary: any) {
   return new Set<string>(summary.header.diagnoses.flatMap((d: any) => DIAGNOSIS[d.code]?.tags ?? []));
 }
 
-export function AddMedication({ patientId, summary, contextId, onClose, onDone }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function AddMedication({ patientId, summary, contextId, preset, onClose, onDone }: { patientId: string; summary: any; contextId?: string; preset?: { code: string; dose?: number; reason?: string }; onClose(): void; onDone(m?: string, r?: any): void }) {
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const tags = patientTags(summary);
   const active = new Set<string>(summary.medications.groups.flatMap((g: any) => g.meds.map((m: any) => m.code)));
@@ -35,6 +35,16 @@ export function AddMedication({ patientId, summary, contextId, onClose, onDone }
     setIndication(matching.length === 1 ? matching[0] : "");
     setMonitor(d.monitoring.some((c) => c === "potassium" || c === "creatinine") ? "7" : "none");
   };
+  // Opened from a guideline suggestion: the drug and starting dose are prefilled, the clinician confirms.
+  useEffect(() => {
+    const d = preset && MEDICATION[preset.code];
+    if (!d) return;
+    pick(d);
+    const want = preset!.dose;
+    if (want == null) return;
+    if (d.doses.includes(want)) setDose(String(want));
+    else (setDose("custom"), setCustom(String(want)));
+  }, []);
   const matches = useMemo(() => MEDICATIONS.filter((m) => !active.has(m.code) && (m.name + " " + m.drugClass).toLowerCase().includes(q.toLowerCase())), [q]);
   const indicationOptions = def
     ? [
@@ -228,14 +238,17 @@ const ACTIONS = [
   { value: "continue", label: "Continue unchanged" },
 ];
 
-export function MedicationAction({ patientId, summary, medId, initial, contextId, onClose, onDone }: { patientId: string; summary: any; medId: string; initial?: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function MedicationAction({ patientId, summary, medId, initial, initialDose, initialReason, contextId, onClose, onDone }: { patientId: string; summary: any; medId: string; initial?: string; initialDose?: number; initialReason?: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
   const med = summary.medications.groups.flatMap((g: any) => g.meds).find((m: any) => m.id === medId);
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const def = med ? MEDICATION[med.code] : null;
   const [action, setAction] = useState<string>(initial ?? (med?.status === "held" ? "restart" : ""));
-  const [dose, setDose] = useState<string>("");
-  const [reason, setReason] = useState("");
-  const [review, setReview] = useState<string>("none");
+  const [dose, setDose] = useState<string>(initialDose != null ? String(initialDose) : "");
+  const [reason, setReason] = useState(initialReason ?? "");
+  const [review, setReview] = useState<string>(() => {
+    const d = med ? MEDICATION[med.code] : null;
+    return initial === "increase" && d?.monitoring.some((c) => c === "potassium" || c === "creatinine") ? "lab-7" : "none";
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!med || !def) return null;
