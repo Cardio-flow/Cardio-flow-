@@ -2,6 +2,10 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-09-30 · GLP-1 RA for every guideline indication
+
+- Ahmed decided CardioFlow suggests GLP-1 RA wherever a guideline indicates it (the HF Registry's HF-only limit does not apply here): T2DM with ASCVD (ESC 2023, I); T2DM with CKD (ESC-ERA CVD–CKD 2026 §5.5.4, FLOW; added now); established CVD with BMI ≥27 without diabetes (ESC obesity consensus, IIa); HF with LVEF ≥45% and BMI ≥30 (ESC HF 2026, IIa). All remain suggestions in clinical review.
+
 ## 2026-09-30 · General-clinic core, slice 2: investigations hub
 
 - **One template per study kind** in `shared/studies.ts` (ECG, Holter, stress, CT coronary, CMR, cath): select-first fields, required fields, conditional fields (e.g. PR only in sinus rhythm), descriptive categories only. `recordStudy` validates against the template, stores the findings in `study.attributes` with a one-line summary, and writes the numeric findings the rules read as observations linked to the study (`qrs`, `pr`, `qtc`, `hr` from the ECG rate, `ve-burden`, `mets`, `cac`, `lvef`/`rvef` from CMR). No new tables (migration 002 already widened `study`).

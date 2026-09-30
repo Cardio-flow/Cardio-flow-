@@ -355,7 +355,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     title: "Type 2 diabetes: agents with proven CV benefit",
     inputs: ["conditions", "meds", "egfr"],
     defaultParams: {},
-    evidence: "2023 ESC diabetes & CVD: in T2DM with ASCVD, SGLT2i and GLP-1 RA with proven CV benefit are recommended independent of HbA1c (class I); in T2DM with CKD (eGFR ≥20) SGLT2i (class I).",
+    evidence: "2023 ESC diabetes & CVD: in T2DM with ASCVD, SGLT2i and GLP-1 RA with proven CV benefit are recommended independent of HbA1c (class I); in T2DM with CKD (eGFR ≥20) SGLT2i (class I). 2026 ESC-ERA CVD–CKD §5.5.4: GLP-1 RA in T2DM with CKD (FLOW).",
     evaluate(s) {
       if (!s.tags.has("t2dm")) return [];
       const out: Finding[] = [];
@@ -365,9 +365,14 @@ export const GUIDELINE_RULES: RuleDef[] = [
         out.push({ key: "dm-sglt2", signature: "sglt2", severity: "orange", title: "T2DM with ASCVD/CKD: SGLT2 inhibitor not prescribed",
           detail: "Cardiorenal protection independent of HbA1c", facts: facts(fact(s, "egfr", 180), fact(s, "hba1c", 365), src("ESC diabetes & CVD 2023 · Class I")), missing: egfr == null ? ["eGFR"] : [],
           action: { type: "start-med", code: "empagliflozin", dose: 10, label: "Start empagliflozin 10 mg" } });
-      if (s.tags.has("ascvd") && !onTag(s, "glp1").length)
-        out.push({ key: "dm-glp1", signature: "glp1", severity: "blue", title: "T2DM with ASCVD: GLP-1 RA with proven CV benefit not prescribed",
-          detail: "Semaglutide, liraglutide or dulaglutide · reduces MACE independent of HbA1c", facts: facts(fact(s, "hba1c", 365), fact(s, "weight", 365), src("ESC diabetes & CVD 2023 · Class I")), missing: [],
+      // GLP-1 RA for every guideline indication in T2DM: established ASCVD (ESC 2023, class I) and
+      // CKD (ESC-ERA CVD–CKD 2026 §5.5.4, FLOW: fewer kidney and CV events). Ahmed, 30 Sep 2026.
+      const ckd = s.tags.has("ckd") || (egfr != null && egfr < 60) || (val(s, "uacr", 365) ?? 0) >= 3;
+      if ((s.tags.has("ascvd") || ckd) && !onTag(s, "glp1").length)
+        out.push({ key: "dm-glp1", signature: s.tags.has("ascvd") ? "glp1" : "glp1:ckd", severity: "blue",
+          title: `T2DM with ${[s.tags.has("ascvd") ? "ASCVD" : null, ckd ? "CKD" : null].filter(Boolean).join(" and ")}: GLP-1 RA with proven benefit not prescribed`,
+          detail: s.tags.has("ascvd") ? "Semaglutide, liraglutide or dulaglutide · reduces MACE independent of HbA1c" : "Semaglutide reduces kidney failure, CV death and MACE in T2DM with CKD (FLOW)",
+          facts: facts(fact(s, "hba1c", 365), fact(s, "egfr", 180), fact(s, "uacr", 365), fact(s, "weight", 365), src(s.tags.has("ascvd") ? "ESC diabetes & CVD 2023 · Class I" : "ESC-ERA CVD–CKD 2026 · §5.5.4 (class pending review)")), missing: [],
           action: { type: "start-med", code: "semaglutide", dose: 0.25, label: "Start semaglutide 0.25 mg weekly" } });
       return out;
     },

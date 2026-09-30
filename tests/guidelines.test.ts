@@ -123,3 +123,11 @@ test("guideline goals stay off production sites, and the HbA1c rule is in clinic
   const r = (await db.query(`SELECT status FROM cf.rule_version WHERE rule_id='dm.hba1c-due'`)).rows as any[];
   assert.deepEqual(r.map((x) => x.status), ["CLINICAL_REVIEW"]);
 });
+
+test("GLP-1 RA is suggested for every indication: T2DM with CKD even without ASCVD", async () => {
+  const pid = await db.transaction((tx) => K.createPatient(tx, doc, { name: "DM CKD " + Date.now(), mrn: "DMCKD" + Date.now(), sex: "Female", birthDate: "1962-04-01", conditions: ["t2dm", "ckd-3a"] }));
+  await db.transaction((tx) => reassess(tx, pid, "sandbox"));
+  const glp = (await active(pid)).find((r) => /GLP-1 RA/.test(r.title));
+  assert.match(glp.title, /^T2DM with CKD: GLP-1 RA with proven benefit not prescribed/);
+  assert.equal(act(glp).code, "semaglutide");
+});
