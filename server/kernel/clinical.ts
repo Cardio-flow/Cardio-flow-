@@ -5,6 +5,7 @@ import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
+import { STUDY, cleanStudy, studySummary } from "../../shared/studies.js";
 
 export type Changed = string[];
 
@@ -327,6 +328,51 @@ export async function recordEcho(
   });
   const completed = await completeMatching(tx, actor, patientId, { type: "study", kind: "echo", at: input.date, ref: id });
   return { id, changed: ["lvef", ...(completed.length ? ["plan"] : [])] as Changed, completed };
+}
+
+// Any non-Echo study, from its template. Numeric findings that rules read become
+// dated observations linked to the study.
+export async function recordStudy(
+  tx: Q,
+  actor: Actor,
+  patientId: string,
+  input: { kind: string; date: string; findings: Record<string, unknown>; conclusion?: string; contextId?: string | null },
+) {
+  await patientInSite(tx, actor, patientId);
+  const def = STUDY[input.kind];
+  if (!def) throw new ApiError(400, "Unknown study type");
+  if (input.date > nowIso() && isoDay(new Date(input.date)) > today()) throw new ApiError(400, "A study cannot be dated in the future");
+  let attributes: Record<string, any>;
+  try {
+    attributes = cleanStudy(input.kind, input.findings);
+  } catch (e) {
+    throw new ApiError(400, `${def.short}: ${(e as Error).message}`);
+  }
+  if (!Object.keys(attributes).length) throw new ApiError(400, `${def.short}: record at least one finding`);
+  const summary = studySummary(input.kind, attributes);
+  const id = uuid();
+  await tx.query(
+    `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,$3,$4,'formal',$5,$6,$7,$8,$9)`,
+    [id, patientId, input.kind, input.date, summary ? [summary] : [], input.conclusion ?? "", input.contextId ?? null, actor.id, JSON.stringify(attributes)],
+  );
+  const items = def.fields
+    .filter((f): f is Extract<typeof f, { type: "number" }> => f.type === "number" && !!f.obs && attributes[f.key] != null)
+    .map((f) => ({ code: f.obs!, value: Number(attributes[f.key]) }));
+  const changed: Changed = ["studies"];
+  if (items.length) {
+    const r = await recordObservations(tx, actor, patientId, {
+      effectiveAt: input.date, items, quality: "formal", studyId: id, contextId: input.contextId, source: def.short, silentEvent: true,
+    });
+    changed.push(...r.changed);
+  }
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: input.date, kind: input.kind, category: "investigation",
+    title: `${def.short} · ${summary || "recorded"}`.slice(0, 200), detail: input.conclusion ?? "", refType: "study", refId: id, contextId: input.contextId,
+  });
+  const completed = await completeMatching(tx, actor, patientId, { type: "study", kind: input.kind, at: input.date, ref: id });
+  if (completed.length) changed.push("plan");
+  await audit(tx, actor, "record", "study", id, patientId, { kind: input.kind });
+  return { id, changed: [...new Set(changed)], completed };
 }
 
 // ---------- medications ----------

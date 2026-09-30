@@ -2,6 +2,14 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-09-30 · General-clinic core, slice 2: investigations hub
+
+- **One template per study kind** in `shared/studies.ts` (ECG, Holter, stress, CT coronary, CMR, cath): select-first fields, required fields, conditional fields (e.g. PR only in sinus rhythm), descriptive categories only. `recordStudy` validates against the template, stores the findings in `study.attributes` with a one-line summary, and writes the numeric findings the rules read as observations linked to the study (`qrs`, `pr`, `qtc`, `hr` from the ECG rate, `ve-burden`, `mets`, `cac`, `lvef`/`rvef` from CMR). No new tables (migration 002 already widened `study`).
+- **Rules that read studies** (`server/engine/study-rules.ts`, all CLINICAL_REVIEW): `hf.device-assessment` now grades CRT by QRS width/morphology from the latest ECG (ESC HF 2026 Rec. Table 7, thresholds as parameters), notes the 2026 IIb option to plan CRT alongside foundational therapy with LBBB ≥150 ms, and asks for an ECG when none is recent; `rhythm.ivabradine-sinus`; `rhythm.qtc-drug` (QTc ≥500 ms or +60 ms, K/Mg shown as missing when absent); `device.pacing-mode` (high-degree AV block with LVEF <40%: CRT rather than RV pacing, ESC HF 2026 IIa); `studies.problem-list` (obstructive CAD, AF/flutter or high-degree AV block on a study but not on the problem list). RULESET 2026-09-30.2.
+- **New alert actions:** `med-action` (opens stop/hold for a named drug) and `history` (opens the History drawer). Sotalol added to the catalogue (draft label strengths); amiodarone and sotalol carry the `qt` tag.
+- **Plan templates** for ECG, Holter, stress test and CMR close themselves when the study is recorded.
+- **Synthetic seed v4** adds ECGs and a cath so the device, rhythm and problem-list rules have data.
+
 ## 2026-09-30 · General-clinic core, slice 1: structured history
 
 - **Migration 002 (minimal set, approved by Ahmed).** `server/db/002-general-core.sql`, additive only, so an older build still runs against it: patient `civil_id` (unique per site), `nationality`, `mobile`; `condition.attributes`; `study` accepts holter, abpm, stress, ccta, cmr, nuclear, cath, ep_study, device_check, cpet, plus `study.attributes`; new append-only `cf.status_event` (vital status apart from follow-up status). `migrate()` now runs an ordered, checksum-protected list (`MIGRATIONS` in `db.ts`). Episodes, procedures, implants, documents, reconciliation, plan owners, result review and registry tables wait for later migrations.

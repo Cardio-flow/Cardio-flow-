@@ -10,6 +10,7 @@ import { WizardDrawer } from "../drawers/Wizard";
 import { AddMedication, MedicationAction } from "../drawers/Medication";
 import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
 import { AddEcho } from "../drawers/AddEcho";
+import { AddStudy } from "../drawers/AddStudy";
 import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
@@ -23,6 +24,7 @@ export type Open =
   | { kind: "plan-add"; template?: string; medicationId?: string }
   | { kind: "plan-item"; planId: string }
   | { kind: "echo" }
+  | { kind: "study"; studyKind?: string }
   | { kind: "admit" }
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
@@ -147,6 +149,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "plan-add" && <AddPlan patientId={id} template={open.template} medicationId={open.medicationId} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-item" && <PlanItem patientId={id} planId={open.planId} onClose={close} onDone={done} open={setOpen} />}
       {open?.kind === "echo" && <AddEcho patientId={id} contextId={ctx?.id} onClose={close} onDone={done} />}
+      {open?.kind === "study" && <AddStudy patientId={id} kind={open.studyKind} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
       {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}

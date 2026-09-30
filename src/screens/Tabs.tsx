@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Activity, FlaskConical, Stethoscope, BedDouble } from "lucide-react";
+import { Plus, Activity, FlaskConical, Stethoscope, BedDouble, FileHeart } from "lucide-react";
+import { STUDIES, STUDY_LABEL } from "../../shared/studies";
 import { api, useData } from "../api";
 import { Sparkline, Tag, useToast } from "../ui";
 import { MEASURES, MEDICATION, PURPOSE_ORDER, doseLabel, formatNumber } from "../../shared/catalog";
@@ -74,6 +75,8 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
   const [busy, setBusy] = useState(false);
   if (!data) return <main className="page" />;
   const lvef = data.vitals.find((v: any) => v.code === "lvef");
+  const echoes = data.studies.filter((s: any) => s.kind === "echo");
+  const others = data.studies.filter((s: any) => s.kind !== "echo").sort((a: any, b: any) => (a.performed_at < b.performed_at ? 1 : -1));
   async function prefer(observationId: string | null, reason: string) {
     setBusy(true);
     try {
@@ -91,8 +94,9 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
           <h1 style={{ fontSize: 22 }}>Investigations</h1>
           <p>Every value keeps its date, source and quality. Nothing is overwritten.</p>
         </div>
-        <div className="row">
+        <div className="row wrap">
           <button className="btn secondary" onClick={() => open({ kind: "echo" })}><Activity size={18} /> Add Echo</button>
+          <button className="btn secondary" onClick={() => open({ kind: "study" })}><FileHeart size={18} /> Add study</button>
           <button className="btn primary" onClick={() => open({ kind: "labs" })}><FlaskConical size={18} /> Add labs</button>
         </div>
       </div>
@@ -103,11 +107,11 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
             Current LVEF: {lvef ? `${formatNumber(lvef.current.value, 0)}% · ${lvef.reason}` : "none"}
           </span>
         </div>
-        {data.studies.length === 0 ? <div className="empty">No Echo recorded.</div> : (
+        {echoes.length === 0 ? <div className="empty">No Echo recorded.</div> : (
           <table className="data">
             <thead><tr><th>Date</th><th>Quality</th><th>LVEF</th><th>Findings</th><th>Used as current</th><th /></tr></thead>
             <tbody>
-              {[...data.studies].reverse().map((s: any) => {
+              {[...echoes].reverse().map((s: any) => {
                 const obsId = lvef?.series.find((p: any) => Math.abs(Date.parse(p.at) - Date.parse(s.performed_at)) < 1000)?.id;
                 const isCurrent = obsId && lvef?.current.id === obsId;
                 return (
@@ -128,6 +132,33 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        )}
+      </section>
+      <section className="card pad">
+        <div className="card-head">
+          <h2>ECG, rhythm, ischaemia and imaging</h2>
+          <span className="meta">
+            {STUDIES.map((k) => (
+              <button key={k.kind} className="btn ghost small" onClick={() => open({ kind: "study", studyKind: k.kind })}>+ {k.short}</button>
+            ))}
+          </span>
+        </div>
+        {others.length === 0 ? (
+          <div className="empty">No ECG, Holter, stress test, CT, CMR or angiography recorded yet.</div>
+        ) : (
+          <table className="data">
+            <thead><tr><th>Date</th><th>Study</th><th>Findings</th><th>Conclusion</th></tr></thead>
+            <tbody>
+              {others.map((st: any) => (
+                <tr key={st.id}>
+                  <td>{fmtDay(st.performed_at, { year: true })}</td>
+                  <td><Tag sev="blue">{STUDY_LABEL[st.kind] ?? st.kind}</Tag></td>
+                  <td><b>{st.findings[0] ?? "—"}</b></td>
+                  <td className="small muted">{st.conclusion || "—"}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

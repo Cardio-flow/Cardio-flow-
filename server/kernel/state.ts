@@ -62,7 +62,7 @@ export type ContextRow = {
   summary: Record<string, unknown>;
 };
 export type ConditionRow = { id: string; logical_id: string; code: string; display: string; status: string; onset: string | null; detail: string; recorded_at: string; attributes: Record<string, any> };
-export type StudyRow = { id: string; kind: string; performed_at: string; quality: string; findings: string[]; conclusion: string };
+export type StudyRow = { id: string; kind: string; performed_at: string; quality: string; findings: string[]; conclusion: string; attributes: Record<string, any> };
 
 export type PatientState = {
   patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null };
@@ -93,7 +93,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at FROM cf.medication_event WHERE patient_id=$1) e) AS events,
         (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
-        (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion FROM cf.study WHERE patient_id=$1) st) AS studies,
+        (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study WHERE patient_id=$1) st) AS studies,
         (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs`,
       [patientId],
     )
@@ -176,7 +176,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     meds: medStates,
     plan: plan.rows.map((r) => ({ ...normaliseTime(r), due_date: r.due_date ? String(r.due_date).slice(0, 10) : null })),
     contexts: contexts.rows.map(normaliseTime),
-    studies: studies.rows.map(normaliseTime),
+    studies: studies.rows.map((st) => ({ ...normaliseTime(st), attributes: (typeof st.attributes === "string" ? JSON.parse(st.attributes) : st.attributes) ?? {} })),
     preferences,
   };
 }
@@ -209,3 +209,10 @@ export const series = (s: PatientState, code: string) => s.resolved(code).histor
 export const latestDischarge = (s: PatientState) =>
   [...s.contexts].reverse().find((c) => c.kind === "admission" && c.status === "closed") ?? null;
 export const openContext = (s: PatientState) => [...s.contexts].reverse().find((c) => c.status === "open") ?? null;
+
+// Newest study of a kind (optionally within N days), e.g. the ECG the device rule reads.
+export const latestStudy = (s: PatientState, kind: string, withinDays?: number) => {
+  const st = [...s.studies].filter((x) => x.kind === kind).sort((a, b) => (a.performed_at < b.performed_at ? 1 : -1))[0] ?? null;
+  if (!st || withinDays == null) return st;
+  return (Date.parse(s.today) - Date.parse(st.performed_at)) / 86400000 <= withinDays ? st : null;
+};

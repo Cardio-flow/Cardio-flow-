@@ -76,7 +76,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "add-plan")
     return (
       <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : "Add to plan"}
+        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : "Add to plan"}
       </button>
     );
   if (act.type === "tab")
@@ -94,6 +94,18 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "titrate")
     return (
       <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.direction, dose: act.dose, reason: act.direction === "increase" ? "Titration toward target" : undefined })}>
+        {act.label}
+      </button>
+    );
+  if (act.type === "med-action")
+    return (
+      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.action, reason: a.title })}>
+        {act.label}
+      </button>
+    );
+  if (act.type === "history")
+    return (
+      <button className="go" onClick={() => open({ kind: "history", focus: act.focus })}>
         {act.label}
       </button>
     );

@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -284,6 +284,21 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await obs(hu, d(-3), [{ code: "creatinine", value: 70 }, { code: "haemoglobin", value: 12.6 }], false);
         await K.addPlanAction(tx, sys, hu, { category: "follow_up", title: "Anticoagulation review", dueDate: d(1), completesOn: { type: "visit" } });
       }
+    }
+    // Seed v4: investigations (ECG, cath) so the device, rhythm and problem-list rules have data
+    if (seeded < 4) {
+      const study = async (mrn: string, kind: string, day: string, findings: Record<string, unknown>, conclusion = "") => {
+        const id = await byMrn(mrn);
+        if (!id) return;
+        await K.recordStudy(tx, sys, id, { kind, date: at(day, "10:30"), findings, conclusion });
+        touched.push(id);
+      };
+      await study("100482317", "ecg", d(-12), { rhythm: "Sinus rhythm", rate: 68, pr: 196, qrs: 152, qrsMorphology: "LBBB", qtc: 468, st: ["Pathological Q waves"] });
+      await study("100457208", "ecg", d(-60), { rhythm: "Sinus rhythm", rate: 84, pr: 170, qrs: 118, qrsMorphology: "Non-specific IVCD", qtc: 452 });
+      await study("100318842", "ecg", d(-4), { rhythm: "Atrial fibrillation", rate: 112, qrs: 96, qrsMorphology: "Normal", qtc: 430 });
+      await study("100391054", "ecg", d(-6), { rhythm: "Sinus rhythm", rate: 76, pr: 164, qrs: 92, qrsMorphology: "Normal", qtc: 446, st: ["ST depression"] });
+      await study("100502663", "cath", d(-31), { access: "Radial", lm: "None", lad: "Occluded", lcx: "<50%", rca: "<50%", grafts: "No grafts", outcome: "PCI performed" }, "Primary PCI to proximal LAD");
+      await study("100266781", "ecg", d(-6), { rhythm: "Sinus rhythm", rate: 70, pr: 232, qrs: 104, qrsMorphology: "Normal", avBlock: "First-degree", lvh: "Yes" });
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

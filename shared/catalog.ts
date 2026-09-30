@@ -52,8 +52,19 @@ export const VITALS: LabDef[] = [
   { code: "lvef", display: "LVEF", short: "LVEF", unit: "%", category: "Echo", decimals: 0 },
 ];
 
+// Measurements that come from studies (entered through the study templates, not quick labs).
+export const STUDY_MEASURES: LabDef[] = [
+  { code: "qrs", display: "QRS duration", short: "QRS", unit: "ms", category: "ECG", decimals: 0 },
+  { code: "pr", display: "PR interval", short: "PR", unit: "ms", category: "ECG", decimals: 0 },
+  { code: "qtc", display: "QTc", short: "QTc", unit: "ms", category: "ECG", decimals: 0 },
+  { code: "ve-burden", display: "Ventricular ectopic burden", short: "VE burden", unit: "%", category: "Holter", decimals: 1 },
+  { code: "mets", display: "Exercise capacity", short: "METs", unit: "METs", category: "Stress", decimals: 1 },
+  { code: "cac", display: "Coronary calcium score", short: "CAC", unit: "Agatston", category: "CT", decimals: 0 },
+  { code: "rvef", display: "RVEF", short: "RVEF", unit: "%", category: "CMR", decimals: 0 },
+];
+
 export const MEASURES: Record<string, LabDef> = Object.fromEntries(
-  [...LABS, ...VITALS].map((l) => [l.code, l]),
+  [...LABS, ...VITALS, ...STUDY_MEASURES].map((l) => [l.code, l]),
 );
 
 // Status-type findings recorded as text observations
@@ -195,7 +206,8 @@ export const MEDICATIONS: MedicationDef[] = [
   m("edoxaban", "Edoxaban", "Factor Xa inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [30, 60], ["OD"], ["creatinine", "haemoglobin", "weight"]),
   m("dabigatran", "Dabigatran", "Direct thrombin inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [110, 150], ["BID"], ["creatinine", "haemoglobin"]),
   m("warfarin", "Warfarin", "Vitamin K antagonist", "Anticoagulation", ["oac"], ["af", "valve"], "mg", [1, 2, 3, 5], ["OD"], ["inr", "haemoglobin"]),
-  m("amiodarone", "Amiodarone", "Class III antiarrhythmic", "Rhythm", [], ["af"], "mg", [100, 200], ["OD"], ["tsh", "alt", "hr"]),
+  m("amiodarone", "Amiodarone", "Class III antiarrhythmic", "Rhythm", ["qt"], ["af"], "mg", [100, 200], ["OD"], ["tsh", "alt", "hr"]),
+  m("sotalol", "Sotalol", "Class III antiarrhythmic / beta blocker", "Rhythm", ["qt"], ["af"], "mg", [40, 80, 160], ["BID"], ["qtc", "hr", "creatinine"]),
   m("flecainide", "Flecainide", "Class Ic antiarrhythmic", "Rhythm", [], ["af"], "mg", [50, 100], ["BID"], ["hr"]),
   m("diltiazem", "Diltiazem", "Calcium-channel blocker", "Rhythm", [], ["af", "htn"], "mg", [60, 120, 180, 240], ["OD", "TID"], ["hr", "sbp"]),
   m("amlodipine", "Amlodipine", "Calcium-channel blocker", "Blood pressure", [], ["htn", "cad"], "mg", [2.5, 5, 10], ["OD"], ["sbp"]),
@@ -242,6 +254,10 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "hf-clinic", category: "follow_up", title: "HF clinic review", completesOn: { type: "visit" }, offsets: [7, 14, 28] },
   { id: "titration", category: "medication", title: "HF medication titration review", completesOn: { type: "visit" }, offsets: [14, 28] },
   { id: "echo", category: "investigation", title: "Repeat Echo", completesOn: { type: "study", kind: "echo" }, offsets: [90, 180] },
+  { id: "ecg", category: "investigation", title: "12-lead ECG", completesOn: { type: "study", kind: "ecg" }, offsets: [0, 7, 28] },
+  { id: "holter", category: "investigation", title: "Holter monitor", completesOn: { type: "study", kind: "holter" }, offsets: [14, 28] },
+  { id: "stress", category: "investigation", title: "Stress test", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
+  { id: "cmr", category: "investigation", title: "Cardiac MRI", completesOn: { type: "study", kind: "cmr" }, offsets: [28, 56] },
   { id: "device", category: "follow_up", title: "ICD/CRT reassessment after repeat Echo", completesOn: { type: "manual" }, offsets: [90, 180] },
   { id: "rehab", category: "referral", title: "Cardiac rehabilitation referral", completesOn: { type: "manual" }, offsets: [7, 14] },
   { id: "lipids", category: "monitoring", title: "Lipid profile", completesOn: { type: "lab", codes: ["ldl-c"] }, offsets: [42, 84] },

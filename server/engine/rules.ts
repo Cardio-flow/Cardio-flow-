@@ -6,6 +6,8 @@ import { MEASURES, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { latestDischarge, medsWithTag, series, type PatientState } from "../kernel/state.js";
 import { GUIDELINE_RULES } from "./guidelines.js";
+import { STUDY_RULES, crtClass } from "./study-rules.js";
+import { latestStudy } from "../kernel/state.js";
 
 export type Fact = { label: string; value: string; date?: string; tone?: "red" | "orange" | "yellow" | "blue" | "green" };
 export type Finding = {
@@ -23,7 +25,9 @@ export type Finding = {
     | { type: "tab"; tab: string }
     | { type: "start-med"; code: string; dose?: number; label: string }
     | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
-    | { type: "add-labs"; codes: string[]; label: string };
+    | { type: "add-labs"; codes: string[]; label: string }
+    | { type: "med-action"; medicationId: string; action: "stop" | "hold" | "decrease"; label: string }
+    | { type: "history"; focus: "risk" | "cardiac"; label: string };
   // guideline provenance shown in "Why?"
   source?: string;
 };
@@ -130,9 +134,10 @@ export const RULES: RuleDef[] = [
     id: "hf.device-assessment",
     kind: "clinical",
     title: "ICD/CRT assessment relevance",
-    inputs: ["lvef", "conditions"],
-    defaultParams: { lvef_threshold: 35 },
-    evidence: "Candidate hf.icd-assessment / hf.crt-assessment (ESC HF). Threshold is a sandbox value pending clinical review; never an implant recommendation.",
+    inputs: ["lvef", "conditions", "studies", "qrs"],
+    defaultParams: { lvef_threshold: 35, qrs_long: 150, qrs_min: 130, ecg_days: 365, omt_months: 3 },
+    evidence:
+      "2026 ESC HF (Rec. Tables 6–7): ICD/CRT in symptomatic HFrEF with LVEF ≤35% after ≥3 months of optimised therapy; CRT class by QRS width/morphology (LBBB ≥150 ms I; LBBB 130–149 IIa; non-LBBB ≥150 IIa; non-LBBB 130–149 IIb; <130 not indicated); CRT planning may start alongside foundational therapy with LBBB ≥150 ms (IIb). Thresholds are sandbox values pending clinical review; never an implant recommendation.",
     evaluate(s, p) {
       if (!s.tags.has("hf")) return [];
       const ef = s.resolved("lvef").current;
@@ -141,22 +146,34 @@ export const RULES: RuleDef[] = [
       // already has a defibrillator or CRT (structured history): nothing new to assess here
       if (s.tags.has("icd") || s.tags.has("crt")) return [];
       const pacer = s.tags.has("pacemaker");
+      const ecg = latestStudy(s, "ecg", Number(p.ecg_days));
+      const qrs = ecg?.attributes.qrs != null ? Number(ecg.attributes.qrs) : null;
+      const morph = ecg?.attributes.qrsMorphology as string | undefined;
+      const inAf = /fibrillation|flutter/i.test(ecg?.attributes.rhythm ?? "");
+      const crt = qrs != null && morph ? crtClass(qrs, morph, { qrs_long: Number(p.qrs_long), qrs_min: Number(p.qrs_min) }) : null;
+      const early = crt?.cls === "I" && !inAf;
+      const what = pacer ? "CRT upgrade" : crt && crt.cls !== "none" ? `CRT (class ${crt.cls === "upgrade" ? "upgrade" : crt.cls}) and ICD` : crt ? "ICD" : "ICD/CRT";
       return [
         {
           key: "device",
-          signature: ef.id + (pacer ? ":pacer" : ""),
+          signature: `${ef.id}:${ecg?.id ?? "no-ecg"}${pacer ? ":pacer" : ""}`,
           severity: "blue",
-          title: pacer
-            ? `LVEF ${formatNumber(ef.value_num, 0)}% with a pacemaker: CRT upgrade assessment may become relevant`
-            : `LVEF ${formatNumber(ef.value_num, 0)}%: ICD/CRT assessment may become relevant`,
-          detail: "Reassess on a repeat Echo after optimised therapy. This is not an implant recommendation.",
+          title: `LVEF ${formatNumber(ef.value_num, 0)}%${qrs != null ? ` · QRS ${qrs} ms ${morph ?? ""}`.trimEnd() : ""}: ${what} assessment may become relevant`,
+          detail: [
+            crt ? crt.text + "." : null,
+            inAf ? "In AF, CRT needs near-100% biventricular pacing (AV-node ablation may be considered)." : null,
+            early ? "ESC 2026: CRT planning may start alongside foundational therapy (IIb)." : `Reassess on a repeat Echo after ≥${p.omt_months} months of optimised therapy.`,
+            "Not an implant recommendation.",
+          ].filter(Boolean).join(" "),
           facts: [
             { label: "LVEF", value: `${formatNumber(ef.value_num, 0)}% (${ef.quality})`, date: ef.effective_at },
             { label: "Trigger", value: `LVEF ≤ ${p.lvef_threshold}%` },
+            ...(ecg ? [{ label: "ECG", value: ecg.findings[0] ?? "recorded", date: ecg.performed_at }] : []),
             ...(pacer ? [{ label: "Device", value: "Pacemaker (history)" }] : []),
+            { label: "Guideline", value: "ESC HF 2026 · Rec. Tables 6–7" },
           ],
-          missing: s.observations.some((o) => o.code === "qrs") ? [] : ["QRS duration and morphology"],
-          action: { type: "add-plan", template: "device" },
+          missing: ecg && qrs != null && morph ? [] : [`ECG within ${Math.round(Number(p.ecg_days) / 30)} months (QRS width and morphology)`],
+          action: ecg ? { type: "add-plan", template: "device" } : { type: "add-plan", template: "ecg" },
         },
       ];
     },
@@ -254,10 +271,11 @@ export const RULES: RuleDef[] = [
     },
   },
   ...GUIDELINE_RULES,
+  ...STUDY_RULES,
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-09-30.1";
+export const RULESET = "2026-09-30.2";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 
