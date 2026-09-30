@@ -64,7 +64,9 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "wizard")
     return (
       <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: a.id })}>
-        {({ hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia" } as Record<string, string>)[act.wizard] ?? "Review"}
+        {({ hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
+          shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
+          "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")

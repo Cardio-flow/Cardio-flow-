@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
 import { fmtDay } from "../../shared/clinical";
-import { MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
+import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
 export function WizardDrawer({
   patientId, patientName, wizard, recommendationId, contextId, onClose, onDone,
@@ -137,7 +137,7 @@ export function WizardDrawer({
               </div>
               <div className="row" style={{ alignItems: "baseline", gap: 6, margin: "6px 0" }}>
                 <span style={{ fontSize: 36, fontWeight: 800, lineHeight: 1, color: tone === "red" ? "var(--red-ink)" : "var(--orange-ink)" }}>
-                  {formatNumber(ctx.trend.points[ctx.trend.points.length - 1].value, ctx.trend.code === "potassium" ? 1 : 0)}
+                  {formatNumber(ctx.trend.points[ctx.trend.points.length - 1].value, MEASURES[ctx.trend.code]?.decimals ?? 0)}
                 </span>
                 <span className="small muted" style={{ fontWeight: 600 }}>{ctx.trend.unit}</span>
               </div>
@@ -162,7 +162,7 @@ export function WizardDrawer({
           </div>
           <div className="col" style={{ gap: 6 }}>
             <span className="eyebrow">Relevant medications</span>
-            {ctx?.meds.filter((m) => m.tags.some((t) => (RELEVANT_TAGS[wizard] ?? []).includes(t))).map((m) => (
+            {ctx?.meds.filter((m) => !RELEVANT_TAGS[wizard] || m.tags.some((t) => RELEVANT_TAGS[wizard].includes(t))).map((m) => (
               <span key={m.id} style={{ fontSize: 13.5, fontWeight: 600 }}>
                 {m.name} {doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)} {m.frequency}
               </span>

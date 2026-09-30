@@ -60,12 +60,15 @@ export const COMPLICATION_RULES: RuleDef[] = [
     id: "hf.symptomatic-hypotension",
     kind: "clinical",
     title: "Low blood pressure on HF therapy",
-    inputs: ["sbp", "meds"],
+    inputs: ["sbp", "meds", "lactate"],
     defaultParams: { sbp_below: 90, days: 30 },
     evidence: "ESC HF 2021 practical guidance: asymptomatic hypotension needs no change; if symptomatic, reduce non-HF BP-lowering drugs first, then the diuretic if not congested, then RAAS/ARNI. Pending clinical review.",
     evaluate(s, p) {
       const sbp = recent(s, "sbp", Number(p.days));
       if (!sbp || sbp.value_num! >= Number(p.sbp_below)) return [];
+      // with a raised lactate this is possible shock (acute.shock), not drug-related hypotension
+      const lac = recent(s, "lactate", 2);
+      if (lac && lac.value_num! >= 2) return [];
       const drugs = on(s, "raas", "bb", "loop", "mra", "sglt2", "vasodilator", "bp-lowering");
       if (!drugs.length) return [];
       return [{

@@ -3,9 +3,21 @@
 // the preview the clinician confirms is exactly what the server records.
 import { MEDICATION, doseLabel } from "./catalog.js";
 import { addDays, fmtDay } from "./clinical.js";
+import { ACUTE_WIZARDS } from "./wizards-acute.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
-export type Option = { value: string; label: string; hint?: string; requires?: string[]; unless?: string[] };
+export type Effect = {
+  // dated plan items (days from today) and medication stop/hold by catalogue tag
+  plan?: { category: string; title: string; days: number; completesOn?: Record<string, unknown> }[];
+  stop?: string[];
+  hold?: string[];
+};
+export type Option = {
+  value: string; label: string; hint?: string; requires?: string[]; unless?: string[];
+  effects?: Effect;
+  // prefilled (AUTO) when the patient takes a drug with one of these tags
+  detectTag?: string[];
+};
 export type Question = {
   id: string;
   label: string;
@@ -25,6 +37,13 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
+  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Metabolic";
+  source?: string;
+  // what the "recheck" answer books (default: renal function and potassium)
+  recheck?: { title: string; codes: string[] };
+  // side-panel facts and trend (codes from the catalogue)
+  facts?: string[];
+  trend?: string;
 };
 
 export type WizardMed = {
@@ -60,6 +79,7 @@ const REVIEW: Option[] = [
 
 export const WIZARDS: Record<string, WizardDef> = {
   hyperkalaemia: {
+    group: "Heart failure",
     id: "hyperkalaemia",
     title: "Hyperkalaemia review",
     tone: "red",
@@ -175,6 +195,7 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   "renal-function": {
+    group: "Heart failure",
     id: "renal-function",
     title: "Worsening renal function review",
     tone: "orange",
@@ -264,6 +285,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   },
   // ---- ESC HF 2021 practical guidance (retained in 2023/2026; confirm in review) ----
   congestion: {
+    group: "Heart failure",
     id: "congestion",
     title: "Congestion / worsening heart failure",
     tone: "orange",
@@ -336,6 +358,7 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   hypotension: {
+    group: "Heart failure",
     id: "hypotension",
     title: "Low blood pressure on HF therapy",
     tone: "orange",
@@ -399,6 +422,7 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   bradycardia: {
+    group: "Rhythm & devices",
     id: "bradycardia",
     title: "Bradycardia / AV block",
     tone: "orange",
@@ -463,6 +487,7 @@ export const WIZARDS: Record<string, WizardDef> = {
       },
     ],
   },
+  ...ACUTE_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.
@@ -587,14 +612,28 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("pacing")) plan("referral", "EP / pacing assessment", answers.block === "high-grade" || answers.block === "pauses" ? 0 : 14);
     if (actions.includes("urgent") || answers.block === "high-grade") plan("follow_up", "Same-day hospital assessment", 0, { type: "visit" });
   }
+  // generic effects: every chosen option can add plan items and stop/hold medicines by tag
+  const def = WIZARDS[wizardId];
+  for (const q of def?.steps.flatMap((st) => st.questions) ?? []) {
+    if (!q.options || !visibleQuestions({ id: "", title: "", questions: [q] }, answers).length) continue;
+    const v = answers[q.id];
+    const chosen = Array.isArray(v) ? v : v != null ? [String(v)] : [];
+    for (const o of q.options.filter((o) => chosen.includes(o.value) && o.effects)) {
+      for (const p of o.effects!.plan ?? []) if (!out.some((x) => x.kind === "plan" && x.title === p.title)) plan(p.category, p.title, p.days, p.completesOn);
+      for (const [tags, event] of [[o.effects!.stop, "stop"], [o.effects!.hold, "hold"]] as const)
+        for (const m of ctx.meds.filter((m) => tags?.some((t) => m.tags.includes(t))))
+          if (!out.some((x) => x.kind === "medication" && x.medicationId === m.id)) out.push({ kind: "medication", medicationId: m.id, event, doseValue: null, label: `${m.name}: ${event}` });
+    }
+  }
   const recheck = Number(answers.recheck);
   if (Number.isFinite(recheck) && answers.recheck != null) {
+    const r = def?.recheck ?? { title: "Renal function and potassium check", codes: ["potassium", "creatinine"] };
     out.push({
       kind: "plan",
       category: "monitoring",
-      title: "Renal function and potassium check",
+      title: r.title,
       dueDate: addDays(today, recheck),
-      completesOn: { type: "lab", codes: ["potassium", "creatinine"] },
+      completesOn: { type: "lab", codes: r.codes },
       label: "",
     });
   }

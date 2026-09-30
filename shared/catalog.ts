@@ -40,6 +40,13 @@ export const LABS: LabDef[] = [
   { code: "alt", display: "ALT", short: "ALT", unit: "U/L", category: "Liver", ref: { high: 45 }, decimals: 0 },
   { code: "inr", display: "INR", short: "INR", unit: "ratio", category: "Coagulation", decimals: 1 },
   { code: "tsh", display: "TSH", short: "TSH", unit: "mIU/L", category: "Thyroid", ref: { low: 0.4, high: 4.0 }, decimals: 2 },
+  { code: "lactate", display: "Lactate", short: "Lactate", unit: "mmol/L", category: "Acute", ref: { high: 2 }, decimals: 1 },
+  { code: "bicarbonate", display: "Bicarbonate", short: "HCO₃", unit: "mmol/L", category: "Acute", ref: { low: 22, high: 29 }, decimals: 0 },
+  { code: "ph", display: "pH (blood gas)", short: "pH", unit: "", category: "Acute", ref: { low: 7.35, high: 7.45 }, decimals: 2 },
+  { code: "ketones", display: "Blood ketones (β-hydroxybutyrate)", short: "Ketones", unit: "mmol/L", category: "Metabolic", ref: { high: 0.6 }, decimals: 1 },
+  { code: "wbc", display: "White cell count", short: "WBC", unit: "10⁹/L", category: "Haematology", ref: { low: 4, high: 11 }, decimals: 1 },
+  { code: "crp", display: "CRP", short: "CRP", unit: "mg/L", category: "Inflammation", ref: { high: 5 }, decimals: 0 },
+  { code: "digoxin-level", display: "Digoxin level", short: "Digoxin", unit: "ng/mL", category: "Drug levels", decimals: 1 },
 ];
 
 export const VITALS: LabDef[] = [
@@ -49,6 +56,8 @@ export const VITALS: LabDef[] = [
   { code: "weight", display: "Weight", short: "Wt", unit: "kg", category: "Vitals", decimals: 1 },
   { code: "height", display: "Height", short: "Ht", unit: "cm", category: "Vitals", decimals: 0 },
   { code: "spo2", display: "SpO₂", short: "SpO₂", unit: "%", category: "Vitals", decimals: 0 },
+  { code: "temp", display: "Temperature", short: "Temp", unit: "°C", category: "Vitals", decimals: 1 },
+  { code: "rr", display: "Respiratory rate", short: "RR", unit: "/min", category: "Vitals", decimals: 0 },
   { code: "lvef", display: "LVEF", short: "LVEF", unit: "%", category: "Echo", decimals: 0 },
 ];
 
@@ -80,6 +89,8 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
   { id: "metabolic", label: "Diabetes & kidney", codes: ["hba1c", "creatinine", "uacr"] },
   { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat"] },
   { id: "anticoag", label: "Anticoagulation", codes: ["inr", "haemoglobin", "creatinine"] },
+  { id: "sepsis", label: "Sepsis / shock", codes: ["lactate", "wbc", "crp", "creatinine", "potassium"] },
+  { id: "dka", label: "Glucose crisis", codes: ["glucose", "ketones", "bicarbonate", "ph", "potassium", "sodium"] },
 ];
 
 // hidden: kept for existing records but no longer offered in the picker (recorded elsewhere)
@@ -212,7 +223,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("diltiazem", "Diltiazem", "Calcium-channel blocker", "Rhythm", ["ndhp-ccb", "rate-slowing", "bp-lowering"], ["af", "htn"], "mg", [60, 120, 180, 240], ["OD", "TID"], ["hr", "sbp"]),
   m("amlodipine", "Amlodipine", "Calcium-channel blocker", "Blood pressure", ["vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [2.5, 5, 10], ["OD"], ["sbp"]),
   m("indapamide", "Indapamide", "Thiazide-like diuretic", "Blood pressure", ["thiazide", "bp-lowering"], ["htn"], "mg", [1.5, 2.5], ["OD"], ["sodium", "potassium"]),
-  m("metformin", "Metformin", "Biguanide", "Cardiometabolic", [], ["dm"], "mg", [500, 850, 1000], ["OD", "BID"], ["egfr"]),
+  m("metformin", "Metformin", "Biguanide", "Cardiometabolic", ["metformin"], ["dm"], "mg", [500, 850, 1000], ["OD", "BID"], ["egfr"]),
   m("semaglutide", "Semaglutide", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [0.25, 0.5, 1, 1.7, 2, 2.4], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("tirzepatide", "Tirzepatide", "Dual GIP/GLP-1 agonist", "Cardiometabolic", ["glp1"], ["dm", "obesity"], "mg", [2.5, 5, 7.5, 10, 12.5, 15], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("sildenafil", "Sildenafil", "PDE-5 inhibitor", "Pulmonary hypertension", [], [], "mg", [20], ["TID"], ["sbp"]),

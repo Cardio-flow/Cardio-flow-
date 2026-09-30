@@ -30,6 +30,18 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   }
   const on = (tag: string) => s.meds.some((m) => m.status === "active" && m.tags.includes(tag));
   if (wizardId === "congestion" || wizardId === "hypotension" || wizardId === "bradycardia") return extraContext(s, wizardId, meds, fact, on, detected);
+  const def = WIZARDS[wizardId];
+  if (def?.facts) {
+    // content-driven wizards: facts, trend and AUTO detection all come from the definition
+    for (const q of def.steps.flatMap((st) => st.questions))
+      for (const o of q.options ?? []) if (o.detectTag?.some((t) => on(t))) (detected[q.id] ??= []).push(o.value);
+    const t = def.trend ? series(s, def.trend).slice(0, 5).reverse() : [];
+    return {
+      today: s.today, meds, detected,
+      facts: def.facts.filter((c) => MEASURES[c]).map((c) => fact(c)),
+      trend: def.trend && MEASURES[def.trend] ? { code: def.trend, label: MEASURES[def.trend].display, unit: MEASURES[def.trend].unit, points: t.map((o) => ({ date: o.effective_at, value: o.value_num! })) } : undefined,
+    };
+  }
   const code = wizardId === "hyperkalaemia" ? "potassium" : "creatinine";
   const hist = series(s, code).slice(0, 3).reverse();
   const facts =

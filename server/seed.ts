@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -330,6 +330,15 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       if (y6) {
         await K.recordObservations(tx, sys, y6, { effectiveAt: at(d(-1), "10:00"), items: [{ code: "hr", value: 46 }, { code: "sbp", value: 104 }], silentEvent: true });
         touched.push(y6);
+      }
+    }
+    // Seed v7: an acute/safety pathway to demonstrate (Fatma: haemoglobin fall on apixaban + DAPT)
+    if (seeded < 7) {
+      const f7 = await byMrn("100391054");
+      if (f7) {
+        await K.recordObservations(tx, sys, f7, { effectiveAt: at(d(-8), "07:30"), items: [{ code: "haemoglobin", value: 12.8 }], silentEvent: true });
+        await K.recordObservations(tx, sys, f7, { effectiveAt: at(d(0), "06:30"), items: [{ code: "haemoglobin", value: 10.4 }, { code: "platelets", value: 210 }] });
+        touched.push(f7);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

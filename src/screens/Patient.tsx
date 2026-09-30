@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon } from "lucide-react";
+import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route } from "lucide-react";
 import { useData } from "../api";
 import { Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
@@ -16,6 +16,7 @@ import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
+import { Pathways } from "../drawers/Pathways";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -32,7 +33,8 @@ export type Open =
   | { kind: "dx" }
   | { kind: "history"; focus?: "risk" | "cardiac" }
   | { kind: "identity"; identity: any }
-  | { kind: "status" };
+  | { kind: "status" }
+  | { kind: "pathways" };
 
 const TABS = [
   ["summary", "Summary"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -96,6 +98,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             <RiskRow rf={h.riskFactors} onOpen={() => setOpen({ kind: "history", focus: "risk" })} />
           </div>
           <div className="pt-actions">
+            {!h.deceased && (
+              <button className="btn secondary" onClick={() => setOpen({ kind: "pathways" })}>
+                <Route size={18} />
+                Pathways
+              </button>
+            )}
             <button className="btn secondary" onClick={() => setOpen({ kind: "labs" })}>
               <FlaskConical size={18} />
               Add labs
@@ -166,6 +174,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
+      {open?.kind === "pathways" && <Pathways onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>
   );

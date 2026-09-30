@@ -2,6 +2,16 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-01 · Acute and safety pathways
+
+- **Ten new pathways** (`shared/wizards-acute.ts`): shock (type + SCAI stage, holds HF drugs, CCU/ICU, Echo, cath, cultures, pressor, shock team, relieve obstruction), sepsis (Surviving Sepsis 2021 hour-1 bundle, sick-day holds, endocarditis work-up with a prosthesis/device), hyperglycaemia / DKA / euglycaemic DKA / HHS (ADA/EASD 2024 criteria), hypoglycaemia (ADA levels), bleeding on antithrombotics (EHRA 2021; hold, reversal per protocol, restart plan), low K/Mg, low sodium, INR out of range (mechanical valve aware), digoxin toxicity, severe hypertension (ESC 2024).
+- **CardioFlow never doses acute drugs** (antibiotics, insulin, reversal agents, electrolyte replacement, pressors): the pathway records the decision, the drug holds/stops and the timed plan; doses follow the local protocol.
+- **Content-driven engine:** an option can carry `effects` (dated plan items; stop/hold by catalogue tag) and `detectTag` (AUTO prefill); a wizard can declare `facts`, `trend`, `recheck` and `group`. New pathways need no engine code.
+- **Pathways button** in the patient header opens any pathway on demand, grouped Acute & safety / Heart failure / Rhythm & devices / Metabolic; alerts still open them automatically.
+- **Trigger rules** (`server/engine/acute-rules.ts`, CLINICAL_REVIEW): `acute.shock`, `acute.sepsis-screen`, `dm.hyperglycaemic-crisis` (DKA, euglycaemic DKA, HHS, HbA1c ≥9% uncontrolled), `dm.hypoglycaemia`, `safety.bleeding` (Hb fall ≥2 g/dL on antithrombotics), `safety.low-potassium`, `safety.hyponatraemia` (<130; <125 red), `safety.inr` (AF 2–3; mechanical valve 2.5–3.5 pending review; >9 red), `safety.digoxin`, `htn.severe`. `hf.symptomatic-hypotension` stays silent when lactate is raised (shock takes over). RULESET 2026-10-01.1.
+- **Catalogue:** lactate, bicarbonate, pH, ketones, WBC, CRP, digoxin level; temperature and respiratory rate; presets "Sepsis / shock" and "Glucose crisis"; metformin tagged.
+- Synthetic seed v7: Fatma, haemoglobin fall on aspirin + ticagrelor + apixaban.
+
 ## 2026-09-30 · Complication wizards: congestion, low blood pressure, bradycardia
 
 - **Three new wizards** on the one wizard engine (`shared/wizards.ts`), following ESC HF 2021 practical guidance (retained 2023/2026, wording to confirm in review) and ESC pacing 2021: congestion / worsening HF (signs, red flags → same-day assessment, precipitants, diuretic, self-care, recheck and review), symptomatic hypotension (non-HF BP-lowering drugs first, then diuretic if not congested, then RAAS/ARNI), bradycardia / AV block (review every rate-slowing drug, halve the beta-blocker, ECG/Holter, pacing assessment same day for high-grade block or pauses).
