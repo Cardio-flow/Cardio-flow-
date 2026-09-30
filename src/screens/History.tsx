@@ -59,6 +59,10 @@ export function HistoryTab({ id, version, open }: { id: string; version: number;
               <dt>Mobile</dt><dd>{idn.mobile ?? <span className="muted">Not recorded</span>}</dd>
               <dt>Allergies</dt><dd>{idn.allergies}</dd>
             </dl>
+            <div className="row" style={{ justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
+              <span className="small" style={{ fontWeight: 700, color: "var(--ink-3)" }}>Vital and follow-up status</span>
+              <button className="btn ghost small" onClick={() => open({ kind: "status" })}>Record status</button>
+            </div>
           </section>
           <section className="card pad">
             <div className="card-head">

@@ -76,7 +76,11 @@ export type PatientState = {
   contexts: ContextRow[];
   studies: StudyRow[];
   preferences: Record<string, string>;
+  // newest vital and follow-up status (null = never recorded: alive, active by default)
+  status: { vital: StatusRow | null; followUp: StatusRow | null };
+  deceased: boolean;
 };
+export type StatusRow = { id: string; kind: string; status: string; effective_on: string; place: string | null; cause_group: string | null; detail: string };
 
 export async function loadState(tx: Q, patientId: string): Promise<PatientState> {
   const today = todayFn();
@@ -94,7 +98,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
         (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study WHERE patient_id=$1) st) AS studies,
-        (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs`,
+        (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs,
+        (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status`,
       [patientId],
     )
   ).rows[0];
@@ -108,6 +113,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const contexts = j(bundle.contexts) as { rows: ContextRow[] };
   const studies = j(bundle.studies) as { rows: StudyRow[] };
   const prefs = j(bundle.prefs) as { rows: { code: string; observation_id: string }[] };
+  const statusRows = (j(bundle.status).rows as StatusRow[]).map((r) => ({ ...r, effective_on: String(r.effective_on).slice(0, 10) }));
+  const vital = statusRows.find((r) => r.kind === "vital") ?? null;
   const conditions = conds.rows.filter((c) => c.status === "active").map((c) => ({ ...c, attributes: (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes) ?? {} }));
   const tags = new Set<string>([...conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []), ...conditions.flatMap(detailTags)]);
   const preferences = Object.fromEntries(prefs.rows.map((r) => [r.code, r.observation_id]));
@@ -178,6 +185,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     contexts: contexts.rows.map(normaliseTime),
     studies: studies.rows.map((st) => ({ ...normaliseTime(st), attributes: (typeof st.attributes === "string" ? JSON.parse(st.attributes) : st.attributes) ?? {} })),
     preferences,
+    status: { vital, followUp: statusRows.find((r) => r.kind === "follow_up") ?? null },
+    deceased: vital?.status === "died",
   };
 }
 

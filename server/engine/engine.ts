@@ -28,7 +28,8 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   const s = state ?? (await loadState(tx, patientId));
   const versions = await activeRuleVersions(tx, siteMode);
   const result: ReassessResult = { created: [], resolved: 0, superseded: 0 };
-  const shouldRun = (rule: RuleDef) => !changed || rule.inputs.some((i) => changed.includes(i));
+  // a deceased patient leaves every reminder list: all rules run and find nothing
+  const shouldRun = (rule: RuleDef) => s.deceased || !changed || rule.inputs.some((i) => changed.includes(i));
   // Two reads for the whole patient instead of per rule (the database may be far away).
   const existing = (
     await tx.query<{ id: string; rule_id: string; fingerprint: string; rule_status: string; rule_version: number; status: string }>(
@@ -49,7 +50,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
       continue;
     }
     if (!shouldRun(rule)) continue;
-    const findings = rule.evaluate(s, { ...rule.defaultParams, ...version.params });
+    const findings = s.deceased ? [] : rule.evaluate(s, { ...rule.defaultParams, ...version.params });
     const seen = new Set<string>();
     for (const f of findings) {
       const fingerprint = `${f.key}|${f.signature}`;

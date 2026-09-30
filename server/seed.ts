@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 5;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -299,6 +299,22 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await study("100391054", "ecg", d(-6), { rhythm: "Sinus rhythm", rate: 76, pr: 164, qrs: 92, qrsMorphology: "Normal", qtc: 446, st: ["ST depression"] });
       await study("100502663", "cath", d(-31), { access: "Radial", lm: "None", lad: "Occluded", lcx: "<50%", rca: "<50%", grafts: "No grafts", outcome: "PCI performed" }, "Primary PCI to proximal LAD");
       await study("100266781", "ecg", d(-6), { rhythm: "Sinus rhythm", rate: 70, pr: 232, qrs: 104, qrsMorphology: "Normal", avBlock: "First-degree", lvh: "Yes" });
+    }
+    // Seed v5: an early HF readmission (discharged still congested, no review in between)
+    if (seeded < 5 && !(await byMrn("100845127"))) {
+      const fm = await K.createPatient(tx, sys, {
+        name: "Faisal Al-Mutairi", mrn: "100845127", sex: "Male", birthDate: addDays(T, -(71 * 365 + 20)), allergies: "No known drug allergies",
+        conditions: ["hfref", "htn", "t2dm"], civilId: "255010100044", nationality: "Kuwaiti",
+      });
+      await K.recordEcho(tx, sys, fm, { date: at(d(-24)), quality: "formal", lvef: 30, findings: ["Dilated LV", "Moderate secondary MR"] });
+      for (const [code, dose, freq] of [["bisoprolol", 2.5, "OD"], ["furosemide", 40, "BID"], ["dapagliflozin", 10, "OD"]] as const)
+        await K.startMedication(tx, sys, fm, { code, doseValue: dose, frequency: freq, route: "PO", indication: "hf", effectiveAt: at(d(-300)) });
+      const a1 = await K.startAdmission(tx, sys, fm, { startedAt: at(d(-25), "14:00"), location: "Ward 3A · Bed 4", reasons: ["Acute decompensated HF"], route: "Emergency department", symptoms: ["Dyspnoea", "Orthopnoea / PND", "Leg swelling"] });
+      await K.recordObservations(tx, sys, fm, { effectiveAt: at(d(-25), "15:00"), contextId: a1.id, items: [{ code: "creatinine", value: 128 }, { code: "potassium", value: 4.6 }, { code: "sodium", value: 133 }, { code: "nt-probnp", value: 6200 }, { code: "weight", value: 88 }] });
+      await K.discharge(tx, sys, fm, a1.id, { endedAt: at(d(-18), "12:00"), status: "Still congested", destination: "Home", events: ["IV diuretics", "Acute kidney injury"], dischargeWeight: 85.5, plan: [] });
+      await K.startAdmission(tx, sys, fm, { startedAt: at(d(-2), "22:00"), location: "CCU · Bed 2", reasons: ["Acute decompensated HF"], route: "Emergency department", symptoms: ["Dyspnoea", "Leg swelling"] });
+      await obs(fm, d(-1), [{ code: "creatinine", value: 141 }, { code: "potassium", value: 4.9 }, { code: "sodium", value: 131 }, { code: "weight", value: 90 }], false);
+      touched.push(fm);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

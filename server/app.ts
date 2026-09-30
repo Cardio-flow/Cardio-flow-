@@ -12,6 +12,7 @@ import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./e
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays } from "../shared/clinical.js";
+import { ADMISSION_ROUTES, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
 
 export type Session = Actor & { email: string; expires: number; csrf: string };
 export type HostedAuth = {
@@ -385,6 +386,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         startedAt: isoDateTime,
         location: z.string().trim().min(1).max(80),
         reasons: z.array(z.string().max(80)).min(1).max(6),
+        route: z.enum(ADMISSION_ROUTES as [string, ...string[]]).nullish(),
+        symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(),
+        hfRelated: z.boolean().nullish(),
         confirmations: z.array(z.object({ kind: z.enum(["condition", "medication"]), id: uuidS, answer: z.enum(["unchanged", "changed", "unknown", "not-assessed"]) })).optional(),
       })
       .parse(req.body);
@@ -395,7 +399,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         endedAt: isoDateTime,
+        outcome: z.enum(["alive", "died"]).default("alive"),
         status: z.string().max(120),
+        destination: z.enum(DISCHARGE_DESTINATION as [string, ...string[]]).nullish(),
+        events: z.array(z.enum(IN_HOSPITAL_EVENTS as [string, ...string[]])).max(20).optional(),
+        causeGroup: z.enum(["hf", "sudden_cardiac", "other_cv", "non_cv", "unknown"]).nullish(),
+        dischargeWeight: z.number().min(20).max(350).nullish(),
         note: z.string().max(4000).optional(),
         plan: z
           .array(z.object({ category: z.string(), title: z.string().max(160), dueDate: isoDate.nullable(), completesOn: z.record(z.string(), z.unknown()).optional(), reason: z.string().max(200).optional() }))
@@ -406,13 +415,28 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ reasons: z.array(z.string().max(80)).min(1).max(8), service: z.string().max(60) }).parse(req.body);
+    const input = z.object({ reasons: z.array(z.string().max(80)).min(1).max(8), service: z.string().max(60), symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional() }).parse(req.body);
     await write(res, id, (tx, a) => K.startVisit(tx, a, id, { ...input, startedAt: nowIso() }));
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z.object({ note: z.string().max(8000).optional() }).parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }));
+  }));
+  app.post("/api/patients/:id/status", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z
+      .object({
+        kind: z.enum(["vital", "follow_up"]),
+        status: z.enum(["alive", "died", "active", "lost", "transferred", "discharged_from_clinic"]),
+        effectiveOn: isoDate,
+        place: z.enum(["in_hospital", "out_of_hospital", "unknown"]).nullish(),
+        causeGroup: z.enum(["hf", "sudden_cardiac", "other_cv", "non_cv", "unknown"]).nullish(),
+        detail: z.string().max(500).optional(),
+      })
+      .parse(req.body);
+    // a status change can empty or refill every reminder: re-run all rules
+    await write(res, id, async (tx, a) => ({ ...(await K.recordStatus(tx, a, id, input)), changed: undefined }));
   }));
   app.get("/api/patients/:id/contexts/:cid/note", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

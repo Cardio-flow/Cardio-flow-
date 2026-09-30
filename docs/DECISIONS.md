@@ -2,6 +2,16 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-09-30 · General-clinic core, slice 3: admission, discharge, patient status
+
+- **Vocabulary** in `shared/encounters.ts` (reasons, route, symptoms, in-hospital events, discharge condition and destination, cause-of-death groups, follow-up statuses). Admission and discharge facts stay in `care_context.summary` (no new table): `route`, `symptoms`, `hfRelated`, `readmission {days, band, previousId, hfReadmission}`, `outcome`, `dischargeStatus`, `destination`, `events`, `los`. Readmission band and length of stay are computed by the server, never typed.
+- **HF-related** is the clinician's yes/no, defaulting from the reason; older admissions fall back to their reasons (`isHfAdmission`).
+- **Vital status is separate from follow-up status** (`cf.status_event`, append-only; a mistaken death is corrected by a newer "alive" row). A death (at discharge or later) cancels open plan actions with the reason, resolves every recommendation (the engine returns no findings for a deceased patient) and removes the patient from the worklist and attention count; new visits and admissions are refused.
+- **Discharge** can record death in hospital (cause group required, no plan allowed), a discharge (dry) weight as an observation, and "Still congested" moves the HF clinic review to 7 days.
+- **Rules** (`server/engine/encounter-rules.ts`, CLINICAL_REVIEW): `hf.post-discharge-review` (early review 1–2 weeks after an HF admission, 7 days if congested; silent once a visit is booked inside the window or the patient is readmitted), `hf.readmission-30d`. RULESET 2026-09-30.4.
+- Clinic visits record symptoms; notes include route, symptoms, readmission, length of stay, events and discharge condition/destination.
+- Synthetic seed v5: Faisal, an HF readmission 16 days after a congested discharge.
+
 ## 2026-09-30 · GLP-1 RA for every guideline indication
 
 - Ahmed decided CardioFlow suggests GLP-1 RA wherever a guideline indicates it (the HF Registry's HF-only limit does not apply here): T2DM with ASCVD (ESC 2023, I); T2DM with CKD (ESC-ERA CVD–CKD 2026 §5.5.4, FLOW; added now); established CVD with BMI ≥27 without diabetes (ESC obesity consensus, IIa); HF with LVEF ≥45% and BMI ≥30 (ESC HF 2026, IIa). All remain suggestions in clinical review.

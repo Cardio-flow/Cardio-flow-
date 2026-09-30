@@ -6,6 +6,7 @@ import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { STUDY, cleanStudy, studySummary } from "../../shared/studies.js";
+import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
 export type Changed = string[];
 
@@ -560,58 +561,152 @@ export async function completeMatching(
 }
 
 // ---------- care contexts ----------
-export async function startAdmission(
-  tx: Q,
-  actor: Actor,
-  patientId: string,
-  input: { startedAt: string; location: string; reasons: string[]; confirmations?: { kind: "condition" | "medication"; id: string; answer: "unchanged" | "changed" | "unknown" | "not-assessed" }[] },
-) {
+export type AdmissionInput = {
+  startedAt: string;
+  location: string;
+  reasons: string[];
+  route?: string | null;
+  symptoms?: string[];
+  hfRelated?: boolean | null;
+  confirmations?: { kind: "condition" | "medication"; id: string; answer: "unchanged" | "changed" | "unknown" | "not-assessed" }[];
+};
+
+export async function startAdmission(tx: Q, actor: Actor, patientId: string, input: AdmissionInput) {
   await patientInSite(tx, actor, patientId);
+  await notDeceased(tx, patientId);
   const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='open'`, [patientId])).rows[0];
   if (open) throw new ApiError(409, "This patient already has an open admission");
+  const prev = (
+    await tx.query(
+      `SELECT id, ended_at, reasons, summary FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='closed' AND ended_at <= $2 ORDER BY ended_at DESC LIMIT 1`,
+      [patientId, input.startedAt],
+    )
+  ).rows[0] as any;
+  const hfRelated = input.hfRelated ?? input.reasons.some((r) => HF_REASONS.includes(r));
+  let readmission = null;
+  if (prev?.ended_at) {
+    const prevSummary = typeof prev.summary === "string" ? JSON.parse(prev.summary) : prev.summary ?? {};
+    const days = daysBetween(new Date(prev.ended_at).toISOString(), input.startedAt);
+    const previousHfRelated = isHfAdmission({ reasons: prev.reasons ?? [], summary: prevSummary });
+    readmission = { days, band: readmissionBand(days), previousId: prev.id, previousDischarge: new Date(prev.ended_at).toISOString(), previousHfRelated, hfReadmission: hfRelated && previousHfRelated };
+  }
   const id = uuid();
+  const summary = { confirmations: input.confirmations ?? [], route: input.route ?? null, symptoms: input.symptoms ?? [], hfRelated, readmission };
   await tx.query(
-    `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,summary,created_by) VALUES($1,$2,'admission','open',$3,$4,'Cardiology',$5,$6,$7)`,
-    [id, patientId, input.startedAt, input.location, input.reasons, JSON.stringify({ confirmations: input.confirmations ?? [] }), actor.id],
+    `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'admission','open',$3,$4,'Cardiology',$5,$6,$7,$8)`,
+    [id, patientId, input.startedAt, input.location, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
   );
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.startedAt, kind: "admission", category: "visit",
-    title: `Admitted · ${input.reasons.join(", ") || "cardiology"}`, detail: input.location, refType: "care_context", refId: id, contextId: id,
+    title: `Admitted · ${input.reasons.join(", ") || "cardiology"}${readmission ? ` · readmission ${readmission.days} d after discharge` : ""}`,
+    detail: [input.location, input.route, (input.symptoms ?? []).join(", ")].filter(Boolean).join(" · "), refType: "care_context", refId: id, contextId: id,
   });
   await audit(tx, actor, "admit", "care_context", id, patientId);
   return { id, changed: ["contexts"] as Changed };
 }
 
-export async function discharge(
-  tx: Q,
-  actor: Actor,
-  patientId: string,
-  contextId: string,
-  input: { endedAt: string; status: string; plan: PlanInput[]; note?: string },
-) {
+export type DischargeInput = {
+  endedAt: string;
+  outcome?: "alive" | "died";
+  status: string; // condition at discharge
+  destination?: string | null;
+  events?: string[];
+  causeGroup?: string | null;
+  dischargeWeight?: number | null;
+  plan: PlanInput[];
+  note?: string;
+};
+
+export async function discharge(tx: Q, actor: Actor, patientId: string, contextId: string, input: DischargeInput) {
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.kind !== "admission") throw new ApiError(404, "Admission not found");
   if (ctx.status !== "open") throw new ApiError(409, "This admission is already closed");
+  if (new Date(input.endedAt) < new Date(ctx.started_at)) throw new ApiError(400, "Discharge cannot be before admission");
+  const died = input.outcome === "died";
+  if (died && input.plan.length) throw new ApiError(400, "No follow-up plan for a patient who died in hospital");
+  if (died && !input.causeGroup) throw new ApiError(400, "Cause of death group is required");
+  const events = (input.events ?? []).filter((e) => e !== "None");
+  const los = daysBetween(new Date(ctx.started_at).toISOString(), input.endedAt);
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [
-    contextId, input.endedAt, JSON.stringify({ dischargeStatus: input.status, note: input.note ?? "" }),
+    contextId, input.endedAt,
+    JSON.stringify({ outcome: died ? "died" : "alive", dischargeStatus: input.status, destination: died ? null : input.destination ?? null, events, los, note: input.note ?? "" }),
   ]);
+  const changed: Changed = ["contexts", "plan"];
+  if (input.dischargeWeight != null && !died) {
+    const r = await recordObservations(tx, actor, patientId, { effectiveAt: input.endedAt, items: [{ code: "weight", value: input.dischargeWeight }], contextId, source: "discharge weight", silentEvent: true });
+    changed.push(...r.changed);
+  }
   for (const p of input.plan) await addPlanAction(tx, actor, patientId, { ...p, contextId, createdAt: input.endedAt });
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.endedAt, kind: "discharge", category: "visit",
-    title: `Discharged · ${input.plan.length} plan action${input.plan.length === 1 ? "" : "s"} created`,
-    detail: input.status, refType: "care_context", refId: contextId, contextId,
+    title: died ? `Died in hospital · day ${los}` : `Discharged · day ${los} · ${input.plan.length} plan action${input.plan.length === 1 ? "" : "s"} created`,
+    detail: [input.status, input.destination, events.length ? "Events: " + events.join(", ") : null].filter(Boolean).join(" · "), refType: "care_context", refId: contextId, contextId,
   });
-  await audit(tx, actor, "discharge", "care_context", contextId, patientId);
-  return ["contexts", "plan"] as Changed;
+  if (died)
+    await recordStatus(tx, actor, patientId, { kind: "vital", status: "died", effectiveOn: isoDay(new Date(input.endedAt)), place: "in_hospital", causeGroup: input.causeGroup, contextId });
+  await audit(tx, actor, "discharge", "care_context", contextId, patientId, { outcome: died ? "died" : "alive", los });
+  return changed;
+}
+
+// ---------- vital and follow-up status ----------
+export type StatusInput = {
+  kind: "vital" | "follow_up";
+  status: string;
+  effectiveOn: string;
+  place?: "in_hospital" | "out_of_hospital" | "unknown" | null;
+  causeGroup?: string | null;
+  detail?: string;
+  contextId?: string | null;
+};
+async function notDeceased(tx: Q, patientId: string) {
+  const v = (await tx.query(`SELECT status FROM cf.status_event WHERE patient_id=$1 AND kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1`, [patientId])).rows[0];
+  if (v?.status === "died") throw new ApiError(409, "This patient is recorded as deceased");
+}
+
+export async function recordStatus(tx: Q, actor: Actor, patientId: string, input: StatusInput) {
+  await patientInSite(tx, actor, patientId);
+  const vitalOk = input.kind === "vital" && ["alive", "died"].includes(input.status);
+  const fuOk = input.kind === "follow_up" && FOLLOW_UP_STATUS.some((f) => f.value === input.status);
+  if (!vitalOk && !fuOk) throw new ApiError(400, "Status does not match its kind");
+  if (input.effectiveOn > today()) throw new ApiError(400, "Status date cannot be in the future");
+  const died = input.kind === "vital" && input.status === "died";
+  if (died && !input.causeGroup) throw new ApiError(400, "Cause of death group is required");
+  if (died && !CAUSE_GROUPS.some((c) => c.value === input.causeGroup)) throw new ApiError(400, "Unknown cause group");
+  const id = uuid();
+  await tx.query(
+    `INSERT INTO cf.status_event(id,patient_id,kind,status,effective_on,place,cause_group,detail,context_id,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [id, patientId, input.kind, input.status, input.effectiveOn, died ? input.place ?? "unknown" : null, died ? input.causeGroup : null, input.detail ?? "", input.contextId ?? null, actor.id],
+  );
+  if (died) {
+    // a deceased patient leaves every reminder list: open plan actions are closed with the reason
+    await tx.query(
+      `UPDATE cf.plan_action SET status='cancelled', outcome='Patient deceased', updated_at=now(), version=version+1 WHERE patient_id=$1 AND status='planned'`,
+      [patientId],
+    );
+    if (!input.contextId)
+      await journeyEvent(tx, actor, {
+        patientId, occurredAt: new Date(`${input.effectiveOn}T12:00:00+03:00`).toISOString(), kind: "death", category: "visit",
+        title: `Died${input.place === "in_hospital" ? " in hospital" : input.place === "out_of_hospital" ? " out of hospital" : ""} · ${CAUSE_GROUPS.find((c) => c.value === input.causeGroup)?.label}`,
+        detail: input.detail ?? "", refType: "status_event", refId: id,
+      });
+  } else if (input.kind === "follow_up") {
+    await journeyEvent(tx, actor, {
+      patientId, occurredAt: new Date(`${input.effectiveOn}T12:00:00+03:00`).toISOString(), kind: "follow-up-status", category: "plan",
+      title: `Follow-up: ${FOLLOW_UP_STATUS.find((f) => f.value === input.status)?.label}`, detail: input.detail ?? "", refType: "status_event", refId: id,
+    });
+  }
+  await audit(tx, actor, "record-status", "status_event", id, patientId, { kind: input.kind, status: input.status });
+  return { id };
 }
 
 export async function startVisit(
   tx: Q,
   actor: Actor,
   patientId: string,
-  input: { startedAt: string; reasons: string[]; service: string; location?: string },
+  input: { startedAt: string; reasons: string[]; service: string; location?: string; symptoms?: string[] },
 ) {
   await patientInSite(tx, actor, patientId);
+  await notDeceased(tx, patientId);
   const prev = (
     await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND status='closed' ORDER BY coalesce(ended_at,started_at) DESC LIMIT 1`, [patientId])
   ).rows[0];
@@ -619,13 +714,13 @@ export async function startVisit(
   if (open) return { id: open.id as string, changed: [] as Changed, completed: [] };
   const id = uuid();
   await tx.query(
-    `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,created_by) VALUES($1,$2,'clinic_visit','open',$3,$4,$5,$6,$7,$8)`,
-    [id, patientId, input.startedAt, input.location ?? "OPD", input.service, input.reasons, prev?.id ?? null, actor.id],
+    `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'clinic_visit','open',$3,$4,$5,$6,$7,$8,$9)`,
+    [id, patientId, input.startedAt, input.location ?? "OPD", input.service, input.reasons, prev?.id ?? null, JSON.stringify({ symptoms: input.symptoms ?? [] }), actor.id],
   );
   const completed = await completeMatching(tx, actor, patientId, { type: "visit", at: input.startedAt, ref: id });
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.startedAt, kind: "clinic-visit", category: "visit",
-    title: `${input.service} visit`, detail: input.reasons.join(" · "), refType: "care_context", refId: id, contextId: id,
+    title: `${input.service} visit`, detail: [...input.reasons, ...(input.symptoms?.length ? ["Symptoms: " + input.symptoms.join(", ")] : [])].join(" · "), refType: "care_context", refId: id, contextId: id,
   });
   await audit(tx, actor, "start-visit", "care_context", id, patientId);
   return { id, changed: ["contexts", ...(completed.length ? ["plan"] : [])] as Changed, completed };

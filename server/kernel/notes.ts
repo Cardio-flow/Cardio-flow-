@@ -19,6 +19,20 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
       ? `Admitted ${fmtDay(c.started_at, { year: true })}${c.ended_at ? `, discharged ${fmtDay(c.ended_at, { year: true })}` : ""} · ${c.location ?? ""}`
       : `Seen ${fmtDay(c.started_at, { year: true })} · ${c.service ?? "Cardiology"} · ${c.reasons.join(", ")}`,
   );
+  const sm = (c.summary ?? {}) as any;
+  if (c.kind === "admission") {
+    const r = sm.readmission;
+    const facts = [
+      sm.route ? `Route: ${sm.route}` : null,
+      sm.hfRelated === true ? "HF-related admission" : null,
+      r ? `Readmission ${r.days} days after the previous discharge (${r.band})${r.hfReadmission ? ", HF readmission" : ""}` : null,
+      sm.los != null ? `Length of stay ${sm.los} day${sm.los === 1 ? "" : "s"}` : null,
+    ].filter(Boolean);
+    if (facts.length) lines.push(facts.join(" · "));
+  }
+  if (sm.symptoms?.length) lines.push("Presenting symptoms: " + sm.symptoms.join(", "));
+  if (c.kind === "admission" && sm.events?.length) lines.push("In-hospital events: " + sm.events.join(", "));
+  if (c.kind === "admission" && sm.dischargeStatus) lines.push(`At discharge: ${sm.dischargeStatus}${sm.destination ? ` · to ${sm.destination.toLowerCase()}` : ""}`);
   lines.push("");
   lines.push("Diagnoses: " + (s.conditions.map((d) => d.display).join(", ") || "none recorded"));
   const ef = s.resolved("lvef").current;

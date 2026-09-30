@@ -25,7 +25,8 @@ export function header(s: PatientState) {
   const ctx = openContext(s);
   const dis = latestDischarge(s);
   let where = "Outpatient";
-  if (ctx?.kind === "admission") where = `Inpatient · ${ctx.location ?? "ward"}`;
+  if (s.deceased) where = `Deceased · ${fmtDay(s.status.vital!.effective_on, { year: true })}`;
+  else if (ctx?.kind === "admission") where = `Inpatient · ${ctx.location ?? "ward"}`;
   else if (ctx?.kind === "clinic_visit") where = `In clinic · ${ctx.service ?? "OPD"}`;
   else if (dis && dis.ended_at && daysBetween(dis.ended_at, s.today) <= 30) where = `Post-discharge · day ${daysBetween(dis.ended_at, s.today)}`;
   return {
@@ -48,6 +49,9 @@ export function header(s: PatientState) {
       onset: c.onset,
     })),
     riskFactors: riskRow(s),
+    deceased: s.deceased,
+    status: s.status,
+    readmission: ctx?.kind === "admission" ? (ctx.summary as any)?.readmission ?? null : null,
   };
 }
 
@@ -391,7 +395,8 @@ export async function worklist(q: Q, siteId: string) {
          SELECT count(*) FILTER (WHERE due_date < $2::date) overdue, count(*) FILTER (WHERE due_date = $2::date) due_today
          FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned'
        ) pc ON true
-       WHERE p.site_id=$1`,
+       WHERE p.site_id=$1
+         AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
       [siteId, today],
     )
   ).rows;
@@ -432,7 +437,8 @@ export async function attentionCount(q: Q, siteId: string) {
   const r = (
     await q.query<{ n: number }>(
       `SELECT count(DISTINCT r.patient_id)::int n FROM cf.recommendation r JOIN cf.patient p ON p.id=r.patient_id
-       WHERE p.site_id=$1 AND r.status='active' AND r.severity IN ('red','orange')`,
+       WHERE p.site_id=$1 AND r.status='active' AND r.severity IN ('red','orange')
+         AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
       [siteId],
     )
   ).rows[0];

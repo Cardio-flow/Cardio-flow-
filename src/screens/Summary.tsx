@@ -82,7 +82,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "tab")
     return (
       <Link className="go" to={`${location.pathname.replace(/\/(history|journey|visits|medications|investigations|plan|registries)$/, "")}/${act.tab}`}>
-        {act.tab === "medications" ? "Review medications" : "Review plan"}
+        {act.tab === "medications" ? "Review medications" : act.tab === "journey" ? "Open journey" : "Review plan"}
       </Link>
     );
   if (act.type === "start-med")

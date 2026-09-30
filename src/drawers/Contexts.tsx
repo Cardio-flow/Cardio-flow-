@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, MultiChoice, Segmented, SevChip, Tag } from "../ui";
+import { Drawer, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
+import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES } from "../../shared/catalog";
-import { addDays, fmtDay } from "../../shared/clinical";
+import { addDays, daysBetween, fmtDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
 import type { Open } from "../screens/Patient";
 
-const ADMIT_REASONS = ["Acute decompensated HF", "ACS", "Chest pain", "Arrhythmia", "Syncope", "Valve disease", "Post-procedure", "Other"];
 const LOCATIONS = ["CCU", "Ward 3A", "Ward 3B", "Step-down"];
 
 export function Admission({ patientId, summary, onClose, onDone }: { patientId: string; summary: any; onClose(): void; onDone(m?: string, r?: any): void }) {
   const [reasons, setReasons] = useState<string[]>([]);
+  const [hfChoice, setHfChoice] = useState<string>("");
+  const [route, setRoute] = useState<string>("Emergency department");
+  const [symptoms, setSymptoms] = useState<string[]>([]);
+  const { data: jr } = useData<any>(`/patients/${patientId}/journey`);
+  const lastDischarge = jr?.contexts.filter((c: any) => c.kind === "admission" && c.status === "closed" && c.endedAt).sort((a: any, b: any) => (a.endedAt < b.endedAt ? 1 : -1))[0];
+  const readmitDays = lastDischarge ? daysBetween(lastDischarge.endedAt, summary.today) : null;
+  const hfAuto = reasons.some((r) => HF_REASONS.includes(r));
+  const hfRelated = hfChoice ? hfChoice === "yes" : hfAuto;
   const [loc, setLoc] = useState("Ward 3B");
   const [bed, setBed] = useState("");
   const meds = summary.medications.groups.flatMap((g: any) => g.meds);
@@ -27,6 +35,9 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
           startedAt: new Date().toISOString(),
           location: bed ? `${loc} · Bed ${bed}` : loc,
           reasons,
+          route,
+          symptoms,
+          hfRelated,
           confirmations: [
             ...summary.header.diagnoses.map((d: any) => ({ kind: "condition", id: d.id, answer: conf[d.id] })),
             ...meds.map((m: any) => ({ kind: "medication", id: m.id, answer: conf[m.id] })),
@@ -54,9 +65,28 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       }
     >
       <div className="drawer-body">
+        {readmitDays != null && (
+          <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
+            Previous discharge {fmtDay(lastDischarge.endedAt, { year: true })}: this is a readmission after {readmitDays} days ({readmissionBand(readmitDays)}).
+          </div>
+        )}
         <div className="q">
           <div className="label">Reason for admission</div>
-          <MultiChoice options={ADMIT_REASONS.map((r) => ({ value: r, label: r }))} value={reasons} onChange={setReasons} />
+          <MultiChoice options={ADMISSION_REASONS.map((r) => ({ value: r, label: r }))} value={reasons} onChange={setReasons} />
+        </div>
+        <div className="row wrap" style={{ gap: 24 }}>
+          <div className="q">
+            <div className="label" style={{ fontSize: 15 }}>HF-related admission</div>
+            <Segmented label="HF-related admission" options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} value={hfChoice || (hfAuto ? "yes" : reasons.length ? "no" : "")} onChange={setHfChoice} />
+          </div>
+          <div className="q">
+            <div className="label" style={{ fontSize: 15 }}>Came through</div>
+            <Segmented label="Admission route" options={ADMISSION_ROUTES.map((r) => ({ value: r, label: r.replace("Transfer from another hospital", "Transfer") }))} value={route} onChange={setRoute} />
+          </div>
+        </div>
+        <div className="q">
+          <div className="label" style={{ fontSize: 15 }}>Presenting symptoms</div>
+          <MultiChoice options={SYMPTOMS.map((r) => ({ value: r, label: r }))} value={symptoms} onChange={setSymptoms} />
         </div>
         <div className="row wrap" style={{ gap: 20 }}>
           <div className="q">
@@ -87,13 +117,17 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   );
 }
 
-const DISCHARGE_STATUS = ["Euvolaemic", "Stable, pain-free", "Improved", "Rate controlled", "Other"];
 const HF_DEFAULT: Record<string, number> = { "renal-k": 7, "hf-clinic": 14, titration: 28, echo: 90, rehab: 7, education: 0 };
 
 export function Discharge({ patientId, summary, contextId, onClose, onDone }: { patientId: string; summary: any; contextId: string; onClose(): void; onDone(m?: string, r?: any): void }) {
   const { data: jr } = useData<any>(`/patients/${patientId}/journey`);
   const hf = summary.header.diagnoses.some((d: any) => /HF/.test(d.label));
+  const [outcome, setOutcome] = useState<"alive" | "died">("alive");
   const [status, setStatus] = useState<string>("");
+  const [destination, setDestination] = useState<string>("Home");
+  const [events, setEvents] = useState<string[]>([]);
+  const [cause, setCause] = useState<string>("");
+  const [weight, setWeight] = useState<string>("");
   const [picked, setPicked] = useState<Record<string, number | null>>(() => (hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -109,8 +143,14 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
           const t = PLAN_TEMPLATES.find((x) => x.id === id)!;
           return { category: t.category, title: t.title, dueDate: addDays(today, d!), completesOn: t.completesOn };
         });
-      const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, { body: { endedAt: new Date().toISOString(), status, plan } });
-      onDone(`Discharged · ${plan.length} plan actions created`, r);
+      const died = outcome === "died";
+      const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
+        body: {
+          endedAt: new Date().toISOString(), outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
+          causeGroup: died ? cause : null, dischargeWeight: !died && weight ? Number(weight) : null, plan: died ? [] : plan,
+        },
+      });
+      onDone(died ? "Death in hospital recorded" : `Discharged · ${plan.length} plan actions created`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -126,14 +166,48 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!status || busy} onClick={save}>{busy ? "Saving…" : "Confirm discharge"}</button>
+          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
       <div className="drawer-body">
+        <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
+          <div className="q">
+            <div className="label" style={{ fontSize: 15 }}>Outcome</div>
+            <Segmented label="Outcome" options={[{ value: "alive", label: "Discharged alive" }, { value: "died", label: "Died in hospital" }]} value={outcome} onChange={(v) => setOutcome(v as "alive" | "died")} />
+          </div>
+          {ctx && <span className="chip gray">Length of stay · {Math.max(0, daysBetween(ctx.startedAt, today))} days</span>}
+          {ctx?.summary?.readmission && <span className="chip outline">Readmission after {ctx.summary.readmission.days} d ({ctx.summary.readmission.band})</span>}
+        </div>
         <div className="q">
-          <div className="label">Status at discharge</div>
-          <Segmented label="Status at discharge" options={DISCHARGE_STATUS.map((s) => ({ value: s, label: s }))} value={status} onChange={setStatus} />
+          <div className="label" style={{ fontSize: 15 }}>In-hospital events</div>
+          <MultiChoice options={IN_HOSPITAL_EVENTS.map((e) => ({ value: e, label: e }))} value={events} onChange={(v) => setEvents(v.includes("None") && !events.includes("None") ? ["None"] : v.filter((x) => x !== "None"))} />
+        </div>
+        {outcome === "died" ? (
+          <div className="q">
+            <div className="label">Cause of death</div>
+            <div className="help">Recording a death closes the admission, cancels open plan items and removes the patient from every reminder list.</div>
+            <SingleChoice label="Cause of death" options={CAUSE_GROUPS} value={cause} onChange={setCause} />
+          </div>
+        ) : (
+        <>
+        <div className="q">
+          <div className="label">Condition at discharge</div>
+          <SingleChoice label="Condition at discharge" options={DISCHARGE_CONDITION.map((s) => ({ value: s, label: s }))} value={status} onChange={(v) => { setStatus(v); if (v === "Still congested" && hf) setPicked((p) => ({ ...p, "hf-clinic": 7 })); }} />
+          {status === "Still congested" && <div className="infobox warn">Residual congestion at discharge is high risk: the HF clinic review is moved to 7 days.</div>}
+        </div>
+        <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
+          <div className="q">
+            <div className="label" style={{ fontSize: 15 }}>Discharged to</div>
+            <SingleChoice label="Discharge destination" options={DISCHARGE_DESTINATION.map((s) => ({ value: s, label: s }))} value={destination} onChange={setDestination} />
+          </div>
+          <label className="field">
+            <span>Discharge (dry) weight <em className="muted" style={{ fontStyle: "normal", fontWeight: 600 }}>(optional)</em></span>
+            <span className="row">
+              <input className="input num" style={{ width: 110 }} inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value.replace(/[^\d.]/g, ""))} />
+              <b className="muted">kg</b>
+            </span>
+          </label>
         </div>
         <div className="q">
           <div className="label">Medication reconciliation</div>
@@ -181,6 +255,8 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
             );
           })}
         </div>
+        </>
+        )}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>
@@ -193,6 +269,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
   const [step, setStep] = useState(contextId ? 1 : 0);
   const [reasons, setReasons] = useState<string[]>(summary.header.where.startsWith("Post-discharge") ? ["Heart failure", "Post-discharge"] : []);
+  const [symptoms, setSymptoms] = useState<string[]>([]);
   const [vit, setVit] = useState<Record<string, string>>({});
   const [nyha, setNyha] = useState<string>("");
   const [cong, setCong] = useState<string>("");
@@ -208,7 +285,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   async function start() {
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/visits`, { body: { reasons, service: reasons.includes("Heart failure") ? "HF clinic" : "Cardiology clinic" } });
+      const r = await api(`/patients/${patientId}/visits`, { body: { reasons, symptoms, service: reasons.includes("Heart failure") ? "HF clinic" : "Cardiology clinic" } });
       setVisitId(r.id);
       setStep(1);
     } catch (e) {
@@ -297,6 +374,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               <div className="label">Reason for visit</div>
               <div className="help">Pick every problem addressed today. One visit produces one integrated plan.</div>
               <MultiChoice options={VISIT_REASONS.map((r) => ({ value: r, label: r }))} value={reasons} onChange={setReasons} />
+            </div>
+            <div className="q">
+              <div className="label">Symptoms today</div>
+              <MultiChoice options={SYMPTOMS.map((r) => ({ value: r, label: r }))} value={symptoms} onChange={(v) => setSymptoms(v.includes("No symptoms") && !symptoms.includes("No symptoms") ? ["No symptoms"] : v.filter((x) => x !== "No symptoms"))} />
             </div>
           </>
         )}

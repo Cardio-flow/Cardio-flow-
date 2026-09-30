@@ -15,6 +15,7 @@ import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { HistoryTab } from "./History";
+import { StatusDrawer } from "../drawers/Status";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -30,7 +31,8 @@ export type Open =
   | { kind: "visit"; contextId?: string }
   | { kind: "dx" }
   | { kind: "history"; focus?: "risk" | "cardiac" }
-  | { kind: "identity"; identity: any };
+  | { kind: "identity"; identity: any }
+  | { kind: "status" };
 
 const TABS = [
   ["summary", "Summary"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -70,7 +72,11 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               <span className="id">
                 {h.age} y · {h.sex} · MRN {h.mrn}
               </span>
-              <span className="chip gray">{h.where}</span>
+              <span className={`chip ${h.deceased ? "deceased" : "gray"}`}>{h.where}</span>
+              {h.readmission?.hfReadmission && h.readmission.days <= 30 && <span className="chip sev sev-orange"><span className="dot" />HF readmission · day {h.readmission.days}</span>}
+              {h.status?.followUp && h.status.followUp.status !== "active" && !h.deceased && (
+                <span className="chip outline">{({ lost: "Lost to follow-up", transferred: "Transferred care", discharged_from_clinic: "Discharged from clinic" } as any)[h.status.followUp.status]}</span>
+              )}
               {s.attention.length > 0 && (
                 <span className={`chip sev sev-${s.attention[0].severity}`}>
                   <span className="dot" />
@@ -94,7 +100,11 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               <FlaskConical size={18} />
               Add labs
             </button>
-            {ctx?.kind === "admission" ? (
+            {h.deceased ? (
+              <button className="btn secondary" onClick={() => setOpen({ kind: "status" })}>
+                Patient status
+              </button>
+            ) : ctx?.kind === "admission" ? (
               <button className="btn primary" onClick={() => setOpen({ kind: "discharge", contextId: ctx.id })}>
                 <DischargeIcon size={18} />
                 Discharge
@@ -156,6 +166,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
+      {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>
   );
 }
