@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 3;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -164,13 +164,15 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
     await tx.query("SELECT pg_advisory_xact_lock(431002)");
     const site = (await tx.query<{ mode: string; settings: any }>(`SELECT mode, settings FROM cf.site WHERE id=$1`, [siteId])).rows[0];
     const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
-    if (!site || site.mode !== "sandbox" || Number(settings.seedVersion ?? 1) >= SEED_VERSION) return;
+    const seeded = Number(settings.seedVersion ?? 1);
+    if (!site || site.mode !== "sandbox" || seeded >= SEED_VERSION) return;
     const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND mrn=$2`, [siteId, mrn])).rows[0]?.id ?? null;
     const obs = async (id: string | null, day: string, items: { code: string; value: number }[], silentEvent = true) => {
       if (!id) return;
       await K.recordObservations(tx, sys, id, { effectiveAt: at(day, "08:30"), items, silentEvent });
       touched.push(id);
     };
+    if (seeded < 2) {
     // Khaled: HFrEF + post-PCI + T2DM + CKD — LDL above goal on high-intensity statin, albuminuria, iron deficiency
     const k = await byMrn("100482317");
     await obs(k, d(-400), [{ code: "height", value: 172 }]);
@@ -203,6 +205,85 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(sa, d(-9), [{ code: "height", value: 175 }, { code: "weight", value: 104 }, { code: "sbp", value: 146 }, { code: "dbp", value: 88 }, { code: "hr", value: 66 }]);
       await obs(sa, d(-9), [{ code: "ldl-c", value: 2.6 }, { code: "total-cholesterol", value: 4.6 }, { code: "triglycerides", value: 2.4 }, { code: "hba1c", value: 8.1 }, { code: "creatinine", value: 90 }, { code: "potassium", value: 4.4 }, { code: "uacr", value: 12 }], false);
       await K.addPlanAction(tx, sys, sa, { category: "follow_up", title: "Cardiometabolic clinic review", dueDate: d(2), completesOn: { type: "visit" } });
+    }
+    }
+    // Seed v3: structured history (risk factors, past cardiac history with detail, identifiers)
+    if (seeded < 3) {
+      const cond = async (id: string, code: string) =>
+        (await tx.query<{ logical_id: string }>(
+          `SELECT logical_id FROM (SELECT DISTINCT ON (logical_id) logical_id, code, status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active' LIMIT 1`,
+          [id, code],
+        )).rows[0]?.logical_id ?? null;
+      const hx = async (mrn: string, input: { answers?: K.HistoryAnswer[]; add?: any[]; update?: [string, any][]; identity?: K.Identity }) => {
+        const id = await byMrn(mrn);
+        if (!id) return;
+        const update = [];
+        for (const [code, change] of input.update ?? []) {
+          const logicalId = await cond(id, code);
+          if (logicalId) update.push({ logicalId, ...change });
+        }
+        await K.recordHistory(tx, sys, id, { effectiveAt: at(d(-30), "10:00"), answers: input.answers ?? [], add: input.add ?? [], update });
+        if (input.identity) await K.updateIdentity(tx, sys, id, input.identity);
+        touched.push(id);
+      };
+      const no = (...items: string[]) => items.map((item) => ({ item, answer: "no" }));
+      // Khaled: ex-smoker, NSTEMI 2018 treated with LAD PCI
+      await hx("100482317", {
+        answers: [{ item: "smoking", answer: "ex", packYears: 30, quitYear: 2018 }, { item: "fhx-cad", answer: "no" }, { item: "alcohol", answer: "never" }, ...no("valve", "rhythm", "device")],
+        add: [{ code: "dyslipidaemia" }, { code: "prior-mi", onsetYear: 2018, attributes: { type: "NSTEMI" } }],
+        update: [["prior-pci", { onsetYear: 2018, attributes: { vessels: ["LAD"] } }]],
+        identity: { civilId: "260010100011", nationality: "Kuwaiti", mobile: "+965 5000 0011" },
+      });
+      // Fatma: never smoked, paroxysmal AF
+      await hx("100391054", {
+        answers: [{ item: "smoking", answer: "never" }, { item: "fhx-cad", answer: "unknown" }, ...no("diabetes", "valve")],
+        update: [["af", { onsetYear: 2023, attributes: { pattern: "Paroxysmal" } }]],
+        identity: { civilId: "254020100022", nationality: "Kuwaiti" },
+      });
+      // Hamad: current smoker
+      await hx("100457208", {
+        answers: [{ item: "smoking", answer: "current", packYears: 25 }, { item: "alcohol", answer: "never" }, { item: "dyslipidaemia", answer: "not-assessed" }, ...no("diabetes", "device")],
+      });
+      // Mariam: severe AS
+      await hx("100266781", {
+        answers: [{ item: "smoking", answer: "never" }, ...no("diabetes", "coronary")],
+        update: [["as", { attributes: { severity: "Severe" } }]],
+      });
+      // Abdullah: mechanical mitral valve (rheumatic) — why he stays on warfarin, not a DOAC
+      await hx("100318842", {
+        answers: [{ item: "smoking", answer: "ex", packYears: 10, quitYear: 2009 }, ...no("diabetes")],
+        add: [{ code: "prosthetic-valve", onsetYear: 2014, attributes: { position: "Mitral", type: "Mechanical" } }],
+        update: [["af", { attributes: { pattern: "Permanent" } }]],
+      });
+      // Noura: anterior STEMI treated with LAD PCI, current smoker, family history
+      await hx("100502663", {
+        answers: [{ item: "smoking", answer: "current", packYears: 15 }, { item: "fhx-cad", answer: "yes" }, ...no("diabetes")],
+        update: [["acs-stemi", { attributes: { territory: "Anterior" } }], ["prior-pci", { attributes: { vessels: ["LAD"] } }]],
+      });
+      // Yousef: primary-prevention ICD
+      await hx("100277190", { answers: [{ item: "smoking", answer: "never" }], add: [{ code: "cied", onsetYear: 2024, attributes: { type: "ICD" } }] });
+      // Salem: ex-smoker, STEMI 2021
+      await hx("100611478", {
+        answers: [{ item: "smoking", answer: "ex", packYears: 20, quitYear: 2021 }, { item: "fhx-cad", answer: "yes" }],
+        update: [["prior-mi", { onsetYear: 2021, attributes: { type: "STEMI" } }]],
+      });
+      // New: Huda — mechanical aortic valve, started on apixaban elsewhere (the new safety rule)
+      if (!(await byMrn("100733905"))) {
+        const hu = await K.createPatient(tx, sys, {
+          name: "Huda Al-Otaibi", mrn: "100733905", sex: "Female", birthDate: addDays(T, -(49 * 365 + 210)), allergies: "No known drug allergies",
+          conditions: ["af", "htn"], civilId: "277030100033", nationality: "Kuwaiti",
+        });
+        await K.recordHistory(tx, sys, hu, {
+          effectiveAt: at(d(-3), "10:00"),
+          answers: [{ item: "smoking", answer: "never" }, { item: "diabetes", answer: "no" }],
+          add: [{ code: "prosthetic-valve", onsetYear: 2016, attributes: { position: "Aortic", type: "Mechanical" } }],
+        });
+        await K.startMedication(tx, sys, hu, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", reason: "Started at another hospital", effectiveAt: at(d(-20)) });
+        await K.startMedication(tx, sys, hu, { code: "bisoprolol", doseValue: 2.5, frequency: "OD", route: "PO", indication: "af", effectiveAt: at(d(-400)) });
+        await obs(hu, d(-3), [{ code: "height", value: 162 }, { code: "weight", value: 71 }, { code: "sbp", value: 128 }, { code: "hr", value: 74 }]);
+        await obs(hu, d(-3), [{ code: "creatinine", value: 70 }, { code: "haemoglobin", value: 12.6 }], false);
+        await K.addPlanAction(tx, sys, hu, { category: "follow_up", title: "Anticoagulation review", dueDate: d(1), completesOn: { type: "visit" } });
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

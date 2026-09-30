@@ -52,6 +52,9 @@ export type PatientRow = {
   sex: "Male" | "Female";
   birth_date: string;
   allergies: string;
+  civil_id: string | null;
+  nationality: string | null;
+  mobile: string | null;
   created_at: string;
 };
 

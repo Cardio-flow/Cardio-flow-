@@ -68,20 +68,29 @@ export function connectPostgres(connectionString: string): DB {
   };
 }
 
+// Applied in order, once each. A file is checksum-protected after it runs: to change the
+// schema, add a new file here (and keep it matched by vercel.json includeFiles).
+export const MIGRATIONS = [
+  { name: "v2-001-kernel", file: "./schema.sql" },
+  { name: "v2-002-general-core", file: "./002-general-core.sql" },
+];
+
 export async function migrate(db: DB) {
-  const schema = await readFile(new URL("./schema.sql", import.meta.url), "utf8");
+  const files = await Promise.all(MIGRATIONS.map(async (m) => ({ ...m, sql: await readFile(new URL(m.file, import.meta.url), "utf8") })));
   await db.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(431001)");
     await tx.query("CREATE SCHEMA IF NOT EXISTS cf");
     await tx.query(
       "CREATE TABLE IF NOT EXISTS cf.migration (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
     );
-    const applied = (await tx.query<{ checksum: string }>("SELECT checksum FROM cf.migration WHERE name='v2-001-kernel'")).rows[0];
-    if (applied && applied.checksum !== hash(schema))
-      throw new Error("The v2 kernel schema changed after it was applied. Add a new migration instead of editing it.");
-    if (!applied) {
-      await tx.exec(schema);
-      await tx.query("INSERT INTO cf.migration(name,checksum) VALUES('v2-001-kernel',$1)", [hash(schema)]);
+    for (const m of files) {
+      const applied = (await tx.query<{ checksum: string }>("SELECT checksum FROM cf.migration WHERE name=$1", [m.name])).rows[0];
+      if (applied && applied.checksum !== hash(m.sql))
+        throw new Error(`Migration ${m.name} changed after it was applied. Add a new migration instead of editing it.`);
+      if (!applied) {
+        await tx.exec(m.sql);
+        await tx.query("INSERT INTO cf.migration(name,checksum) VALUES($1,$2)", [m.name, hash(m.sql)]);
+      }
     }
   });
 }

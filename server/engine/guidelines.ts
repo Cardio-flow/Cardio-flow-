@@ -420,7 +420,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evaluate(s) {
       if (!s.tags.has("af")) return [];
       const vka = live(s).find((m) => m.code === "warfarin");
-      if (vka && !has(s, "ms") && !s.conditions.some((c) => /mechanical/i.test(c.detail ?? "")))
+      // DOACs are not used with a mechanical valve or moderate–severe mitral stenosis
+      const vkaOnly = s.tags.has("mechanical-valve") || s.tags.has("ms-significant");
+      if (vka && !has(s, "ms") && !vkaOnly)
         return [{ key: "af-doac", signature: vka.id, severity: "blue", title: "AF on warfarin: a DOAC is preferred",
           detail: "No mitral stenosis or mechanical valve recorded · check eGFR, weight and interactions before switching",
           facts: facts({ label: "Current", value: medLine(vka) }, fact(s, "inr", 90), fact(s, "creatinine", 180), src("ESC AF 2024 · DOAC in preference to VKA · Class I")),
@@ -432,7 +434,37 @@ export const GUIDELINE_RULES: RuleDef[] = [
         title: `AF with CHA2DS2-VA ${c.score}: ${c.score >= 2 ? "oral anticoagulation recommended" : "consider oral anticoagulation"}`,
         detail: c.items.map((i) => i.label).join(" · "),
         facts: facts({ label: "CHA2DS2-VA", value: String(c.score) }, fact(s, "creatinine", 180), fact(s, "haemoglobin", 180), fact(s, "weight", 365), src(`ESC AF 2024 · ${c.score >= 2 ? "Class I" : "IIa"}`)),
-        missing: [], action: { type: "start-med", code: "apixaban", dose: 5, label: "Start a DOAC" } }];
+        missing: s.conditions.some((x) => x.code === "ms" && (!x.attributes?.severity || x.attributes.severity === "Unknown")) ? ["Mitral stenosis severity"] : [],
+        action: vkaOnly ? { type: "start-med", code: "warfarin", label: "Start warfarin (INR-guided)" } : { type: "start-med", code: "apixaban", dose: 5, label: "Start a DOAC" },
+        ...(vkaOnly ? { detail: `${c.items.map((i) => i.label).join(" · ")} · ${s.tags.has("mechanical-valve") ? "mechanical valve" : "moderate–severe mitral stenosis"}: VKA, not a DOAC` } : {}) }];
+    },
+  },
+  {
+    id: "valve.doac-contraindicated",
+    kind: "clinical",
+    title: "DOAC with a mechanical valve or moderate–severe mitral stenosis",
+    inputs: ["conditions", "meds"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS valvular heart disease and 2024 ESC AF guidelines: DOACs are contraindicated with a mechanical prosthetic valve (class III) and not recommended in moderate–severe (rheumatic) mitral stenosis; use a VKA.",
+    evaluate(s) {
+      const mech = s.tags.has("mechanical-valve"), ms = s.tags.has("ms-significant");
+      if (!mech && !ms) return [];
+      return onTag(s, "oac")
+        .filter((m) => m.code !== "warfarin")
+        .map((m) => ({
+          key: "doac-" + m.id,
+          signature: `${m.id}:${mech ? "mech" : "ms"}`,
+          severity: "red" as const,
+          title: `${m.name} with ${mech ? "a mechanical valve" : "moderate–severe mitral stenosis"}: DOAC contraindicated`,
+          detail: "Switch to a VKA (warfarin) with an INR target for the valve; bridge as appropriate. Confirm the valve history first.",
+          facts: facts(
+            { label: "Anticoagulant", value: medLine(m) },
+            ...s.conditions.filter((c) => c.code === "prosthetic-valve" || c.code === "ms").map((c) => ({ label: c.display, value: [c.attributes?.position, c.attributes?.type, c.attributes?.severity].filter(Boolean).join(" · ") || "recorded" })),
+            src(mech ? "ESC/EACTS VHD 2025 · DOAC in mechanical valve · Class III" : "ESC AF 2024 · VKA in moderate–severe MS"),
+          ),
+          missing: [],
+          action: { type: "tab" as const, tab: "medications" },
+        }));
     },
   },
   {
@@ -539,7 +571,7 @@ export function targets(s: PatientState) {
     metabolic: s.tags.has("dm") || (b != null && b >= 27)
       ? { bmi: b, hba1c: cur(s, "hba1c")?.value_num ?? null, sglt2: onTag(s, "sglt2").map(medLine), glp1: onTag(s, "glp1").map(medLine) }
       : null,
-    af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine) } : null,
+    af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
     kidney: { egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null },
   };
 }

@@ -79,8 +79,19 @@ test("CHA2DS2-VA, DOAC preference and apixaban dose criteria", async () => {
   const c = cha2ds2va(fatma);
   assert.equal(c.score, 3); // age 65–74, hypertension, vascular disease
   assert.ok(!(await active(fatma.patient.id)).some((r) => r.rule_id === "af.doac-dose"), "5 mg correct with one criterion");
+  // Abdullah has a mechanical mitral valve in his structured history: warfarin stays, no DOAC suggestion
   const ae = await byName("Abdullah Al-Enezi");
-  assert.ok((await active(ae)).some((r) => /DOAC is preferred/.test(r.title)));
+  assert.ok(!(await active(ae)).some((r) => /DOAC is preferred/.test(r.title)));
+  // the same AF on warfarin without a valve history: a DOAC is preferred
+  const plain = await db.transaction((tx) => K.createPatient(tx, doc, { name: "AF warfarin " + Date.now(), mrn: "AFW" + Date.now(), sex: "Male", birthDate: "1956-02-01", conditions: ["af", "htn"] }));
+  await db.transaction(async (tx) => {
+    await K.startMedication(tx, doc, plain, { code: "warfarin", doseValue: 5, frequency: "OD", route: "PO", indication: "af", effectiveAt: at() });
+    await reassess(tx, plain, "sandbox");
+  });
+  assert.ok((await active(plain)).some((r) => /DOAC is preferred/.test(r.title)));
+  // Huda: mechanical aortic valve on apixaban → red contraindication
+  const huda = (await active(await byName("Huda Al-Otaibi"))).find((r) => r.rule_id === "valve.doac-contraindicated");
+  assert.equal(huda?.severity, "red");
   // weight ≤60 and creatinine ≥133 → 2.5 mg
   await db.transaction(async (tx) => {
     await K.recordObservations(tx, doc, fatma.patient.id, { effectiveAt: at(), items: [{ code: "creatinine", value: 140 }] });

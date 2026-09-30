@@ -3,56 +3,194 @@
 import type { Q } from "../db/db.js";
 import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
-import { ApiError, audit, journeyEvent, nowIso, patientInSite, uuid, type Actor } from "./base.js";
+import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
+import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 
 export type Changed = string[];
 
 // ---------- patients & conditions ----------
+export type Identity = { civilId?: string | null; nationality?: string | null; mobile?: string | null };
+
+async function civilIdFree(tx: Q, siteId: string, civilId: string | null | undefined, exceptPatient?: string) {
+  if (!civilId) return;
+  const other = (await tx.query(`SELECT name, mrn FROM cf.patient WHERE site_id=$1 AND civil_id=$2 AND id IS DISTINCT FROM $3`, [siteId, civilId, exceptPatient ?? null])).rows[0];
+  if (other) throw new ApiError(409, `This civil ID is already registered to ${other.name} (MRN ${other.mrn})`);
+}
+
 export async function createPatient(
   tx: Q,
   actor: Actor,
-  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[] },
+  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[] } & Identity,
 ) {
   const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2", [actor.siteId, input.mrn])).rows[0];
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
+  await civilIdFree(tx, actor.siteId, input.civilId);
   const id = uuid();
   await tx.query(
-    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-    [id, actor.siteId, input.mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id],
+    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+    [id, actor.siteId, input.mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null],
   );
   for (const code of input.conditions ?? []) await addCondition(tx, actor, id, { code });
   await audit(tx, actor, "create", "patient", id, id);
   return id;
 }
 
-export async function addCondition(tx: Q, actor: Actor, patientId: string, input: { code: string; onset?: string | null; detail?: string; contextId?: string | null }) {
+// Registration details are not clinical history: they are updated in place, and the audit
+// keeps the previous values.
+export async function updateIdentity(tx: Q, actor: Actor, patientId: string, input: Identity & { allergies?: string }) {
+  const before = await patientInSite(tx, actor, patientId);
+  await civilIdFree(tx, actor.siteId, input.civilId, patientId);
+  const next = {
+    civil_id: input.civilId === undefined ? before.civil_id : input.civilId || null,
+    nationality: input.nationality === undefined ? before.nationality : input.nationality || null,
+    mobile: input.mobile === undefined ? before.mobile : input.mobile || null,
+    allergies: input.allergies === undefined ? before.allergies : input.allergies.trim() || "Not recorded",
+  };
+  await tx.query(`UPDATE cf.patient SET civil_id=$2, nationality=$3, mobile=$4, allergies=$5 WHERE id=$1`, [patientId, next.civil_id, next.nationality, next.mobile, next.allergies]);
+  const changedFields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => (before as any)[k] !== next[k]);
+  await audit(tx, actor, "update-identity", "patient", patientId, patientId, { fields: changedFields, before: Object.fromEntries(changedFields.map((k) => [k, (before as any)[k]])) });
+  return [] as Changed;
+}
+
+type ConditionInput = { code: string; onset?: string | null; onsetYear?: number | null; detail?: string; contextId?: string | null; attributes?: Record<string, unknown> | null };
+
+function onsetParts(input: { onset?: string | null; onsetYear?: number | null; attributes?: Record<string, unknown> | null }, code: string) {
+  let attributes: Record<string, unknown>;
+  try {
+    attributes = cleanAttributes(code, input.attributes ?? {});
+  } catch (e) {
+    throw new ApiError(400, `${DIAGNOSIS[code]?.display ?? code}: ${(e as Error).message}`);
+  }
+  const onset = input.onset ?? null;
+  if (onset && onset > today()) throw new ApiError(400, "A past diagnosis cannot start in the future");
+  delete attributes.onsetYear;
+  if (!onset && input.onsetYear != null) {
+    if (!Number.isInteger(input.onsetYear) || input.onsetYear < 1900 || input.onsetYear > Number(today().slice(0, 4))) throw new ApiError(400, "Year must be a past 4-digit year");
+    attributes.onsetYear = input.onsetYear;
+  }
+  return { onset, attributes };
+}
+
+export async function addCondition(tx: Q, actor: Actor, patientId: string, input: ConditionInput) {
   const def = DIAGNOSIS[input.code];
   if (!def) throw new ApiError(400, "Unknown diagnosis");
-  const dup = (
-    await tx.query(
-      `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active'`,
-      [patientId, input.code],
-    )
-  ).rows[0];
-  if (dup) return { id: null, changed: [] as Changed };
+  const { onset, attributes } = onsetParts(input, input.code);
+  if (!MULTIPLE_ALLOWED.has(input.code)) {
+    const dup = (
+      await tx.query(
+        `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active'`,
+        [patientId, input.code],
+      )
+    ).rows[0];
+    if (dup) return { id: null, changed: [] as Changed };
+  }
   const id = uuid();
   await tx.query(
-    `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by) VALUES($1,$1,1,$2,$3,$4,'active',$5,$6,$7,$8)`,
-    [id, patientId, input.code, def.display, input.onset ?? null, input.detail ?? "", input.contextId ?? null, actor.id],
+    `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by,attributes) VALUES($1,$1,1,$2,$3,$4,'active',$5,$6,$7,$8,$9)`,
+    [id, patientId, input.code, def.display, onset, input.detail ?? "", input.contextId ?? null, actor.id, JSON.stringify(attributes)],
   );
   return { id, changed: ["conditions"] as Changed };
 }
 
-export async function setConditionStatus(tx: Q, actor: Actor, patientId: string, logicalId: string, status: "resolved" | "entered_in_error" | "active") {
+async function latestCondition(tx: Q, patientId: string, logicalId: string) {
   const cur = (await tx.query(`SELECT * FROM cf.condition WHERE logical_id=$1 AND patient_id=$2 ORDER BY version DESC LIMIT 1`, [logicalId, patientId])).rows[0];
   if (!cur) throw new ApiError(404, "Diagnosis not found");
+  return cur;
+}
+async function newConditionVersion(tx: Q, actor: Actor, cur: any, change: { status?: string; onset?: string | null; attributes?: Record<string, unknown> }) {
   await tx.query(
-    `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [uuid(), logicalId, cur.version + 1, patientId, cur.code, cur.display, status, cur.onset, cur.detail, cur.context_id, actor.id],
+    `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by,attributes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [
+      uuid(), cur.logical_id, cur.version + 1, cur.patient_id, cur.code, cur.display, change.status ?? cur.status,
+      change.onset === undefined ? cur.onset : change.onset, cur.detail, cur.context_id, actor.id, JSON.stringify(change.attributes ?? cur.attributes ?? {}),
+    ],
   );
+}
+
+export async function setConditionStatus(tx: Q, actor: Actor, patientId: string, logicalId: string, status: "resolved" | "entered_in_error" | "active") {
+  const cur = await latestCondition(tx, patientId, logicalId);
+  await newConditionVersion(tx, actor, cur, { status });
   if (status === "resolved")
     await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "condition-resolved", category: "complication", title: `Resolved · ${cur.display}` });
   return ["conditions"] as Changed;
+}
+
+// Detail or date of an existing diagnosis: a new version, history kept.
+export async function updateCondition(tx: Q, actor: Actor, patientId: string, logicalId: string, input: { onset?: string | null; onsetYear?: number | null; attributes?: Record<string, unknown> | null }) {
+  const cur = await latestCondition(tx, patientId, logicalId);
+  if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be updated");
+  const { onset, attributes } = onsetParts(input, cur.code);
+  await newConditionVersion(tx, actor, cur, { onset, attributes });
+  return ["conditions"] as Changed;
+}
+
+// ---------- structured history ----------
+export type HistoryAnswer = { item: string; answer: string; packYears?: number | null; quitYear?: number | null; resolveAs?: "resolved" | "entered_in_error" | null };
+
+export async function recordHistory(
+  tx: Q,
+  actor: Actor,
+  patientId: string,
+  input: {
+    effectiveAt: string;
+    answers?: HistoryAnswer[];
+    add?: ConditionInput[];
+    update?: { logicalId: string; onset?: string | null; onsetYear?: number | null; attributes?: Record<string, unknown> | null }[];
+    contextId?: string | null;
+  },
+) {
+  await patientInSite(tx, actor, patientId);
+  const active = (
+    await tx.query(
+      `SELECT * FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE status='active'`,
+      [patientId],
+    )
+  ).rows as any[];
+  const obs = async (code: string, text: string | null, num: number | null, unit: string | null = null) =>
+    tx.query(
+      `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,effective_at,status,quality,source,context_id,recorded_by)
+       VALUES($1,$1,1,$2,$3,$4,$5,$6,$7,'final','standard','history',$8,$9)`,
+      [uuid(), patientId, code, num, text, unit, input.effectiveAt, input.contextId ?? null, actor.id],
+    );
+  const summary: string[] = [];
+  const addCodes = new Set((input.add ?? []).map((a) => a.code));
+  for (const a of input.answers ?? []) {
+    const item = HISTORY_ITEM[a.item];
+    if (!item) throw new ApiError(400, `Unknown history item: ${a.item}`);
+    if (item.conditions) {
+      if (!["no", "unknown", "not-assessed"].includes(a.answer))
+        throw new ApiError(400, `${item.label}: record "yes" by adding the diagnosis`);
+      if (item.conditions.some((c) => addCodes.has(c))) throw new ApiError(400, `${item.label}: cannot add a diagnosis and answer "${a.answer}" together`);
+      const present = active.filter((c) => item.conditions!.includes(c.code));
+      if (present.length) {
+        if (a.answer !== "no" || !a.resolveAs)
+          throw new ApiError(409, `${item.label}: ${present.map((c) => c.display).join(", ")} is on the diagnosis list. Mark it resolved or entered in error first.`);
+        for (const c of present) await setConditionStatus(tx, actor, patientId, c.logical_id, a.resolveAs);
+      }
+      await obs(historyCode(item.key), a.answer, null);
+    } else {
+      const opt = item.options!.find((o) => o.value === a.answer);
+      if (!opt) throw new ApiError(400, `${item.label}: choose from the list`);
+      await obs(historyCode(item.key), a.answer, null);
+      for (const d of item.details ?? []) {
+        const v = (a as any)[d.key];
+        if (v == null || !d.when.includes(a.answer)) continue;
+        if (!(Number.isFinite(v) && v >= d.min && v <= d.max)) throw new ApiError(400, `${d.label}: value out of range`);
+        await obs(`${historyCode(item.key)}.${d.key}`, null, v, d.unit ?? null);
+      }
+      // the old "Current smoker" diagnosis is reconciled with the dated smoking status
+      if (item.key === "smoking" && a.answer !== "current")
+        for (const c of active.filter((c) => c.code === "smoker")) await setConditionStatus(tx, actor, patientId, c.logical_id, "resolved");
+    }
+    summary.push(`${item.label}: ${a.answer}`);
+  }
+  for (const c of input.add ?? []) {
+    await addCondition(tx, actor, patientId, { ...c, contextId: input.contextId });
+    summary.push(`+ ${DIAGNOSIS[c.code]?.display ?? c.code}`);
+  }
+  for (const u of input.update ?? []) await updateCondition(tx, actor, patientId, u.logicalId, u);
+  await audit(tx, actor, "record-history", "patient", patientId, patientId, { summary, updated: (input.update ?? []).length });
+  return { changed: ["conditions", "history"] as Changed };
 }
 
 // ---------- observations ----------

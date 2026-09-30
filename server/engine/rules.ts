@@ -138,16 +138,22 @@ export const RULES: RuleDef[] = [
       const ef = s.resolved("lvef").current;
       if (!ef || ef.value_num == null || ef.value_num > Number(p.lvef_threshold)) return [];
       if (s.plan.some((a) => a.status === "planned" && /ICD|CRT|device/i.test(a.title))) return [];
+      // already has a defibrillator or CRT (structured history): nothing new to assess here
+      if (s.tags.has("icd") || s.tags.has("crt")) return [];
+      const pacer = s.tags.has("pacemaker");
       return [
         {
           key: "device",
-          signature: ef.id,
+          signature: ef.id + (pacer ? ":pacer" : ""),
           severity: "blue",
-          title: `LVEF ${formatNumber(ef.value_num, 0)}%: ICD/CRT assessment may become relevant`,
+          title: pacer
+            ? `LVEF ${formatNumber(ef.value_num, 0)}% with a pacemaker: CRT upgrade assessment may become relevant`
+            : `LVEF ${formatNumber(ef.value_num, 0)}%: ICD/CRT assessment may become relevant`,
           detail: "Reassess on a repeat Echo after optimised therapy. This is not an implant recommendation.",
           facts: [
             { label: "LVEF", value: `${formatNumber(ef.value_num, 0)}% (${ef.quality})`, date: ef.effective_at },
             { label: "Trigger", value: `LVEF ≤ ${p.lvef_threshold}%` },
+            ...(pacer ? [{ label: "Device", value: "Pacemaker (history)" }] : []),
           ],
           missing: s.observations.some((o) => o.code === "qrs") ? [] : ["QRS duration and morphology"],
           action: { type: "add-plan", template: "device" },
@@ -251,7 +257,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-09-24.2";
+export const RULESET = "2026-09-30.1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

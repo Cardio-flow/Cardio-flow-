@@ -5,7 +5,7 @@ import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
-import { attentionCount, journey, summary, worklist, planView, results } from "./kernel/views.js";
+import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
@@ -23,6 +23,16 @@ export type HostedAuth = {
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTime = z.string().refine((v) => !Number.isNaN(Date.parse(v)), "Invalid date");
 const uuidS = z.string().uuid();
+// Kuwaiti civil ID: 12 digits
+const civilId = z.string().trim().regex(/^\d{12}$/, "must be 12 digits");
+const mobile = z.string().trim().regex(/^\+?[\d ]{7,16}$/, "digits only");
+const identity = {
+  civilId: z.union([civilId, z.literal("")]).nullish(),
+  nationality: z.string().trim().max(40).nullish(),
+  mobile: z.union([mobile, z.literal("")]).nullish(),
+};
+const attributes = z.record(z.string(), z.union([z.string().max(60), z.number(), z.array(z.string().max(60)).max(10)])).nullish();
+const conditionInput = z.object({ code: z.string().max(40), onset: isoDate.nullish(), onsetYear: z.number().int().nullish(), attributes });
 
 export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>) {
   const app = express();
@@ -123,7 +133,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const q = z.string().max(80).parse(req.query.q ?? "");
     res.json(
       (
-        await db.query(`SELECT id,name,mrn,sex,birth_date FROM cf.patient WHERE site_id=$1 AND (name ILIKE $2 OR mrn ILIKE $2) ORDER BY name LIMIT 30`, [actor(res).siteId, `%${q}%`])
+        await db.query(`SELECT id,name,mrn,sex,birth_date FROM cf.patient WHERE site_id=$1 AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY name LIMIT 30`, [actor(res).siteId, `%${q}%`])
       ).rows,
     );
   }));
@@ -136,6 +146,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         birthDate: isoDate,
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
+        ...identity,
       })
       .parse(req.body);
     const id = await db.transaction(async (tx) => {
@@ -217,6 +228,38 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       })
       .parse(req.body);
     await write(res, id, (tx, a) => K.recordEcho(tx, a, id, input));
+  }));
+
+  // ---------- registration details & structured history ----------
+  app.post("/api/patients/:id/identity", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ ...identity, allergies: z.string().max(300).optional() }).parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await K.updateIdentity(tx, a, id, input) }));
+  }));
+  app.get("/api/patients/:id/history", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await (async (q: Q) => (await patientInSite(q, actor(res), id), { today: today(), ...historyView(await loadState(q, id)) }))(db));
+  }));
+  app.post("/api/patients/:id/history", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z
+      .object({
+        effectiveAt: isoDateTime.optional(),
+        contextId: uuidS.nullish(),
+        answers: z
+          .array(z.object({
+            item: z.string().max(40), answer: z.string().max(20),
+            packYears: z.number().finite().nullish(), quitYear: z.number().int().nullish(),
+            resolveAs: z.enum(["resolved", "entered_in_error"]).nullish(),
+          }))
+          .max(30)
+          .default([]),
+        add: z.array(conditionInput).max(20).default([]),
+        update: z.array(z.object({ logicalId: uuidS, onset: isoDate.nullish(), onsetYear: z.number().int().nullish(), attributes })).max(20).default([]),
+      })
+      .refine((v) => v.answers.length + v.add.length + v.update.length > 0, "Nothing to save")
+      .parse(req.body);
+    await write(res, id, (tx, a) => K.recordHistory(tx, a, id, { ...input, effectiveAt: input.effectiveAt ?? nowIso() }));
   }));
 
   // ---------- conditions ----------

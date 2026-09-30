@@ -4,6 +4,7 @@ import type { Q } from "../db/db.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { ageOn, resolveCurrent, type ObservationLike, type Resolved } from "../../shared/clinical.js";
 import { today as todayFn } from "./base.js";
+import { isMechanicalValve, isModerateSevereMS } from "../../shared/history.js";
 
 export type Obs = ObservationLike & { logical_id: string; version: number; study_id: string | null; context_id: string | null; method: string | null; recorded_at: string };
 export type MedEvent = {
@@ -60,11 +61,11 @@ export type ContextRow = {
   previous_context_id: string | null;
   summary: Record<string, unknown>;
 };
-export type ConditionRow = { id: string; logical_id: string; code: string; display: string; status: string; onset: string | null; detail: string; recorded_at: string };
+export type ConditionRow = { id: string; logical_id: string; code: string; display: string; status: string; onset: string | null; detail: string; recorded_at: string; attributes: Record<string, any> };
 export type StudyRow = { id: string; kind: string; performed_at: string; quality: string; findings: string[]; conclusion: string };
 
 export type PatientState = {
-  patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string };
+  patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null };
   today: string;
   conditions: ConditionRow[];
   tags: Set<string>;
@@ -84,7 +85,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const bundle = (
     await tx.query<any>(
       `SELECT
-        (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies FROM cf.patient WHERE id=$1) pt) AS patient,
+        (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile FROM cf.patient WHERE id=$1) pt) AS patient,
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
         (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
@@ -107,8 +108,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const contexts = j(bundle.contexts) as { rows: ContextRow[] };
   const studies = j(bundle.studies) as { rows: StudyRow[] };
   const prefs = j(bundle.prefs) as { rows: { code: string; observation_id: string }[] };
-  const conditions = conds.rows.filter((c) => c.status === "active");
-  const tags = new Set<string>(conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []));
+  const conditions = conds.rows.filter((c) => c.status === "active").map((c) => ({ ...c, attributes: (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes) ?? {} }));
+  const tags = new Set<string>([...conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []), ...conditions.flatMap(detailTags)]);
   const preferences = Object.fromEntries(prefs.rows.map((r) => [r.code, r.observation_id]));
   const cache = new Map<string, Resolved<Obs>>();
   const resolved = (code: string) => {
@@ -163,7 +164,10 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     };
   });
   return {
-    patient: { id: p.id, name: p.name, mrn: p.mrn, sex: p.sex, birth_date: p.birth_date, age: ageOn(p.birth_date, today), allergies: p.allergies },
+    patient: {
+      id: p.id, name: p.name, mrn: p.mrn, sex: p.sex, birth_date: p.birth_date, age: ageOn(p.birth_date, today), allergies: p.allergies,
+      civil_id: p.civil_id ?? null, nationality: p.nationality ?? null, mobile: p.mobile ?? null,
+    },
     today,
     conditions,
     tags,
@@ -175,6 +179,20 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     studies: studies.rows.map(normaliseTime),
     preferences,
   };
+}
+
+// Tags that come from a diagnosis' structured detail, not its code (read by rules).
+function detailTags(c: ConditionRow): string[] {
+  const out: string[] = [];
+  if (isMechanicalValve(c)) out.push("mechanical-valve");
+  if (isModerateSevereMS(c)) out.push("ms-significant");
+  if (c.code === "cied") {
+    const t = c.attributes?.type;
+    if (t === "ICD" || t === "CRT-D") out.push("icd");
+    if (t === "CRT-P" || t === "CRT-D") out.push("crt");
+    if (t === "Pacemaker") out.push("pacemaker");
+  }
+  return out;
 }
 
 // PGlite and node-postgres return timestamps slightly differently; make them ISO.

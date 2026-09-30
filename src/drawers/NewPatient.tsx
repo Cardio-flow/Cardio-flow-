@@ -3,11 +3,12 @@ import { UserPlus, Stethoscope, Search } from "lucide-react";
 import { api } from "../api";
 import { Drawer, Segmented } from "../ui";
 import { DIAGNOSES } from "../../shared/catalog";
+import { IdentityFields } from "./History";
 
 function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: string[]): void }) {
   const [q, setQ] = useState("");
-  const families = useMemo(() => [...new Set(DIAGNOSES.map((d) => d.family))], []);
-  const shown = DIAGNOSES.filter((d) => (d.display + d.family).toLowerCase().includes(q.toLowerCase()));
+  const families = useMemo(() => [...new Set(DIAGNOSES.filter((d) => !d.hidden).map((d) => d.family))], []);
+  const shown = DIAGNOSES.filter((d) => !d.hidden && (d.display + d.family).toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="col">
       <label className="row" style={{ height: 46, padding: "0 14px", border: "1px solid var(--control)", borderRadius: 12 }}>
@@ -44,11 +45,11 @@ function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: str
 }
 
 export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(id: string): void }) {
-  const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", allergies: "" });
+  const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate;
+  const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate && (!f.civilId || /^\d{12}$/.test(f.civilId));
   async function save() {
     setBusy(true);
     try {
@@ -79,7 +80,7 @@ export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(
             <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           </label>
           <label className="field">
-            <span>MRN / file number</span>
+            <span>File number (MRN)</span>
             <input className="input" value={f.mrn} onChange={(e) => setF({ ...f, mrn: e.target.value })} />
           </label>
         </div>
@@ -97,8 +98,10 @@ export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(
             <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />
           </label>
         </div>
+        <IdentityFields f={f} setF={setF} />
         <div className="q">
           <div className="label">Diagnoses and comorbidities</div>
+          <div className="help">Risk-factor status (smoking, family history…) and details such as MI type or valve prosthesis are recorded next in the patient's History.</div>
           <DiagnosisPicker value={dx} onChange={setDx} />
         </div>
         {error && <div className="error-box">{error}</div>}

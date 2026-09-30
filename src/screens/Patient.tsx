@@ -12,6 +12,8 @@ import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
 import { AddEcho } from "../drawers/AddEcho";
 import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
 import { AddDiagnosis } from "../drawers/NewPatient";
+import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
+import { HistoryTab } from "./History";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -24,10 +26,12 @@ export type Open =
   | { kind: "admit" }
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
-  | { kind: "dx" };
+  | { kind: "dx" }
+  | { kind: "history"; focus?: "risk" | "cardiac" }
+  | { kind: "identity"; identity: any };
 
 const TABS = [
-  ["summary", "Summary"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
+  ["summary", "Summary"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
 ] as const;
 
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
@@ -81,6 +85,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               </button>
               <span className="chip outline">Allergies: {h.allergies}</span>
             </div>
+            <RiskRow rf={h.riskFactors} onOpen={() => setOpen({ kind: "history", focus: "risk" })} />
           </div>
           <div className="pt-actions">
             <button className="btn secondary" onClick={() => setOpen({ kind: "labs" })}>
@@ -127,6 +132,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
         </div>
       )}
       {tab === "summary" && <SummaryTab s={s} open={setOpen} />}
+      {tab === "history" && <HistoryTab id={id} version={version} open={setOpen} />}
       {tab === "journey" && <JourneyTab id={id} version={version} />}
       {tab === "visits" && <VisitsTab id={id} version={version} open={setOpen} />}
       {tab === "medications" && <MedicationsTab id={id} version={version} open={setOpen} />}
@@ -145,6 +151,36 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
       {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
+      {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
+      {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
     </>
+  );
+}
+
+// Risk factors at a glance. Major factors are emphasised in navy; red stays reserved for safety alerts.
+function RiskRow({ rf, onOpen }: { rf: any; onOpen(): void }) {
+  if (!rf) return null;
+  const nothing = rf.present.length === 0 && rf.absent === 0 && rf.unknown === 0;
+  return (
+    <div className="rf-row" aria-label="Risk factors">
+      <span className="rf-label">Risk factors</span>
+      {nothing ? (
+        <button className="chip outline rf-missing" onClick={onOpen}>Not recorded · record now</button>
+      ) : (
+        <>
+          {rf.present.map((p: any) => (
+            <button key={p.key} className={`chip rf ${p.major ? "major" : ""} ${p.conflict ? "conflict" : ""}`} onClick={onOpen} title={p.conflict ? "Records disagree: open to reconcile" : undefined}>
+              {p.label}
+            </button>
+          ))}
+          {rf.present.length === 0 && <span className="chip gray">None present</span>}
+          {rf.notRecorded.length > 0 && (
+            <button className="chip outline rf-missing" onClick={onOpen} title={rf.notRecorded.join(", ")}>
+              {rf.notRecorded.length} not recorded
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }

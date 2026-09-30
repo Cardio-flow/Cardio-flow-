@@ -2,11 +2,12 @@ import { targets } from "../engine/guidelines.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
 import { DIAGNOSIS, MEASURES, PURPOSE_ORDER, doseLabel, MEDICATION, formatNumber } from "../../shared/catalog.js";
-import { ageOn, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
+import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
+import { ANSWER_LABEL, HISTORY_ITEMS, attributesText, historyCode } from "../../shared/history.js";
 import { loadState, latestDischarge, openContext, type PatientState } from "./state.js";
 import { today as todayFn } from "./base.js";
 
-const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Comorbidity"];
+const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 
 export async function recommendations(tx: Q, patientId: string) {
@@ -34,15 +35,135 @@ export function header(s: PatientState) {
     sex: s.patient.sex,
     age: s.patient.age,
     allergies: s.patient.allergies,
+    civilId: s.patient.civil_id,
+    nationality: s.patient.nationality,
+    mobile: s.patient.mobile,
     where,
     openContext: ctx,
     diagnoses: [...s.conditions].sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code]?.family ?? "") - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code]?.family ?? "")).map((c) => ({
       id: c.logical_id,
       code: c.code,
-      label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display} · EF ${formatNumber(ef.value_num, 0)}%` : c.display,
+      label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display} · EF ${formatNumber(ef.value_num, 0)}%` : conditionLabel(c),
       family: DIAGNOSIS[c.code]?.family ?? "Other",
       onset: c.onset,
     })),
+    riskFactors: riskRow(s),
+  };
+}
+
+// "Prosthetic valve / repair · Aortic · Mechanical"
+export function conditionLabel(c: { code: string; display: string; attributes?: Record<string, unknown> }) {
+  const extra = attributesText(c.code, c.attributes);
+  if (c.code === "cied" && c.attributes?.type) return String(c.attributes.type);
+  if (c.code === "prosthetic-valve") {
+    const pos = c.attributes?.position ? String(c.attributes.position) : "";
+    const type = String(c.attributes?.type ?? "");
+    const what = type === "Mechanical" ? "mechanical valve" : type.startsWith("Bioprosthetic") ? "bioprosthetic valve" : type === "TAVI" ? "TAVI" : type === "Repair / ring" ? "valve repair" : "prosthetic valve";
+    return `${pos} ${what}`.trim().replace(/^./, (x) => x.toUpperCase());
+  }
+  return extra ? `${c.display} · ${extra}` : c.display;
+}
+
+export function currentBmi(s: PatientState) {
+  const w = s.resolved("weight").current, h = s.resolved("height").current;
+  if (!w?.value_num || !h?.value_num || daysBetween(w.effective_at, s.today) > 365) return null;
+  return { value: Math.round(bmi(w.value_num, h.value_num) * 10) / 10, at: w.effective_at };
+}
+
+type HxStatus = "present" | "absent" | "unknown" | "not-assessed" | "na" | "not-recorded";
+// Structured history: every item says present / absent / unknown / not assessed / not recorded,
+// with its date and where it came from. Nothing missing is shown as "no".
+export function historyView(s: PatientState) {
+  const b = currentBmi(s);
+  const covered = new Set(HISTORY_ITEMS.flatMap((i) => i.conditions ?? []));
+  const items = HISTORY_ITEMS.map((item) => {
+    const stmt = s.resolved(historyCode(item.key)).current;
+    const conds = item.conditions ? s.conditions.filter((c) => item.conditions!.includes(c.code)) : [];
+    let status: HxStatus = "not-recorded";
+    let text = "Not recorded";
+    let at: string | null = null;
+    let source: "diagnosis" | "history" | null = null;
+    let conflict: string | null = null;
+    const details: Record<string, number> = {};
+    if (item.conditions) {
+      if (conds.length) {
+        status = "present";
+        text = conds.map((c) => conditionLabel(c)).join(" · ");
+        source = "diagnosis";
+      } else if (stmt?.value_text) {
+        status = stmt.value_text === "no" ? "absent" : (stmt.value_text as HxStatus);
+        text = ANSWER_LABEL[stmt.value_text] ?? stmt.value_text;
+        at = stmt.effective_at;
+        source = "history";
+      }
+    } else {
+      const legacy = item.key === "smoking" ? s.conditions.find((c) => c.code === "smoker") : undefined;
+      if (stmt?.value_text) {
+        const opt = item.options!.find((o) => o.value === stmt.value_text);
+        status = opt?.present ? "present" : stmt.value_text === "unknown" || stmt.value_text === "not-assessed" ? (stmt.value_text as HxStatus) : "absent";
+        const detail = (item.details ?? [])
+          .map((d) => {
+            const o = s.resolved(`${historyCode(item.key)}.${d.key}`).current;
+            if (!o || o.effective_at !== stmt.effective_at || o.value_num == null || !d.when.includes(stmt.value_text!)) return null;
+            details[d.key] = o.value_num;
+            return d.key === "quitYear" ? `stopped ${o.value_num}` : `${formatNumber(o.value_num, 0)} ${d.label.toLowerCase()}`;
+          })
+          .filter(Boolean);
+        text = [opt?.label ?? stmt.value_text, ...detail].join(" · ");
+        at = stmt.effective_at;
+        source = "history";
+        if (legacy && stmt.value_text !== "current") conflict = `Diagnosis list still says "Current smoker" (added ${fmtDay(legacy.recorded_at, { year: true })})`;
+      } else if (legacy) {
+        status = "present";
+        text = "Current smoker";
+        source = "diagnosis";
+        conflict = "Recorded only as a diagnosis: confirm the smoking status";
+      }
+    }
+    if (item.key === "obesity" && b) text = `${text} · BMI ${formatNumber(b.value, 1)}`;
+    return {
+      key: item.key, section: item.section, label: item.label, short: item.short, major: !!item.major,
+      status, text, at, source, conflict,
+      answer: stmt?.value_text ?? null,
+      details,
+      conditions: conds.map((c) => ({ id: c.logical_id, code: c.code, display: c.display, label: conditionLabel(c), onset: c.onset, onsetYear: c.attributes?.onsetYear ?? null, attributes: c.attributes ?? {} })),
+    };
+  });
+  const comorbidities = s.conditions
+    .filter((c) => !covered.has(c.code) && c.code !== "smoker")
+    .map((c) => ({ id: c.logical_id, code: c.code, label: conditionLabel(c), family: DIAGNOSIS[c.code]?.family ?? "Other", onset: c.onset, onsetYear: c.attributes?.onsetYear ?? null, attributes: c.attributes ?? {} }));
+  return {
+    items,
+    bmi: b,
+    comorbidities,
+    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies },
+    missing: items.filter((i) => i.status === "not-recorded").map((i) => i.label),
+  };
+}
+
+// Compact risk-factor row for the patient header.
+function riskRow(s: PatientState) {
+  const h = historyView(s);
+  const risk = h.items.filter((i) => i.section === "risk");
+  const present = risk
+    .filter((i) => i.status === "present")
+    .map((i) => ({
+      key: i.key,
+      label:
+        i.key === "smoking" ? (i.text.startsWith("Ex") ? "Ex-smoker" : "Current smoker")
+        : i.key === "ckd" ? i.conditions.map((c) => c.display.replace(" (with albuminuria)", "")).join(", ")
+        : i.key === "diabetes" ? i.conditions.map((c) => (c.code === "t1dm" ? "Type 1 diabetes" : "Type 2 diabetes")).join(", ")
+        : i.key === "obesity" && h.bmi ? `Obesity · BMI ${formatNumber(h.bmi.value, 1)}`
+        : i.short,
+      major: i.major && !(i.key === "smoking" && i.text.startsWith("Ex")),
+      conflict: !!i.conflict,
+    }));
+  if (h.bmi && !present.some((p) => p.key === "obesity")) present.push({ key: "bmi", label: `BMI ${formatNumber(h.bmi.value, 1)}`, major: false, conflict: false });
+  return {
+    present,
+    absent: risk.filter((i) => i.status === "absent").length,
+    unknown: risk.filter((i) => i.status === "unknown" || i.status === "not-assessed").length,
+    notRecorded: risk.filter((i) => i.status === "not-recorded").map((i) => i.short),
   };
 }
 

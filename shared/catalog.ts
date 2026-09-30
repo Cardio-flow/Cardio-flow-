@@ -71,7 +71,8 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
   { id: "anticoag", label: "Anticoagulation", codes: ["inr", "haemoglobin", "creatinine"] },
 ];
 
-export type DiagnosisDef = { code: string; display: string; family: string; tags: string[] };
+// hidden: kept for existing records but no longer offered in the picker (recorded elsewhere)
+export type DiagnosisDef = { code: string; display: string; family: string; tags: string[]; hidden?: boolean };
 
 export const DIAGNOSES: DiagnosisDef[] = [
   { code: "hfref", display: "HFrEF", family: "Heart failure", tags: ["hf"] },
@@ -90,17 +91,24 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "mr-secondary", display: "Secondary MR", family: "Valve", tags: ["valve"] },
   { code: "ms", display: "Mitral stenosis", family: "Valve", tags: ["valve"] },
   { code: "tr", display: "Tricuspid regurgitation", family: "Valve", tags: ["valve"] },
+  { code: "prosthetic-valve", display: "Prosthetic valve / repair", family: "Valve", tags: ["valve"] },
   { code: "af", display: "Atrial fibrillation", family: "Arrhythmia", tags: ["af"] },
   { code: "flutter", display: "Atrial flutter", family: "Arrhythmia", tags: ["af"] },
+  { code: "svt", display: "SVT", family: "Arrhythmia", tags: [] },
   { code: "vt", display: "Ventricular tachycardia", family: "Arrhythmia", tags: [] },
+  { code: "av-block", display: "AV block", family: "Arrhythmia", tags: [] },
+  { code: "cied", display: "Cardiac device", family: "Device", tags: [] },
   { code: "htn", display: "Hypertension", family: "Comorbidity", tags: ["htn"] },
   { code: "t2dm", display: "Type 2 diabetes", family: "Comorbidity", tags: ["dm", "t2dm"] },
   { code: "t1dm", display: "Type 1 diabetes", family: "Comorbidity", tags: ["dm"] },
   { code: "fh", display: "Familial hypercholesterolaemia", family: "Comorbidity", tags: ["lipids", "fh"] },
   { code: "statin-intolerance", display: "Statin intolerance", family: "Comorbidity", tags: ["statin-intolerance"] },
+  { code: "ckd-1-2", display: "CKD 1–2 (with albuminuria)", family: "Comorbidity", tags: ["ckd"] },
   { code: "ckd-3a", display: "CKD 3a", family: "Comorbidity", tags: ["ckd"] },
   { code: "ckd-3b", display: "CKD 3b", family: "Comorbidity", tags: ["ckd"] },
   { code: "ckd-4", display: "CKD 4", family: "Comorbidity", tags: ["ckd"] },
+  { code: "ckd-5", display: "CKD 5", family: "Comorbidity", tags: ["ckd"] },
+  { code: "dialysis", display: "On dialysis", family: "Comorbidity", tags: ["ckd", "dialysis"] },
   { code: "dyslipidaemia", display: "Dyslipidaemia", family: "Comorbidity", tags: ["lipids"] },
   { code: "obesity", display: "Obesity", family: "Comorbidity", tags: ["obesity"] },
   { code: "stroke-tia", display: "Stroke / TIA", family: "Comorbidity", tags: ["ascvd", "stroke"] },
@@ -109,7 +117,9 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "osa", display: "Obstructive sleep apnoea", family: "Comorbidity", tags: [] },
   { code: "anaemia", display: "Anaemia", family: "Comorbidity", tags: [] },
   { code: "thyroid", display: "Thyroid disease", family: "Comorbidity", tags: [] },
-  { code: "smoker", display: "Current smoker", family: "Comorbidity", tags: [] },
+  { code: "liver-disease", display: "Chronic liver disease", family: "Comorbidity", tags: [] },
+  { code: "cancer", display: "Cancer (active or past)", family: "Comorbidity", tags: [] },
+  { code: "smoker", display: "Current smoker", family: "Comorbidity", tags: [], hidden: true },
 ];
 export const DIAGNOSIS: Record<string, DiagnosisDef> = Object.fromEntries(DIAGNOSES.map((d) => [d.code, d]));
 
