@@ -4,7 +4,8 @@
 import { MEDICATION, doseLabel } from "./catalog.js";
 import { addDays, fmtDay } from "./clinical.js";
 
-export type Option = { value: string; label: string; hint?: string };
+// requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
+export type Option = { value: string; label: string; hint?: string; requires?: string[]; unless?: string[] };
 export type Question = {
   id: string;
   label: string;
@@ -150,9 +151,9 @@ export const WIZARDS: Record<string, WizardDef> = {
             required: true,
             options: [
               { value: "continue", label: "Continue current therapy and recheck" },
-              { value: "reduce-mra", label: "Reduce MRA dose" },
-              { value: "hold-mra", label: "Hold MRA" },
-              { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose" },
+              { value: "reduce-mra", label: "Reduce MRA dose", requires: ["mra"] },
+              { value: "hold-mra", label: "Hold MRA", requires: ["mra"] },
+              { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "stop-supplement", label: "Stop potassium supplements" },
               { value: "diet-advice", label: "Dietary potassium advice" },
               { value: "binder", label: "Consider potassium binder" },
@@ -239,10 +240,10 @@ export const WIZARDS: Record<string, WizardDef> = {
             required: true,
             options: [
               { value: "continue", label: "Continue therapy and recheck" },
-              { value: "reduce-diuretic", label: "Reduce diuretic dose" },
-              { value: "increase-diuretic", label: "Increase diuretic dose" },
+              { value: "reduce-diuretic", label: "Reduce diuretic dose", requires: ["loop"] },
+              { value: "increase-diuretic", label: "Increase diuretic dose", requires: ["loop"] },
               { value: "hold-nephrotoxin", label: "Stop nephrotoxin" },
-              { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose" },
+              { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "nephrology", label: "Nephrology referral" },
             ],
           },
@@ -261,7 +262,223 @@ export const WIZARDS: Record<string, WizardDef> = {
       },
     ],
   },
+  // ---- ESC HF 2021 practical guidance (retained in 2023/2026; confirm in review) ----
+  congestion: {
+    id: "congestion",
+    title: "Congestion / worsening heart failure",
+    tone: "orange",
+    note: "Keep foundational therapy unless the patient is unstable (hypotension, hypoperfusion, shock). Options are clinician choices; CardioFlow never changes a dose on its own.",
+    steps: [
+      {
+        id: "signs",
+        title: "How congested?",
+        questions: [
+          {
+            id: "signs", label: "Signs of congestion", type: "multi", required: true,
+            help: "Items marked AUTO come from the record.",
+            options: [
+              { value: "oedema", label: "Peripheral oedema" }, { value: "jvp", label: "Raised JVP" }, { value: "crackles", label: "Lung crackles" },
+              { value: "orthopnoea", label: "Orthopnoea / PND" }, { value: "weight", label: "Weight gain" }, { value: "effusion", label: "Pleural effusion / ascites" },
+            ],
+          },
+          {
+            id: "redflags", label: "Any red flag?", type: "multi", required: true,
+            help: "Any red flag means same-day hospital assessment.",
+            options: [
+              { value: "none", label: "None" }, { value: "hypoxia", label: "Resting hypoxia" }, { value: "hypoperfusion", label: "Hypotension / hypoperfusion" },
+              { value: "acs", label: "Chest pain / suspected ACS" }, { value: "arrhythmia", label: "Fast or new arrhythmia" }, { value: "k-renal", label: "Severe K or renal derangement" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "precipitants",
+        title: "Why now?",
+        questions: [
+          {
+            id: "precipitants", label: "Precipitating factors", type: "multi",
+            help: "Treat the cause as well as the fluid.",
+            options: [
+              { value: "adherence", label: "Missed medication" }, { value: "salt", label: "Salt / fluid excess" }, { value: "infection", label: "Infection" },
+              { value: "ischaemia", label: "Ischaemia" }, { value: "af", label: "AF / arrhythmia" }, { value: "htn", label: "Uncontrolled hypertension" },
+              { value: "drugs", label: "NSAID, steroid or rate-limiting CCB" }, { value: "renal", label: "Worsening renal function" }, { value: "anaemia", label: "Anaemia / iron deficiency" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "management",
+        title: "Management",
+        questions: [
+          {
+            id: "actions", label: "What will you do?", type: "multi", required: true,
+            options: [
+              { value: "increase-loop", label: "Increase loop diuretic", requires: ["loop"] },
+              { value: "start-loop", label: "Start a loop diuretic", unless: ["loop"] },
+              { value: "thiazide", label: "Add a thiazide-type diuretic (short course)" },
+              { value: "sglt2", label: "Start an SGLT2 inhibitor", unless: ["sglt2"] },
+              { value: "admit", label: "Admit for IV diuretics" },
+              { value: "precipitant", label: "Treat the precipitant" },
+              { value: "self-care", label: "Daily weights, salt and fluid advice" },
+            ],
+          },
+          { id: "loopDose", label: "New loop diuretic dose", type: "dose", medTag: "loop", direction: "any", showIf: { question: "actions", includes: "increase-loop" }, required: true },
+        ],
+      },
+      {
+        id: "monitoring",
+        title: "Monitoring & plan",
+        questions: [
+          { id: "recheck", label: "Recheck renal function and potassium", type: "single", options: RECHECK, required: true },
+          { id: "review", label: "Clinical review (weight, congestion)", type: "single", options: REVIEW, required: true },
+        ],
+      },
+    ],
+  },
+  hypotension: {
+    id: "hypotension",
+    title: "Low blood pressure on HF therapy",
+    tone: "orange",
+    note: "Asymptomatic low blood pressure usually needs no change. For symptoms, remove non-essential BP-lowering drugs first, then reduce the diuretic if not congested, and only then disease-modifying therapy.",
+    steps: [
+      {
+        id: "context",
+        title: "Symptoms and volume",
+        questions: [
+          {
+            id: "symptoms", label: "Symptoms", type: "multi", required: true,
+            options: [{ value: "none", label: "None (asymptomatic)" }, { value: "dizziness", label: "Dizziness / light-headed" }, { value: "orthostatic", label: "Postural symptoms" }, { value: "syncope", label: "Syncope" }, { value: "fatigue", label: "Fatigue" }],
+          },
+          {
+            id: "volume", label: "Volume status today", type: "single", required: true,
+            options: [{ value: "congested", label: "Congested" }, { value: "euvolaemic", label: "Euvolaemic" }, { value: "dry", label: "Dry / volume depleted" }],
+          },
+        ],
+      },
+      {
+        id: "contributors",
+        title: "Contributors",
+        questions: [
+          {
+            id: "contributors", label: "What may be lowering the BP?", type: "multi",
+            help: "Items marked AUTO were detected from the record.",
+            options: [
+              { value: "vasodilator", label: "Nitrate / CCB / other vasodilator" }, { value: "diuretic", label: "Diuretic without congestion" }, { value: "recent-uptitration", label: "Recent dose increase" },
+              { value: "illness", label: "Intercurrent illness / poor intake" }, { value: "timing", label: "All drugs taken at the same time" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "management",
+        title: "Management",
+        questions: [
+          {
+            id: "actions", label: "What will you do? (in this order)", type: "multi", required: true,
+            options: [
+              { value: "continue", label: "Asymptomatic: continue therapy and recheck" },
+              { value: "stop-vasodilator", label: "1 · Stop non-HF BP-lowering drugs", requires: ["vasodilator", "bp-lowering"] },
+              { value: "reduce-loop", label: "2 · Reduce diuretic (not congested)", requires: ["loop"] },
+              { value: "stagger", label: "Stagger the timing of doses" },
+              { value: "reduce-raas", label: "3 · Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
+              { value: "specialist", label: "Specialist HF review" },
+            ],
+          },
+          { id: "loopDose", label: "New diuretic dose", type: "dose", medTag: "loop", direction: "lower", showIf: { question: "actions", includes: "reduce-loop" }, required: true },
+          { id: "raasDose", label: "New ACEi/ARB/ARNI dose", type: "dose", medTag: "raas", direction: "lower", showIf: { question: "actions", includes: "reduce-raas" }, required: true },
+        ],
+      },
+      {
+        id: "monitoring",
+        title: "Monitoring & plan",
+        questions: [
+          { id: "recheck", label: "Recheck renal function and potassium", type: "single", options: RECHECK, required: true },
+          { id: "review", label: "BP and symptom review", type: "single", options: REVIEW, required: true },
+        ],
+      },
+    ],
+  },
+  bradycardia: {
+    id: "bradycardia",
+    title: "Bradycardia / AV block",
+    tone: "orange",
+    note: "Exclude heart block on the ECG. Review every rate-slowing drug before blaming the beta-blocker; halve rather than stop it unless severe.",
+    steps: [
+      {
+        id: "context",
+        title: "Rhythm and symptoms",
+        questions: [
+          {
+            id: "symptoms", label: "Symptoms", type: "multi", required: true,
+            options: [{ value: "none", label: "None" }, { value: "dizziness", label: "Dizziness" }, { value: "syncope", label: "Syncope / presyncope" }, { value: "fatigue", label: "Fatigue / breathlessness" }],
+          },
+          {
+            id: "block", label: "ECG / monitoring shows", type: "single", required: true,
+            help: "Prefilled from the latest ECG or Holter when available.",
+            options: [
+              { value: "sinus-brady", label: "Sinus bradycardia" }, { value: "first-degree", label: "First-degree AV block" }, { value: "mobitz1", label: "Mobitz I" },
+              { value: "high-grade", label: "Mobitz II / complete heart block" }, { value: "pauses", label: "Pauses ≥3 s" }, { value: "slow-af", label: "Slow AF" }, { value: "no-ecg", label: "No ECG yet" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "contributors",
+        title: "Contributors",
+        questions: [
+          {
+            id: "contributors", label: "Rate-slowing drugs and other causes", type: "multi",
+            help: "Items marked AUTO were detected from the record.",
+            options: [
+              { value: "bb", label: "Beta-blocker" }, { value: "ivabradine", label: "Ivabradine" }, { value: "digoxin", label: "Digoxin" },
+              { value: "amiodarone", label: "Amiodarone / sotalol" }, { value: "ccb", label: "Diltiazem / verapamil" }, { value: "hyperkalaemia", label: "Hyperkalaemia" },
+              { value: "thyroid", label: "Hypothyroidism" }, { value: "ischaemia", label: "Ischaemia" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "management",
+        title: "Management",
+        questions: [
+          {
+            id: "actions", label: "What will you do?", type: "multi", required: true,
+            options: [
+              { value: "continue", label: "Asymptomatic, no block: continue and monitor" },
+              { value: "stop-other", label: "Stop other rate-slowing drugs (ivabradine, digoxin, diltiazem)", requires: ["ivabradine", "digoxin", "ndhp-ccb"] },
+              { value: "reduce-bb", label: "Reduce the beta-blocker (halve)", requires: ["bb"] },
+              { value: "ecg", label: "12-lead ECG" },
+              { value: "holter", label: "Holter monitor" },
+              { value: "pacing", label: "EP / pacing assessment" },
+              { value: "urgent", label: "Same-day hospital assessment" },
+            ],
+          },
+          { id: "bbDose", label: "New beta-blocker dose", type: "dose", medTag: "bb", direction: "lower", showIf: { question: "actions", includes: "reduce-bb" }, required: true },
+        ],
+      },
+      {
+        id: "monitoring",
+        title: "Monitoring & plan",
+        questions: [{ id: "review", label: "Heart rate and symptom review", type: "single", options: REVIEW, required: true }],
+      },
+    ],
+  },
 };
+
+// Which medicines each wizard shows beside the questions.
+export const RELEVANT_TAGS: Record<string, string[]> = {
+  hyperkalaemia: ["raas", "mra", "potassium-sparing", "loop", "sglt2"],
+  "renal-function": ["raas", "mra", "potassium-sparing", "loop", "sglt2"],
+  congestion: ["loop", "thiazide", "raas", "mra", "sglt2", "bb"],
+  hypotension: ["raas", "bb", "loop", "mra", "sglt2", "vasodilator", "bp-lowering"],
+  bradycardia: ["bb", "rate-slowing"],
+};
+
+// Options that fit this patient's current medicines.
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds">) {
+  const tags = new Set(ctx.meds.flatMap((m) => m.tags));
+  return (q.options ?? []).filter((o) => (!o.requires || o.requires.some((t) => tags.has(t))) && (!o.unless || !o.unless.some((t) => tags.has(t))));
+}
 
 export function visibleQuestions(step: Step, answers: Answers) {
   return step.questions.filter((q) => {
@@ -338,6 +555,37 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("reduce-raas")) change("raas", "raasDose", "decrease");
     if (actions.includes("hold-nephrotoxin")) out.push({ kind: "plan", category: "medication", title: "Stop nephrotoxic medication and document", dueDate: today, completesOn: { type: "manual" }, label: "" });
     if (actions.includes("nephrology")) out.push({ kind: "plan", category: "referral", title: "Nephrology referral", dueDate: addDays(today, 7), completesOn: { type: "manual" }, label: "" });
+  }
+  const stopTagged = (tags: string[]) => {
+    for (const m of ctx.meds.filter((x) => x.tags.some((t) => tags.includes(t))))
+      out.push({ kind: "medication", medicationId: m.id, event: "stop", doseValue: null, label: `${m.name}: stop` });
+  };
+  const plan = (category: string, title: string, days: number, completesOn: Record<string, unknown> = { type: "manual" }) =>
+    out.push({ kind: "plan", category, title, dueDate: addDays(today, days), completesOn, label: "" });
+  const red = ((answers.redflags as string[] | undefined) ?? []).filter((x) => x !== "none");
+  if (wizardId === "congestion") {
+    if (red.length || actions.includes("admit")) plan("follow_up", red.length ? "Same-day hospital assessment (red flag)" : "Admission for IV diuretics", 0, { type: "visit" });
+    if (actions.includes("increase-loop")) change("loop", "loopDose", "increase");
+    if (actions.includes("start-loop")) plan("medication", "Start a loop diuretic (dose by clinician)", 0);
+    if (actions.includes("thiazide")) plan("medication", "Short thiazide-type diuretic course (sequential nephron blockade)", 0);
+    if (actions.includes("sglt2") && !ctx.meds.some((m) => m.tags.includes("sglt2"))) plan("medication", "Start an SGLT2 inhibitor", 0);
+    if (actions.includes("precipitant")) plan("other", "Treat the precipitant: " + (((answers.precipitants as string[]) ?? []).join(", ") || "as documented"), 0);
+    if (actions.includes("self-care")) plan("education", "Daily weights, flexible diuretic, salt and fluid advice", 0);
+  }
+  if (wizardId === "hypotension") {
+    if (actions.includes("stop-vasodilator")) stopTagged(["vasodilator", "bp-lowering"]);
+    if (actions.includes("reduce-loop")) change("loop", "loopDose", "decrease");
+    if (actions.includes("reduce-raas")) change("raas", "raasDose", "decrease");
+    if (actions.includes("stagger")) plan("education", "Stagger dose timing (spread BP-lowering drugs through the day)", 0);
+    if (actions.includes("specialist")) plan("referral", "Specialist HF review for low blood pressure", 7, { type: "visit" });
+  }
+  if (wizardId === "bradycardia") {
+    if (actions.includes("stop-other")) stopTagged(["ivabradine", "digoxin", "ndhp-ccb"]);
+    if (actions.includes("reduce-bb")) change("bb", "bbDose", "decrease");
+    if (actions.includes("ecg")) plan("investigation", "12-lead ECG", 0, { type: "study", kind: "ecg" });
+    if (actions.includes("holter")) plan("investigation", "Holter monitor", 14, { type: "study", kind: "holter" });
+    if (actions.includes("pacing")) plan("referral", "EP / pacing assessment", answers.block === "high-grade" || answers.block === "pauses" ? 0 : 14);
+    if (actions.includes("urgent") || answers.block === "high-grade") plan("follow_up", "Same-day hospital assessment", 0, { type: "visit" });
   }
   const recheck = Number(answers.recheck);
   if (Number.isFinite(recheck) && answers.recheck != null) {

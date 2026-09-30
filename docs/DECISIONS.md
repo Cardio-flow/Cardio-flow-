@@ -2,6 +2,15 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-09-30 · Complication wizards: congestion, low blood pressure, bradycardia
+
+- **Three new wizards** on the one wizard engine (`shared/wizards.ts`), following ESC HF 2021 practical guidance (retained 2023/2026, wording to confirm in review) and ESC pacing 2021: congestion / worsening HF (signs, red flags → same-day assessment, precipitants, diuretic, self-care, recheck and review), symptomatic hypotension (non-HF BP-lowering drugs first, then diuretic if not congested, then RAAS/ARNI), bradycardia / AV block (review every rate-slowing drug, halve the beta-blocker, ECG/Holter, pacing assessment same day for high-grade block or pauses).
+- **Options follow the patient's medicines** (`Option.requires` / `unless`, `optionsFor`): e.g. no loop diuretic → "Start a loop diuretic" instead of "Increase"; the server refuses an option that does not apply; stale draft choices are dropped when the wizard reopens. Applied to the hyperkalaemia and renal-function wizards too.
+- **Everything the record shows is prefilled and marked AUTO** (weight gain, congestion on exam, AF on ECG, rate-slowing drugs, AV block from the latest ECG/Holter, dry diuretic, vasodilators).
+- **Trigger rules** (`server/engine/complication-rules.ts`, CLINICAL_REVIEW): `hf.congestion` (weight +2 kg in 3 days or moderate/severe congestion; not during an admission), `hf.symptomatic-hypotension` (SBP <90 on BP-lowering therapy), `rhythm.bradycardia` (HR <50 on rate-slowing drugs; red for Mobitz II/complete block, pauses ≥3 s or HR <40). RULESET 2026-09-30.5.
+- **Catalogue tags** added for the wizards: `rate-slowing`, `ivabradine`, `digoxin`, `ndhp-ccb`, `vasodilator`, `nitrate`, `bp-lowering`, `thiazide`.
+- Synthetic seed v6: Hamad (weight gain with moderate congestion), Yousef (HR 46 on a beta-blocker).
+
 ## 2026-09-30 · General-clinic core, slice 3: admission, discharge, patient status
 
 - **Vocabulary** in `shared/encounters.ts` (reasons, route, symptoms, in-hospital events, discharge condition and destination, cause-of-death groups, follow-up statuses). Admission and discharge facts stay in `care_context.summary` (no new table): `route`, `symptoms`, `hfRelated`, `readmission {days, band, previousId, hfReadmission}`, `outcome`, `dischargeStatus`, `destination`, `events`, `los`. Readmission band and length of stay are computed by the server, never typed.

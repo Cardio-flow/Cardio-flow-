@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 5;
+export const SEED_VERSION = 6;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -315,6 +315,22 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await K.startAdmission(tx, sys, fm, { startedAt: at(d(-2), "22:00"), location: "CCU · Bed 2", reasons: ["Acute decompensated HF"], route: "Emergency department", symptoms: ["Dyspnoea", "Leg swelling"] });
       await obs(fm, d(-1), [{ code: "creatinine", value: 141 }, { code: "potassium", value: 4.9 }, { code: "sodium", value: 131 }, { code: "weight", value: 90 }], false);
       touched.push(fm);
+    }
+    // Seed v6: data that opens the complication wizards
+    if (seeded < 6) {
+      // Hamad: weight up 2.6 kg in 3 days with oedema → congestion wizard
+      const h6 = await byMrn("100457208");
+      if (h6) {
+        await K.recordObservations(tx, sys, h6, { effectiveAt: at(d(-3), "08:30"), items: [{ code: "weight", value: 79.4 }], silentEvent: true });
+        await K.recordObservations(tx, sys, h6, { effectiveAt: at(d(0), "08:00"), items: [{ code: "weight", value: 82.0 }, { code: "congestion", text: "Moderate" }, { code: "sbp", value: 118 }, { code: "hr", value: 78 }], silentEvent: true });
+        touched.push(h6);
+      }
+      // Yousef: slow heart rate on a beta-blocker → bradycardia wizard
+      const y6 = await byMrn("100277190");
+      if (y6) {
+        await K.recordObservations(tx, sys, y6, { effectiveAt: at(d(-1), "10:00"), items: [{ code: "hr", value: 46 }, { code: "sbp", value: 104 }], silentEvent: true });
+        touched.push(y6);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

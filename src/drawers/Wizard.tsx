@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Activity, Check, Info, CalendarCheck, Pill } from "lucide-react";
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
-import { WIZARDS, buildOutcome, doseChoices, missingRequired, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
+import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
 import { fmtDay } from "../../shared/clinical";
 import { MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
@@ -23,9 +23,25 @@ export function WizardDrawer({
     api(`/patients/${patientId}/wizards/${wizard}`).then((r) => {
       setCtx(r.context);
       if (r.draft) {
-        setAnswers(r.draft.answers);
+        // drop choices that no longer fit the patient's medicines (e.g. the drug was stopped since the draft)
+        const clean: Record<string, any> = { ...r.draft.answers };
+        for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
+          const ok = new Set(optionsFor(q, r.context).map((o) => o.value));
+          const v = clean[q.id];
+          if (Array.isArray(v)) clean[q.id] = v.filter((x: string) => ok.has(x));
+          else if (v != null && !ok.has(String(v))) delete clean[q.id];
+        }
+        setAnswers(clean);
         setStep(Math.min(r.draft.step, def.steps.length));
-      } else setAnswers({ contributors: r.context.detected.contributors ?? [] });
+      } else {
+        // everything the record already shows is prefilled (and marked AUTO); the clinician confirms or changes it
+        const pre: Record<string, any> = {};
+        for (const q of def.steps.flatMap((st) => st.questions)) {
+          const d = r.context.detected[q.id];
+          if (d?.length) pre[q.id] = q.type === "single" ? d[0] : d;
+        }
+        setAnswers(pre);
+      }
       loaded.current = true;
     }, (e) => setError(e.message));
   }, [patientId, wizard, def]);
@@ -146,7 +162,7 @@ export function WizardDrawer({
           </div>
           <div className="col" style={{ gap: 6 }}>
             <span className="eyebrow">Relevant medications</span>
-            {ctx?.meds.filter((m) => m.tags.some((t) => ["raas", "mra", "potassium-sparing", "loop", "sglt2"].includes(t))).map((m) => (
+            {ctx?.meds.filter((m) => m.tags.some((t) => (RELEVANT_TAGS[wizard] ?? []).includes(t))).map((m) => (
               <span key={m.id} style={{ fontSize: 13.5, fontWeight: 600 }}>
                 {m.name} {doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)} {m.frequency}
               </span>
@@ -162,12 +178,12 @@ export function WizardDrawer({
                 <div className="label">{q.label}</div>
                 {q.help && <div className="help">{q.help}</div>}
                 {q.type === "multi" && (
-                  <MultiChoice options={q.options!} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} />
+                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} />
                 )}
                 {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22) ? (
-                  <Segmented label={q.label} options={q.options!} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
+                  <Segmented label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
                 ) : (
-                  <SingleChoice label={q.label} options={q.options!} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
+                  <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
                 ))}
                 {q.type === "dose" && (() => {
                   const { med, options } = doseChoices(ctx, q);
