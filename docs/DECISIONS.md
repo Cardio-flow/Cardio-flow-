@@ -2,6 +2,14 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-01 · Last four rules rebuilt on guideline values; every clinical rule published
+
+- **Creatinine rise** (`hf.worsening-renal-function`): ESC HF practical guidance limits replace the local 25% / 90-day rule. Baseline = the creatinine before the most recent RAAS/ARNI/MRA start or up-titration (else the previous result). Up to +50% or 266 µmol/L / eGFR 25 (whichever is smaller) is acceptable and silent; beyond that orange (halve the dose, recheck); >100% or >310 µmol/L / eGFR <20 red (stop and seek advice). A synthetic patient whose creatinine rose 24% (Khaled) no longer alerts.
+- **Post-discharge review:** 1–2 weeks (14 days) for everyone; still congested at discharge is shown as a priority, not a shorter deadline.
+- **Mechanical-valve INR** (`safety.inr`): the valve record gains "Mechanical valve design" and "INR target (set by clinician)", shown only for mechanical valves. Recorded target wins. Otherwise suggested from ESC/EACTS 2025 (Class I, Table 10 as summarised): lower-thrombogenicity aortic valve 2.5 (2.0–3.0); higher-thrombogenicity design or mitral/tricuspid position 3.0 (2.5–3.5); +0.5 with a patient risk factor (previous thromboembolism, AF, mitral stenosis, LVEF <35%). Design unknown in aortic position: no guess; alert only outside 2.0–4.0 and ask for the target. Table 10 itself could not be opened online; confirm against the printed guideline. Therapy & targets shows the target and INR; the tick needs INR in range.
+- **Digoxin:** level above the ESC target 0.5–0.9 ng/mL alerts (orange; red with a toxicity risk factor). Renal risk = CKD on the problem list or eGFR <60 (KDIGO CKD definition), replacing the local eGFR <30 and "level >2.0 toxic".
+- `NEEDS_REVIEW` is now empty: all 45 clinical rules are published. A build-authored, policy-published version now also follows the code's parameters, so stale stored parameters cannot override new guideline values. The governance test now exercises maker/checker on a clinician-drafted version 2. RULESET 2026-10-01.4.
+
 ## 2026-10-01 · Guideline-based rules apply without separate review
 
 - **Decision (Ahmed, clinical owner):** a clinical rule applies to every patient when its trigger and thresholds are justified by a current guideline, drug label or standard definition; no separate review. Replaces "every clinical rule starts in CLINICAL_REVIEW" (constitution rule 5 amended).

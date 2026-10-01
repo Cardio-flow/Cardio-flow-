@@ -57,21 +57,21 @@ test("readmission: interval band, HF readmission flag, and the 30-day rule", asy
   await assert.rejects(tx((q) => K.discharge(q, doc, pid, second.id, { endedAt: at(addDays(T, -3)), status: "Improved", plan: [] })), /before admission/);
 });
 
-test("post-discharge review: flagged until a visit is booked inside the window; shorter window when congested", async () => {
+test("post-discharge review: flagged until a visit is booked within 1–2 weeks; congestion is a priority, not a different deadline", async () => {
   const pid = await newPatient();
   const a = await tx((q) => K.startAdmission(q, doc, pid, { startedAt: at(addDays(T, -6)), location: "Ward 3A", reasons: ["Acute decompensated HF"] }));
   await tx((q) => K.discharge(q, doc, pid, a.id, { endedAt: at(addDays(T, -2)), status: "Still congested", destination: "Home", plan: [] }));
   await re(pid);
   let f = (await active(pid)).find((x) => x.rule_id === "hf.post-discharge-review");
   assert.equal(f.severity, "yellow");
-  assert.match(f.detail, /still congested: review within 7 days/i);
+  assert.match(f.detail, /still congested: prioritise an early review \(within 1–2 weeks\)/i);
   // booked, but later than the window
   await tx(async (q) => {
     await K.addPlanAction(q, doc, pid, { category: "follow_up", title: "HF clinic review", dueDate: addDays(T, 20), completesOn: { type: "visit" } });
     await reassess(q, pid, "sandbox", ["plan"]);
   });
   f = (await active(pid)).find((x) => x.rule_id === "hf.post-discharge-review");
-  assert.match(f.title, /later than 7 days after discharge/);
+  assert.match(f.title, /later than 14 days after discharge/);
   await tx(async (q) => {
     await K.addPlanAction(q, doc, pid, { category: "follow_up", title: "HF clinic review (early)", dueDate: addDays(T, 3), completesOn: { type: "visit" } });
     await reassess(q, pid, "sandbox", ["plan"]);

@@ -4,6 +4,7 @@ import { formatNumber, MEASURES } from "../../shared/catalog.js";
 import { daysBetween, fmtDay } from "../../shared/clinical.js";
 import { series, type Obs, type PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
+import { parseInrTarget } from "../../shared/history.js";
 
 const within = (s: PatientState, code: string, days: number): Obs | null => {
   const c = s.resolved(code).current;
@@ -185,23 +186,44 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "safety.inr",
     kind: "clinical",
     title: "INR out of range on warfarin",
-    inputs: ["inr", "meds", "conditions"],
-    defaultParams: { low: 2.0, high: 3.0, valve_low: 2.5, valve_high: 3.5, very_high: 9, days: 14 },
-    evidence: "Warfarin target INR 2.0–3.0 for AF; mechanical valves need a higher, prosthesis-specific target (ESC/EACTS 2025; range 2.5–3.5 used here pending review). INR >9 without bleeding needs same-day action (ACCP).",
+    inputs: ["inr", "meds", "conditions", "lvef"],
+    defaultParams: { low: 2.0, high: 3.0, very_high: 9, days: 14 },
+    evidence: "ESC 2024 AF / EHRA: VKA target INR 2.0–3.0. ESC/EACTS 2025 VHD (Class I): mechanical-valve INR target set by valve type and position and patient risk factors (Table 10): lower-thrombogenicity aortic valve 2.5 (2.0–3.0), 3.0 (2.5–3.5) with a risk factor; higher-thrombogenicity design or mitral/tricuspid position 3.0 (2.5–3.5), 3.5 (3.0–4.0) with a risk factor. The clinician's recorded target wins. INR >9 without bleeding needs same-day action (ACCP/CHEST).",
     evaluate(s, p) {
       if (!on(s, "oac").some((m) => m.code === "warfarin")) return [];
       const inr = within(s, "inr", p.days);
       if (!inr) return [];
-      const valve = s.tags.has("mechanical-valve");
-      const lo = valve ? p.valve_low : p.low, hi = valve ? p.valve_high : p.high;
       const v = inr.value_num!;
-      if (v >= lo && v <= hi) return [];
-      const high = v > hi;
+      const valve = s.tags.has("mechanical-valve");
+      const t = valve ? mechanicalInrTarget(s) : { target: 2.5, low: Number(p.low), high: Number(p.high), source: "AF" as const, reasons: [] as string[] };
+      const veryHigh = v > Number(p.very_high);
+      if (!t) {
+        // mechanical valve without a recorded or derivable target: judge only against the outer
+        // limits of every guideline range (2.0–4.0) and ask for the target
+        const out = v < 2.0 || v > 4.0;
+        return [{
+          key: "inr", signature: `${inr.id}:unset`, severity: veryHigh ? "red" : out ? (v < 2.0 ? "red" : "orange") : "yellow",
+          title: out ? `INR ${formatNumber(v, 1)} ${v < 2.0 ? "below" : "above"} every mechanical-valve range (2.0–4.0)` : `INR ${formatNumber(v, 1)}: mechanical-valve INR target not recorded`,
+          detail: "Record the valve design and the INR target in the valve record (ESC/EACTS 2025: by valve type, position and risk factors).",
+          facts: facts(f(inr, out ? "orange" : undefined), src("ESC/EACTS VHD 2025 · Class I")),
+          missing: ["Mechanical valve design or INR target"],
+          action: out ? { type: "wizard", wizard: "inr" } : { type: "history", focus: "cardiac", label: "Record the INR target" },
+        }];
+      }
+      if (v >= t.low && v <= t.high) return [];
+      const high = v > t.high;
+      const range = `${formatNumber(t.low, 1)}–${formatNumber(t.high, 1)}`;
       return [{
-        key: "inr", signature: inr.id, severity: high ? (v > p.very_high ? "red" : "orange") : valve ? "red" : "yellow",
-        title: `INR ${formatNumber(v, 1)} ${high ? "above" : "below"} target ${lo}–${hi}${valve ? " (mechanical valve)" : ""}`,
+        key: "inr", signature: `${inr.id}:${range}`, severity: high ? (veryHigh ? "red" : "orange") : valve ? "red" : "yellow",
+        title: `INR ${formatNumber(v, 1)} ${high ? "above" : "below"} target ${range}${valve ? ` (mechanical valve${t.source === "suggested" ? ", suggested target" : ""})` : ""}`,
         detail: high ? "Check for bleeding and interacting drugs; omit/adjust per anticoagulation clinic." : valve ? "Sub-therapeutic with a mechanical valve: adjust today and consider bridging." : "Check adherence and interactions; adjust the dose.",
-        facts: facts(f(inr, high ? "orange" : "yellow"), f(within(s, "haemoglobin", 30)), src(valve ? "ESC/EACTS VHD 2025" : "EHRA VKA guidance")),
+        facts: facts(
+          f(inr, high ? "orange" : "yellow"),
+          valve && { label: "INR target", value: `${formatNumber(t.target, 1)} (${range}) · ${t.source === "recorded" ? "recorded by clinician" : "suggested, confirm in the valve record"}` },
+          valve && t.reasons.length > 0 && { label: "Valve risk", value: t.reasons.join(" · ") },
+          f(within(s, "haemoglobin", 30)),
+          src(valve ? "ESC/EACTS VHD 2025 · Table 10" : "ESC AF 2024 · EHRA VKA guidance"),
+        ),
         missing: [], action: { type: "wizard", wizard: "inr" },
       }];
     },
@@ -209,24 +231,32 @@ export const ACUTE_RULES: RuleDef[] = [
   {
     id: "safety.digoxin",
     kind: "clinical",
-    title: "Digoxin toxicity risk",
-    inputs: ["digoxin-level", "potassium", "egfr", "meds"],
-    defaultParams: { level_above: 2.0, target_high: 0.9, k_below: 3.5, egfr_below: 30 },
-    evidence: "ESC HF: target digoxin level 0.5–0.9 ng/mL; toxicity likelier with low K, impaired renal function and interacting drugs (amiodarone, verapamil). Level >2.0 ng/mL as toxic is a sandbox value pending review.",
+    title: "Digoxin level and toxicity risk",
+    inputs: ["digoxin-level", "potassium", "egfr", "meds", "conditions"],
+    defaultParams: { target_low: 0.5, target_high: 0.9, k_below: 3.5, egfr_below: 60 },
+    evidence: "ESC HF 2021/2026: if digoxin is used, target serum level 0.5–0.9 ng/mL; toxicity is a clinical diagnosis, likelier with hypokalaemia (K <3.5 mmol/L), impaired renal function (CKD, eGFR <60 per KDIGO) and interacting drugs (amiodarone, verapamil/diltiazem).",
     evaluate(s, p) {
       const dig = on(s, "digoxin")[0];
       const lvl = within(s, "digoxin-level", 30);
-      if (lvl && lvl.value_num! > p.level_above)
-        return [{ key: "dig-level", signature: lvl.id, severity: "red", title: `Digoxin level ${formatNumber(lvl.value_num!, 1)} ng/mL`, detail: "Assess for toxicity; hold digoxin; correct K and Mg.", facts: facts(f(lvl, "red"), f(within(s, "potassium", 30)), f(within(s, "egfr", 90)), src("ESC HF · target 0.5–0.9 ng/mL")), missing: [], action: { type: "wizard", wizard: "digoxin" } }];
-      if (!dig) return [];
       const k = within(s, "potassium", 30), egfr = within(s, "egfr", 90);
       const inter = on(s, "qt", "ndhp-ccb");
-      const risks = [k && k.value_num! < p.k_below && f(k, "orange"), egfr && egfr.value_num! < p.egfr_below && f(egfr, "orange"), ...inter.map((m) => ({ label: "Interacting drug", value: m.name }))].filter(Boolean) as Fact[];
-      if (!risks.length) return [];
+      const risks = [
+        k && k.value_num! < Number(p.k_below) && f(k, "orange"),
+        ((egfr && egfr.value_num! < Number(p.egfr_below)) || s.tags.has("ckd")) && (egfr ? f(egfr, "orange") : { label: "Kidney", value: "Chronic kidney disease" }),
+        ...inter.map((m) => ({ label: "Interacting drug", value: m.name })),
+      ].filter(Boolean) as Fact[];
+      if (lvl && lvl.value_num! > Number(p.target_high))
+        return [{
+          key: "dig-level", signature: `${lvl.id}:${risks.map((r) => r.label + "=" + r.value).join("|")}`, severity: risks.length ? "red" : "orange",
+          title: `Digoxin level ${formatNumber(lvl.value_num!, 1)} ng/mL above target ${p.target_low}–${p.target_high}`,
+          detail: "Ask about nausea, visual change, palpitations and check the ECG: if toxicity is suspected, hold digoxin and correct K and Mg. Otherwise reduce the dose.",
+          facts: facts(f(lvl, "orange"), ...risks, src("ESC HF · target 0.5–0.9 ng/mL")), missing: k ? [] : ["Potassium"], action: { type: "wizard", wizard: "digoxin" },
+        }];
+      if (!dig || !risks.length) return [];
       return [{
         key: "dig-risk", signature: `${k?.id ?? ""}:${egfr?.id ?? ""}:${inter.map((m) => m.id).join(",")}`, severity: "orange",
         title: `Digoxin with ${risks.length} toxicity risk factor${risks.length === 1 ? "" : "s"}`,
-        detail: lvl ? `Latest level ${formatNumber(lvl.value_num!, 1)} ng/mL (${fmtDay(lvl.effective_at)}).` : "Check a digoxin level and review the dose.",
+        detail: lvl ? `Latest level ${formatNumber(lvl.value_num!, 1)} ng/mL (${fmtDay(lvl.effective_at)}); target 0.5–0.9.` : "Check a digoxin level (target 0.5–0.9 ng/mL) and review the dose.",
         facts: facts(...risks, f(lvl), src("ESC HF · digoxin")), missing: lvl ? [] : ["Digoxin level"], action: { type: "wizard", wizard: "digoxin" },
       }];
     },
@@ -251,3 +281,32 @@ export const ACUTE_RULES: RuleDef[] = [
     },
   },
 ];
+
+// ESC/EACTS 2025 VHD Table 10: the INR target for a mechanical valve. The clinician's recorded
+// target wins; otherwise a suggestion from valve design/position and patient risk factors
+// (previous thromboembolism, AF, mitral stenosis, LVEF <35%). Null when it cannot be derived.
+export function mechanicalInrTarget(s: PatientState) {
+  const valves = s.conditions.filter((c) => c.code === "prosthetic-valve" && c.attributes?.type === "Mechanical");
+  const recorded = valves.map((c) => parseInrTarget(c.attributes?.inrTarget)).filter(Boolean) as { target: number; low: number; high: number }[];
+  const ef = s.resolved("lvef").current?.value_num;
+  const reasons = [
+    s.conditions.some((c) => c.code === "stroke-tia") && "previous thromboembolism",
+    s.tags.has("af") && "AF",
+    s.conditions.some((c) => c.code === "ms") && "mitral stenosis",
+    ef != null && ef < 35 && "LVEF <35%",
+  ].filter(Boolean) as string[];
+  if (recorded.length) {
+    const t = recorded.reduce((a, b) => (b.target > a.target ? b : a));
+    return { ...t, source: "recorded" as const, reasons };
+  }
+  let best: number | null = null;
+  for (const c of valves) {
+    const pos = c.attributes?.position, design = c.attributes?.design;
+    const higher = pos === "Mitral" || pos === "Tricuspid" || design === "Older tilting-disc" || design === "Caged-ball";
+    const lower = pos === "Aortic" && design === "Bileaflet / current tilting-disc";
+    if (!higher && !lower) return null; // design or position unknown: cannot suggest
+    const t = (higher ? 3.0 : 2.5) + (reasons.length ? 0.5 : 0);
+    best = best == null ? t : Math.max(best, t);
+  }
+  return best == null ? null : { target: best, low: best - 0.5, high: best + 0.5, source: "suggested" as const, reasons };
+}

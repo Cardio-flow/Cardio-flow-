@@ -20,6 +20,7 @@ import { bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.
 import type { MedState, PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
 import { DIABETES_RULES, diabetesRecord, glycaemicTarget } from "./diabetes-rules.js";
+import { mechanicalInrTarget } from "./acute-rules.js";
 
 // ---------- helpers ----------
 const cur = (s: PatientState, code: string) => s.resolved(code).current;
@@ -588,7 +589,7 @@ export function targets(s: PatientState) {
           };
         })()
       : null,
-    af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
+    af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), inrTarget: s.tags.has("mechanical-valve") ? (mechanicalInrTarget(s) ?? "unset") : null, inr: recent(s, "inr", 30)?.value_num ?? null, onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
     kidney: { egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null },
   };
 }

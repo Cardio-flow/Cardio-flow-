@@ -18,9 +18,9 @@ export const ENCOUNTER_RULES: RuleDef[] = [
     kind: "clinical",
     title: "Early review after an HF admission",
     inputs: ["contexts", "plan"],
-    defaultParams: { review_days: 14, congested_review_days: 7, lookback_days: 30 },
+    defaultParams: { review_days: 14, lookback_days: 30 },
     evidence:
-      "ESC HF 2021 (I, C) and 2023 focused update (STRONG-HF, I, B): early follow-up 1–2 weeks after HF hospitalisation to assess congestion and tolerance and to start/up-titrate therapy. Review within 7 days when congested at discharge is a sandbox value pending review.",
+      "ESC HF 2021 (I, C) and 2023 focused update (STRONG-HF, I, B): early follow-up 1–2 weeks after HF hospitalisation to assess congestion and tolerance and to start/up-titrate therapy. Same window for every patient; residual congestion at discharge is shown as a priority, not a different deadline.",
     evaluate(s, p) {
       const last = hfAdmissions(s).filter((c) => c.status === "closed" && c.ended_at && (c.summary as any)?.outcome !== "died").pop();
       if (!last?.ended_at) return [];
@@ -31,7 +31,7 @@ export const ENCOUNTER_RULES: RuleDef[] = [
       const seen = s.contexts.some((c) => c.kind === "clinic_visit" && c.started_at > last.ended_at!);
       if (seen) return [];
       const congested = (last.summary as any)?.dischargeStatus === "Still congested";
-      const window = Number(congested ? p.congested_review_days : p.review_days);
+      const window = Number(p.review_days);
       const byDay = new Date(Date.parse(last.ended_at) + window * 86400000).toISOString().slice(0, 10);
       // a booked review inside the window is enough (if it is missed, the plan's own overdue alert fires)
       const visits = s.plan.filter((a) => a.status === "planned" && a.completes_on?.type === "visit" && a.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!));
@@ -45,7 +45,7 @@ export const ENCOUNTER_RULES: RuleDef[] = [
         title: booked
           ? `Post-discharge review booked ${fmtDay(booked.due_date!)}: later than ${window} days after discharge`
           : `${overdue ? "No review since HF discharge" : "Book the early post-discharge review"} · discharged ${fmtDay(last.ended_at)} (day ${since})`,
-        detail: `${congested ? "Discharged still congested: review within " + window + " days. " : ""}Check congestion, K/creatinine and tolerance; start or up-titrate therapy.`,
+        detail: `${congested ? "Discharged still congested: prioritise an early review (within 1–2 weeks). " : ""}Check congestion, K/creatinine and tolerance; start or up-titrate therapy.`,
         facts: [
           { label: "Discharged", value: fmtDay(last.ended_at, { year: true }) },
           { label: "Condition at discharge", value: (last.summary as any)?.dischargeStatus ?? "not recorded", tone: congested ? "orange" : undefined },

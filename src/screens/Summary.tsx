@@ -429,7 +429,13 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
         )}
         {t.af && (
           t.af.vkaOnly ? (
-            <Goal label="AF anticoagulation" value="Valve: VKA only" goal="Warfarin whatever the CHA₂DS₂-VA" met={t.af.onVka && t.af.oac.length === 1} sub={t.af.oac.length ? t.af.oac.join(" · ") : "No anticoagulant"} />
+            <Goal
+              label="AF anticoagulation"
+              value="Valve: VKA only"
+              goal={t.af.inrTarget && t.af.inrTarget !== "unset" ? `INR target ${num(t.af.inrTarget.target, 1)} (${num(t.af.inrTarget.low, 1)}–${num(t.af.inrTarget.high, 1)})${t.af.inrTarget.source === "suggested" ? " · suggested" : ""}` : t.af.inrTarget === "unset" ? "Warfarin · record the INR target" : "Warfarin whatever the CHA₂DS₂-VA"}
+              met={t.af.onVka && t.af.oac.length === 1 && (typeof t.af.inrTarget !== "object" || !t.af.inrTarget || (t.af.inr != null && t.af.inr >= t.af.inrTarget.low && t.af.inr <= t.af.inrTarget.high))}
+              sub={[t.af.oac.length ? t.af.oac.join(" · ") : "No anticoagulant", t.af.inr != null ? `INR ${num(t.af.inr, 1)}` : null].filter(Boolean).join(" · ")}
+            />
           ) : (
             <Goal label="AF stroke risk" value={`CHA₂DS₂-VA ${t.af.score}`} goal={t.af.score >= 2 ? "OAC recommended" : t.af.score === 1 ? "Consider OAC" : "No OAC indicated"} met={t.af.score === 0 || t.af.oac.length > 0} sub={t.af.oac.length ? t.af.oac.join(" · ") : t.af.items.join(" · ")} />
           )

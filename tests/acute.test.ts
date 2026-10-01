@@ -122,7 +122,8 @@ test("INR below a mechanical-valve target is red; digoxin risk; severe BP", asyn
   await obs(pid, [{ code: "inr", value: 1.8 }, { code: "potassium", value: 3.3 }, { code: "sbp", value: 186 }, { code: "dbp", value: 104 }]);
   const inr = await rec(pid, "safety.inr");
   assert.equal(inr.severity, "red");
-  assert.match(inr.title, /INR 1\.8 below target 2\.5–3\.5 \(mechanical valve\)/);
+  // mitral position (higher thrombogenicity) + AF → suggested 3.5 (3.0–4.0), ESC/EACTS 2025
+  assert.match(inr.title, /INR 1\.8 below target 3\.0–4\.0 \(mechanical valve, suggested target\)/);
   const dig = await rec(pid, "safety.digoxin");
   assert.match(dig.title, /Digoxin with 2 toxicity risk factors/);
   assert.ok(dig.missing.includes("Digoxin level"));

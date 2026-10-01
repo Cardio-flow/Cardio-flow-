@@ -137,8 +137,8 @@ async function applyPolicy(tx: Q, rule: RuleDef) {
   if (publishedByPolicy(rule) && newest.status === "CLINICAL_REVIEW") {
     await tx.query(`UPDATE cf.rule_version SET status='RETIRED', updated_at=now() WHERE rule_id=$1 AND status='PUBLISHED'`, [rule.id]);
     await tx.query(
-      `UPDATE cf.rule_version SET status='PUBLISHED', published_by=$3, review_note=$4, evidence=$5, updated_at=now() WHERE rule_id=$1 AND version=$2`,
-      [rule.id, newest.version, POLICY_PUBLISHER, POLICY_NOTE, rule.evidence],
+      `UPDATE cf.rule_version SET status='PUBLISHED', published_by=$3, review_note=$4, evidence=$5, params=$6, updated_at=now() WHERE rule_id=$1 AND version=$2`,
+      [rule.id, newest.version, POLICY_PUBLISHER, POLICY_NOTE, rule.evidence, JSON.stringify(rule.defaultParams)],
     );
     await event(tx, rule.id, newest.version, "CLINICAL_REVIEW", "PUBLISHED", POLICY_PUBLISHER, POLICY_NOTE);
     return 1;
@@ -148,7 +148,13 @@ async function applyPolicy(tx: Q, rule: RuleDef) {
     await event(tx, rule.id, newest.version, "PUBLISHED", "CLINICAL_REVIEW", POLICY_PUBLISHER, `Local threshold, returned to clinical review: ${NEEDS_REVIEW[rule.id]}`);
     return 1;
   }
-  if (newest.published_by === POLICY_PUBLISHER)
-    await tx.query(`UPDATE cf.rule_version SET evidence=$3 WHERE rule_id=$1 AND version=$2 AND evidence IS DISTINCT FROM $3`, [rule.id, newest.version, rule.evidence]);
+  // a build-authored, policy-published version follows the code: evidence and parameters
+  if (newest.published_by === POLICY_PUBLISHER) {
+    const r = await tx.query(
+      `UPDATE cf.rule_version SET evidence=$3, params=$4, updated_at=now() WHERE rule_id=$1 AND version=$2 AND (evidence IS DISTINCT FROM $3 OR params::text IS DISTINCT FROM $4::jsonb::text) RETURNING version`,
+      [rule.id, newest.version, rule.evidence, JSON.stringify(rule.defaultParams)],
+    );
+    return r.rows.length;
+  }
   return 0;
 }

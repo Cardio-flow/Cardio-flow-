@@ -9,7 +9,7 @@ import { loadState } from "../server/kernel/state.js";
 import { summary, worklist } from "../server/kernel/views.js";
 import { reassess } from "../server/engine/engine.js";
 import { completeWizard, declineRecommendation } from "../server/engine/wizard.js";
-import { transitionRule } from "../server/engine/governance.js";
+import { draftRule, transitionRule } from "../server/engine/governance.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays, egfrCkdEpi2021, resolveCurrent } from "../shared/clinical.js";
 import { buildOutcome } from "../shared/wizards.js";
@@ -21,7 +21,7 @@ const admin: Actor = { id: "admin@cardioflow.local", name: "Admin", role: "admin
 const T = today();
 const iso = (day: string, time = "09:00") => new Date(`${day}T${time}:00+03:00`).toISOString();
 const active = async (pid: string) =>
-  (await db.query(`SELECT rule_id, severity, title, rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active'`, [pid])).rows as any[];
+  (await db.query(`SELECT rule_id, severity, title, rule_status, rule_version FROM cf.recommendation WHERE patient_id=$1 AND status='active'`, [pid])).rows as any[];
 const byName = async (name: string) => (await db.query(`SELECT id FROM cf.patient WHERE name=$1`, [name])).rows[0].id as string;
 const tx = <T>(fn: (q: any) => Promise<T>) => db.transaction(fn);
 async function newPatient(conditions = ["hfref", "ckd-3b"]) {
@@ -57,9 +57,8 @@ test("synthetic HF patient: rising K and creatinine raise sandbox alerts with fa
   assert.ok(hk, "hyperkalaemia alert");
   assert.equal(hk.severity, "red");
   assert.equal(hk.rule_status, "PUBLISHED", "guideline threshold (ESC HF): published by policy");
-  assert.equal(recs.find((r) => r.rule_id === "hf.worsening-renal-function").rule_status, "CLINICAL_REVIEW", "local threshold: stays in review");
   assert.match(hk.title, /5\.8/);
-  assert.ok(recs.find((r) => r.rule_id === "hf.worsening-renal-function"));
+  assert.ok(!recs.find((r) => r.rule_id === "hf.worsening-renal-function"), "creatinine 150 → 186 µmol/L (+24%) is within the ESC acceptable rise");
   const s = await tx((q) => summary(q, k));
   assert.ok(s.changes.items.some((i: any) => i.label === "Potassium" && i.before === "4.4" && i.after === "5.8"));
 });
@@ -69,10 +68,8 @@ test("production site runs only PUBLISHED rules", async () => {
   await tx((q) => reassess(q, k, "production"));
   const recs = await active(k);
   assert.ok(recs.every((r) => r.rule_status === "PUBLISHED"), "no draft/review rule output in production");
-  assert.ok(!recs.some((r) => r.rule_id === "hf.worsening-renal-function"), "rule in review does not run in production");
   assert.ok(recs.some((r) => r.rule_id === "hf.hyperkalaemia-review"), "guideline-based rule runs in production");
   await tx((q) => reassess(q, k, "sandbox"));
-  assert.ok((await active(k)).some((r) => r.rule_id === "hf.worsening-renal-function"));
 });
 
 test("closed loop: alert → wizard → dose change + dated tasks → result closes task → rules re-run", async () => {
@@ -121,7 +118,7 @@ test("wizard preview equals what is recorded", async () => {
 
 test("declining an alert needs a reason and is recorded", async () => {
   const k = await byName("Khaled Al-Mansour");
-  const rid = (await db.query(`SELECT id FROM cf.recommendation WHERE patient_id=$1 AND rule_id='hf.worsening-renal-function' AND status='active'`, [k])).rows[0].id;
+  const rid = (await db.query(`SELECT id FROM cf.recommendation WHERE patient_id=$1 AND rule_id='hf.iron-deficiency' AND status='active'`, [k])).rows[0].id;
   await assert.rejects(tx((q) => declineRecommendation(q, doc, k, rid, { outcome: "declined", reason: " " })));
   await tx((q) => declineRecommendation(q, doc, k, rid, { outcome: "declined", reason: "Expected rise after ARNI start" }));
   const d = (await db.query(`SELECT reason FROM cf.decision WHERE recommendation_id=$1`, [rid])).rows[0];
@@ -173,28 +170,33 @@ test("clinical history is append-only", async () => {
   await assert.rejects(db.query(`DELETE FROM cf.medication_event`), /append-only/);
 });
 
-test("rule governance: maker/checker and separate publisher", async () => {
-  // v1 was authored by the build; a reviewer approves with a note
-  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "APPROVED", "")), /review note/i);
-  await assert.rejects(tx((q) => transitionRule(q, doc, "hf.worsening-renal-function", 1, "APPROVED", "ok")), /role/i);
-  await tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "APPROVED", "Checked ESC HF definition; boundaries tested"));
-  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "PUBLISHED", "")), /role|reviewer/i);
-  await tx((q) => transitionRule(q, admin, "hf.worsening-renal-function", 1, "PUBLISHED", ""));
+test("rule governance: a clinician's new version goes through maker/checker and a separate publisher", async () => {
+  // an admin drafts a new version of a published rule; it runs only on sandbox until approved and published
+  const v = await tx((q) => draftRule(q, admin, "hf.hyperkalaemia-review", { review_threshold_mmol: 5.5 }, ""));
+  await tx((q) => transitionRule(q, admin, "hf.hyperkalaemia-review", v, "CLINICAL_REVIEW", ""));
+  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", v, "APPROVED", "")), /review note/i);
+  await assert.rejects(tx((q) => transitionRule(q, doc, "hf.hyperkalaemia-review", v, "APPROVED", "ok")), /role/i);
+  await assert.rejects(tx((q) => transitionRule(q, { ...reviewer, id: admin.id }, "hf.hyperkalaemia-review", v, "APPROVED", "self")), /author/i);
+  await tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", v, "APPROVED", "Checked ESC HF MRA monitoring table; boundaries 5.4/5.5/5.6 tested"));
+  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", v, "PUBLISHED", "")), /role|reviewer/i);
+  await tx((q) => transitionRule(q, admin, "hf.hyperkalaemia-review", v, "PUBLISHED", ""));
   const k = await byName("Khaled Al-Mansour");
   await tx((q) => reassess(q, k, "production"));
   const recs = await active(k);
   assert.ok(recs.every((r) => r.rule_status === "PUBLISHED"));
+  assert.ok(recs.some((r) => r.rule_id === "hf.hyperkalaemia-review" && r.rule_version === v), "the newly published version runs");
 });
 
 test("publication policy: guideline rules published at build, local thresholds stay in review", async () => {
   const { NEEDS_REVIEW } = await import("../server/engine/publication.js");
   const rows = (await db.query(`SELECT rule_id, status, published_by, kind FROM cf.rule_version WHERE status <> 'RETIRED'`)).rows as any[];
   for (const r of rows.filter((x) => x.kind === "clinical")) {
-    if (r.rule_id in NEEDS_REVIEW) continue;
+    if (r.rule_id in NEEDS_REVIEW || r.published_by !== "policy:guideline-basis") continue;
     assert.equal(r.status, "PUBLISHED", r.rule_id);
-    assert.equal(r.published_by, "policy:guideline-basis", r.rule_id);
   }
-  assert.ok(rows.some((r) => r.rule_id === "safety.digoxin" && r.status === "CLINICAL_REVIEW"));
+  assert.deepEqual(Object.keys(NEEDS_REVIEW), [], "every clinical rule is guideline-based");
+  for (const id of ["hf.worsening-renal-function", "hf.post-discharge-review", "safety.inr", "safety.digoxin"])
+    assert.ok(rows.some((r) => r.rule_id === id && r.status === "PUBLISHED"), id);
   const ev = (await db.query(`SELECT count(*)::int AS n FROM cf.rule_event WHERE actor='policy:guideline-basis'`)).rows[0] as any;
   assert.ok(ev.n > 30, "every policy publication is in the audit trail");
 });

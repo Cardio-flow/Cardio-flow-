@@ -3,7 +3,7 @@ import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice } from "../ui";
 import { DIAGNOSIS } from "../../shared/catalog";
-import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, type HistoryItem } from "../../shared/history";
+import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
 import { fmtDay } from "../../shared/clinical";
 
 // One editable diagnosis: new (add) or existing (update).
@@ -233,7 +233,7 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
               <span className="small muted" style={{ fontWeight: 700 }}>On the problem list</span>
             )}
           </div>
-          {(DIAGNOSIS_ATTRIBUTES[d.code] ?? []).map((f) => (
+          {(DIAGNOSIS_ATTRIBUTES[d.code] ?? []).filter((f) => fieldShown(f, d.attributes)).map((f) => (
             <div key={f.key} className="hx-attr">
               <span>{f.label}</span>
               <div className="choices">

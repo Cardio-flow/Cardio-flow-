@@ -83,7 +83,17 @@ export const isHistoryCode = (code: string) => code.startsWith("hx.");
 
 // Structured detail per diagnosis (stored in condition.attributes). Descriptive only.
 // text: how the value reads in the compact diagnosis line (null hides it there)
-export type AttrField = { key: string; label: string; options: string[]; multi?: boolean; text?: (v: string) => string | null };
+// when: shown (and kept) only when another field has this value
+export type AttrField = { key: string; label: string; options: string[]; multi?: boolean; text?: (v: string) => string | null; when?: { key: string; equals: string } };
+export const fieldShown = (f: AttrField, attributes: Record<string, unknown> | null | undefined) => !f.when || attributes?.[f.when.key] === f.when.equals;
+// Mechanical valves: design and the INR target the clinician sets (target with its ±0.5 range).
+export const MECHANICAL_DESIGNS = ["Bileaflet / current tilting-disc", "Older tilting-disc", "Caged-ball", "Unknown"];
+export const INR_TARGETS = ["2.5 (2.0–3.0)", "3.0 (2.5–3.5)", "3.5 (3.0–4.0)"];
+export const parseInrTarget = (v: unknown) => {
+  const m = /^(\d\.\d) \((\d\.\d)–(\d\.\d)\)$/.exec(String(v ?? ""));
+  return m ? { target: Number(m[1]), low: Number(m[2]), high: Number(m[3]) } : null;
+};
+
 // Diabetes: complications, the individual HbA1c target the clinician sets (ADA 2026 §6 /
 // ESC 2023: individualise), severe hypoglycaemia in the past year and how glucose is monitored.
 export const HBA1C_TARGETS = ["<6.5%", "<7%", "<7.5%", "<8%", "No fixed target (avoid hypoglycaemia)"];
@@ -114,6 +124,9 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   "prosthetic-valve": [
     { key: "position", label: "Position", options: ["Aortic", "Mitral", "Tricuspid", "Pulmonary"] },
     { key: "type", label: "Type", options: ["Mechanical", "Bioprosthetic (surgical)", "TAVI", "Repair / ring"] },
+    // mechanical valves only (ESC/EACTS 2025: INR target by valve type and position, and patient risk factors)
+    { key: "design", label: "Mechanical valve design", options: MECHANICAL_DESIGNS, text: (v) => (v === "Unknown" ? null : v), when: { key: "type", equals: "Mechanical" } },
+    { key: "inrTarget", label: "INR target (set by clinician)", options: INR_TARGETS, text: (v) => `INR target ${v}`, when: { key: "type", equals: "Mechanical" } },
   ],
   cied: [{ key: "type", label: "Device", options: ["Pacemaker", "ICD", "CRT-P", "CRT-D", "Loop recorder"] }],
   af: [{ key: "pattern", label: "Pattern", options: ["First diagnosed", "Paroxysmal", "Persistent", "Permanent", "Unknown"] }],
@@ -151,7 +164,7 @@ export function cleanAttributes(code: string, attributes: Record<string, unknown
     }
     const f = fields.find((x) => x.key === k);
     if (!f) throw new Error(`Unknown detail "${k}"`);
-    if (v == null || v === "") continue;
+    if (v == null || v === "" || !fieldShown(f, attributes)) continue;
     if (f.multi) {
       if (!Array.isArray(v) || v.some((x) => !f.options.includes(String(x)))) throw new Error(`${f.label}: choose from the list`);
       if (v.length) out[k] = [...new Set(v.map(String))];
