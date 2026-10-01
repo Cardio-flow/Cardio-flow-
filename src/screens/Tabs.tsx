@@ -39,7 +39,7 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
               <tbody>
                 {meds.map((m: any) => (
                   <tr key={m.id}>
-                    <td><b>{m.name}</b><div className="small muted">{m.drugClass}</div></td>
+                    <td><b>{m.name}</b><div className="small muted">{m.drugClass}{MEDICATION[m.code]?.brands?.length ? ` · ${MEDICATION[m.code].brands!.join(", ")}` : ""}</div></td>
                     <td>{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}</td>
                     <td>{m.frequency} {m.route}</td>
                     <td>{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>

@@ -2,13 +2,13 @@ import { Route } from "lucide-react";
 import { Drawer } from "../ui";
 import { WIZARDS } from "../../shared/wizards";
 
-const GROUPS = ["Acute & safety", "Heart failure", "Rhythm & devices", "Metabolic"] as const;
+const GROUPS = ["Acute & safety", "Heart failure", "Rhythm & devices", "Diabetes"] as const;
 
 // Every complication pathway, opened on demand (alerts open the same wizards automatically).
 export function Pathways({ onClose, onPick }: { onClose(): void; onPick(wizard: string): void }) {
   const all = Object.values(WIZARDS);
   return (
-    <Drawer title="Complication pathways" subtitle="Step-by-step management from the latest guidelines, ending in a dated plan" icon={<Route size={22} />} onClose={onClose}>
+    <Drawer title="Clinical pathways" subtitle="Step-by-step management from the latest guidelines, ending in a dated plan" icon={<Route size={22} />} onClose={onClose}>
       <div className="drawer-body">
         {GROUPS.map((g) => {
           const items = all.filter((w) => (w.group ?? "Heart failure") === g);

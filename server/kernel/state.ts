@@ -195,6 +195,7 @@ function detailTags(c: ConditionRow): string[] {
   const out: string[] = [];
   if (isMechanicalValve(c)) out.push("mechanical-valve");
   if (isModerateSevereMS(c)) out.push("ms-significant");
+  if (c.attributes?.severeHypo === "Yes") out.push("severe-hypo");
   if (c.code === "cied") {
     const t = c.attributes?.type;
     if (t === "ICD" || t === "CRT-D") out.push("icd");

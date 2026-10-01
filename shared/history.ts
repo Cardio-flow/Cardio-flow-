@@ -48,7 +48,7 @@ export const HISTORY_ITEMS: HistoryItem[] = [
       { key: "quitYear", label: "Year stopped", min: 1940, max: 2100, when: ["ex"] },
     ],
   },
-  { key: "diabetes", section: "risk", label: "Diabetes", short: "Diabetes", major: true, conditions: ["t2dm", "t1dm"] },
+  { key: "diabetes", section: "risk", label: "Diabetes", short: "Diabetes", major: true, conditions: ["t2dm", "t1dm", "dm-other"] },
   { key: "hypertension", section: "risk", label: "Hypertension", short: "Hypertension", major: true, conditions: ["htn"] },
   { key: "dyslipidaemia", section: "risk", label: "Dyslipidaemia", short: "Dyslipidaemia", major: true, conditions: ["dyslipidaemia", "fh"] },
   { key: "obesity", section: "risk", label: "Obesity", short: "Obesity", conditions: ["obesity"] },
@@ -82,8 +82,22 @@ export const historyCode = (key: string) => `hx.${key}`;
 export const isHistoryCode = (code: string) => code.startsWith("hx.");
 
 // Structured detail per diagnosis (stored in condition.attributes). Descriptive only.
-export type AttrField = { key: string; label: string; options: string[]; multi?: boolean };
+// text: how the value reads in the compact diagnosis line (null hides it there)
+export type AttrField = { key: string; label: string; options: string[]; multi?: boolean; text?: (v: string) => string | null };
+// Diabetes: complications, the individual HbA1c target the clinician sets (ADA 2026 §6 /
+// ESC 2023: individualise), severe hypoglycaemia in the past year and how glucose is monitored.
+export const HBA1C_TARGETS = ["<6.5%", "<7%", "<7.5%", "<8%", "No fixed target (avoid hypoglycaemia)"];
+const DIABETES_FIELDS: AttrField[] = [
+  { key: "complications", label: "Complications", options: ["None known", "Retinopathy", "Kidney disease (albuminuria / low eGFR)", "Neuropathy", "Foot ulcer", "Amputation", "Erectile dysfunction"], multi: true,
+    text: (v) => (v === "None known" ? null : v.replace(/ \(.*\)$/, "")) },
+  { key: "target", label: "Individual HbA1c target", options: HBA1C_TARGETS, text: (v) => (v.startsWith("<") ? `HbA1c target ${v}` : "No fixed HbA1c target") },
+  { key: "severeHypo", label: "Severe hypoglycaemia in the past year", options: ["Yes", "No", "Unknown"], text: (v) => (v === "Yes" ? "Severe hypoglycaemia" : null) },
+  { key: "monitoring", label: "Glucose monitoring", options: ["CGM", "Finger-prick", "None"], text: (v) => (v === "CGM" ? "CGM" : null) },
+];
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
+  t2dm: DIABETES_FIELDS,
+  t1dm: DIABETES_FIELDS,
+  "dm-other": DIABETES_FIELDS,
   "prior-mi": [{ key: "type", label: "Type", options: ["STEMI", "NSTEMI", "Type 2 MI", "Unknown"] }],
   "acs-stemi": [{ key: "territory", label: "Territory", options: ["Anterior", "Inferior", "Lateral", "Posterior", "Unknown"] }],
   "prior-pci": [{ key: "vessels", label: "Vessels treated", options: ["Left main", "LAD", "LCx", "RCA", "Graft", "Unknown"], multi: true }],
@@ -116,7 +130,9 @@ export function attributesText(code: string, attributes: Record<string, unknown>
     .map((f) => {
       const v = attributes?.[f.key];
       if (v == null || v === "" || (Array.isArray(v) && !v.length)) return null;
-      return Array.isArray(v) ? v.join(", ") : String(v);
+      const show = (x: unknown) => (f.text ? f.text(String(x)) : String(x));
+      const parts = (Array.isArray(v) ? v : [v]).map(show).filter(Boolean);
+      return parts.length ? parts.join(", ") : null;
     })
     .filter(Boolean)
     .join(" · ");
@@ -152,3 +168,9 @@ export const isMechanicalValve = (c: { code: string; attributes?: Record<string,
   (c.code === "prosthetic-valve" && c.attributes?.type === "Mechanical") || /mechanical/i.test(c.detail ?? "");
 export const isModerateSevereMS = (c: { code: string; attributes?: Record<string, unknown> | null }) =>
   c.code === "ms" && (c.attributes?.severity === "Moderate" || c.attributes?.severity === "Severe");
+
+// Numeric HbA1c target (%) from the diabetes record, or null when none is set / no fixed target.
+export function hba1cTarget(attributes: Record<string, unknown> | null | undefined): number | null {
+  const m = /^<(\d+(?:\.\d+)?)%$/.exec(String(attributes?.target ?? ""));
+  return m ? Number(m[1]) : null;
+}

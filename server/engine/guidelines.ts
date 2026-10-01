@@ -19,6 +19,7 @@ import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../
 import { bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.js";
 import type { MedState, PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
+import { DIABETES_RULES, diabetesRecord, glycaemicTarget } from "./diabetes-rules.js";
 
 // ---------- helpers ----------
 const cur = (s: PatientState, code: string) => s.resolved(code).current;
@@ -575,6 +576,17 @@ export function targets(s: PatientState) {
     bp: has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") ? { target: "120–129", sbp: sbp?.value_num ?? null, dbp: dbp?.value_num ?? null, at: sbp?.effective_at ?? null, met: sbp?.value_num != null ? sbp.value_num < 130 : null } : null,
     metabolic: s.tags.has("dm") || (b != null && b >= 27)
       ? { bmi: b, hba1c: cur(s, "hba1c")?.value_num ?? null, sglt2: onTag(s, "sglt2").map(medLine), glp1: onTag(s, "glp1").map(medLine) }
+      : null,
+    diabetes: diabetesRecord(s)
+      ? (() => {
+          const t = glycaemicTarget(s, DIABETES_RULES.find((r) => r.id === "dm.glycaemic-control")!.defaultParams as any);
+          const a1c = cur(s, "hba1c");
+          return {
+            hba1c: a1c?.value_num ?? null, at: a1c?.effective_at ?? null, target: t.label, source: t.source, reasons: t.reasons,
+            met: a1c?.value_num != null && t.value != null ? a1c.value_num < t.value : null,
+            therapy: live(s).filter((m) => ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "tzd", "insulin"].some((x) => m.tags.includes(x))).map(medLine),
+          };
+        })()
       : null,
     af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
     kidney: { egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null },

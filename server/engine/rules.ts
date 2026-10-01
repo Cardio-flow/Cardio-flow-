@@ -10,6 +10,7 @@ import { STUDY_RULES, crtClass } from "./study-rules.js";
 import { ENCOUNTER_RULES } from "./encounter-rules.js";
 import { COMPLICATION_RULES } from "./complication-rules.js";
 import { ACUTE_RULES } from "./acute-rules.js";
+import { DIABETES_RULES } from "./diabetes-rules.js";
 import { latestStudy } from "../kernel/state.js";
 
 export type Fact = { label: string; value: string; date?: string; tone?: "red" | "orange" | "yellow" | "blue" | "green" };
@@ -278,10 +279,11 @@ export const RULES: RuleDef[] = [
   ...ENCOUNTER_RULES,
   ...COMPLICATION_RULES,
   ...ACUTE_RULES,
+  ...DIABETES_RULES,
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-01.1";
+export const RULESET = "2026-10-01.2";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

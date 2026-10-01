@@ -70,10 +70,10 @@ export const ACUTE_RULES: RuleDef[] = [
   {
     id: "dm.hyperglycaemic-crisis",
     kind: "clinical",
-    title: "Hyperglycaemic crisis / uncontrolled diabetes",
-    inputs: ["glucose", "ketones", "bicarbonate", "ph", "hba1c", "meds", "conditions"],
-    defaultParams: { ketones_min: 3, bicarb_below: 18, ph_below: 7.3, glucose_dka: 11.1, glucose_hhs: 33.3, hba1c_uncontrolled: 9, days: 2 },
-    evidence: "ADA/EASD hyperglycaemic crises consensus 2024: DKA = diabetes or glucose ≥11.1 mmol/L + β-hydroxybutyrate ≥3.0 + pH <7.3 and/or bicarbonate <18; euglycaemic DKA on SGLT2 inhibitors; HHS glucose ≥33.3 mmol/L. HbA1c ≥9% as 'uncontrolled' is a sandbox value pending review.",
+    title: "Hyperglycaemic crisis (DKA / HHS)",
+    inputs: ["glucose", "ketones", "bicarbonate", "ph", "meds", "conditions"],
+    defaultParams: { ketones_min: 3, bicarb_below: 18, ph_below: 7.3, glucose_dka: 11.1, glucose_hhs: 33.3, days: 2 },
+    evidence: "ADA/EASD hyperglycaemic crises consensus 2024: DKA = diabetes or glucose ≥11.1 mmol/L + β-hydroxybutyrate ≥3.0 + pH <7.3 and/or bicarbonate <18; euglycaemic DKA on SGLT2 inhibitors; HHS glucose ≥33.3 mmol/L.",
     evaluate(s, p) {
       const k = within(s, "ketones", p.days), hco3 = within(s, "bicarbonate", p.days), ph = within(s, "ph", p.days), glu = within(s, "glucose", p.days);
       const acid = (hco3 && hco3.value_num! < p.bicarb_below) || (ph && ph.value_num! < p.ph_below);
@@ -94,13 +94,7 @@ export const ACUTE_RULES: RuleDef[] = [
           detail: "Check ketones, bicarbonate/pH, sodium and osmolality.", facts: facts(f(glu, "red"), f(k), f(hco3), src("ADA/EASD hyperglycaemic crises 2024")),
           missing: [!k && "Ketones", !hco3 && "Bicarbonate"].filter(Boolean) as string[], action: { type: "wizard", wizard: "hyperglycaemia" },
         }];
-      const a1c = within(s, "hba1c", 180);
-      if (s.tags.has("dm") && a1c && a1c.value_num! >= p.hba1c_uncontrolled)
-        return [{
-          key: "uncontrolled", signature: a1c.id, severity: "orange", title: `Uncontrolled diabetes: HbA1c ${formatNumber(a1c.value_num!, 1)}%`,
-          detail: "Review adherence and intensify therapy, prioritising agents with cardiorenal benefit.", facts: facts(f(a1c, "orange"), src("ADA Standards of Care 2026 · ESC diabetes & CVD 2023")),
-          missing: [], action: { type: "wizard", wizard: "hyperglycaemia" },
-        }];
+      // an HbA1c above target (including "uncontrolled") is dm.glycaemic-control
       return [];
     },
   },

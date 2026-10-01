@@ -2,7 +2,7 @@ import { useState } from "react";
 import { BookOpen, Check } from "lucide-react";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
 import { fmtDay, fmtTime } from "../../shared/clinical";
-import { formatNumber } from "../../shared/catalog";
+import { MEDICATION, formatNumber } from "../../shared/catalog";
 import type { Open } from "./Patient";
 
 export function SummaryTab({ s, open }: { s: any; open(o: Open): void }) {
@@ -66,7 +66,8 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
       <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: a.id })}>
         {({ hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
-          "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP" } as Record<string, string>)[act.wizard] ?? "Review"}
+          "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
+          diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")
@@ -78,7 +79,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "add-plan")
     return (
       <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : "Add to plan"}
+        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : "Add to plan"}
       </button>
     );
   if (act.type === "tab")
@@ -250,7 +251,10 @@ function Meds({ s, open }: { s: any; open(o: Open): void }) {
           {g.meds.map((m: any) => (
             <button key={m.id} className={`med ${m.status === "held" ? "held" : ""}`} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line-2)", width: "100%" }} onClick={() => open({ kind: "med-action", medId: m.id })}>
               <span className="col grow" style={{ gap: 2 }}>
-                <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" ? "line-through" : undefined, color: m.status === "held" ? "var(--ink-4)" : undefined }}>{m.name}</span>
+                <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" ? "line-through" : undefined, color: m.status === "held" ? "var(--ink-4)" : undefined }}>
+                  {m.name}
+                  {MEDICATION[m.code]?.brands?.length ? <span className="trade"> · {MEDICATION[m.code].brands![0]}</span> : null}
+                </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
                   {m.dose} · {m.frequency}
                   {m.lastChange && m.lastChange.kind !== "start" ? ` · ${m.lastChange.kind === "hold" ? "held" : m.lastChange.kind === "decrease" ? "reduced" : m.lastChange.kind === "increase" ? "increased" : m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
@@ -361,7 +365,7 @@ export { fmtTime };
 function Targets({ s, open }: { s: any; open(o: Open): void }) {
   const t = s.targets;
   if (!t) return null;
-  const blocks = [t.hf, t.ldl, t.bp, t.metabolic, t.af].filter(Boolean);
+  const blocks = [t.hf, t.ldl, t.bp, t.metabolic, t.diabetes, t.af].filter(Boolean);
   if (!blocks.length && t.kidney.egfr == null) return null;
   const num = (v: number | null, d = 0) => (v == null ? "—" : formatNumber(v, d));
   return (
@@ -412,6 +416,15 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
             goal={[t.metabolic.sglt2.length ? "SGLT2i ✓" : "SGLT2i —", t.metabolic.glp1.length ? "GLP-1 RA ✓" : "GLP-1 RA —"].join(" · ")}
             met={t.metabolic.sglt2.length > 0 && t.metabolic.glp1.length > 0 ? true : null}
             sub={[...t.metabolic.sglt2, ...t.metabolic.glp1].join(" · ")}
+          />
+        )}
+        {t.diabetes && (
+          <Goal
+            label="Diabetes"
+            value={t.diabetes.hba1c != null ? `HbA1c ${num(t.diabetes.hba1c, 1)}%` : "No HbA1c"}
+            goal={`Target ${t.diabetes.target}${t.diabetes.source === "default" ? " (default)" : t.diabetes.source === "suggested" ? " (less stringent)" : ""}`}
+            met={t.diabetes.met}
+            sub={t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy"}
           />
         )}
         {t.af && (

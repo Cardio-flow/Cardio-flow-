@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 7;
+export const SEED_VERSION = 8;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -340,6 +340,20 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await K.recordObservations(tx, sys, f7, { effectiveAt: at(d(0), "06:30"), items: [{ code: "haemoglobin", value: 10.4 }, { code: "platelets", value: 210 }] });
         touched.push(f7);
       }
+    }
+    // Seed v8: type 2 diabetes with HFpEF and CKD on drugs to change (diabetes module)
+    if (seeded < 8 && !(await byMrn("100913376"))) {
+      const kr = await K.createPatient(tx, sys, {
+        name: "Khalid Al-Rashidi", mrn: "100913376", sex: "Male", birthDate: addDays(T, -(69 * 365 + 75)), allergies: "No known drug allergies",
+        conditions: ["hfpef", "htn", "ckd-3b"], civilId: "257030100081", nationality: "Kuwaiti",
+      });
+      await K.recordHistory(tx, sys, kr, { effectiveAt: at(d(-200)), add: [{ code: "t2dm", onsetYear: 2009, attributes: { complications: ["Retinopathy", "Kidney disease (albuminuria / low eGFR)"], severeHypo: "No", monitoring: "Finger-prick" } }] });
+      await K.recordEcho(tx, sys, kr, { date: at(d(-60)), quality: "formal", lvef: 58, findings: ["LV hypertrophy", "Grade II diastolic dysfunction"] });
+      for (const [code, dose, freq, ind] of [["metformin", 1000, "BID", "dm"], ["glibenclamide", 5, "BID", "dm"], ["pioglitazone", 30, "OD", "dm"], ["saxagliptin", 5, "OD", "dm"], ["losartan", 100, "OD", "htn"], ["furosemide", 40, "OD", "hf"]] as const)
+        await K.startMedication(tx, sys, kr, { code, doseValue: dose, frequency: freq, route: "PO", indication: ind, effectiveAt: at(d(-400)) });
+      await obs(kr, d(-120), [{ code: "hba1c", value: 7.9 }, { code: "creatinine", value: 132 }]);
+      await obs(kr, d(-3), [{ code: "hba1c", value: 8.4 }, { code: "creatinine", value: 150 }, { code: "potassium", value: 4.6 }, { code: "uacr", value: 28 }, { code: "weight", value: 96 }, { code: "height", value: 172 }, { code: "sbp", value: 138 }, { code: "dbp", value: 80 }, { code: "hr", value: 74 }]);
+      touched.push(kr);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

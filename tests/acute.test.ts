@@ -88,7 +88,8 @@ test("euglycaemic DKA on an SGLT2 inhibitor; the SGLT2i can be stopped from the 
   // uncontrolled diabetes without a crisis
   const p2 = await newPatient(["t2dm"]);
   await obs(p2, [{ code: "hba1c", value: 10.4 }]);
-  assert.match((await rec(p2, "dm.hyperglycaemic-crisis")).title, /Uncontrolled diabetes: HbA1c 10\.4%/);
+  assert.equal(await rec(p2, "dm.hyperglycaemic-crisis"), undefined, "a high HbA1c is not a crisis");
+  assert.match((await rec(p2, "dm.glycaemic-control")).title, /Uncontrolled diabetes: HbA1c 10\.4% \(target <7%\)/);
 });
 
 test("hypoglycaemia levels, bleeding on apixaban, low K/Mg, low sodium", async () => {

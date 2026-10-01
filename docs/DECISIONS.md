@@ -2,6 +2,17 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-01 · Diabetes module and trade names
+
+- **Diabetes record:** type 2, type 1 and "other type" diabetes (plus prediabetes) carry structured detail: complications, the individual HbA1c target set by the clinician, severe hypoglycaemia in the past year and glucose monitoring. A "Yes" to severe hypoglycaemia becomes the `severe-hypo` tag.
+- **Individual target:** the clinician's target wins; otherwise <7%, or a suggested less stringent <8% when there is severe hypoglycaemia, eGFR <30 / dialysis or age ≥75 (governed parameters). Shown as a "Diabetes" goal in Therapy & targets.
+- **Rules** (`server/engine/diabetes-rules.ts`, CLINICAL_REVIEW): `dm.glycaemic-control` (HbA1c above the individual target; ≥9% "uncontrolled", moved here from `dm.hyperglycaemic-crisis`, which now covers DKA/HHS only), `dm.hf-unsafe-agent` (pioglitazone in HF red, saxagliptin/alogliptin orange), `dm.metformin-renal` (eGFR <30 stop; 30–44 above 1000 mg/day reduce), `dm.hypo-risk` (glibenclamide, sulfonylurea with eGFR <30, severe hypoglycaemia, HbA1c <6.5% on SU/insulin; age alone never alerts), `dm.dpp4-with-glp1`, `dm.annual-checks` (retina, feet), `dm.sglt2-before-procedure` (hold 3 days before a planned procedure). Cardio-renal protection stays in guidelines.ts. RULESET 2026-10-01.2.
+- **Pathways** (`shared/wizards-diabetes.ts`): Diabetes management (protection first, then glucose lowering, safety, monitoring), Sick-day rules (AUTO-holds SGLT2i, metformin, sulfonylurea; never basal insulin; diuretics/RAAS/MRA only when chosen, because of HF), Ramadan fasting plan (IDF-DAR 2021 risk category, timing per drug, break-fast thresholds). Ramadan never changes a dose. Pathway group "Metabolic" renamed "Diabetes"; the drawer is now "Clinical pathways".
+- **Engine:** a content wizard's dose question (with `medTag`) now changes that medicine generically; the five original wizards keep their explicit handling.
+- **Catalogue:** new purpose "Diabetes"; oral semaglutide, canagliflozin, sitagliptin, linagliptin, vildagliptin, saxagliptin, alogliptin, gliclazide MR, glimepiride, glibenclamide, pioglitazone and eight insulins (units entered by the clinician; no dose lists). Plan templates HbA1c, retinal screening, foot examination.
+- **Trade names:** `MedicationDef.brands` on every medicine (Gulf market names), searchable at entry, shown beside the generic name and written into pathway plan items. Marked "to confirm against the MOH / MKH formulary" until a pharmacist checks them.
+- Synthetic seed v8: Khalid Al-Rashidi, T2DM + HFpEF + CKD 3b on metformin 2 g, glibenclamide, pioglitazone and saxagliptin.
+
 ## 2026-10-01 · Acute and safety pathways
 
 - **Ten new pathways** (`shared/wizards-acute.ts`): shock (type + SCAI stage, holds HF drugs, CCU/ICU, Echo, cath, cultures, pressor, shock team, relieve obstruction), sepsis (Surviving Sepsis 2021 hour-1 bundle, sick-day holds, endocarditis work-up with a prosthesis/device), hyperglycaemia / DKA / euglycaemic DKA / HHS (ADA/EASD 2024 criteria), hypoglycaemia (ADA levels), bleeding on antithrombotics (EHRA 2021; hold, reversal per protocol, restart plan), low K/Mg, low sodium, INR out of range (mechanical valve aware), digoxin toxicity, severe hypertension (ESC 2024).

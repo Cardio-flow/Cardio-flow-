@@ -431,7 +431,7 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
   .changes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .alert { flex-wrap: wrap; }
   .alert .txt { flex-basis: calc(100% - 60px); }
-  .alert .go { margin-left: 60px; }
+  .alert .go { margin-left: 60px; max-width: calc(100% - 60px); height: auto; min-height: 42px; white-space: normal; text-align: left; padding: 8px 14px; }
   .card-head { flex-wrap: wrap; }
 }
 @container (max-width: 420px) {
@@ -546,3 +546,6 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 .infobox.warn { background: var(--orange-soft); border-color: var(--orange-line); color: var(--orange-deep); font-weight: 600; }
 .chip.deceased { background: #1d2939; color: #fff; }
 .study-kind.path { border-left: 4px solid var(--c, var(--flow-blue)); }
+
+/* trade names beside generic names (to confirm against the formulary) */
+.trade { color: var(--ink-4); font-weight: 600; }

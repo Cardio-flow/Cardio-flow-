@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pill, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
-import { DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, type MedicationDef } from "../../shared/catalog";
+import { BRAND_NOTE, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 
 function patientTags(summary: any) {
@@ -45,7 +45,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
     if (d.doses.includes(want)) setDose(String(want));
     else (setDose("custom"), setCustom(String(want)));
   }, []);
-  const matches = useMemo(() => MEDICATIONS.filter((m) => !active.has(m.code) && (m.name + " " + m.drugClass).toLowerCase().includes(q.toLowerCase())), [q]);
+  const matches = useMemo(() => MEDICATIONS.filter((m) => !active.has(m.code) && medicationSearchText(m).includes(q.trim().toLowerCase())), [q]);
   const indicationOptions = def
     ? [
         ...[...new Set(def.indications.filter((t) => tags.has(t)))].map((t) => ({ value: t, label: tagLabel(t, summary) })),
@@ -79,7 +79,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
     <Drawer
       wide
       title={def ? `Start ${def.name}` : "Add medication"}
-      subtitle={def ? `${def.drugClass} · ${def.purpose}` : "Medications relevant to this patient are shown first"}
+      subtitle={def ? `${def.drugClass} · ${def.purpose}${def.brands?.length ? ` · ${def.brands.join(", ")}` : ""}` : "Medications relevant to this patient are shown first"}
       icon={<Pill size={22} />}
       onClose={onClose}
       footer={
@@ -97,8 +97,9 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
           <>
             <label className="row" style={{ height: 46, padding: "0 14px", border: "1px solid var(--control)", borderRadius: 12 }}>
               <Search size={18} color="var(--ink-4)" />
-              <input autoFocus className="grow" style={{ border: 0, outline: "none" }} placeholder="Search all medications" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search medications" />
+              <input autoFocus className="grow" style={{ border: 0, outline: "none" }} placeholder="Search by generic or trade name" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search medications" />
             </label>
+            <div className="small muted" style={{ fontWeight: 600 }}>{BRAND_NOTE}.</div>
             <div className="combo-list" style={{ maxHeight: "none" }}>
               {(q ? ["Search results"] : [...relevant.map((r) => "Relevant · " + r), ...PURPOSE_ORDER.filter((p) => !relevant.includes(p))]).map((title) => {
                 const purpose = title.replace("Relevant · ", "");
@@ -111,7 +112,10 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                       <button key={m.code} onClick={() => pick(m)}>
                         <span className="col grow" style={{ gap: 0 }}>
                           <b>{m.name}</b>
-                          <span className="small muted" style={{ fontWeight: 600 }}>{m.drugClass}</span>
+                          <span className="small muted" style={{ fontWeight: 600 }}>
+                            {m.drugClass}
+                            {m.brands?.length ? <span className="trade"> · {m.brands.join(", ")}</span> : null}
+                          </span>
                         </span>
                         {m.indications.some((t) => tags.has(t)) && <Tag sev="blue">Relevant</Tag>}
                       </button>

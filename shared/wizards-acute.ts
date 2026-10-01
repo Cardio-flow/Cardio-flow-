@@ -145,7 +145,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
   },
 
   hyperglycaemia: {
-    id: "hyperglycaemia", title: "Hyperglycaemia / ketoacidosis", tone: "red", group: "Metabolic",
+    id: "hyperglycaemia", title: "Hyperglycaemia / ketoacidosis", tone: "red", group: "Diabetes",
     source: "ADA/EASD hyperglycaemic crises consensus 2024 · ADA Standards of Care 2026",
     note: "DKA can occur with normal glucose on SGLT2 inhibitors (euglycaemic DKA): check ketones whenever unwell on an SGLT2i. Insulin and fluids follow the DKA/HHS protocol.",
     facts: ["glucose", "ketones", "bicarbonate", "ph", "potassium", "sodium", "hba1c"], trend: "glucose",
@@ -191,7 +191,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
   },
 
   hypoglycaemia: {
-    id: "hypoglycaemia", title: "Hypoglycaemia", tone: "orange", group: "Metabolic",
+    id: "hypoglycaemia", title: "Hypoglycaemia", tone: "orange", group: "Diabetes",
     source: "ADA Standards of Care 2026 (levels 1–3)",
     note: "Treat now per protocol, then find the cause. Sulfonylureas and insulin are the usual culprits, especially with falling eGFR, missed meals or fasting.",
     facts: ["glucose", "egfr", "hba1c", "weight"], trend: "glucose",

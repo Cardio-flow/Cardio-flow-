@@ -4,6 +4,7 @@
 import { MEDICATION, doseLabel } from "./catalog.js";
 import { addDays, fmtDay } from "./clinical.js";
 import { ACUTE_WIZARDS } from "./wizards-acute.js";
+import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -37,7 +38,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Metabolic";
+  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
@@ -488,6 +489,7 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   ...ACUTE_WIZARDS,
+  ...DIABETES_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.
@@ -497,6 +499,9 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
   congestion: ["loop", "thiazide", "raas", "mra", "sglt2", "bb"],
   hypotension: ["raas", "bb", "loop", "mra", "sglt2", "vasodilator", "bp-lowering"],
   bradycardia: ["bb", "rate-slowing"],
+  diabetes: ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "tzd", "insulin", "mra", "raas"],
+  "sick-day": ["sglt2", "metformin", "sulfonylurea", "insulin", "glp1", "raas", "mra", "loop", "thiazide"],
+  ramadan: ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "insulin", "loop", "thiazide"],
 };
 
 // Options that fit this patient's current medicines.
@@ -540,6 +545,9 @@ export type OutcomeItem =
   | { kind: "medication"; medicationId: string; event: "increase" | "decrease" | "hold" | "stop"; doseValue: number | null; label: string }
   | { kind: "plan"; category: string; title: string; dueDate: string; completesOn: Record<string, unknown>; label: string }
   | { kind: "note"; label: string };
+
+// wizards whose dose questions are handled explicitly above the generic pass
+const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext): OutcomeItem[] {
   const out: OutcomeItem[] = [];
@@ -614,6 +622,10 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   }
   // generic effects: every chosen option can add plan items and stop/hold medicines by tag
   const def = WIZARDS[wizardId];
+  // content wizards: a visible dose question changes the medicine tagged with its medTag
+  if (!LEGACY.has(wizardId))
+    for (const q of def?.steps.flatMap((st) => visibleQuestions(st, answers)) ?? [])
+      if (q.type === "dose" && q.medTag) change(q.medTag, q.id, q.direction === "lower" ? "decrease" : "increase");
   for (const q of def?.steps.flatMap((st) => st.questions) ?? []) {
     if (!q.options || !visibleQuestions({ id: "", title: "", questions: [q] }, answers).length) continue;
     const v = answers[q.id];

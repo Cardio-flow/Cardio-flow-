@@ -122,7 +122,9 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "cied", display: "Cardiac device", family: "Device", tags: [] },
   { code: "htn", display: "Hypertension", family: "Comorbidity", tags: ["htn"] },
   { code: "t2dm", display: "Type 2 diabetes", family: "Comorbidity", tags: ["dm", "t2dm"] },
-  { code: "t1dm", display: "Type 1 diabetes", family: "Comorbidity", tags: ["dm"] },
+  { code: "t1dm", display: "Type 1 diabetes", family: "Comorbidity", tags: ["dm", "t1dm"] },
+  { code: "dm-other", display: "Diabetes, other type (LADA, MODY, secondary)", family: "Comorbidity", tags: ["dm"] },
+  { code: "prediabetes", display: "Prediabetes", family: "Comorbidity", tags: ["prediabetes"] },
   { code: "fh", display: "Familial hypercholesterolaemia", family: "Comorbidity", tags: ["lipids", "fh"] },
   { code: "statin-intolerance", display: "Statin intolerance", family: "Comorbidity", tags: ["statin-intolerance"] },
   { code: "ckd-1-2", display: "CKD 1–2 (with albuminuria)", family: "Comorbidity", tags: ["ckd"] },
@@ -150,7 +152,7 @@ export type MedicationDef = {
   name: string;
   drugClass: string;
   // clinical purpose used to group the medication list
-  purpose: "Heart failure" | "CAD / secondary prevention" | "Anticoagulation" | "Rhythm" | "Blood pressure" | "Cardiometabolic" | "Pulmonary hypertension";
+  purpose: "Heart failure" | "CAD / secondary prevention" | "Anticoagulation" | "Rhythm" | "Blood pressure" | "Cardiometabolic" | "Diabetes" | "Pulmonary hypertension";
   tags: string[]; // raas, acei, arb, arni, mra, sglt2, loop, bb, antiplatelet, statin, oac, potassium-sparing
   indications: string[]; // diagnosis tags this drug is commonly used for
   unit: string;
@@ -160,6 +162,8 @@ export type MedicationDef = {
   routes: string[];
   monitoring: string[]; // codes to check before start / after changes
   target?: number; // guideline target dose (ESC HF 2026 table) — same unit as doses
+  // trade names, searchable at entry. To confirm against the MOH / MKH formulary.
+  brands?: string[];
 };
 
 const m = (
@@ -223,15 +227,74 @@ export const MEDICATIONS: MedicationDef[] = [
   m("diltiazem", "Diltiazem", "Calcium-channel blocker", "Rhythm", ["ndhp-ccb", "rate-slowing", "bp-lowering"], ["af", "htn"], "mg", [60, 120, 180, 240], ["OD", "TID"], ["hr", "sbp"]),
   m("amlodipine", "Amlodipine", "Calcium-channel blocker", "Blood pressure", ["vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [2.5, 5, 10], ["OD"], ["sbp"]),
   m("indapamide", "Indapamide", "Thiazide-like diuretic", "Blood pressure", ["thiazide", "bp-lowering"], ["htn"], "mg", [1.5, 2.5], ["OD"], ["sodium", "potassium"]),
-  m("metformin", "Metformin", "Biguanide", "Cardiometabolic", ["metformin"], ["dm"], "mg", [500, 850, 1000], ["OD", "BID"], ["egfr"]),
+  m("metformin", "Metformin", "Biguanide", "Diabetes", ["metformin"], ["dm"], "mg", [500, 750, 850, 1000], ["OD", "BID", "TID"], ["egfr", "hba1c"]),
   m("semaglutide", "Semaglutide", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [0.25, 0.5, 1, 1.7, 2, 2.4], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("tirzepatide", "Tirzepatide", "Dual GIP/GLP-1 agonist", "Cardiometabolic", ["glp1"], ["dm", "obesity"], "mg", [2.5, 5, 7.5, 10, 12.5, 15], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("sildenafil", "Sildenafil", "PDE-5 inhibitor", "Pulmonary hypertension", [], [], "mg", [20], ["TID"], ["sbp"]),
+  // ---- Diabetes (ADA Standards of Care 2026 · ESC diabetes & CVD 2023). Label strengths, draft. ----
+  m("semaglutide-oral", "Semaglutide (oral)", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [3, 7, 14], ["OD"], ["weight", "hba1c"]),
+  m("canagliflozin", "Canagliflozin", "SGLT2 inhibitor", "Cardiometabolic", ["sglt2"], ["dm", "ckd"], "mg", [100, 300], ["OD"], ["egfr"]),
+  m("sitagliptin", "Sitagliptin", "DPP-4 inhibitor", "Diabetes", ["dpp4"], ["dm"], "mg", [25, 50, 100], ["OD"], ["egfr", "hba1c"]),
+  m("linagliptin", "Linagliptin", "DPP-4 inhibitor", "Diabetes", ["dpp4"], ["dm"], "mg", [5], ["OD"], ["hba1c"]),
+  m("vildagliptin", "Vildagliptin", "DPP-4 inhibitor", "Diabetes", ["dpp4"], ["dm"], "mg", [50], ["OD", "BID"], ["egfr", "alt", "hba1c"]),
+  m("saxagliptin", "Saxagliptin", "DPP-4 inhibitor", "Diabetes", ["dpp4", "dpp4-hf"], ["dm"], "mg", [2.5, 5], ["OD"], ["egfr", "hba1c"]),
+  m("alogliptin", "Alogliptin", "DPP-4 inhibitor", "Diabetes", ["dpp4", "dpp4-hf"], ["dm"], "mg", [6.25, 12.5, 25], ["OD"], ["egfr", "hba1c"]),
+  m("gliclazide", "Gliclazide MR", "Sulfonylurea", "Diabetes", ["sulfonylurea", "hypo-risk"], ["dm"], "mg", [30, 60, 90, 120], ["OD"], ["glucose", "hba1c"]),
+  m("glimepiride", "Glimepiride", "Sulfonylurea", "Diabetes", ["sulfonylurea", "hypo-risk"], ["dm"], "mg", [1, 2, 3, 4], ["OD"], ["glucose", "hba1c"]),
+  m("glibenclamide", "Glibenclamide (glyburide)", "Sulfonylurea", "Diabetes", ["sulfonylurea", "hypo-risk", "glibenclamide"], ["dm"], "mg", [2.5, 5], ["OD", "BID"], ["glucose", "hba1c"]),
+  m("pioglitazone", "Pioglitazone", "Thiazolidinedione", "Diabetes", ["tzd"], ["dm"], "mg", [15, 30, 45], ["OD"], ["weight", "alt", "hba1c"]),
+  // insulins: units are individual, entered by the clinician (no dose list)
+  m("insulin-glargine", "Insulin glargine U100", "Basal insulin", "Diabetes", ["insulin", "insulin-basal", "hypo-risk"], ["dm"], "units", [], ["OD"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-glargine-u300", "Insulin glargine U300", "Basal insulin", "Diabetes", ["insulin", "insulin-basal", "hypo-risk"], ["dm"], "units", [], ["OD"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-degludec", "Insulin degludec", "Basal insulin", "Diabetes", ["insulin", "insulin-basal", "hypo-risk"], ["dm"], "units", [], ["OD"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-detemir", "Insulin detemir", "Basal insulin", "Diabetes", ["insulin", "insulin-basal", "hypo-risk"], ["dm"], "units", [], ["OD", "BID"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-nph", "Isophane (NPH) insulin", "Intermediate-acting insulin", "Diabetes", ["insulin", "insulin-basal", "hypo-risk"], ["dm"], "units", [], ["OD", "BID"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-aspart", "Insulin aspart", "Rapid-acting insulin", "Diabetes", ["insulin", "insulin-prandial", "hypo-risk"], ["dm"], "units", [], ["With meals"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-lispro", "Insulin lispro", "Rapid-acting insulin", "Diabetes", ["insulin", "insulin-prandial", "hypo-risk"], ["dm"], "units", [], ["With meals"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  m("insulin-aspart-30", "Biphasic insulin aspart 30", "Premixed insulin", "Diabetes", ["insulin", "insulin-premix", "hypo-risk"], ["dm"], "units", [], ["BID", "OD"], ["glucose", "hba1c"], { routes: ["SC"] }),
 ];
+
+// Trade names commonly marketed in Kuwait / the Gulf. Shown and searchable at entry.
+// NOT verified against the MOH / MKH formulary: a pharmacist confirms before go-live.
+export const BRAND_NOTE = "Trade names to confirm against the MOH / MKH formulary";
+const BRANDS: Record<string, string[]> = {
+  "sacubitril-valsartan": ["Entresto"], ramipril: ["Tritace"], perindopril: ["Coversyl"], lisinopril: ["Zestril"], enalapril: ["Renitec"],
+  candesartan: ["Atacand"], valsartan: ["Diovan"], losartan: ["Cozaar"],
+  bisoprolol: ["Concor"], carvedilol: ["Dilatrend"], "metoprolol-succinate": ["Betaloc ZOK"],
+  spironolactone: ["Aldactone"], eplerenone: ["Inspra"], finerenone: ["Kerendia"],
+  dapagliflozin: ["Forxiga"], empagliflozin: ["Jardiance"], sotagliflozin: ["Inpefa"], canagliflozin: ["Invokana"],
+  furosemide: ["Lasix"], bumetanide: ["Burinex"], torsemide: ["Torem"], indapamide: ["Natrilix"],
+  ivabradine: ["Procoralan"], digoxin: ["Lanoxin"], hydralazine: ["Apresoline"], "isosorbide-dinitrate": ["Isordil"], vericiguat: ["Verquvo"],
+  "ferric-carboxymaltose": ["Ferinject"], "ferric-derisomaltose": ["Monofer"],
+  aspirin: ["Aspirin Protect"], clopidogrel: ["Plavix"], ticagrelor: ["Brilinta"], prasugrel: ["Effient"],
+  atorvastatin: ["Lipitor"], rosuvastatin: ["Crestor"], ezetimibe: ["Ezetrol"], evolocumab: ["Repatha"], alirocumab: ["Praluent"], inclisiran: ["Leqvio"],
+  "bempedoic-acid": ["Nilemdo", "Nexletol"], "icosapent-ethyl": ["Vazkepa", "Vascepa"],
+  apixaban: ["Eliquis"], rivaroxaban: ["Xarelto"], edoxaban: ["Lixiana"], dabigatran: ["Pradaxa"], warfarin: ["Marevan", "Coumadin"],
+  amiodarone: ["Cordarone"], sotalol: ["Sotalex"], flecainide: ["Tambocor"], diltiazem: ["Cardizem"], amlodipine: ["Norvasc"],
+  sildenafil: ["Revatio"],
+  metformin: ["Glucophage", "Glucophage XR"], liraglutide: ["Victoza", "Saxenda"], dulaglutide: ["Trulicity"],
+  semaglutide: ["Ozempic", "Wegovy"], "semaglutide-oral": ["Rybelsus"], tirzepatide: ["Mounjaro"],
+  sitagliptin: ["Januvia"], linagliptin: ["Trajenta"], vildagliptin: ["Galvus"], saxagliptin: ["Onglyza"], alogliptin: ["Vipidia"],
+  gliclazide: ["Diamicron MR"], glimepiride: ["Amaryl"], glibenclamide: ["Daonil"], pioglitazone: ["Actos"],
+  "insulin-glargine": ["Lantus", "Basaglar"], "insulin-glargine-u300": ["Toujeo"], "insulin-degludec": ["Tresiba"], "insulin-detemir": ["Levemir"],
+  "insulin-nph": ["Insulatard", "Humulin N"], "insulin-aspart": ["NovoRapid", "Fiasp"], "insulin-lispro": ["Humalog"], "insulin-aspart-30": ["NovoMix 30"],
+};
+for (const d of MEDICATIONS) if (BRANDS[d.code]) d.brands = BRANDS[d.code];
+
+// "Empagliflozin (Jardiance)"
+export function withBrand(code: string) {
+  const d = MEDICATION[code];
+  if (!d) return code;
+  return d.brands?.length ? `${d.name} (${d.brands[0]})` : d.name;
+}
+// first trade name, or the generic name when none is listed
+export const brandOf = (code: string) => MEDICATION[code]?.brands?.[0] ?? MEDICATION[code]?.name ?? code;
+// generic name, class and trade names, lower-cased for search
+export const medicationSearchText = (d: MedicationDef) => [d.name, d.drugClass, ...(d.brands ?? [])].join(" ").toLowerCase();
 export const MEDICATION: Record<string, MedicationDef> = Object.fromEntries(MEDICATIONS.map((d) => [d.code, d]));
 
 export const PURPOSE_ORDER: MedicationDef["purpose"][] = [
-  "Heart failure", "CAD / secondary prevention", "Anticoagulation", "Rhythm", "Blood pressure", "Cardiometabolic", "Pulmonary hypertension",
+  "Heart failure", "CAD / secondary prevention", "Anticoagulation", "Rhythm", "Blood pressure", "Cardiometabolic", "Diabetes", "Pulmonary hypertension",
 ];
 
 // Which medication purposes are relevant to which diagnosis tags
@@ -241,7 +304,7 @@ export const PURPOSE_FOR_TAG: Record<string, MedicationDef["purpose"][]> = {
   acs: ["CAD / secondary prevention"],
   af: ["Anticoagulation", "Rhythm"],
   htn: ["Blood pressure"],
-  dm: ["Cardiometabolic"],
+  dm: ["Cardiometabolic", "Diabetes"],
   ckd: ["Cardiometabolic"],
   lipids: ["CAD / secondary prevention"],
 };
@@ -275,4 +338,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "iron", category: "monitoring", title: "Iron studies", completesOn: { type: "lab", codes: ["ferritin", "tsat"] }, offsets: [7, 28] },
   { id: "phone", category: "follow_up", title: "Phone follow-up", completesOn: { type: "manual" }, offsets: [3, 7] },
   { id: "education", category: "education", title: "HF self-care education", completesOn: { type: "manual" }, offsets: [0, 7] },
+  { id: "hba1c", category: "monitoring", title: "HbA1c", completesOn: { type: "lab", codes: ["hba1c"] }, offsets: [90, 180] },
+  { id: "dm-eyes", category: "referral", title: "Diabetic retinal screening", completesOn: { type: "manual" }, offsets: [28, 90] },
+  { id: "dm-feet", category: "monitoring", title: "Diabetic foot examination", completesOn: { type: "manual" }, offsets: [0, 28] },
 ];
