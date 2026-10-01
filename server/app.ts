@@ -7,6 +7,8 @@ import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
+import { documents } from "./kernel/documents.js";
+import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
@@ -61,6 +63,20 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     // region only (from the host name) so the server can be placed next to the database
     const host = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname; } catch { return ""; } })();
     res.json({ status: "ok", today: today(), dbRoundTripMs: Date.now() - t, dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
+  });
+
+  // Nightly re-run of every patient's rules (Vercel Cron, 02:00 Kuwait). Time-driven findings
+  // (reviews due, results due, holds before a procedure) appear even when no new data arrives.
+  // With CRON_SECRET set, only Vercel's scheduler may call it; without it, a run is throttled
+  // to one per 6 hours. Returns counts only, never patient data.
+  app.get("/api/cron/reassess", async (req, res, next) => {
+    try {
+      const secret = process.env.CRON_SECRET;
+      if (secret && req.get("authorization") !== `Bearer ${secret}`) return res.status(401).json({ error: "Not allowed" });
+      res.json(await nightlyReassess(db, { minHours: secret ? 0 : 6 }));
+    } catch (e) {
+      next(e);
+    }
   });
 
   // Local sandbox sign-in: choose one of the seeded synthetic team members.
@@ -443,6 +459,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), draftNote(tx, id, uuidS.parse(req.params.cid)))));
   }));
 
+  app.get("/api/patients/:id/documents", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), documents(tx, id))));
+  }));
+
   // ---------- wizards & recommendations ----------
   app.get("/api/patients/:id/wizards/:wizard", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -461,8 +482,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/recommendations/:rid/decline", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ outcome: z.enum(["declined", "deferred"]), reason: z.string().max(300) }).parse(req.body);
-    await write(res, id, async (tx, a) => (await declineRecommendation(tx, a, id, uuidS.parse(req.params.rid), input), { changed: [] }));
+    const input = z.object({ outcome: z.enum(["declined", "deferred"]), reason: z.string().max(300), also: z.array(uuidS).max(10).optional() }).parse(req.body);
+    // a merged card closes with the suggestions it carries (same drug class, other rules)
+    await write(res, id, async (tx, a) => {
+      for (const rid of [uuidS.parse(req.params.rid), ...(input.also ?? [])]) await declineRecommendation(tx, a, id, rid, { outcome: input.outcome, reason: input.reason });
+      return { changed: [] };
+    });
   }));
 
   // ---------- governance ----------

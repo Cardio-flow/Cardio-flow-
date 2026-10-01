@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route } from "lucide-react";
+import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route, FileText } from "lucide-react";
 import { useData } from "../api";
 import { Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
@@ -17,6 +17,7 @@ import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
+import { DocumentsDrawer } from "../drawers/Documents";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -34,10 +35,11 @@ export type Open =
   | { kind: "history"; focus?: "risk" | "cardiac" }
   | { kind: "identity"; identity: any }
   | { kind: "status" }
-  | { kind: "pathways" };
+  | { kind: "pathways" }
+  | { kind: "documents" };
 
 const TABS = [
-  ["summary", "Summary"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
+  ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
 ] as const;
 
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
@@ -143,6 +145,10 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               {key === "summary" && redCount > 0 && <span className="n">{redCount}</span>}
             </Link>
           ))}
+          <button className="tab-action" onClick={() => setOpen({ kind: "documents" })}>
+            <FileText size={16} />
+            Documents
+          </button>
         </nav>
       </section>
       {s.attention.some((a: any) => a.rule_status !== "PUBLISHED") && tab === "summary" && (
@@ -151,7 +157,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           Some alerts come from rules still in clinical review. They run here for testing only and never on a production site.
         </div>
       )}
-      {tab === "summary" && <SummaryTab s={s} open={setOpen} />}
+      {tab === "summary" && <SummaryTab s={s} open={setOpen} done={done} />}
       {tab === "history" && <HistoryTab id={id} version={version} open={setOpen} />}
       {tab === "journey" && <JourneyTab id={id} version={version} />}
       {tab === "visits" && <VisitsTab id={id} version={version} open={setOpen} />}
@@ -175,6 +181,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
       {open?.kind === "pathways" && <Pathways onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} />}
+      {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>
   );

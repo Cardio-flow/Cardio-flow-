@@ -10,6 +10,18 @@ import { today as todayFn } from "./base.js";
 const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 
+// Suggestions that propose a drug of the same class (an SGLT2 inhibitor from the HF rule and from
+// the diabetes rule, a GLP-1 RA from the diabetes and obesity rules, finerenone from the HF and
+// cardiorenal rules) are shown once: the most urgent card carries the others as "also".
+const CLASS_TAGS = ["sglt2", "glp1", "mra", "arni", "raas", "bb", "statin", "ezetimibe", "pcsk9", "p2y12", "oac", "antiplatelet", "iv-iron"];
+export function mergeKey(r: { action?: any }) {
+  const a = typeof r.action === "string" ? JSON.parse(r.action) : r.action;
+  if (a?.type !== "start-med") return null;
+  const tags = MEDICATION[a.code]?.tags ?? [];
+  const t = CLASS_TAGS.find((x) => tags.includes(x));
+  return t ? `start:${t}` : `start:${a.code}`;
+}
+
 export async function recommendations(tx: Q, patientId: string) {
   const rows = (
     await tx.query(
@@ -17,7 +29,21 @@ export async function recommendations(tx: Q, patientId: string) {
       [patientId],
     )
   ).rows as any[];
-  return rows.sort((a, b) => SEVERITY_ORDER[a.severity as keyof typeof SEVERITY_ORDER] - SEVERITY_ORDER[b.severity as keyof typeof SEVERITY_ORDER]);
+  rows.sort((a, b) => SEVERITY_ORDER[a.severity as keyof typeof SEVERITY_ORDER] - SEVERITY_ORDER[b.severity as keyof typeof SEVERITY_ORDER] || String(a.created_at).localeCompare(String(b.created_at)));
+  const out: any[] = [];
+  const byKey = new Map<string, any>();
+  for (const r of rows) {
+    const key = mergeKey(r);
+    const lead = key ? byKey.get(key) : null;
+    if (lead) {
+      lead.also.push({ id: r.id, rule_id: r.rule_id, rule_status: r.rule_status, title: r.title, detail: r.detail, facts: r.facts });
+      continue;
+    }
+    const card = { ...r, also: [] as any[] };
+    if (key) byKey.set(key, card);
+    out.push(card);
+  }
+  return out;
 }
 
 export function header(s: PatientState) {
@@ -310,11 +336,14 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   // the active plan: what came out of the most recent plan-making context plus anything still open
   const lastSource = [...s.contexts].reverse().find((c) => s.plan.some((p) => p.source_context_id === c.id));
   const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
+  const attention = await recommendations(tx, patientId);
+  const changes = whatChanged(s);
   return {
     header: header(s),
     today: s.today,
-    attention: await recommendations(tx, patientId),
-    changes: whatChanged(s),
+    overview: overview(s, attention, plan, changes),
+    attention,
+    changes,
     plan: active,
     planSource: lastSource ? { kind: lastSource.kind, at: lastSource.ended_at ?? lastSource.started_at } : null,
     medications: medicationGroups(s),
@@ -330,6 +359,31 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)
     targets: targets(s),
+  };
+}
+
+// The five questions at the top of the patient page (blueprint P1.10).
+export function overview(s: PatientState, attention: any[], plan: ReturnType<typeof planView>, changes: ReturnType<typeof whatChanged>) {
+  const ctx = openContext(s);
+  const dis = latestDischarge(s);
+  const lastVisit = [...s.contexts].reverse().find((c) => c.kind === "clinic_visit" && c.status === "closed");
+  let why: { text: string; sub?: string };
+  if (s.deceased) why = { text: `Deceased ${fmtDay(s.status.vital!.effective_on, { year: true })}` };
+  else if (ctx?.kind === "admission")
+    why = { text: `Admitted ${fmtDay(ctx.started_at)} · day ${daysBetween(ctx.started_at, s.today) + 1}`, sub: ctx.reasons.join(", ") || undefined };
+  else if (ctx?.kind === "clinic_visit") why = { text: `In clinic today · ${ctx.service ?? "OPD"}`, sub: ctx.reasons.join(", ") || undefined };
+  else if (dis?.ended_at && daysBetween(dis.ended_at, s.today) <= 30)
+    why = { text: `Discharged ${fmtDay(dis.ended_at)} · day ${daysBetween(dis.ended_at, s.today)}`, sub: dis.reasons.join(", ") || undefined };
+  else why = { text: lastVisit ? `Last seen ${fmtDay(lastVisit.started_at, { year: true })}` : "No visit recorded yet", sub: lastVisit?.reasons.join(", ") || undefined };
+  const sev = (k: string) => attention.filter((a) => a.severity === k).length;
+  const unfinished = plan.filter((p) => p.view === "overdue" || p.view === "due");
+  const next = plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
+  return {
+    why,
+    changed: { since: changes.since, label: changes.label, count: changes.items.length, top: changes.items.slice(0, 3).map((i: any) => i.after != null ? `${i.label} ${i.before ?? "—"} → ${i.after}` : i.text ?? i.label) },
+    attention: { red: sev("red"), orange: sev("orange"), yellow: sev("yellow"), blue: sev("blue"), top: attention[0]?.title ?? null },
+    unfinished: { overdue: unfinished.filter((p) => p.view === "overdue").length, due: unfinished.filter((p) => p.view === "due").length, top: unfinished.slice(0, 2).map((p) => p.title) },
+    next: next.slice(0, 2).map((p) => ({ title: p.title, dueDate: p.dueDate })),
   };
 }
 
@@ -373,7 +427,7 @@ export async function worklist(q: Q, siteId: string) {
          ld.ended_at AS last_discharge,
          coalesce(cd.codes, '{}') AS codes,
          tr.severity AS top_severity, tr.title AS top_title, tr.rule_status AS top_status,
-         coalesce(rc.red,0) red, coalesce(rc.orange,0) orange, coalesce(rc.yellow,0) yellow, coalesce(rc.blue,0) blue,
+         rc.recs,
          nx.title AS next_title, nx.due_date AS next_due,
          coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today
        FROM cf.patient p
@@ -387,8 +441,7 @@ export async function worklist(q: Q, siteId: string) {
          ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'orange' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END, created_at DESC LIMIT 1
        ) tr ON true
        LEFT JOIN LATERAL (
-         SELECT count(*) FILTER (WHERE severity='red') red, count(*) FILTER (WHERE severity='orange') orange,
-                count(*) FILTER (WHERE severity='yellow') yellow, count(*) FILTER (WHERE severity='blue') blue
+         SELECT coalesce(json_agg(json_build_object('s', severity, 'a', action) ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'orange' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END), '[]') recs
          FROM cf.recommendation r WHERE r.patient_id=p.id AND r.status='active'
        ) rc ON true
        LEFT JOIN LATERAL (SELECT title, due_date FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned' AND a.due_date IS NOT NULL ORDER BY due_date LIMIT 1) nx ON true
@@ -423,7 +476,7 @@ export async function worklist(q: Q, siteId: string) {
       postDischarge: where.startsWith("Post-discharge"),
       problem: [...main.slice(0, 2), ...(ckd ? [ckd.display] : [])].join(" · ") || conds[0]?.display || "—",
       alert: r.top_severity ? { severity: r.top_severity, title: r.top_title, draft: r.top_status !== "PUBLISHED" } : null,
-      alertCounts: { red: Number(r.red), orange: Number(r.orange), yellow: Number(r.yellow), blue: Number(r.blue) },
+      alertCounts: countMerged(typeof r.recs === "string" ? JSON.parse(r.recs) : r.recs ?? []),
       next: r.next_title ? { title: r.next_title, dueDate: nextDue, view: planStatusView("planned", nextDue, today) } : null,
       overdue: Number(r.overdue),
       dueToday: Number(r.due_today),
@@ -432,6 +485,19 @@ export async function worklist(q: Q, siteId: string) {
   const rank = (r: any) => (r.alert ? SEVERITY_ORDER[r.alert.severity as keyof typeof SEVERITY_ORDER] : 9) * 10 - (r.overdue ? 1 : 0);
   out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return out;
+}
+
+// alert counts with same-class drug suggestions counted once (as on the patient page)
+function countMerged(recs: { s: string; a: any }[]) {
+  const seen = new Set<string>();
+  const c = { red: 0, orange: 0, yellow: 0, blue: 0 } as Record<string, number>;
+  for (const r of recs) {
+    const k = mergeKey({ action: r.a });
+    if (k && seen.has(k)) continue;
+    if (k) seen.add(k);
+    c[r.s] = (c[r.s] ?? 0) + 1;
+  }
+  return c;
 }
 
 export async function attentionCount(q: Q, siteId: string) {

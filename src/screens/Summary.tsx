@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { BookOpen, Check } from "lucide-react";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
+import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
 import { MEDICATION, formatNumber } from "../../shared/catalog";
 import type { Open } from "./Patient";
 
-export function SummaryTab({ s, open }: { s: any; open(o: Open): void }) {
+export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   return (
     <main className="page">
+      <Glance o={s.overview} />
       <div className="grid-main">
         <div className="stack">
-          <Attention s={s} open={open} />
+          <Attention s={s} open={open} done={done} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -25,13 +27,55 @@ export function SummaryTab({ s, open }: { s: any; open(o: Open): void }) {
   );
 }
 
-function Attention({ s, open }: { s: any; open(o: Open): void }) {
+// The five questions (blueprint P1.10): why here, what changed, what needs attention,
+// what is unfinished, what comes next. Each answers in one line from the record.
+function Glance({ o }: { o: any }) {
+  if (!o) return null;
+  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const a = o.attention;
+  const total = a.red + a.orange + a.yellow + a.blue;
+  return (
+    <section className="glance" aria-label="Patient at a glance">
+      <div>
+        <small>Why here</small>
+        <b>{o.why.text}</b>
+        {o.why.sub && <span>{o.why.sub}</span>}
+      </div>
+      <button onClick={() => go("chg")}>
+        <small>What changed</small>
+        <b>{o.changed.since ? `${o.changed.count} change${o.changed.count === 1 ? "" : "s"} since ${o.changed.label?.toLowerCase() ?? "last review"}` : "No earlier review"}</b>
+        {o.changed.top.length > 0 && <span>{o.changed.top.join(" · ")}</span>}
+      </button>
+      <button onClick={() => go("att")}>
+        <small>Needs attention</small>
+        {total === 0 ? <b>Nothing open</b> : (
+          <span className="counts">
+            {(["red", "orange", "yellow", "blue"] as Sev[]).filter((k) => a[k]).map((k) => <Tag key={k} sev={k}>{a[k]} {({ red: "urgent", orange: "review", yellow: "due", blue: "to consider" } as any)[k]}</Tag>)}
+          </span>
+        )}
+        {a.top && <span>{a.top}</span>}
+      </button>
+      <button onClick={() => go("plan")}>
+        <small>Unfinished</small>
+        <b>{o.unfinished.overdue + o.unfinished.due === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`].filter(Boolean).join(" · ")}</b>
+        {o.unfinished.top.length > 0 && <span>{o.unfinished.top.join(" · ")}</span>}
+      </button>
+      <button onClick={() => go("plan")}>
+        <small>What's next</small>
+        <b>{o.next[0] ? `${o.next[0].title}` : "Nothing booked"}</b>
+        {o.next[0] && <span>{fmtDay(o.next[0].dueDate, { weekday: true })}{o.next[1] ? ` · then ${o.next[1].title}` : ""}</span>}
+      </button>
+    </section>
+  );
+}
+
+function Attention({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const [why, setWhy] = useState<string | null>(null);
   return (
-    <section className="card pad" aria-labelledby="att">
+    <section className="card pad" aria-labelledby="att" id="att">
       <div className="card-head">
         <h2 id="att">Needs attention</h2>
-        <span className="meta">Rules re-run whenever new data arrives</span>
+        <span className="meta">Rules re-run when data arrives and every night</span>
       </div>
       {s.attention.length === 0 && <div className="empty">Nothing needs attention. All plan items are on track.</div>}
       <div className="attention">
@@ -44,6 +88,7 @@ function Attention({ s, open }: { s: any; open(o: Open): void }) {
               <div className="txt">
                 <span className="t">{a.title}</span>
                 <span className="d">{a.detail}</span>
+                {a.also?.length > 0 && <span className="also">Also suggested: {a.also.map((x: any) => x.title).join(" · ")}</span>}
                 {a.rule_status !== "PUBLISHED" && <span className="draft">RULE IN CLINICAL REVIEW · SANDBOX ONLY</span>}
               </div>
               <button className="why" aria-expanded={why === a.id} onClick={() => setWhy(why === a.id ? null : a.id)}>
@@ -51,7 +96,7 @@ function Attention({ s, open }: { s: any; open(o: Open): void }) {
               </button>
               <ActionButton a={a} open={open} />
             </div>
-            {why === a.id && <WhyPanel a={a} />}
+            {why === a.id && <WhyPanel a={a} patientId={s.header.id} done={done} />}
           </div>
         ))}
       </div>
@@ -121,7 +166,22 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   return null;
 }
 
-export function WhyPanel({ a }: { a: any }) {
+export function WhyPanel({ a, patientId, done }: { a: any; patientId?: string; done?(message?: string): void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const close = async (outcome: "deferred" | "declined") => {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/patients/${patientId}/recommendations/${a.id}/decline`, { body: { outcome, reason, also: (a.also ?? []).map((x: any) => x.id) } });
+      done?.(outcome === "deferred" ? "Suggestion deferred" : "Suggestion closed");
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  const sources = [a, ...(a.also ?? [])];
   return (
     <div className="why-panel">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -141,14 +201,27 @@ export function WhyPanel({ a }: { a: any }) {
           </div>
         ))}
       </div>
-      {a.facts.filter((f: any) => f.label === "Guideline").map((f: any, i: number) => (
+      {sources.flatMap((x: any) => x.facts.filter((f: any) => f.label === "Guideline").map((f: any) => f.value)).filter((v: string, i: number, all: string[]) => all.indexOf(v) === i).map((v: string, i: number) => (
         <div className="guideline-src" key={"g" + i}>
-          <BookOpen size={14} /> {f.value}
+          <BookOpen size={14} /> {v}
         </div>
       ))}
+      {a.also?.length > 0 && (
+        <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>
+          Merged with {a.also.length} other suggestion{a.also.length === 1 ? "" : "s"} for the same drug class: {a.also.map((x: any) => x.title).join(" · ")}
+        </div>
+      )}
       {a.missing.length > 0 && (
         <div className="small" style={{ fontWeight: 700, color: "var(--orange-ink)" }}>
           Assessment incomplete: {a.missing.join(", ")} not available. Missing data is never assumed normal.
+        </div>
+      )}
+      {patientId && a.action?.type !== "wizard" && (
+        <div className="notnow">
+          <input className="input" placeholder="Reason (e.g. patient preference, not available, already tried)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for not acting now" />
+          <button className="btn ghost small" disabled={busy || reason.trim().length < 3} onClick={() => close("deferred")}>Not now</button>
+          <button className="btn ghost small" disabled={busy || reason.trim().length < 3} onClick={() => close("declined")}>Not appropriate</button>
+          {error && <span className="small" style={{ color: "var(--red-ink)", fontWeight: 700 }}>{error}</span>}
         </div>
       )}
     </div>
@@ -157,7 +230,7 @@ export function WhyPanel({ a }: { a: any }) {
 
 function Changes({ changes }: { changes: any }) {
   return (
-    <section className="card pad">
+    <section className="card pad" id="chg">
       <div className="card-head">
         <h2>What changed</h2>
         <span className="meta">{changes.since ? `${changes.label} · ${fmtDay(changes.since)}` : "No earlier discharge or visit to compare with"}</span>
@@ -202,7 +275,7 @@ export function PlanMark({ view }: { view: string }) {
 
 function ActivePlan({ s, open }: { s: any; open(o: Open): void }) {
   return (
-    <section className="card pad">
+    <section className="card pad" id="plan">
       <div className="card-head">
         <h2>Active plan</h2>
         <span className="meta">

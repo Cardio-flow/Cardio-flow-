@@ -2,6 +2,14 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-01 · Patient Overview v1, copy-ready documents, nightly re-run
+
+- **Overview** (the Summary tab is renamed Overview): five questions on top, from `overview()` in views.ts: why here (open admission/visit, recent discharge, or last visit), what changed since the last review, needs attention (counts by severity), unfinished (overdue/due plan items), what's next. The detailed cards stay below.
+- **Duplicates merged:** suggestions that start a drug of the same class (SGLT2i, GLP-1 RA, MRA, statin, OAC…) from different rules show as one card, the most urgent first, with the others as "Also suggested"; the Why panel lists every guideline source. The worklist counts the merged card once. Recommendations are still stored per rule (audit unchanged); merging is a read-model concern.
+- **Not now / Not appropriate** on every non-wizard suggestion, with a required reason; it closes the merged suggestions together (`also` on the decline endpoint) and is recorded as a decision.
+- **Documents** (tab bar → Documents; `server/kernel/documents.ts`): clinical summary, medication list with changes since the last review (NEW / INCREASED / REDUCED / ON HOLD / stopped), patient plan in English and in Arabic (RTL). Confirmed data only. The patient plan lists only patient-facing items (tests, visits, investigations, referrals, education) and fixed guideline-based advice chosen by the medicines: daily weights in HF (>2 kg in 3 days), sick-day pauses (SGLT2i, metformin, sulfonylurea; never basal insulin), hypoglycaemia 15-g rule, blood-thinner bleeding signs with the INR target, held medicines, emergency 112. Copy and Print.
+- **Nightly re-run:** Vercel Cron `0 23 * * *` (02:00 Kuwait) → `/api/cron/reassess`, all rules for every patient, counts only in the response and in site settings (`nightly`). With `CRON_SECRET` set only Vercel's scheduler may call it; without it a run is throttled to one per 6 hours.
+
 ## 2026-10-01 · Last four rules rebuilt on guideline values; every clinical rule published
 
 - **Creatinine rise** (`hf.worsening-renal-function`): ESC HF practical guidance limits replace the local 25% / 90-day rule. Baseline = the creatinine before the most recent RAAS/ARNI/MRA start or up-titration (else the previous result). Up to +50% or 266 µmol/L / eGFR 25 (whichever is smaller) is acceptable and silent; beyond that orange (halve the dose, recheck); >100% or >310 µmol/L / eGFR <20 red (stop and seek advice). A synthetic patient whose creatinine rose 24% (Khaled) no longer alerts.
