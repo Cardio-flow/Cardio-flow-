@@ -69,7 +69,7 @@ export const STUDY_RULES: RuleDef[] = [
     title: "QTc prolongation",
     inputs: ["qtc", "meds", "potassium", "magnesium"],
     defaultParams: { qtc_ms: 500, rise_ms: 60, ecg_days: 90 },
-    evidence: "2022 ESC ventricular arrhythmias: in drug-induced QT prolongation stop or avoid QT-prolonging drugs and correct potassium and magnesium; QTc ≥500 ms or a rise ≥60 ms from baseline is the usual review point. Pending clinical review.",
+    evidence: "2022 ESC ventricular arrhythmias: in drug-induced QT prolongation stop or avoid QT-prolonging drugs and correct potassium and magnesium; QTc ≥500 ms or a rise ≥60 ms from baseline is the usual review point.",
     evaluate(s, p) {
       const q = s.resolved("qtc");
       const cur = q.current;
@@ -108,7 +108,7 @@ export const STUDY_RULES: RuleDef[] = [
     title: "High-degree AV block with reduced LVEF: CRT rather than RV pacing",
     inputs: ["studies", "conditions", "lvef"],
     defaultParams: { lvef_below: 40, days: 180 },
-    evidence: "2026 ESC HF: CRT rather than RV pacing in HFrEF with an indication for ventricular pacing for high-degree AV block, regardless of NYHA class or QRS width (IIa). 2021 ESC pacing: LVEF <40% threshold. Pending clinical review.",
+    evidence: "2026 ESC HF: CRT rather than RV pacing in HFrEF with an indication for ventricular pacing for high-degree AV block, regardless of NYHA class or QRS width (IIa). 2021 ESC pacing: LVEF <40% threshold.",
     evaluate(s, p) {
       if (s.tags.has("crt")) return [];
       const ef = s.resolved("lvef").current;

@@ -24,7 +24,7 @@ export const COMPLICATION_RULES: RuleDef[] = [
     title: "Congestion / worsening heart failure",
     inputs: ["weight", "congestion"],
     defaultParams: { weight_gain_kg: 2, weight_days: 3, exam_days: 14 },
-    evidence: "ESC HF self-care: unexpected weight gain >2 kg in 3 days; clinical congestion prompts diuretic adjustment, precipitant search and early review (ESC HF 2021 practical guidance). Pending clinical review.",
+    evidence: "ESC HF self-care: unexpected weight gain >2 kg in 3 days; clinical congestion prompts diuretic adjustment, precipitant search and early review (ESC HF 2021 practical guidance).",
     evaluate(s, p) {
       if (!s.tags.has("hf") || openContext(s)?.kind === "admission") return [];
       const facts: Fact[] = [];
@@ -62,7 +62,7 @@ export const COMPLICATION_RULES: RuleDef[] = [
     title: "Low blood pressure on HF therapy",
     inputs: ["sbp", "meds", "lactate"],
     defaultParams: { sbp_below: 90, days: 30 },
-    evidence: "ESC HF 2021 practical guidance: asymptomatic hypotension needs no change; if symptomatic, reduce non-HF BP-lowering drugs first, then the diuretic if not congested, then RAAS/ARNI. Pending clinical review.",
+    evidence: "ESC HF 2021 practical guidance: asymptomatic hypotension needs no change; if symptomatic, reduce non-HF BP-lowering drugs first, then the diuretic if not congested, then RAAS/ARNI.",
     evaluate(s, p) {
       const sbp = recent(s, "sbp", Number(p.days));
       if (!sbp || sbp.value_num! >= Number(p.sbp_below)) return [];
@@ -89,7 +89,7 @@ export const COMPLICATION_RULES: RuleDef[] = [
     title: "Bradycardia / AV block",
     inputs: ["hr", "meds", "studies"],
     defaultParams: { hr_below: 50, hr_severe: 40, pause_s: 3, days: 30, study_days: 90 },
-    evidence: "ESC HF 2021 practical guidance on beta-blockers (HR <50 bpm with symptoms: halve dose, review other rate-slowing drugs, ECG to exclude block); ESC 2021 pacing (Mobitz II / complete AV block, pauses). Pending clinical review.",
+    evidence: "ESC HF 2021 practical guidance on beta-blockers (HR <50 bpm with symptoms: halve dose, review other rate-slowing drugs, ECG to exclude block); ESC 2021 pacing (Mobitz II / complete AV block, pauses).",
     evaluate(s, p) {
       const hr = recent(s, "hr", Number(p.days));
       const slowing = on(s, "bb", "rate-slowing");

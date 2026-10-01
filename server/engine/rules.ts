@@ -60,7 +60,7 @@ export const RULES: RuleDef[] = [
     title: "Hyperkalaemia review",
     inputs: ["potassium", "creatinine", "meds"],
     defaultParams: { review_threshold_mmol: 5.5 },
-    evidence: "Candidate from HF Clinical Review Pack (ESC HF guideline; ESC CVD/CKD). Threshold is a sandbox value pending clinical review.",
+    evidence: "ESC HF 2021 practical guidance on MRA and RAAS inhibitors (retained 2023/2026): potassium >5.5 mmol/L needs dose reduction and review; >6.0 stop. ESC/ERA CVD–CKD 2026: manage hyperkalaemia to keep cardiorenal therapy.",
     evaluate(s, p) {
       const k = s.resolved("potassium");
       const cur = k.current;
@@ -188,7 +188,7 @@ export const RULES: RuleDef[] = [
     title: "LVEF category change",
     inputs: ["lvef"],
     defaultParams: {},
-    evidence: "2026 ESC HF guidelines: HFrEF = LVEF <50%, HFpEF ≥50%; LVEF ≤35% is the device threshold. Continue foundational therapy when EF improves. Pending clinical review.",
+    evidence: "2026 ESC HF guidelines: HFrEF = LVEF <50%, HFpEF ≥50%; LVEF ≤35% is the device threshold. Continue foundational therapy when EF improves.",
     evaluate(s) {
       const hist = s.resolved("lvef").history.filter((o) => o.status === "final");
       if (hist.length < 2) return [];
@@ -283,7 +283,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-01.2";
+export const RULESET = "2026-10-01.3";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

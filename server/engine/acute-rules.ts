@@ -23,7 +23,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Possible shock",
     inputs: ["sbp", "lactate"],
     defaultParams: { sbp_below: 90, lactate_min: 2, lactate_alone: 4, days: 2 },
-    evidence: "SCAI SHOCK 2022; Surviving Sepsis 2021: hypotension with raised lactate, or lactate ≥4 mmol/L, indicates hypoperfusion. Pending clinical review.",
+    evidence: "SCAI SHOCK 2022; Surviving Sepsis 2021: hypotension with raised lactate, or lactate ≥4 mmol/L, indicates hypoperfusion.",
     evaluate(s, p) {
       const sbp = within(s, "sbp", p.days), lac = within(s, "lactate", p.days);
       const hypo = sbp && sbp.value_num! < p.sbp_below;
@@ -43,7 +43,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Possible sepsis",
     inputs: ["temp", "hr", "rr", "sbp", "lactate", "wbc"],
     defaultParams: { temp_high: 38, temp_low: 36, hr_above: 90, rr_min: 22, sbp_max: 100, lactate_min: 2, wbc_high: 12, wbc_low: 4, days: 2 },
-    evidence: "Surviving Sepsis Campaign 2021: screen patients with suspected infection; abnormal temperature with tachycardia, tachypnoea, hypotension, raised lactate or abnormal WBC should prompt the hour-1 bundle. Pending clinical review.",
+    evidence: "Surviving Sepsis Campaign 2021: screen patients with suspected infection; abnormal temperature with tachycardia, tachypnoea, hypotension, raised lactate or abnormal WBC should prompt the hour-1 bundle.",
     evaluate(s, p) {
       const t = within(s, "temp", p.days);
       if (!t || !(t.value_num! >= p.temp_high || t.value_num! <= p.temp_low)) return [];
@@ -104,7 +104,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Hypoglycaemia",
     inputs: ["glucose", "meds"],
     defaultParams: { level1: 3.9, level2: 3.0, days: 7 },
-    evidence: "ADA Standards of Care 2026: level 1 glucose <3.9 mmol/L, level 2 <3.0 mmol/L. Pending clinical review.",
+    evidence: "ADA Standards of Care 2026: level 1 glucose <3.9 mmol/L, level 2 <3.0 mmol/L.",
     evaluate(s, p) {
       const g = within(s, "glucose", p.days);
       if (!g || g.value_num! >= p.level1) return [];
@@ -123,7 +123,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Haemoglobin fall on antithrombotic therapy",
     inputs: ["haemoglobin", "meds"],
     defaultParams: { drop_g_dl: 2, days: 30 },
-    evidence: "A haemoglobin fall ≥2 g/dL is a major-bleeding criterion (ISTH/BARC); on antithrombotics it prompts a bleeding assessment (EHRA NOAC guide 2021). Pending clinical review.",
+    evidence: "A haemoglobin fall ≥2 g/dL is a major-bleeding criterion (ISTH/BARC); on antithrombotics it prompts a bleeding assessment (EHRA NOAC guide 2021).",
     evaluate(s, p) {
       const agents = on(s, "antiplatelet", "oac");
       if (!agents.length) return [];
@@ -147,7 +147,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Low potassium / magnesium",
     inputs: ["potassium", "magnesium"],
     defaultParams: { k_below: 3.5, k_severe: 3.0, mg_below: 0.7, days: 14 },
-    evidence: "ESC HF practical guidance: low K and Mg increase arrhythmic risk, particularly with diuretics and digoxin; replace and address the cause. Pending clinical review.",
+    evidence: "ESC HF practical guidance: low K and Mg increase arrhythmic risk, particularly with diuretics and digoxin; replace and address the cause.",
     evaluate(s, p) {
       const k = within(s, "potassium", p.days), mg = within(s, "magnesium", p.days);
       const lowK = k && k.value_num! < p.k_below, lowMg = mg && mg.value_num! < p.mg_below;
@@ -168,7 +168,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Low sodium",
     inputs: ["sodium"],
     defaultParams: { na_below: 130, na_severe: 125, days: 14 },
-    evidence: "ESC HF 2021/2026: hyponatraemia in HF is common and prognostic; assess volume, stop thiazides, restrict fluid in hypervolaemia. Thresholds pending clinical review.",
+    evidence: "ESC HF 2021/2026: hyponatraemia in HF is common and prognostic; assess volume, stop thiazides, restrict fluid in hypervolaemia. Severity bands (moderate 125–129, profound <125 mmol/L) from the European hyponatraemia guideline (ESE/ESICM/ERA-EDTA 2014).",
     evaluate(s, p) {
       const na = within(s, "sodium", p.days);
       if (!na || na.value_num! >= p.na_below) return [];
@@ -237,7 +237,7 @@ export const ACUTE_RULES: RuleDef[] = [
     title: "Severe hypertension",
     inputs: ["sbp", "dbp"],
     defaultParams: { sbp_min: 180, dbp_min: 110, days: 2 },
-    evidence: "ESC 2024 hypertension: severe BP (≥180/110) requires assessment for acute organ damage; emergency if present. Pending clinical review.",
+    evidence: "ESC 2024 hypertension: severe BP (≥180/110) requires assessment for acute organ damage; emergency if present.",
     evaluate(s, p) {
       const sbp = within(s, "sbp", p.days), dbp = within(s, "dbp", p.days);
       if (!((sbp && sbp.value_num! >= p.sbp_min) || (dbp && dbp.value_num! >= p.dbp_min))) return [];

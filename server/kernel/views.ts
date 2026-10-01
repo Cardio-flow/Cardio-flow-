@@ -328,7 +328,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
       return cur ? { code: c, value: cur.value_num, at: cur.effective_at } : null;
     }).filter(Boolean),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
-    targets: siteMode === "sandbox" ? targets(s) : null,
+    // guideline goals: shown on every site (rules justified by current guidelines are published)
+    targets: targets(s),
   };
 }
 

@@ -38,7 +38,7 @@ export function diabetesRecord(s: PatientState) {
 
 // The HbA1c target used for this patient: the clinician's individual target when set, otherwise
 // the default, or the less stringent value when a reason for it is on record.
-export function glycaemicTarget(s: PatientState, p: { target_default: number | string; target_relaxed: number | string; older_age: number | string; egfr_relaxed: number | string }) {
+export function glycaemicTarget(s: PatientState, p: { target_default: number | string; target_relaxed: number | string; egfr_relaxed: number | string }) {
   const dm = diabetesRecord(s);
   const set = hba1cTarget(dm?.attributes);
   const noFixed = String(dm?.attributes?.target ?? "").startsWith("No fixed");
@@ -46,14 +46,13 @@ export function glycaemicTarget(s: PatientState, p: { target_default: number | s
   if (s.tags.has("severe-hypo")) reasons.push("severe hypoglycaemia in the past year");
   const egfr = within(s, "egfr", 365)?.value_num;
   if (s.tags.has("dialysis") || (egfr != null && egfr < Number(p.egfr_relaxed))) reasons.push(`eGFR <${p.egfr_relaxed}`);
-  if (s.patient.age >= Number(p.older_age)) reasons.push(`age ${s.patient.age}`);
   if (set != null) return { value: set, label: `<${set}%`, source: "individual" as const, reasons };
   if (noFixed) return { value: null, label: HBA1C_TARGETS[HBA1C_TARGETS.length - 1], source: "individual" as const, reasons };
   if (reasons.length) return { value: Number(p.target_relaxed), label: `<${p.target_relaxed}%`, source: "suggested" as const, reasons };
   return { value: Number(p.target_default), label: `<${p.target_default}%`, source: "default" as const, reasons };
 }
 
-const TARGET_PARAMS = { target_default: 7, target_relaxed: 8, older_age: 75, egfr_relaxed: 30 };
+const TARGET_PARAMS = { target_default: 7, target_relaxed: 8, egfr_relaxed: 30 };
 
 export const DIABETES_RULES: RuleDef[] = [
   {
@@ -62,7 +61,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "HbA1c above the individual target",
     inputs: ["hba1c", "conditions", "meds", "egfr"],
     defaultParams: { ...TARGET_PARAMS, uncontrolled: 9, days: 180 },
-    evidence: "ADA Standards of Care 2026 §6: individualised HbA1c goals (<7% for many adults; less stringent with severe hypoglycaemia, advanced CKD or limited life expectancy). ESC diabetes & CVD 2023: HbA1c <7%; cardiorenal protection independent of HbA1c. Pending clinical review.",
+    evidence: "ADA Standards of Care 2026 §6: individualised HbA1c goals (<7% for many adults; less stringent with severe hypoglycaemia, advanced CKD or limited life expectancy). ESC diabetes & CVD 2023: HbA1c <7%; cardiorenal protection independent of HbA1c.",
     evaluate(s, p) {
       const dm = diabetesRecord(s);
       const a1c = within(s, "hba1c", Number(p.days));
@@ -95,7 +94,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "Glucose-lowering drug to avoid in heart failure",
     inputs: ["meds", "conditions"],
     defaultParams: {},
-    evidence: "ESC diabetes & CVD 2023 and ESC HF: pioglitazone not recommended in HF (III, fluid retention, HF hospitalisation); saxagliptin not recommended in HF (III, SAVOR-TIMI 53). ADA 2026 §10: avoid thiazolidinediones in HF; FDA HF warning for saxagliptin and alogliptin. Pending clinical review.",
+    evidence: "ESC diabetes & CVD 2023 and ESC HF: pioglitazone not recommended in HF (III, fluid retention, HF hospitalisation); saxagliptin not recommended in HF (III, SAVOR-TIMI 53). ADA 2026 §10: avoid thiazolidinediones in HF; FDA HF warning for saxagliptin and alogliptin.",
     evaluate(s) {
       if (!s.tags.has("hf")) return [];
       const out: Finding[] = [];
@@ -118,7 +117,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "Metformin and kidney function",
     inputs: ["meds", "egfr"],
     defaultParams: { egfr_stop: 30, egfr_reduce: 45, max_daily_reduced_mg: 1000, days: 180 },
-    evidence: "Metformin SmPC and ADA 2026 §9: contraindicated with eGFR <30; eGFR 30–44 do not start and limit to 1000 mg/day. Pending clinical review.",
+    evidence: "Metformin SmPC and ADA 2026 §9: contraindicated with eGFR <30; eGFR 30–44 do not start and limit to 1000 mg/day.",
     evaluate(s, p) {
       const met = on(s, "metformin")[0];
       const e = within(s, "egfr", Number(p.days));
@@ -140,8 +139,8 @@ export const DIABETES_RULES: RuleDef[] = [
     kind: "clinical",
     title: "Hypoglycaemia risk from sulfonylurea or insulin",
     inputs: ["meds", "hba1c", "egfr", "conditions"],
-    defaultParams: { older_age: 75, egfr_low: 30, overtreated_below: 6.5, days: 180 },
-    evidence: "ADA 2026 §9 and §13: glibenclamide carries the highest hypoglycaemia risk; deintensify sulfonylureas/insulin in older adults, CKD or after severe hypoglycaemia; prefer agents without hypoglycaemia. HbA1c <6.5% on these drugs as 'possibly overtreated' is a sandbox value pending review.",
+    defaultParams: { egfr_low: 30, days: 180 },
+    evidence: "ADA 2026 §9 and §13: glibenclamide carries the highest hypoglycaemia risk; deintensify sulfonylureas/insulin with advanced CKD or after severe hypoglycaemia; prefer agents without hypoglycaemia. Sulfonylureas avoided with eGFR <30 (labels).",
     evaluate(s, p) {
       const drugs = on(s, "sulfonylurea", "insulin");
       if (!drugs.length) return [];
@@ -151,11 +150,8 @@ export const DIABETES_RULES: RuleDef[] = [
       if (s.tags.has("severe-hypo")) reasons.push("severe hypoglycaemia in the past year");
       if (glib) reasons.push("long-acting sulfonylurea");
       if (e && e.value_num! < Number(p.egfr_low) && on(s, "sulfonylurea").length) reasons.push(`sulfonylurea with eGFR ${Math.round(e.value_num!)}`);
-      if (s.patient.age >= Number(p.older_age)) reasons.push(`age ${s.patient.age}`);
-      if (a1c && a1c.value_num! < Number(p.overtreated_below)) reasons.push(`HbA1c ${formatNumber(a1c.value_num!, 1)}% (possibly overtreated)`);
-      // age alone is not a reason to alert
-      if (!reasons.filter((r) => !r.startsWith("age")).length) return [];
-      const orange = s.tags.has("severe-hypo") || (!!glib && (s.patient.age >= Number(p.older_age) || (e?.value_num ?? 99) < 60));
+      if (!reasons.length) return [];
+      const orange = s.tags.has("severe-hypo") || !!glib;
       return [{
         key: "hypo-risk", signature: `${drugs.map((m) => m.id).join(",")}:${reasons.join("|")}`, severity: orange ? "orange" : "yellow",
         title: `Hypoglycaemia risk on ${drugs.map((m) => m.name.toLowerCase()).join(" and ")}: ${reasons[0]}`,
@@ -171,7 +167,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "DPP-4 inhibitor with a GLP-1 receptor agonist",
     inputs: ["meds"],
     defaultParams: {},
-    evidence: "ADA 2026 §9: no added glucose lowering from a DPP-4 inhibitor on top of a GLP-1 RA; stop the DPP-4 inhibitor. Pending clinical review.",
+    evidence: "ADA 2026 §9: no added glucose lowering from a DPP-4 inhibitor on top of a GLP-1 RA; stop the DPP-4 inhibitor.",
     evaluate(s) {
       const d = on(s, "dpp4")[0], g = on(s, "glp1")[0];
       if (!d || !g) return [];
@@ -186,7 +182,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "Annual eye and foot checks in diabetes",
     inputs: ["conditions", "plan"],
     defaultParams: { days: 365 },
-    evidence: "ADA 2026 §12: retinal screening and comprehensive foot examination at least yearly. Kidney screening (eGFR, UACR) is covered by cardiorenal.screening. Pending clinical review.",
+    evidence: "ADA 2026 §12: retinal screening and comprehensive foot examination at least yearly. Kidney screening (eGFR, UACR) is covered by cardiorenal.screening.",
     evaluate(s, p) {
       if (!diabetesRecord(s)) return [];
       const covered = (re: RegExp) =>
@@ -205,7 +201,7 @@ export const DIABETES_RULES: RuleDef[] = [
     title: "SGLT2 inhibitor before a procedure",
     inputs: ["meds", "plan"],
     defaultParams: { hold_days: 3, window_days: 7 },
-    evidence: "ADA 2026 §16 and FDA labels: stop SGLT2 inhibitors 3 days before scheduled surgery (4 days for ertugliflozin) because of euglycaemic DKA; restart when eating and drinking. Pending clinical review.",
+    evidence: "ADA 2026 §16 and FDA labels: stop SGLT2 inhibitors 3 days before scheduled surgery (4 days for ertugliflozin) because of euglycaemic DKA; restart when eating and drinking.",
     evaluate(s, p) {
       const sg = on(s, "sglt2")[0];
       if (!sg) return [];

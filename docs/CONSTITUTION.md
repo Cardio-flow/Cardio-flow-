@@ -26,14 +26,14 @@ There is one chain. Alerts, "needs attention", the worklist and "due/overdue" ar
 2. **Append-only history.** Observations, conditions, medication events, studies, decisions, clinical events and audit cannot be updated or deleted (database triggers enforce it). Corrections add a new version.
 3. **Current ≠ newest.** Use the resolver (`shared/clinical.ts#resolveCurrent`): clinician preference, then verified over preliminary, then a recent formal study over a later limited/bedside one.
 4. **Rules are code + governed parameters.** Logic in `server/engine/rules.ts`; thresholds and wording in `cf.rule_version`. Each rule declares the inputs it reads.
-5. **Only PUBLISHED rules affect production patients.** Sandbox sites may run rules in review, and every output is labelled with its status. Maker/checker: the author cannot approve; the reviewer cannot publish.
+5. **Only PUBLISHED rules affect production patients.** A clinical rule whose trigger and thresholds come straight from a current guideline, label or standard definition (cited in its evidence) is published at build (clinical owner's decision, 1 Oct 2026; `server/engine/publication.ts`). A rule that depends on a locally chosen number stays in review and runs only on sandbox sites, labelled with its status. For those, maker/checker applies: the author cannot approve; the reviewer cannot publish.
 6. **One wizard engine.** Complications are content in `shared/wizards.ts`. The preview the clinician confirms is produced by the same function the server records (`buildOutcome`).
 7. **Registries read the record.** They never become a second data store and never re-ask known data. (Deferred until the HF slice is in daily use.)
 8. **No clinical logic in UI components.** The UI renders what the server decides.
 
 ## Safety rules
 
-- Never invent doses or thresholds. Dose options are label strengths marked as catalogue draft; thresholds are rule parameters under review.
+- Never invent doses or thresholds. Dose options are label strengths marked as catalogue draft; thresholds are rule parameters, taken from the cited guideline, or listed in `NEEDS_REVIEW` when chosen locally.
 - Never change a dose automatically. Every change is a clinician action with a reason.
 - Missing data is shown as missing, never assumed normal.
 - Old values are never copied forward as today's values.

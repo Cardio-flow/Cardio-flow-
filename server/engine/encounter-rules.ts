@@ -63,7 +63,7 @@ export const ENCOUNTER_RULES: RuleDef[] = [
     title: "HF readmission within 30 days",
     inputs: ["contexts"],
     defaultParams: { days: 30 },
-    evidence: "30-day HF readmission is a quality measure (HF registry); it prompts review of discharge congestion, therapy and early follow-up. Pending clinical review.",
+    evidence: "30-day HF readmission is a quality measure (HF registry); it prompts review of discharge congestion, therapy and early follow-up.",
     evaluate(s, p) {
       const cur = [...s.contexts].reverse().find((c) => c.kind === "admission");
       const r = (cur?.summary as any)?.readmission;

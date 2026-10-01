@@ -2,6 +2,14 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-01 · Guideline-based rules apply without separate review
+
+- **Decision (Ahmed, clinical owner):** a clinical rule applies to every patient when its trigger and thresholds are justified by a current guideline, drug label or standard definition; no separate review. Replaces "every clinical rule starts in CLINICAL_REVIEW" (constitution rule 5 amended).
+- **How:** `server/engine/publication.ts`. At boot, the newest build-authored version of each guideline-based clinical rule is PUBLISHED with publisher `policy:guideline-basis`, the policy note and an audit event. Versions a clinician edited, approved or published are never touched. 41 clinical rules published.
+- **Still in review (sandbox only), because the trigger uses a locally chosen number:** `hf.worsening-renal-function` (baseline window, 25% rise), `hf.post-discharge-review` (7 days when congested), `safety.inr` (one 2.5–3.5 mechanical-valve range), `safety.digoxin` (level >2.0 "toxic"). They can be approved in Governance as before.
+- **Rules made guideline-faithful so they could publish:** the HbA1c target is no longer relaxed for age ≥75 alone (only severe hypoglycaemia, eGFR <30 / dialysis, or the clinician's target); `dm.hypo-risk` dropped the local "HbA1c <6.5% possibly overtreated" and age criteria. Evidence texts no longer say "pending review" where the threshold is the guideline's; hyperkalaemia now cites ESC HF (K >5.5 reduce, >6.0 stop) and hyponatraemia the 2014 European guideline bands.
+- **Therapy & targets** now shows on production sites too. RULESET 2026-10-01.3.
+
 ## 2026-10-01 · Diabetes module and trade names
 
 - **Diabetes record:** type 2, type 1 and "other type" diabetes (plus prediabetes) carry structured detail: complications, the individual HbA1c target set by the clinician, severe hypoglycaemia in the past year and glucose monitoring. A "Yes" to severe hypoglycaemia becomes the `severe-hypo` tag.

@@ -2,6 +2,7 @@ import type { Q } from "../db/db.js";
 import { uuid } from "../kernel/base.js";
 import { loadState, type PatientState } from "../kernel/state.js";
 import { RULES, type RuleDef } from "./rules.js";
+import { NEEDS_REVIEW, POLICY_NOTE, POLICY_PUBLISHER, publishedByPolicy } from "./publication.js";
 
 export type RuleVersion = { rule_id: string; version: number; status: string; params: Record<string, any>; title: string; kind: string };
 
@@ -85,6 +86,9 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   return result;
 }
 
+const event = (tx: Q, ruleId: string, version: number, from: string | null, to: string, actor: string, note: string) =>
+  tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,$3,$4,$5,$6,$7)`, [uuid(), ruleId, version, from, to, actor, note]);
+
 export async function seedRules(tx: Q) {
   let added = 0;
   for (const rule of RULES) {
@@ -99,24 +103,52 @@ export async function seedRules(tx: Q) {
             [rule.id],
           )
         ).rows;
-        for (const d of demoted)
-          await tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,$3,'PUBLISHED','CLINICAL_REVIEW','system:v2-build',$4)`, [
-            uuid(), rule.id, d.version, "Reclassified as a clinical rule: returned to clinical review.",
-          ]);
+        for (const d of demoted) await event(tx, rule.id, d.version, "PUBLISHED", "CLINICAL_REVIEW", "system:v2-build", "Reclassified as a clinical rule: returned to clinical review.");
         added += demoted.length;
       }
+      added += await applyPolicy(tx, rule);
       continue;
     }
     added++;
-    const status = rule.kind === "operational" ? "PUBLISHED" : "CLINICAL_REVIEW";
+    const status = rule.kind === "operational" || publishedByPolicy(rule) ? "PUBLISHED" : "CLINICAL_REVIEW";
+    const publisher = rule.kind === "operational" ? "system:v2-build" : status === "PUBLISHED" ? POLICY_PUBLISHER : null;
     await tx.query(
-      `INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author,published_by) VALUES($1,1,$2,$3,$4,$5,$6,'system:v2-build',$7)`,
-      [rule.id, rule.kind, rule.title, status, JSON.stringify(rule.defaultParams), rule.evidence, status === "PUBLISHED" ? "system:v2-build" : null],
+      `INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author,published_by,review_note) VALUES($1,1,$2,$3,$4,$5,$6,'system:v2-build',$7,$8)`,
+      [rule.id, rule.kind, rule.title, status, JSON.stringify(rule.defaultParams), rule.evidence, publisher, publisher === POLICY_PUBLISHER ? POLICY_NOTE : null],
     );
-    await tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,1,NULL,$3,'system:v2-build',$4)`, [
-      uuid(), rule.id, status,
-      rule.kind === "operational" ? "Workflow rule (no clinical threshold) published at build." : "Clinical candidate awaiting independent review. Runs only on sandbox sites.",
-    ]);
+    await event(tx, rule.id, 1, null, status, publisher ?? "system:v2-build",
+      rule.kind === "operational" ? "Workflow rule (no clinical threshold) published at build."
+        : status === "PUBLISHED" ? POLICY_NOTE : `Local threshold, awaiting clinical review (sandbox only): ${NEEDS_REVIEW[rule.id]}`);
   }
   return added;
+}
+
+// Keeps the newest build-authored version of a clinical rule in line with the publication policy.
+// Versions a clinician has edited, approved or published are never touched.
+async function applyPolicy(tx: Q, rule: RuleDef) {
+  if (rule.kind !== "clinical") return 0;
+  const newest = (
+    await tx.query<{ version: number; status: string; author: string; reviewer: string | null; published_by: string | null }>(
+      `SELECT version,status,author,reviewer,published_by FROM cf.rule_version WHERE rule_id=$1 AND status <> 'RETIRED' ORDER BY version DESC LIMIT 1`,
+      [rule.id],
+    )
+  ).rows[0];
+  if (!newest || newest.author !== "system:v2-build" || newest.reviewer) return 0;
+  if (publishedByPolicy(rule) && newest.status === "CLINICAL_REVIEW") {
+    await tx.query(`UPDATE cf.rule_version SET status='RETIRED', updated_at=now() WHERE rule_id=$1 AND status='PUBLISHED'`, [rule.id]);
+    await tx.query(
+      `UPDATE cf.rule_version SET status='PUBLISHED', published_by=$3, review_note=$4, evidence=$5, updated_at=now() WHERE rule_id=$1 AND version=$2`,
+      [rule.id, newest.version, POLICY_PUBLISHER, POLICY_NOTE, rule.evidence],
+    );
+    await event(tx, rule.id, newest.version, "CLINICAL_REVIEW", "PUBLISHED", POLICY_PUBLISHER, POLICY_NOTE);
+    return 1;
+  }
+  if (!publishedByPolicy(rule) && newest.status === "PUBLISHED" && newest.published_by === POLICY_PUBLISHER) {
+    await tx.query(`UPDATE cf.rule_version SET status='CLINICAL_REVIEW', published_by=NULL, review_note=NULL, updated_at=now() WHERE rule_id=$1 AND version=$2`, [rule.id, newest.version]);
+    await event(tx, rule.id, newest.version, "PUBLISHED", "CLINICAL_REVIEW", POLICY_PUBLISHER, `Local threshold, returned to clinical review: ${NEEDS_REVIEW[rule.id]}`);
+    return 1;
+  }
+  if (newest.published_by === POLICY_PUBLISHER)
+    await tx.query(`UPDATE cf.rule_version SET evidence=$3 WHERE rule_id=$1 AND version=$2 AND evidence IS DISTINCT FROM $3`, [rule.id, newest.version, rule.evidence]);
+  return 0;
 }

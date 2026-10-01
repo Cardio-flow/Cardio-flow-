@@ -56,7 +56,8 @@ test("synthetic HF patient: rising K and creatinine raise sandbox alerts with fa
   const hk = recs.find((r) => r.rule_id === "hf.hyperkalaemia-review");
   assert.ok(hk, "hyperkalaemia alert");
   assert.equal(hk.severity, "red");
-  assert.equal(hk.rule_status, "CLINICAL_REVIEW");
+  assert.equal(hk.rule_status, "PUBLISHED", "guideline threshold (ESC HF): published by policy");
+  assert.equal(recs.find((r) => r.rule_id === "hf.worsening-renal-function").rule_status, "CLINICAL_REVIEW", "local threshold: stays in review");
   assert.match(hk.title, /5\.8/);
   assert.ok(recs.find((r) => r.rule_id === "hf.worsening-renal-function"));
   const s = await tx((q) => summary(q, k));
@@ -68,9 +69,10 @@ test("production site runs only PUBLISHED rules", async () => {
   await tx((q) => reassess(q, k, "production"));
   const recs = await active(k);
   assert.ok(recs.every((r) => r.rule_status === "PUBLISHED"), "no draft/review rule output in production");
-  assert.ok(!recs.some((r) => r.rule_id === "hf.hyperkalaemia-review"));
+  assert.ok(!recs.some((r) => r.rule_id === "hf.worsening-renal-function"), "rule in review does not run in production");
+  assert.ok(recs.some((r) => r.rule_id === "hf.hyperkalaemia-review"), "guideline-based rule runs in production");
   await tx((q) => reassess(q, k, "sandbox"));
-  assert.ok((await active(k)).some((r) => r.rule_id === "hf.hyperkalaemia-review"));
+  assert.ok((await active(k)).some((r) => r.rule_id === "hf.worsening-renal-function"));
 });
 
 test("closed loop: alert → wizard → dose change + dated tasks → result closes task → rules re-run", async () => {
@@ -173,15 +175,28 @@ test("clinical history is append-only", async () => {
 
 test("rule governance: maker/checker and separate publisher", async () => {
   // v1 was authored by the build; a reviewer approves with a note
-  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", 1, "APPROVED", "")), /review note/i);
-  await assert.rejects(tx((q) => transitionRule(q, doc, "hf.hyperkalaemia-review", 1, "APPROVED", "ok")), /role/i);
-  await tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", 1, "APPROVED", "Checked ESC HF MRA monitoring table; boundaries 5.4/5.5/5.6 tested"));
-  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.hyperkalaemia-review", 1, "PUBLISHED", "")), /role|reviewer/i);
-  await tx((q) => transitionRule(q, admin, "hf.hyperkalaemia-review", 1, "PUBLISHED", ""));
+  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "APPROVED", "")), /review note/i);
+  await assert.rejects(tx((q) => transitionRule(q, doc, "hf.worsening-renal-function", 1, "APPROVED", "ok")), /role/i);
+  await tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "APPROVED", "Checked ESC HF definition; boundaries tested"));
+  await assert.rejects(tx((q) => transitionRule(q, reviewer, "hf.worsening-renal-function", 1, "PUBLISHED", "")), /role|reviewer/i);
+  await tx((q) => transitionRule(q, admin, "hf.worsening-renal-function", 1, "PUBLISHED", ""));
   const k = await byName("Khaled Al-Mansour");
   await tx((q) => reassess(q, k, "production"));
   const recs = await active(k);
   assert.ok(recs.every((r) => r.rule_status === "PUBLISHED"));
+});
+
+test("publication policy: guideline rules published at build, local thresholds stay in review", async () => {
+  const { NEEDS_REVIEW } = await import("../server/engine/publication.js");
+  const rows = (await db.query(`SELECT rule_id, status, published_by, kind FROM cf.rule_version WHERE status <> 'RETIRED'`)).rows as any[];
+  for (const r of rows.filter((x) => x.kind === "clinical")) {
+    if (r.rule_id in NEEDS_REVIEW) continue;
+    assert.equal(r.status, "PUBLISHED", r.rule_id);
+    assert.equal(r.published_by, "policy:guideline-basis", r.rule_id);
+  }
+  assert.ok(rows.some((r) => r.rule_id === "safety.digoxin" && r.status === "CLINICAL_REVIEW"));
+  const ev = (await db.query(`SELECT count(*)::int AS n FROM cf.rule_event WHERE actor='policy:guideline-basis'`)).rows[0] as any;
+  assert.ok(ev.n > 30, "every policy publication is in the audit trail");
 });
 
 test("worklist ranks the most urgent patient first", async () => {
