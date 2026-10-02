@@ -1,4 +1,5 @@
 import { targets } from "../engine/guidelines.js";
+import { hfProfile } from "../engine/hf-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
@@ -356,6 +357,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)
     targets: targets(s),
+    // HF profile: type with dates, LVEF history, status, therapy per drug (HF patients only)
+    hf: hfProfile(s),
     // why a drug class is not given (recorded once, reused by every rule)
     barriers: s.barriers.map((b) => ({
       cls: b.drug_class, label: classLabel(b.drug_class), category: b.category, reason: BARRIER_LABEL[b.category], detail: b.detail, at: b.effective_at,

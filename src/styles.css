@@ -633,3 +633,25 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
   /* data from the record: a compact strip above the questions */
   .wiz-side { max-height: 32vh; padding: 14px 16px; }
 }
+
+/* HF panel (2 Oct 2026) */
+.hf-type { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.hf-type b { font-size: 16px; color: var(--navy); }
+.hf-type span { font-size: 12.5px; font-weight: 600; color: var(--ink-4); }
+.hf-panel .infobox { margin-bottom: 12px; }
+.hf-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.hf-tile { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.hf-tile small { font-size: 11.5px; font-weight: 700; color: var(--ink-4); }
+.hf-tile b { font-size: 15px; color: var(--ink); overflow-wrap: anywhere; }
+.hf-tile em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--ink-4); overflow-wrap: anywhere; }
+.hf-tile.none { border-style: dashed; background: var(--surface-2); }
+.hf-tile.none b { color: var(--ink-4); font-weight: 700; font-size: 13.5px; }
+.hf-tile svg { margin-top: 2px; }
+.pillar em.dates { color: var(--ink-3); }
+.hf-ef { margin-top: 14px; }
+.hf-ef ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.hf-ef li { display: flex; flex-direction: column; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.hf-ef li b { font-size: 13.5px; }
+.hf-ef li span { font-size: 11px; font-weight: 600; color: var(--ink-4); }
+.hf-ef li.reduced b { color: var(--navy); }
+.hf-ef li.preserved b { color: var(--green-ink); }

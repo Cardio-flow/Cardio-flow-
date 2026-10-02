@@ -229,6 +229,7 @@ export async function recordObservations(
       value = value * factor;
     }
     if (value != null && !(Number.isFinite(value) && value >= 0 && value < 1e6)) throw new ApiError(400, `${def?.display ?? item.code}: value out of range`);
+    if (value != null && def?.max != null && value > def.max) throw new ApiError(400, `${def.display}: ${value} is above the maximum ${def.max}`);
     const id = uuid();
     await tx.query(
       `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by)
@@ -253,7 +254,7 @@ export async function recordObservations(
       }
     }
   }
-  const labs = saved.filter((s) => MEASURES[s.code] && MEASURES[s.code].category !== "Vitals" && MEASURES[s.code].category !== "Echo");
+  const labs = saved.filter((s) => MEASURES[s.code] && !["Vitals", "Echo", "HF"].includes(MEASURES[s.code].category));
   if (labs.length && !input.silentEvent) {
     const title =
       "Labs · " +

@@ -52,6 +52,18 @@ export function hfPhenotype(s: PatientState): "HFrEF" | "HFpEF" | null {
   if (has(s, "hfpef")) return "HFpEF";
   return "HFrEF";
 }
+// LVEF now ≥50% after a documented LVEF <50%: HF with improved LVEF. HFrEF foundational therapy
+// is continued (withdrawal risks relapse: TRED-HF; ESC HF guidance) — the panel keeps the four
+// pillars; new-start suggestions follow the LVEF ≥50% recommendations (SGLT2i, MRA).
+export function hfImprovedEf(s: PatientState): { lowest: number; at: string } | null {
+  if (!isHF(s)) return null;
+  const now = cur(s, "lvef");
+  if (!now || now.value_num == null || now.value_num < 50) return null;
+  const low = s.resolved("lvef").history
+    .filter((o) => o.status === "final" && o.value_num != null && o.value_num < 50 && o.effective_at < now.effective_at)
+    .sort((a, b) => a.value_num! - b.value_num!)[0];
+  return low ? { lowest: low.value_num!, at: low.effective_at } : null;
+}
 export function patientBmi(s: PatientState) {
   const w = val(s, "weight", 365), h = val(s, "height", 36500);
   return w && h ? bmi(w, h) : null;
@@ -94,8 +106,8 @@ const statinIntensity = (m: MedState) => {
 
 // ---------- ESC HF foundational therapy ----------
 type Pillar = { key: string; label: string; tags: string[]; start: { code: string; dose: number } };
-const pillarsFor = (s: PatientState): Pillar[] => {
-  const phen = hfPhenotype(s);
+const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[] => {
+  const phen = use === "panel" && hfImprovedEf(s) ? "HFrEF" : hfPhenotype(s);
   const egfr = val(s, "egfr", 90);
   const sglt2: Pillar = { key: "sglt2", label: "SGLT2 inhibitor", tags: ["sglt2"], start: { code: "dapagliflozin", dose: 10 } };
   if (phen === "HFpEF")
@@ -140,6 +152,7 @@ export function fmtStatus(s: PatientState) {
   if (!phen) return null;
   return {
     phenotype: phen,
+    improved: hfImprovedEf(s),
     lvef: cur(s, "lvef")?.value_num ?? null,
     pillars: pillarsFor(s).map((p) => {
       const on = live(s).find((m) => p.tags.some((t) => m.tags.includes(t)));
@@ -177,7 +190,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       if (!phen) return [];
       const ef = cur(s, "lvef");
       const out: Finding[] = [];
-      for (const p of pillarsFor(s)) {
+      for (const p of pillarsFor(s, "start")) {
         if (s.meds.some((m) => (m.status === "active" || m.status === "held" || m.status === "not_taking") && p.tags.some((t) => m.tags.includes(t)))) continue;
         const gate = pillarGate(s, p.key, "start");
         if (gate.block) continue;

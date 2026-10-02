@@ -104,6 +104,14 @@ const DIABETES_FIELDS: AttrField[] = [
   { key: "severeHypo", label: "Severe hypoglycaemia in the past year", options: ["Yes", "No", "Unknown"], text: (v) => (v === "Yes" ? "Severe hypoglycaemia" : null) },
   { key: "monitoring", label: "Glucose monitoring", options: ["CGM", "Finger-prick", "None"], text: (v) => (v === "CGM" ? "CGM" : null) },
 ];
+// Heart failure: aetiology (ESC HF 2026 lists the common causes; more than one may apply).
+export const HF_AETIOLOGIES = [
+  "Ischaemic", "Dilated (non-ischaemic)", "Hypertensive", "Valvular", "Tachycardia-induced", "Hypertrophic", "Cardiac amyloidosis",
+  "Myocarditis / inflammatory", "Peripartum", "Toxic (alcohol, chemotherapy, drugs)", "Infiltrative / storage (other)", "Unknown",
+];
+const HF_FIELDS: AttrField[] = [
+  { key: "aetiology", label: "Aetiology", options: HF_AETIOLOGIES, multi: true, text: (v) => (v === "Unknown" ? null : v) },
+];
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   t2dm: DIABETES_FIELDS,
   t1dm: DIABETES_FIELDS,
@@ -128,6 +136,10 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
     { key: "design", label: "Mechanical valve design", options: MECHANICAL_DESIGNS, text: (v) => (v === "Unknown" ? null : v), when: { key: "type", equals: "Mechanical" } },
     { key: "inrTarget", label: "INR target (set by clinician)", options: INR_TARGETS, text: (v) => `INR target ${v}`, when: { key: "type", equals: "Mechanical" } },
   ],
+  hfref: HF_FIELDS,
+  hfmref: HF_FIELDS,
+  hfpef: HF_FIELDS,
+  hfimpef: HF_FIELDS,
   cied: [{ key: "type", label: "Device", options: ["Pacemaker", "ICD", "CRT-P", "CRT-D", "Loop recorder"] }],
   af: [{ key: "pattern", label: "Pattern", options: ["First diagnosed", "Paroxysmal", "Persistent", "Permanent", "Unknown"] }],
   "av-block": [{ key: "degree", label: "Degree", options: ["First-degree", "Mobitz I", "Mobitz II", "Complete"] }],

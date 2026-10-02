@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 9;
+export const SEED_VERSION = 10;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -363,6 +363,24 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await K.medicationEvent(tx, sys, y9, spiro.id, { kind: "not_taking", reason: "Side effect", effectiveAt: at(d(-6)) });
         touched.push(y9);
       }
+    }
+    // Seed v10: HF profile — aetiology, an older LVEF, KCCQ-12, 6-minute walk and dry weight
+    if (seeded < 10) {
+      const aetiology = async (id: string | null, value: string[]) => {
+        const c = id && ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code IN ('hfref','hfpef','hfmref','hfimpef') AND status='active' ORDER BY recorded_at LIMIT 1`, [id])).rows[0] as any);
+        if (c) await K.updateCondition(tx, sys, id!, c.logical_id, { attributes: { aetiology: value } });
+      };
+      const h10 = await byMrn("100457208");
+      if (h10) {
+        await aetiology(h10, ["Dilated (non-ischaemic)"]);
+        await K.recordEcho(tx, sys, h10, { date: at(d(-420)), quality: "formal", lvef: 22, findings: ["Dilated LV", "Moderate secondary MR"] });
+        await obs(h10, d(-70), [{ code: "kccq", value: 54 }, { code: "6mwd", value: 310 }]);
+        await obs(h10, d(-5), [{ code: "kccq", value: 63 }, { code: "6mwd", value: 360 }, { code: "dry-weight", value: 80 }]);
+      }
+      await aetiology(await byMrn("100845127"), ["Ischaemic"]);
+      const y10 = await byMrn("100277190");
+      await aetiology(y10, ["Ischaemic"]);
+      await obs(y10, d(-20), [{ code: "kccq", value: 71 }]);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

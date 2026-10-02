@@ -13,6 +13,8 @@ export type LabDef = {
   ref?: { low?: number; high?: number };
   decimals: number;
   derived?: boolean;
+  // highest valid value (e.g. a 0–100 score)
+  max?: number;
 };
 
 export const LABS: LabDef[] = [
@@ -61,6 +63,14 @@ export const VITALS: LabDef[] = [
   { code: "lvef", display: "LVEF", short: "LVEF", unit: "%", category: "Echo", decimals: 0 },
 ];
 
+// HF assessment recorded at a visit: patient-reported health status, functional capacity and the
+// clinician's dry (target) weight. Shown in the HF panel, not as labs.
+export const HF_MEASURES: LabDef[] = [
+  { code: "kccq", display: "KCCQ-12 summary score", short: "KCCQ", unit: "/100", category: "HF", decimals: 0, max: 100 },
+  { code: "6mwd", display: "6-minute walk distance", short: "6MWD", unit: "m", category: "HF", decimals: 0, max: 1500 },
+  { code: "dry-weight", display: "Dry (target) weight", short: "Dry wt", unit: "kg", category: "HF", decimals: 1, max: 400 },
+];
+
 // Measurements that come from studies (entered through the study templates, not quick labs).
 export const STUDY_MEASURES: LabDef[] = [
   { code: "qrs", display: "QRS duration", short: "QRS", unit: "ms", category: "ECG", decimals: 0 },
@@ -73,7 +83,7 @@ export const STUDY_MEASURES: LabDef[] = [
 ];
 
 export const MEASURES: Record<string, LabDef> = Object.fromEntries(
-  [...LABS, ...VITALS, ...STUDY_MEASURES].map((l) => [l.code, l]),
+  [...LABS, ...VITALS, ...STUDY_MEASURES, ...HF_MEASURES].map((l) => [l.code, l]),
 );
 
 // Status-type findings recorded as text observations

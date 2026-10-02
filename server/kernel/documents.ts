@@ -2,6 +2,7 @@
 // the hospital record or a referral, the medication list with recent changes, and the patient
 // plan in English and Arabic. Nothing is invented: every line comes from the record, and the
 // patient advice is fixed guideline-based education chosen by the patient's medicines.
+import { hfProfile } from "../engine/hf-profile.js";
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
@@ -53,6 +54,21 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
     L.push("Investigations:");
     if (ef) L.push(`- LVEF ${formatNumber(ef.value_num!, 0)}% (${ef.quality} Echo, ${fmtDay(ef.effective_at, { year: true })})`);
     for (const st of studies) L.push(`- ${st.kind.toUpperCase()} ${fmtDay(st.performed_at, { year: true })}: ${st.conclusion || st.findings.join(", ") || "recorded"}`);
+  }
+  const hf = hfProfile(s);
+  if (hf) {
+    L.push("");
+    L.push("Heart failure:");
+    L.push(`- ${hf.typeLabel}${hf.typeSince ? ` since ${fmtDay(hf.typeSince, { year: true })}` : ""}${hf.aetiology ? `; aetiology ${hf.aetiology}` : ""}`);
+    if (hf.lvefCount > 1) L.push(`- LVEF history: ${hf.lvef.map((x) => `${formatNumber(x.value, 0)}% (${fmtDay(x.at, { year: true })})`).join(" → ")}`);
+    const st = [
+      hf.nyha.now ? `NYHA ${hf.nyha.now.value} (${fmtDay(hf.nyha.now.at)})` : null,
+      hf.kccq.now ? `KCCQ-12 ${formatNumber(hf.kccq.now.value, 0)}/100 (${fmtDay(hf.kccq.now.at)})` : null,
+      hf.walk.now ? `6MWD ${formatNumber(hf.walk.now.value, 0)} m (${fmtDay(hf.walk.now.at)})` : null,
+      hf.weight.dry ? `dry weight ${formatNumber(hf.weight.dry.value, 1)} kg` : null,
+    ].filter(Boolean);
+    if (st.length) L.push(`- ${st.join("; ")}`);
+    L.push(`- HF admissions in the last 12 months: ${hf.admissions.last12m}`);
   }
   const labs = ["sbp", "hr", "weight", "creatinine", "egfr", "potassium", "sodium", "haemoglobin", "nt-probnp", "hba1c", "ldl-c", "uacr", "inr"]
     .map((code) => {

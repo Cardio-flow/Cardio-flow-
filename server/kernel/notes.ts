@@ -37,7 +37,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
   lines.push("Diagnoses: " + (s.conditions.map((d) => d.display).join(", ") || "none recorded"));
   const ef = s.resolved("lvef").current;
   if (ef) lines.push(`LVEF ${formatNumber(ef.value_num!, 0)}% (${ef.quality} Echo, ${fmtDay(ef.effective_at, { year: true })})`);
-  const vitals = ["sbp", "hr", "weight"].map((code) => {
+  const vitals = ["sbp", "hr", "weight", "dry-weight", "kccq", "6mwd"].map((code) => {
     const o = s.observations.filter((x) => x.code === code && within(x.effective_at)).sort((a, b) => (a.effective_at < b.effective_at ? 1 : -1))[0];
     return o ? `${MEASURES[code].short} ${formatNumber(o.value_num!, MEASURES[code].decimals)} ${MEASURES[code].unit}` : null;
   }).filter(Boolean);

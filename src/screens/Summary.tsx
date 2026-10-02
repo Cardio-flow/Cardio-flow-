@@ -13,6 +13,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       <div className="grid-main">
         <div className="stack">
           <Attention s={s} open={open} done={done} />
+          <HfPanel hf={s.hf} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -472,7 +473,7 @@ export { fmtTime };
 function Targets({ s, open }: { s: any; open(o: Open): void }) {
   const t = s.targets;
   if (!t) return null;
-  const blocks = [t.hf, t.ldl, t.bp, t.metabolic, t.diabetes, t.af].filter(Boolean);
+  const blocks = [t.ldl, t.bp, t.metabolic, t.diabetes, t.af].filter(Boolean);
   if (!blocks.length && t.kidney.egfr == null) return null;
   const num = (v: number | null, d = 0) => (v == null ? "—" : formatNumber(v, d));
   return (
@@ -481,7 +482,7 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
         <h2 id="tgt">Therapy &amp; targets</h2>
         <span className="meta">ESC guideline goals · suggestions need clinician confirmation</span>
       </div>
-      {t.hf && (
+      {t.hf && !s.hf && (
         <div className="tgt-block">
           <div className="tgt-title">
             <span>Heart failure therapy · {t.hf.phenotype}{t.hf.lvef != null ? ` · LVEF ${num(t.hf.lvef)}%` : ""}</span>
@@ -554,6 +555,105 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
           met={t.kidney.uacr == null ? null : t.kidney.uacr < 3 && (t.kidney.egfr ?? 90) >= 60}
           sub={t.kidney.egfrAt ? fmtDay(t.kidney.egfrAt) : ""}
         />
+      </div>
+    </section>
+  );
+}
+
+// Heart failure panel (blueprint P2.1, P2.8): HF type with dates, LVEF history, today's status
+// against the last value, and each foundational drug with its dates. Reads the record only.
+const LAST_CHANGE: Record<string, string> = { start: "started", restart: "restarted", increase: "increased", decrease: "reduced", hold: "held", not_taking: "not taking", resume: "taken again" };
+function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
+  if (!hf) return null;
+  const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));
+  const delta = (p: any, d = 0, unit = "") =>
+    p.now && p.before ? `${p.now.value > p.before.value ? "↑" : p.now.value < p.before.value ? "↓" : "→"} from ${n(p.before.value, d)}${unit} (${fmtDay(p.before.at)})` : p.now ? "First value" : "";
+  const tile = (label: string, value: string | null, sub: string, extra?: React.ReactNode) => (
+    <div className={`hf-tile${value ? "" : " none"}`}>
+      <small>{label}</small>
+      <b>{value ?? "Not recorded"}</b>
+      {sub && <em>{sub}</em>}
+      {extra}
+    </div>
+  );
+  const w = hf.weight;
+  const pctChange = hf.ntprobnp.now && hf.ntprobnp.before ? Math.round(((hf.ntprobnp.now.value - hf.ntprobnp.before.value) / hf.ntprobnp.before.value) * 100) : null;
+  return (
+    <section className="card pad hf-panel" aria-labelledby="hfp">
+      <div className="card-head">
+        <h2 id="hfp">Heart failure</h2>
+        <span className="meta">ESC HF 2026 classification</span>
+      </div>
+      <div className="hf-type">
+        <b>{hf.typeLabel}</b>
+        <span>
+          {[
+            hf.typeSince ? `since ${fmtDay(hf.typeSince, { year: true })}` : null,
+            hf.aetiology ? hf.aetiology : "Aetiology not recorded",
+            hf.onset ? `diagnosed ${fmtDay(hf.onset, { year: true })}` : null,
+            `HF admissions: ${hf.admissions.last12m} in 12 months${hf.admissions.last ? ` · last ${fmtDay(hf.admissions.last.at)}${hf.admissions.last.open ? " (current)" : ""}` : ""}`,
+          ].filter(Boolean).join(" · ")}
+        </span>
+      </div>
+      {hf.improved && <div className="infobox">LVEF has improved from {n(hf.improved.lowest)}% ({fmtDay(hf.improved.at, { year: true })}). Keep foundational therapy: stopping it risks relapse.</div>}
+      <div className="hf-tiles">
+        {tile(
+          "LVEF",
+          hf.lvef.length ? `${n(hf.lvef[hf.lvef.length - 1].value)}%` : null,
+          hf.lvef.length ? `${fmtDay(hf.lvef[hf.lvef.length - 1].at)}${hf.lowestLvef && hf.lvefCount > 1 ? ` · lowest ${n(hf.lowestLvef.value)}% (${fmtDay(hf.lowestLvef.at, { year: true })})` : ""}` : "",
+          hf.lvef.length > 1 ? <Sparkline values={hf.lvef.map((x: any) => x.value)} tone="blue" /> : null,
+        )}
+        {tile("NYHA class", hf.nyha.now?.value ?? null, hf.nyha.now ? `${fmtDay(hf.nyha.now.at)}${hf.nyha.before ? ` · was ${hf.nyha.before.value}` : ""}` : "")}
+        {tile("Congestion", hf.congestion?.value ?? null, hf.congestion ? fmtDay(hf.congestion.at) : "")}
+        {tile(
+          "Weight",
+          w.now ? `${n(w.now.value, 1)} kg` : null,
+          [w.now ? fmtDay(w.now.at) : null, w.dry ? `dry ${n(w.dry.value, 1)} kg${w.dry.source === "discharge weight" ? " (discharge)" : ""}` : "dry weight not set", w.aboveDry != null ? (w.aboveDry === 0 ? "at dry weight" : `${n(Math.abs(w.aboveDry), 1)} kg ${w.aboveDry > 0 ? "above" : "below"} dry`) : null].filter(Boolean).join(" · "),
+        )}
+        {tile("NT-proBNP", hf.ntprobnp.now ? `${n(hf.ntprobnp.now.value)} pg/mL` : null, hf.ntprobnp.now ? `${fmtDay(hf.ntprobnp.now.at)}${pctChange != null ? ` · ${pctChange > 0 ? "+" : ""}${pctChange}% vs ${fmtDay(hf.ntprobnp.before.at)}` : ""}` : "")}
+        {tile("KCCQ-12", hf.kccq.now ? `${n(hf.kccq.now.value)} / 100` : null, hf.kccq.now ? `${fmtDay(hf.kccq.now.at)} · ${delta(hf.kccq)}` : "Record at the visit")}
+        {tile("6-minute walk", hf.walk.now ? `${n(hf.walk.now.value)} m` : null, hf.walk.now ? `${fmtDay(hf.walk.now.at)} · ${delta(hf.walk, 0, " m")}` : "Record at the visit")}
+      </div>
+      <div className="tgt-title" style={{ marginTop: 14 }}>Foundational therapy</div>
+      <div className="pillars">
+        {hf.pillars.map((p: any) => {
+          const d = hf.therapy.find((t: any) => p.med && p.med.startsWith(t.name));
+          return (
+            <div key={p.key} className={`pillar st-${p.state}`}>
+              <small>{p.label}</small>
+              <b>{p.med ?? (p.state === "blocked" ? "Not now" : "Not started")}</b>
+              {p.percentOfTarget != null && (
+                <span className="bar" aria-label={`${p.percentOfTarget}% of target dose`}>
+                  <i style={{ width: `${Math.min(100, p.percentOfTarget)}%` }} />
+                </span>
+              )}
+              <em>{p.percentOfTarget != null ? `${p.percentOfTarget}% of target ${p.target}` : p.note ?? (p.state === "missing" ? "Foundational therapy" : "")}</em>
+              {d && (
+                <em className="dates">
+                  {d.atTargetSince
+                    ? `At target since ${fmtDay(d.atTargetSince, { year: true })}`
+                    : [d.started ? `Since ${fmtDay(d.started, { year: true })}` : null, d.lastChange && d.lastChange.kind !== "start" ? `${LAST_CHANGE[d.lastChange.kind] ?? d.lastChange.kind} ${fmtDay(d.lastChange.at)}` : null].filter(Boolean).join(" · ")}
+                </em>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {hf.lvef.length > 1 && (
+        <div className="hf-ef">
+          <span className="tgt-title">LVEF history</span>
+          <ol>
+            {hf.lvef.map((x: any) => (
+              <li key={x.at} className={x.type}>
+                <b>{n(x.value)}%</b>
+                <span>{fmtDay(x.at, { year: true })}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="row wrap" style={{ marginTop: 12, gap: 8 }}>
+        <button className="btn ghost small" onClick={() => open({ kind: "labs", codes: ["nt-probnp", "creatinine", "potassium", "sodium"] })}>Add HF labs</button>
       </div>
     </section>
   );

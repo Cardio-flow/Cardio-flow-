@@ -3,7 +3,7 @@ import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
-import { FINDINGS, PLAN_TEMPLATES } from "../../shared/catalog";
+import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
 import { addDays, daysBetween, fmtDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
@@ -273,6 +273,9 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [vit, setVit] = useState<Record<string, string>>({});
   const [nyha, setNyha] = useState<string>("");
   const [cong, setCong] = useState<string>("");
+  // HF assessment (HF patients or an HF visit): KCCQ-12, 6-minute walk, dry (target) weight
+  const [hfa, setHfa] = useState<Record<string, string>>({});
+  const isHf = !!summary.hf || reasons.includes("Heart failure");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -300,6 +303,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         ...["sbp", "dbp", "hr", "weight"].filter((c) => vit[c]?.trim()).map((c) => ({ code: c, value: Number(vit[c]) })),
         ...(nyha ? [{ code: "nyha", text: nyha }] : []),
         ...(cong ? [{ code: "congestion", text: cong }] : []),
+        ...(isHf ? ["kccq", "6mwd", "dry-weight"].filter((c) => hfa[c]?.trim()).map((c) => ({ code: c, value: Number(hfa[c]) })) : []),
       ];
       if (items.length) await api(`/patients/${patientId}/observations`, { body: { effectiveAt: new Date().toISOString(), contextId: visitId, items } });
       setStep(2);
@@ -405,6 +409,28 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               <div className="label">Congestion</div>
               <Segmented label="Congestion" options={FINDINGS.congestion.options.map((o) => ({ value: o, label: o }))} value={cong} onChange={setCong} />
             </div>
+            {isHf && (
+              <div className="q">
+                <div className="label">HF assessment <em className="muted" style={{ fontStyle: "normal", fontWeight: 600 }}>(optional)</em></div>
+                <div className="row wrap" style={{ gap: 16 }}>
+                  {[
+                    ["kccq", "KCCQ-12 summary score", "/ 100", summary.hf?.kccq?.now],
+                    ["6mwd", "6-minute walk", "m", summary.hf?.walk?.now],
+                    ["dry-weight", "Dry (target) weight", "kg", summary.hf?.weight?.dry],
+                  ].map(([c, l, u, last]: any) => (
+                    <label key={c} className="field">
+                      <span>{l}</span>
+                      <span className="row">
+                        <input className="input num" style={{ width: 110 }} inputMode="decimal" value={hfa[c] ?? ""} onChange={(e) => setHfa({ ...hfa, [c]: e.target.value.replace(/[^\d.]/g, "") })} />
+                        <span className="muted small" style={{ fontWeight: 700 }}>{u}</span>
+                      </span>
+                      <em className="muted small" style={{ fontStyle: "normal" }}>{last ? `Last ${formatNumber(last.value, c === "dry-weight" ? 1 : 0)} · ${fmtDay(last.at)}` : "Not recorded before"}</em>
+                    </label>
+                  ))}
+                </div>
+                {hfa.kccq && Number(hfa.kccq) > 100 && <div className="infobox warn">The KCCQ-12 summary score runs from 0 to 100.</div>}
+              </div>
+            )}
           </>
         )}
         {step === 2 && (
