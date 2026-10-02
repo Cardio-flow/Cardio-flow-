@@ -145,8 +145,8 @@ export function Segmented({ label, options, value, onChange }: { label: string; 
   );
 }
 export function MultiChoice({
-  options, value, onChange, auto = [],
-}: { options: { value: string; label: string }[]; value: string[]; onChange(v: string[]): void; auto?: string[] }) {
+  options, value, onChange, auto = [], rec = [],
+}: { options: { value: string; label: string }[]; value: string[]; onChange(v: string[]): void; auto?: string[]; rec?: string[] }) {
   return (
     <div className="choices">
       {options.map((o) => {
@@ -156,13 +156,14 @@ export function MultiChoice({
             {on && <CheckMark />}
             {o.label}
             {auto.includes(o.value) && <span className="auto">AUTO</span>}
+            {rec.includes(o.value) && <span className="rec">GUIDELINE</span>}
           </button>
         );
       })}
     </div>
   );
 }
-export function SingleChoice({ options, value, onChange, label }: { options: { value: string; label: string; hint?: string }[]; value: string | undefined; onChange(v: string): void; label: string }) {
+export function SingleChoice({ options, value, onChange, label, rec = [] }: { options: { value: string; label: string; hint?: string }[]; value: string | undefined; onChange(v: string): void; label: string; rec?: string[] }) {
   // options with a hint render as full-width cards: title on the first line, examples beneath
   const cards = options.some((o) => o.hint);
   return (
@@ -175,6 +176,7 @@ export function SingleChoice({ options, value, onChange, label }: { options: { v
               {o.hint && <span className="choice-hint">{o.hint}</span>}
             </span>
           ) : o.label}
+          {rec.includes(o.value) && <span className="rec">GUIDELINE</span>}
         </button>
       ))}
     </div>

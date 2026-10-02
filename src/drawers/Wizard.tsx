@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Activity, Check, Info, CalendarCheck, Pill } from "lucide-react";
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
+import { suggest, type Suggestion } from "../../shared/wizard-guidance";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
 import { flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
@@ -64,6 +65,28 @@ export function WizardDrawer({
   const missing = current ? missingRequired(current, answers) : [];
   const outcome = useMemo(() => (ctx ? buildOutcome(wizard, answers, ctx) : []), [ctx, wizard, answers]);
   const assessment = useMemo(() => (ctx && def.assess ? def.assess(answers, ctx) : null), [ctx, def, answers]);
+  // guideline suggestions for every question, from the record and the answers so far
+  const suggestions = useMemo(() => {
+    const out: Record<string, Suggestion[]> = {};
+    if (!ctx) return out;
+    for (const q of def.steps.flatMap((st) => visibleQuestions(st, answers)).filter((q) => q.options))
+      out[q.id] = suggest(wizard, q.id, answers, ctx, new Set(optionsFor(q, ctx).map((o) => o.value)));
+    return out;
+  }, [ctx, def, wizard, answers]);
+  const qType = (id: string) => def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.type;
+  const isChosen = (id: string, v: string) => (qType(id) === "multi" ? ((answers[id] as string[]) ?? []).includes(v) : answers[id] === v);
+  const applySuggestions = (id: string) => {
+    const vals = (suggestions[id] ?? []).map((x) => x.value);
+    if (!vals.length) return;
+    if (qType(id) === "multi") {
+      const cur = ((answers[id] as string[]) ?? []).filter((v) => vals.includes("none") || v !== "none");
+      set(id, vals.includes("none") ? ["none"] : [...new Set([...cur, ...vals])]);
+    } else set(id, vals[0]);
+  };
+  // on the Confirm step: guideline suggestions that were not taken
+  const notTaken = isReview
+    ? Object.entries(suggestions).flatMap(([id, list]) => list.filter((x) => !isChosen(id, x.value) && x.value !== "none").map((x) => ({ id, ...x, label: def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options?.find((o) => o.value === x.value)?.label ?? x.value })))
+    : [];
   const set = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
   const tone = def.tone;
   async function confirm() {
@@ -195,17 +218,41 @@ export function WizardDrawer({
           )}
           {!ctx && !error && <div className="muted">Loading patient data…</div>}
           {ctx && current &&
-            visibleQuestions(current, answers).map((q) => (
+            visibleQuestions(current, answers).map((q) => {
+              const sug = suggestions[q.id] ?? [];
+              const recVals = sug.map((x) => x.value);
+              const label = (v: string) => q.options?.find((o) => o.value === v)?.label ?? v;
+              const pending = sug.filter((x) => !isChosen(q.id, x.value));
+              return (
               <div className="q" key={q.id}>
                 <div className="label">{q.label}</div>
                 {q.help && <div className="help">{q.help}</div>}
-                {q.type === "multi" && (
-                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} />
+                {sug.length > 0 && (
+                  <div className="guide">
+                    <div className="guide-head">
+                      <span>Guideline suggests</span>
+                      {pending.length > 0 ? (
+                        <button type="button" className="btn ghost small" onClick={() => applySuggestions(q.id)}>Apply</button>
+                      ) : (
+                        <span className="guide-done"><Check size={14} strokeWidth={3} /> Applied</span>
+                      )}
+                    </div>
+                    <ul>
+                      {sug.map((x) => (
+                        <li key={x.value} className={isChosen(q.id, x.value) ? "on" : ""}>
+                          <b>{label(x.value)}</b> — {x.why}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
-                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) ? (
+                {q.type === "multi" && (
+                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} rec={recVals} />
+                )}
+                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) && !recVals.length ? (
                   <Segmented label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
                 ) : (
-                  <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
+                  <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} rec={recVals} />
                 ))}
                 {q.type === "dose" && (() => {
                   const { med, options } = doseChoices(ctx, q);
@@ -220,7 +267,8 @@ export function WizardDrawer({
                   );
                 })()}
               </div>
-            ))}
+              );
+            })}
           {ctx && isReview && assessment && (
             <section className="assess" aria-label={assessment.heading}>
               <h3>{assessment.heading}</h3>
@@ -241,6 +289,13 @@ export function WizardDrawer({
                 </>
               )}
             </section>
+          )}
+          {ctx && isReview && notTaken.length > 0 && (
+            <div className="guide not-taken">
+              <div className="guide-head"><span>Guideline suggestions not taken</span></div>
+              <ul>{notTaken.map((x) => <li key={x.id + x.value}><b>{x.label}</b> — {x.why}</li>)}</ul>
+              <div className="help">That is your decision; it is recorded with the plan.</div>
+            </div>
           )}
           {ctx && isReview && (
             <div className="q">

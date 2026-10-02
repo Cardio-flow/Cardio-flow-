@@ -1,13 +1,14 @@
 import type { Q } from "../db/db.js";
 import { MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween } from "../../shared/clinical.js";
-import { WIZARDS, buildOutcome, missingRequired, optionsFor, type Answers, type WizardContext } from "../../shared/wizards.js";
-import { ApiError, audit, journeyEvent, nowIso, uuid, type Actor } from "../kernel/base.js";
+import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
+import { suggest } from "../../shared/wizard-guidance.js";
+import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
 import { addPlanAction, medicationEvent, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
 
-export function wizardContext(s: PatientState, wizardId: string): WizardContext {
+function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
     .filter((m) => m.status === "active" || m.status === "held")
     .map((m) => ({ id: m.id, code: m.code, name: m.name, doseValue: m.doseValue, doseUnit: m.doseUnit, frequency: m.frequency, tags: m.tags }));
@@ -64,6 +65,24 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     detected,
     trend: { code, label: MEASURES[code].display, unit: MEASURES[code].unit, points: hist.map((o) => ({ date: o.effective_at, value: o.value_num! })) },
   };
+}
+
+// Every pathway also gets the numbers and diagnoses its guideline suggestions read: the latest
+// value of each measure (with the one before it), and the diagnosis codes and tags.
+export function wizardContext(s: PatientState, wizardId: string): WizardContext {
+  const base = baseContext(s, wizardId);
+  const values: NonNullable<WizardContext["values"]> = {};
+  for (const code of Object.keys(MEASURES)) {
+    const h = series(s, code).filter((o) => o.value_num != null && o.status === "final");
+    if (h[0]) values[code] = { value: h[0].value_num!, at: h[0].effective_at, prev: h[1]?.value_num ?? null };
+  }
+  const dx = [...new Set([...s.conditions.map((c) => c.code), ...s.tags])];
+  const profile = base.profile ?? {
+    age: s.patient.age,
+    cvd: ["cad", "hf", "stroke", "af", "valve", "vascular", "ascvd"].some((t) => s.tags.has(t)),
+    riskFactors: s.patient.age >= 65 || ["htn", "dm", "ckd", "lipids", "obesity"].some((t) => s.tags.has(t)) || s.conditions.some((c) => c.code === "smoker"),
+  };
+  return { ...base, values, dx, profile };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -150,15 +169,21 @@ export async function completeWizard(
   await tx.query(`UPDATE cf.wizard_draft SET status='completed', updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, wizardId]);
   const actions = (input.answers.actions as string[] | undefined) ?? [];
   const assessment = def.assess?.(input.answers, ctx);
+  // guideline suggestions the clinician did not take are recorded with the decision (Journey)
+  const chosen = (id: string, v: string) => (Array.isArray(input.answers[id]) ? (input.answers[id] as string[]).includes(v) : input.answers[id] === v);
+  const notTaken = def.steps.flatMap((st) => visibleQuestions(st, input.answers)).filter((q) => q.options)
+    .flatMap((q) => suggest(wizardId, q.id, input.answers, ctx, new Set(optionsFor(q, ctx).map((o) => o.value)))
+      .filter((x) => x.value !== "none" && !chosen(q.id, x.value))
+      .map((x) => q.options!.find((o) => o.value === x.value)?.label ?? x.value));
   const summary = assessment ? [...assessment.rows.map((r) => `${r.label}: ${r.value}`), ...assessment.recommendations].join(" · ") : "";
   await journeyEvent(tx, actor, {
     patientId, occurredAt: at, kind: "complication-review", category: "complication",
     title: review ? `${def.title} · review` : def.title,
-    detail: [summary, outcome.map((o) => o.label).filter(Boolean).join(" · ") || actions.join(", ")].filter(Boolean).join(" · "),
+    detail: [summary, outcome.map((o) => o.label).filter(Boolean).join(" · ") || actions.join(", "), notTaken.length ? `Guideline suggestions not taken: ${notTaken.join("; ")}` : ""].filter(Boolean).join(" · "),
     refType: "decision", refId: decisionId, contextId: input.contextId,
   });
   await audit(tx, actor, "complete-wizard", "decision", decisionId, patientId, { wizard: wizardId });
-  return { decisionId, episodeId, review, outcome, assessment: assessment ?? null, changed: [...new Set(changed)] };
+  return { decisionId, episodeId, review, outcome, assessment: assessment ?? null, notTaken, changed: [...new Set(changed)] };
 }
 
 export async function declineRecommendation(tx: Q, actor: Actor, patientId: string, recommendationId: string, input: { outcome: "declined" | "deferred"; reason: string }) {
@@ -248,7 +273,7 @@ export async function resolveEpisode(tx: Q, actor: Actor, patientId: string, epi
   const at = nowIso();
   await tx.query(`UPDATE cf.episode SET status='resolved', resolved_at=$2, resolved_by=$3, outcome=$4, note=$5 WHERE id=$1`, [episodeId, at, actor.id, input.outcome, input.note?.trim() ?? ""]);
   const def = WIZARDS[ep.wizard];
-  const days = daysBetween(new Date(ep.started_at).toISOString(), at.slice(0, 10)) + 1;
+  const days = daysBetween(new Date(ep.started_at).toISOString(), today()) + 1;
   await journeyEvent(tx, actor, {
     patientId, occurredAt: at, kind: "complication-review", category: "complication",
     title: `${def?.title ?? ep.wizard} · ${input.outcome === "Opened in error" ? "closed" : "resolved"}`,

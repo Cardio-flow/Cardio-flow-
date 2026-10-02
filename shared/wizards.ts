@@ -74,6 +74,10 @@ export type WizardContext = {
   trend?: { code: string; label: string; unit: string; points: { date: string; value: number }[] };
   // who the patient is, for pathways whose summary depends on it (age, known CVD, CV risk factors)
   profile?: { age: number; cvd: boolean; riskFactors: boolean };
+  // latest value of each measure (and the one before), and diagnosis codes + tags: read by the
+  // guideline suggestions (shared/wizard-guidance.ts)
+  values?: Record<string, { value: number; at: string; prev: number | null }>;
+  dx?: string[];
 };
 // a pathway's closing summary: the patient's risk and the guideline recommendations for the answers given
 export type Assessment = { heading: string; rows: { label: string; value: string; tone?: "orange" | "green" }[]; recommendations: string[] };
