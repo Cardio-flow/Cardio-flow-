@@ -8,6 +8,7 @@ import { daysBetween } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import type { Obs, PatientState } from "../kernel/state.js";
 import { fmtStatus, hfImprovedEf, hfPhenotype } from "./guidelines.js";
+import { optimalFmt } from "./hf-rules.js";
 
 type Point = { value: number; at: string };
 type TextPoint = { value: string; at: string };
@@ -97,6 +98,7 @@ export function hfProfile(s: PatientState) {
       last: lastHf ? { at: lastHf.started_at, discharged: lastHf.ended_at, open: lastHf.status === "open" } : null,
     },
     pillars: fmt?.pillars ?? [],
+    optimal: optimalFmt(s),
     therapy,
   };
 }

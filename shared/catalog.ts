@@ -343,6 +343,8 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "stress", category: "investigation", title: "Stress test", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
   { id: "cmr", category: "investigation", title: "Cardiac MRI", completesOn: { type: "study", kind: "cmr" }, offsets: [28, 56] },
   { id: "device", category: "follow_up", title: "ICD/CRT reassessment after repeat Echo", completesOn: { type: "manual" }, offsets: [90, 180] },
+  { id: "device-referral", category: "referral", title: "EP referral for ICD/CRT", completesOn: { type: "manual" }, offsets: [14, 28, 56] },
+  { id: "heart-team", category: "referral", title: "Heart Team discussion (mitral TEER)", completesOn: { type: "manual" }, offsets: [14, 28] },
   { id: "advanced-hf", category: "referral", title: "Advanced HF centre consultation", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "rehab", category: "referral", title: "Cardiac rehabilitation referral", completesOn: { type: "manual" }, offsets: [7, 14] },
   { id: "lipids", category: "monitoring", title: "Lipid profile", completesOn: { type: "lab", codes: ["ldl-c"] }, offsets: [42, 84] },

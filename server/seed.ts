@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 10;
+export const SEED_VERSION = 11;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -381,6 +381,34 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       const y10 = await byMrn("100277190");
       await aetiology(y10, ["Ischaemic"]);
       await obs(y10, d(-20), [{ code: "kccq", value: 71 }]);
+    }
+    // Seed v11: HF device decisions — Saad (ischaemic HFrEF on all four pillars for 6 months, LVEF 27%,
+    // LBBB 158 ms, NYHA II, severe secondary MR) and Huda (LVEF recovered 30% → 56%, beta-blocker stopped)
+    if (seeded < 11) {
+      if (!(await byMrn("100733962"))) {
+        const sd = await K.createPatient(tx, sys, { name: "Saad Al-Otaibi", mrn: "100733962", sex: "Male", birthDate: addDays(T, -(64 * 365 + 120)), allergies: "No known drug allergies", conditions: ["prior-mi", "htn"] });
+        await K.recordHistory(tx, sys, sd, { effectiveAt: at(d(-200)), add: [{ code: "hfref", onsetYear: 2025, attributes: { aetiology: ["Ischaemic"] } }, { code: "mr-secondary", attributes: { severity: "Severe" } }] });
+        for (const [code, dose, freq] of [["sacubitril-valsartan", 97, "BID"], ["bisoprolol", 5, "OD"], ["spironolactone", 25, "OD"], ["dapagliflozin", 10, "OD"], ["furosemide", 40, "OD"], ["aspirin", 100, "OD"], ["atorvastatin", 80, "OD"]] as const)
+          await K.startMedication(tx, sys, sd, { code, doseValue: dose, frequency: freq, route: "PO", indication: "hf", effectiveAt: at(d(-180)) });
+        await K.recordEcho(tx, sys, sd, { date: at(d(-210)), quality: "formal", lvef: 25, findings: ["Dilated LV", "Severe secondary MR"] });
+        await K.recordEcho(tx, sys, sd, { date: at(d(-8)), quality: "formal", lvef: 27, findings: ["Dilated LV", "Severe secondary MR"] });
+        await K.recordStudy(tx, sys, sd, { kind: "ecg", date: at(d(-8)), findings: { rhythm: "Sinus rhythm", rate: 68, qrs: 158, qrsMorphology: "LBBB" } });
+        await obs(sd, d(-8), [{ code: "sbp", value: 108 }, { code: "hr", value: 66 }, { code: "weight", value: 79 }, { code: "creatinine", value: 104 }, { code: "potassium", value: 4.6 }, { code: "nt-probnp", value: 1850 }, { code: "ldl-c", value: 1.3 }, { code: "ferritin", value: 160 }, { code: "tsat", value: 24 }, { code: "uacr", value: 2 }]);
+        await K.recordObservations(tx, sys, sd, { effectiveAt: at(d(-8), "09:00"), items: [{ code: "nyha", text: "II" }, { code: "congestion", text: "None" }, { code: "kccq", value: 66 }], silentEvent: true });
+        touched.push(sd);
+      }
+      if (!(await byMrn("100728415"))) {
+        const hu = await K.createPatient(tx, sys, { name: "Huda Al-Sabah", mrn: "100728415", sex: "Female", birthDate: addDays(T, -(47 * 365 + 60)), allergies: "No known drug allergies", conditions: [] });
+        await K.recordHistory(tx, sys, hu, { effectiveAt: at(d(-400)), add: [{ code: "hfref", onsetYear: 2025, attributes: { aetiology: ["Tachycardia-induced"] } }] });
+        for (const [code, dose, freq] of [["sacubitril-valsartan", 49, "BID"], ["bisoprolol", 5, "OD"], ["eplerenone", 25, "OD"], ["empagliflozin", 10, "OD"]] as const)
+          await K.startMedication(tx, sys, hu, { code, doseValue: dose, frequency: freq, route: "PO", indication: "hf", effectiveAt: at(d(-380)) });
+        await K.recordEcho(tx, sys, hu, { date: at(d(-390)), quality: "formal", lvef: 30, findings: ["Dilated LV"] });
+        await K.recordEcho(tx, sys, hu, { date: at(d(-30)), quality: "formal", lvef: 56, findings: ["Normal LV size"] });
+        const bb = (await tx.query(`SELECT id FROM cf.medication WHERE patient_id=$1 AND drug='bisoprolol'`, [hu])).rows[0] as any;
+        await K.medicationEvent(tx, sys, hu, bb.id, { kind: "stop", reason: "LVEF normalised", effectiveAt: at(d(-14)) });
+        await obs(hu, d(-14), [{ code: "sbp", value: 118 }, { code: "hr", value: 82 }, { code: "creatinine", value: 70 }, { code: "potassium", value: 4.3 }]);
+        touched.push(hu);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

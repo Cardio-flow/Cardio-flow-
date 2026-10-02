@@ -614,7 +614,16 @@ function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
         {tile("KCCQ-12", hf.kccq.now ? `${n(hf.kccq.now.value)} / 100` : null, hf.kccq.now ? `${fmtDay(hf.kccq.now.at)} · ${delta(hf.kccq)}` : "Record at the visit")}
         {tile("6-minute walk", hf.walk.now ? `${n(hf.walk.now.value)} m` : null, hf.walk.now ? `${fmtDay(hf.walk.now.at)} · ${delta(hf.walk, 0, " m")}` : "Record at the visit")}
       </div>
-      <div className="tgt-title" style={{ marginTop: 14 }}>Foundational therapy</div>
+      <div className="tgt-title" style={{ marginTop: 14 }}>
+        Foundational therapy
+        {hf.optimal && (
+          <span className={`fmt-state${hf.optimal.complete ? " ok" : ""}`}>
+            {hf.optimal.complete
+              ? `All pillars since ${fmtDay(hf.optimal.since, { year: true })} · 3 months on ${fmtDay(hf.optimal.reassessFrom, { year: true })}`
+              : `Not complete: ${hf.optimal.gaps.join(", ")}`}
+          </span>
+        )}
+      </div>
       <div className="pillars">
         {hf.pillars.map((p: any) => {
           const d = hf.therapy.find((t: any) => p.med && p.med.startsWith(t.name));

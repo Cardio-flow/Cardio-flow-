@@ -81,13 +81,14 @@ test("device rule: asks for an ECG, then grades CRT by QRS width and morphology"
   assert.equal(dev.action.template, "ecg");
   await ecg(pid, { rhythm: "Sinus rhythm", qrs: 156, qrsMorphology: "LBBB" });
   dev = (await active(pid)).find((r) => r.rule_id === "hf.device-assessment");
-  assert.match(dev.title, /QRS 156 ms LBBB: CRT \(class I\) and ICD assessment/);
-  assert.match(dev.detail, /alongside foundational therapy \(IIb\)/);
+  assert.match(dev.title, /LVEF 28%: optimise foundational therapy first \(.*\), then reassess for ICD\/CRT/);
+  assert.match(dev.detail, /LBBB, QRS ≥150 ms: CRT class I\./);
+  assert.match(dev.detail, /CRT planning may start alongside foundational therapy \(ESC 2026, IIb C\)/);
   assert.deepEqual(dev.missing, []);
   await ecg(pid, { rhythm: "Sinus rhythm", qrs: 118, qrsMorphology: "Normal" });
   dev = (await active(pid)).find((r) => r.rule_id === "hf.device-assessment");
-  assert.match(dev.title, /: ICD assessment/);
   assert.match(dev.detail, /QRS <130 ms: CRT not indicated/);
+  assert.doesNotMatch(dev.detail, /CRT planning/);
 });
 
 test("ivabradine in AF, QTc on a QT-prolonging drug, and CRT rather than RV pacing", async () => {

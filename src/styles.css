@@ -655,3 +655,5 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 .hf-ef li span { font-size: 11px; font-weight: 600; color: var(--ink-4); }
 .hf-ef li.reduced b { color: var(--navy); }
 .hf-ef li.preserved b { color: var(--green-ink); }
+.tgt-title .fmt-state { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 700; color: var(--orange-ink); }
+.tgt-title .fmt-state.ok { color: var(--ink-3); }
