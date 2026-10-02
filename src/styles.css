@@ -704,3 +704,27 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 .reg-sec td .muted { font-family: ui-monospace, monospace; font-size: 11px; }
 tr.reg-missing td:nth-child(2) { color: var(--orange-ink); font-weight: 700; }
 tr.reg-only td { color: var(--ink-4); }
+
+/* Add results on phones (2 Oct 2026): test name on its own line, value + unit below, previous value under them */
+@media (max-width: 640px) {
+  .lab-row.head { display: none; }
+  .lab-row { grid-template-columns: minmax(0, 1fr) minmax(84px, auto) 32px; gap: 6px 10px; padding: 10px 14px; }
+  .lab-row > .n { grid-column: 1 / -1; grid-row: 1; }
+  .lab-row > input { grid-column: 1; grid-row: 2; width: 100%; }
+  .lab-row > select, .lab-row > .u { grid-column: 2; grid-row: 2; }
+  .lab-row > select.input { width: 100% !important; min-width: 84px; }
+  .lab-row > .p { display: block !important; grid-column: 1 / -1; grid-row: 3; font-size: 12px; }
+  .lab-row > button.icon-btn { display: inline-flex !important; grid-column: 3; grid-row: 2; }
+  .lab-row.calc > .calc-val { grid-column: 1; grid-row: 2; width: 100%; }
+  .lab-row.calc > .u { grid-column: 2 / -1; grid-row: 2; font-size: 11.5px; overflow-wrap: anywhere; }
+  .lab-row.calc > .small { grid-column: 1 / -1; grid-row: 3; }
+  .lab-row.calc > span:last-child:empty { display: none; }
+}
+/* journey: the selected event stays inside the card; Documents stays visible at the end of the tab bar */
+.jr .body button { box-sizing: border-box; max-width: 100%; }
+/* phones: Documents sits with the other header actions instead of at the end of the scrolling tab bar */
+.docs-phone { display: none; }
+@media (max-width: 900px) {
+  .docs-phone { display: inline-flex; }
+  .tabs .tab-action { display: none; }
+}

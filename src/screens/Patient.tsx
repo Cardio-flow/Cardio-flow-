@@ -110,6 +110,10 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               <FlaskConical size={18} />
               Add labs
             </button>
+            <button className="btn secondary docs-phone" onClick={() => setOpen({ kind: "documents" })}>
+              <FileText size={18} />
+              Documents
+            </button>
             {h.deceased ? (
               <button className="btn secondary" onClick={() => setOpen({ kind: "status" })}>
                 Patient status

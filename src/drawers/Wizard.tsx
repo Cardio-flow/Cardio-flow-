@@ -3,7 +3,7 @@ import { AlertTriangle, Activity, Check, Info, CalendarCheck, Pill } from "lucid
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
-import { fmtDay } from "../../shared/clinical";
+import { flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
 export function WizardDrawer({
@@ -80,6 +80,10 @@ export function WizardDrawer({
     }
   }
   const Icon = tone === "red" ? AlertTriangle : Activity;
+  // the latest value is shown in alarm colours only when it is outside its reference range
+  const lastTrend = ctx?.trend?.points.length ? ctx.trend.points[ctx.trend.points.length - 1].value : null;
+  const trendRef = ctx?.trend ? MEASURES[ctx.trend.code]?.ref : undefined;
+  const trendInRange = lastTrend != null && !!trendRef && !flagFor(lastTrend, trendRef);
   return (
     <Drawer
       wide
@@ -131,17 +135,17 @@ export function WizardDrawer({
         <aside className="wiz-side">
           <span className="eyebrow">Prefilled from record</span>
           {ctx?.trend && ctx.trend.points.length > 0 && (
-            <div className="card" style={{ padding: 16, borderColor: tone === "red" ? "var(--red-line)" : "var(--line)" }}>
+            <div className="card" style={{ padding: 16, borderColor: tone === "red" && !trendInRange ? "var(--red-line)" : "var(--line)" }}>
               <div className="small" style={{ fontWeight: 700, color: "var(--ink-3)" }}>
                 {ctx.trend.label} · {fmtDay(ctx.trend.points[ctx.trend.points.length - 1].date)}
               </div>
               <div className="row" style={{ alignItems: "baseline", gap: 6, margin: "6px 0" }}>
-                <span style={{ fontSize: 36, fontWeight: 800, lineHeight: 1, color: tone === "red" ? "var(--red-ink)" : "var(--orange-ink)" }}>
+                <span style={{ fontSize: 36, fontWeight: 800, lineHeight: 1, color: trendInRange ? "var(--ink)" : tone === "red" ? "var(--red-ink)" : "var(--orange-ink)" }}>
                   {formatNumber(ctx.trend.points[ctx.trend.points.length - 1].value, MEASURES[ctx.trend.code]?.decimals ?? 0)}
                 </span>
                 <span className="small muted" style={{ fontWeight: 600 }}>{ctx.trend.unit}</span>
               </div>
-              <Sparkline values={ctx.trend.points.map((p) => p.value)} tone={tone === "red" ? "red" : "orange"} width={200} height={44} />
+              <Sparkline values={ctx.trend.points.map((p) => p.value)} tone={trendInRange ? "gray" : tone === "red" ? "red" : "orange"} width={200} height={44} />
               <div className="row small muted" style={{ justifyContent: "space-between", fontWeight: 600 }}>
                 {ctx.trend.points.map((p) => (
                   <span key={p.date}>{fmtDay(p.date)}</span>
