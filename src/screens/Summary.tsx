@@ -648,7 +648,8 @@ function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
           );
         })}
       </div>
-      {hf.lvef.length > 1 && (
+      {hf.timeline?.lanes.length > 0 && <TreatmentTimeline t={hf.timeline} />}
+      {hf.lvef.length > 1 && !(hf.timeline?.lanes.length > 0) && (
         <div className="hf-ef">
           <span className="tgt-title">LVEF history</span>
           <ol>
@@ -665,6 +666,145 @@ function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
         <button className="btn ghost small" onClick={() => open({ kind: "labs", codes: ["nt-probnp", "creatinine", "potassium", "sodium"] })}>Add HF labs</button>
       </div>
     </section>
+  );
+}
+
+// Treatment timeline: one lane per HF medicine, each dose period a bar whose shade is the % of
+// target dose (one-hue ordinal ramp, validated); held = outlined, not taking = striped; HF
+// admissions as grey bands across every lane; LVEF and NT-proBNP on the same time axis below.
+const PCT_STEPS = [
+  { min: 100, color: "#184f95", label: "At target" },
+  { min: 50, color: "#2a78d6", label: "50–99%" },
+  { min: 25, color: "#5598e7", label: "25–49%" },
+  { min: 0, color: "#86b6ef", label: "<25%" },
+];
+const pctColor = (p: number | null) => (p == null ? "#9aa1ab" : PCT_STEPS.find((x) => p >= x.min)!.color);
+const STATE_LABEL: Record<string, string> = { active: "", held: " · held", not_taking: " · patient not taking" };
+function TreatmentTimeline({ t }: { t: any }) {
+  const [focus, setFocus] = useState<string>("");
+  const [table, setTable] = useState(false);
+  const t0 = Date.parse(t.from), t1 = Date.parse(t.to);
+  const x = (iso: string) => Math.max(0, Math.min(100, ((Date.parse(iso) - t0) / (t1 - t0)) * 100));
+  const isNow = (iso: string) => iso >= t.to.slice(0, 10);
+  // month ticks, at most 6
+  const months: string[] = [];
+  for (let d = new Date(t.from.slice(0, 7) + "-01T00:00:00Z"); d.getTime() <= t1; d.setUTCMonth(d.getUTCMonth() + 1)) if (d.getTime() >= t0) months.push(d.toISOString());
+  const step = Math.max(1, Math.ceil(months.length / 5));
+  const ticks = months.filter((m, i) => i % step === 0 && x(m) > 4 && x(m) < 94);
+  const tickLabel = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" });
+  const segText = (l: any, g: any) =>
+    `${l.name}: ${g.dose || "dose not recorded"}${g.pct != null ? ` · ${g.pct}% of target` : ""}${STATE_LABEL[g.state]} · ${fmtDay(g.from, { year: true })} → ${isNow(g.to) ? "now" : fmtDay(g.to, { year: true })}`;
+  const bands = t.admissions.filter((a: any) => a.hf);
+  const Bands = () => (
+    <>
+      {bands.map((a: any) => (
+        <i key={a.from} className="tl-band" style={{ left: `${x(a.from)}%`, width: `max(3px, ${x(a.to) - x(a.from)}%)` }} />
+      ))}
+    </>
+  );
+  // selective labels: the latest point always, earlier ones only when they do not collide
+  const labelled = (pts: any[]) => {
+    const keep = new Set<string>();
+    let lastX = Infinity;
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const px = x(pts[i].at);
+      if (lastX - px >= 9) { keep.add(pts[i].at); lastX = px; }
+    }
+    return keep;
+  };
+  const pointRow = (label: string, pts: any[], fmt: (v: number) => string) =>
+    pts.length > 0 && (
+      <div className="tl-row tl-points">
+        <span className="tl-name"><b>{label}</b></span>
+        <div className="tl-track">
+          <Bands />
+          {pts.map((p: any, _i: number, all: any[]) => (
+            <button key={p.at} className={`tl-pt${labelled(all).has(p.at) ? "" : " nolabel"}${x(p.at) > 90 ? " end" : x(p.at) < 6 ? " start" : ""}`} style={{ left: `${x(p.at)}%` }} onMouseEnter={() => setFocus(`${label} ${fmt(p.value)} · ${fmtDay(p.at, { year: true })}`)} onClick={() => setFocus(`${label} ${fmt(p.value)} · ${fmtDay(p.at, { year: true })}`)} aria-label={`${label} ${fmt(p.value)} on ${fmtDay(p.at, { year: true })}`}>
+              <b>{fmt(p.value)}</b>
+              <i />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  return (
+    <div className="tl">
+      <div className="tl-top">
+        <span className="tgt-title">Treatment timeline</span>
+        <button className="btn ghost small" onClick={() => setTable(!table)}>{table ? "Show as timeline" : "Show as table"}</button>
+      </div>
+      {table ? (
+        <table className="data">
+          <thead><tr><th>Medicine</th><th>Dose</th><th>% of target</th><th>From</th><th>To</th></tr></thead>
+          <tbody>
+            {t.lanes.flatMap((l: any) => l.segments.map((g: any) => (
+              <tr key={l.id + g.from}>
+                <td data-label="Medicine">{l.name}{STATE_LABEL[g.state]}</td>
+                <td data-label="Dose">{g.dose || "—"}</td>
+                <td data-label="% of target">{g.pct != null ? `${g.pct}%` : "—"}</td>
+                <td data-label="From">{fmtDay(g.from, { year: true })}</td>
+                <td data-label="To">{isNow(g.to) ? "now" : fmtDay(g.to, { year: true })}</td>
+              </tr>
+            )))}
+          </tbody>
+        </table>
+      ) : (
+        <>
+          <div className="tl-chart" onMouseLeave={() => setFocus("")}>
+            {t.lanes.map((l: any) => {
+              const last = l.segments[l.segments.length - 1];
+              return (
+                <div key={l.id} className={`tl-row${l.current ? "" : " past"}`}>
+                  <span className="tl-name">
+                    <b>{l.name}</b>
+                    <em>{l.current ? `${last.dose}${last.pct != null ? ` · ${last.pct}%` : ""}${STATE_LABEL[last.state]}` : `stopped ${fmtDay(l.stopped, { year: true })}`}</em>
+                  </span>
+                  <div className="tl-track">
+                    <Bands />
+                    {l.segments.filter((g: any) => g.to > t.from).map((g: any) => {
+                      const left = x(g.from), w = x(g.to) - left;
+                      const c = pctColor(l.hasTarget ? g.pct : null);
+                      return (
+                        <button
+                          key={g.from}
+                          className={`tl-seg st-${g.state}`}
+                          style={{ left: `${left}%`, width: `max(4px, calc(${w}% - 2px))`, ["--c" as any]: c }}
+                          onMouseEnter={() => setFocus(segText(l, g))}
+                          onFocus={() => setFocus(segText(l, g))}
+                          onClick={() => setFocus(segText(l, g))}
+                          aria-label={segText(l, g)}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {pointRow("LVEF", t.lvef, (v) => `${formatNumber(v, 0)}%`)}
+            {pointRow("NT-proBNP", t.ntprobnp, (v) => formatNumber(v, 0))}
+            <div className="tl-row tl-axis">
+              <span className="tl-name" />
+              <div className="tl-track">
+                {ticks.map((m) => (
+                  <span key={m} style={{ left: `${x(m)}%` }}>{tickLabel(m)}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="tl-focus" aria-live="polite">{focus || "Hover or tap a bar or point for details."}</div>
+          <div className="tl-legend">
+            <span>% of target dose:</span>
+            {PCT_STEPS.slice().reverse().map((p) => (
+              <span key={p.label}><i style={{ background: p.color }} />{p.label}</span>
+            ))}
+            <span><i style={{ background: "#9aa1ab" }} />No target dose</span>
+            <span><i className="held" />Held</span>
+            <span><i className="nt" />Not taking</span>
+            {bands.length > 0 && <span><i className="band" />HF admission</span>}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

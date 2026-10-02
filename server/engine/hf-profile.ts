@@ -23,6 +23,49 @@ const pair = (s: PatientState, code: string) => {
 };
 
 const FOUNDATIONAL = ["raas", "bb", "mra", "sglt2"];
+const PILLAR_ORDER = ["raas", "bb", "mra", "sglt2", "loop"];
+
+// Treatment timeline (blueprint P2.8): each HF medicine as a lane of dose segments over time,
+// with HF admissions and LVEF / NT-proBNP on the same time axis. Read-only.
+type Segment = { from: string; to: string; dose: string; pct: number | null; state: "active" | "held" | "not_taking" };
+function timeline(s: PatientState) {
+  const nowIso = s.today + "T23:59:59Z";
+  const meds = s.meds.filter((m) => m.status !== "planned" && (m.purpose === "Heart failure" || m.tags.some((t) => FOUNDATIONAL.includes(t) || t === "loop")));
+  const lanes = meds.map((m) => {
+    const def = MEDICATION[m.code];
+    const segs: Segment[] = [];
+    let cur: { from: string; dose: number | null; unit: string | null; freq: string | null; state: Segment["state"] } | null = null;
+    let dose: number | null = null, unit: string | null = null, freq: string | null = null;
+    let stopped: string | null = null;
+    const close = (at: string) => {
+      if (cur && at > cur.from) segs.push({ from: cur.from, to: at, dose: cur.dose != null && def ? `${doseLabel(def, cur.dose, cur.unit)} ${cur.freq ?? ""}`.trim() : "", pct: cur.dose != null && def?.target ? Math.round((cur.dose / def.target) * 100) : null, state: cur.state });
+    };
+    for (const e of [...m.events].sort((a, b) => a.effective_at.localeCompare(b.effective_at))) {
+      if (e.kind === "planned" || e.kind === "continue") continue;
+      if (e.dose_value != null) { dose = e.dose_value; unit = e.dose_unit; }
+      if (e.frequency) freq = e.frequency;
+      if (e.kind === "stop") { close(e.effective_at); cur = null; stopped = e.effective_at; continue; }
+      const state: Segment["state"] = e.kind === "hold" ? "held" : e.kind === "not_taking" ? "not_taking" : "active";
+      close(e.effective_at);
+      cur = { from: e.effective_at, dose, unit, freq, state };
+      if (e.kind === "start" || e.kind === "restart") stopped = null;
+    }
+    close(nowIso);
+    const pillar = PILLAR_ORDER.find((t) => m.tags.includes(t)) ?? "other";
+    return { id: m.id, name: m.name, pillar, hasTarget: !!def?.target, segments: segs, stopped, current: m.status !== "stopped" };
+  }).filter((l) => l.segments.length)
+    .sort((a, b) => PILLAR_ORDER.indexOf(a.pillar) - PILLAR_ORDER.indexOf(b.pillar) || (a.current === b.current ? 0 : a.current ? -1 : 1));
+  const admissions = s.contexts.filter((c) => c.kind === "admission").map((c) => ({ from: c.started_at, to: c.ended_at ?? nowIso, hf: isHfAdmission(c as any), open: c.status === "open" }));
+  const pts = (code: string) => finals(s, code).filter((o) => o.value_num != null).map((o) => ({ at: o.effective_at, value: o.value_num! })).reverse();
+  const lvef = pts("lvef"), ntp = pts("nt-probnp");
+  const starts = [...lanes.flatMap((l) => l.segments.map((x) => x.from)), ...admissions.map((a) => a.from), ...lvef.map((x) => x.at)].sort();
+  const earliest = new Date(Date.parse(s.today) - 3 * 365 * 86400000).toISOString();
+  const latestStart = new Date(Date.parse(s.today) - 180 * 86400000).toISOString();
+  let from = starts[0] ?? latestStart;
+  if (from < earliest) from = earliest;
+  if (from > latestStart) from = latestStart;
+  return { from, to: nowIso, lanes, admissions: admissions.filter((a) => a.to >= from), lvef: lvef.filter((x) => x.at >= from), ntprobnp: ntp.filter((x) => x.at >= from) };
+}
 
 export function hfProfile(s: PatientState) {
   const phen = hfPhenotype(s);
@@ -99,6 +142,7 @@ export function hfProfile(s: PatientState) {
     },
     pillars: fmt?.pillars ?? [],
     optimal: optimalFmt(s),
+    timeline: timeline(s),
     therapy,
   };
 }

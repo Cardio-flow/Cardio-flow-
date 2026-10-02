@@ -82,3 +82,21 @@ test("KCCQ-12 above 100 is refused; the visit note and clinical summary carry th
   assert.match(sum, /LVEF history: 22% .* → 28%/);
   assert.match(sum, /KCCQ-12 68\/100/);
 });
+
+test("treatment timeline: dose segments with % of target, not-taking and stopped lanes, admissions and LVEF on one axis", async () => {
+  const [yid, hid, fid] = [await byName("Yousef Ibrahim"), await byName("Huda Al-Sabah"), await byName("Faisal Al-Mutairi")];
+  const y: any = (await tx((q) => summary(q, yid, "sandbox"))).hf;
+  const spiro = y.timeline.lanes.find((l: any) => l.name === "Spironolactone");
+  assert.equal(spiro.segments[spiro.segments.length - 1].state, "not_taking");
+  assert.equal(spiro.segments[0].pct, 50);
+  assert.deepEqual(y.timeline.lanes.slice(0, 2).map((l: any) => l.pillar), ["raas", "bb"]);
+  const h: any = (await tx((q) => summary(q, hid, "sandbox"))).hf;
+  const bb = h.timeline.lanes.find((l: any) => l.name === "Bisoprolol");
+  assert.equal(bb.current, false);
+  assert.ok(bb.stopped);
+  assert.ok(bb.segments.every((g: any) => g.to <= bb.stopped));
+  assert.deepEqual(h.timeline.lvef.map((p: any) => p.value), [30, 56]);
+  const f: any = (await tx((q) => summary(q, fid, "sandbox"))).hf;
+  assert.ok(f.timeline.admissions.filter((a: any) => a.hf).length >= 2);
+  assert.ok(f.timeline.from <= f.timeline.admissions[0].from);
+});
