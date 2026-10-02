@@ -156,10 +156,12 @@ const AR_ROUTE: Record<string, string> = { SC: "حقنة تحت الجلد", IV:
 const AR_PURPOSE: Record<string, string> = {
   "Heart failure": "لعلاج ضعف عضلة القلب", "CAD / secondary prevention": "لحماية شرايين القلب", Anticoagulation: "لمنع الجلطات (سيولة الدم)",
   Rhythm: "لتنظيم ضربات القلب", "Blood pressure": "لضغط الدم", Cardiometabolic: "لحماية القلب والكلى", Diabetes: "للسكري", "Pulmonary hypertension": "لضغط الشريان الرئوي",
+  Angina: "لآلام الذبحة الصدرية", Lipids: "للكوليسترول", Infection: "مضاد حيوي للالتهاب", "Anti-inflammatory": "مضاد للالتهاب", Supportive: "علاج مساعد",
 };
 const EN_PURPOSE: Record<string, string> = {
   "Heart failure": "for the heart muscle", "CAD / secondary prevention": "to protect the heart arteries", Anticoagulation: "to prevent clots (blood thinner)",
   Rhythm: "for the heart rhythm", "Blood pressure": "for blood pressure", Cardiometabolic: "to protect the heart and kidneys", Diabetes: "for diabetes", "Pulmonary hypertension": "for lung blood pressure",
+  Angina: "for chest pain (angina)", Lipids: "for cholesterol", Infection: "antibiotic for the infection", "Anti-inflammatory": "against inflammation", Supportive: "supportive treatment",
 };
 const AR_LAB: Record<string, string> = {
   potassium: "البوتاسيوم", creatinine: "وظائف الكلى", egfr: "وظائف الكلى", sodium: "الصوديوم", magnesium: "المغنيسيوم", hba1c: "السكر التراكمي",

@@ -350,7 +350,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
                 </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
                   {m.dose} · {m.frequency}
-                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
+                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
                 </span>
               </span>
               <MedTag m={m} s={s} />
@@ -562,7 +562,7 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
 
 // Heart failure panel (blueprint P2.1, P2.8): HF type with dates, LVEF history, today's status
 // against the last value, and each foundational drug with its dates. Reads the record only.
-const LAST_CHANGE: Record<string, string> = { start: "started", restart: "restarted", increase: "increased", decrease: "reduced", hold: "held", not_taking: "not taking", resume: "taken again" };
+const LAST_CHANGE: Record<string, string> = { frequency: "frequency changed", continue: "frequency changed", start: "started", restart: "restarted", increase: "increased", decrease: "reduced", hold: "held", not_taking: "not taking", resume: "taken again" };
 function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
   if (!hf) return null;
   const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));

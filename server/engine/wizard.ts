@@ -188,7 +188,7 @@ function extraContext(
   }
   // bradycardia
   detected.contributors = [];
-  for (const [tag, v] of [["bb", "bb"], ["ivabradine", "ivabradine"], ["digoxin", "digoxin"], ["qt", "amiodarone"], ["ndhp-ccb", "ccb"]] as const) if (on(tag)) detected.contributors.push(v);
+  for (const [tag, v] of [["bb", "bb"], ["bb-other", "bb"], ["ivabradine", "ivabradine"], ["digoxin", "digoxin"], ["qt", "amiodarone"], ["ndhp-ccb", "ccb"]] as const) if (on(tag)) detected.contributors.push(v);
   if ((s.resolved("potassium").current?.value_num ?? 0) > 5.5) detected.contributors.push("hyperkalaemia");
   const av = [ecg, holter].map((st) => st?.attributes.avBlock).find(Boolean);
   const block =

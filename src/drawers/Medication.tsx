@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pill, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
-import { BRAND_NOTE, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
+import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 
 function patientTags(summary: any) {
@@ -46,7 +46,9 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
     else (setDose("custom"), setCustom(String(want)));
   }, []);
   const matches = useMemo(() => MEDICATIONS.filter((m) => !active.has(m.code) && medicationSearchText(m).includes(q.trim().toLowerCase())), [q]);
-  const indicationOptions = def
+  const indicationOptions = def?.indicationChoices
+    ? def.indicationChoices.map((c) => ({ value: c, label: c }))
+    : def
     ? [
         ...[...new Set(def.indications.filter((t) => tags.has(t)))].map((t) => ({ value: t, label: tagLabel(t, summary) })),
         ...summary.header.diagnoses.filter((d: any) => !def.indications.some((t) => DIAGNOSIS[d.code]?.tags.includes(t))).slice(0, 4).map((d: any) => ({ value: "dx:" + d.code, label: d.label })),
@@ -137,7 +139,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 </div>
               ) : (
                 <>
-                  {!def.indications.some((t) => tags.has(t)) && <div className="help" style={{ color: "var(--orange-ink)", fontWeight: 700 }}>This medication does not match a recorded diagnosis. Choose the indication.</div>}
+                  {!def.indicationChoices && !def.indications.some((t) => tags.has(t)) && <div className="help" style={{ color: "var(--orange-ink)", fontWeight: 700 }}>This medication does not match a recorded diagnosis. Choose the indication.</div>}
                   <SingleChoice label="Indication" options={indicationOptions} value={indication} onChange={setIndication} />
                 </>
               )}
@@ -163,7 +165,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
             <div className="row wrap" style={{ gap: 28 }}>
               <div className="q">
                 <div className="label">Frequency</div>
-                <Segmented label="Frequency" options={def.frequencies.map((f) => ({ value: f, label: f }))} value={freq} onChange={setFreq} />
+                <FrequencyPicker usual={def.frequencies} value={freq} onChange={setFreq} />
               </div>
               <div className="q">
                 <div className="label">Route</div>
@@ -239,8 +241,22 @@ const ACTIONS = [
   { value: "decrease", label: "Reduce dose" },
   { value: "hold", label: "Hold" },
   { value: "stop", label: "Stop" },
+  { value: "frequency", label: "Change frequency" },
   { value: "continue", label: "Continue unchanged" },
 ];
+// The drug's usual frequencies first; any other from the full list (Ahmed, 2 Oct 2026).
+export function FrequencyPicker({ usual, value, onChange }: { usual: string[]; value: string; onChange(v: string): void }) {
+  const others = FREQUENCIES.filter((f) => !usual.includes(f));
+  return (
+    <div className="row wrap" style={{ gap: 10 }}>
+      <Segmented label="Frequency" options={usual.map((f) => ({ value: f, label: f }))} value={usual.includes(value) ? value : ""} onChange={onChange} />
+      <select className="input" style={{ height: 40, width: "auto", minWidth: 150 }} aria-label="Other frequency" value={usual.includes(value) ? "" : value} onChange={(e) => e.target.value && onChange(e.target.value)}>
+        <option value="">Other frequency…</option>
+        {others.map((f) => <option key={f} value={f}>{f}</option>)}
+      </select>
+    </div>
+  );
+}
 // Exceptions only: by default every medicine is taken as prescribed. One of these is recorded
 // only when the patient reports otherwise (Ahmed, 2 Oct 2026).
 const PATIENT_ACTIONS = [
@@ -250,7 +266,7 @@ const PATIENT_ACTIONS = [
 ];
 const NOT_TAKING_REASONS = ["Side effect", "Forgot / irregular", "Ran out / not available", "Cost", "Did not understand the instructions", "Chose not to take it"];
 const LABEL: Record<string, string> = {
-  increase: "increase", decrease: "reduction", hold: "hold", stop: "stop", continue: "continue", restart: "restart",
+  increase: "increase", decrease: "reduction", hold: "hold", stop: "stop", continue: "continue", restart: "restart", frequency: "frequency change",
   not_taking: "not taking", "patient-dose": "patient's actual dose", "patient-stop": "stopped by patient", resume: "taken again",
 };
 
@@ -261,6 +277,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   const [action, setAction] = useState<string>(initial ?? (med?.status === "held" ? "restart" : med?.status === "not_taking" ? "resume" : ""));
   const [dose, setDose] = useState<string>(initialDose != null ? String(initialDose) : "");
   const [reason, setReason] = useState(initialReason ?? "");
+  const [newFreq, setNewFreq] = useState("");
   const [review, setReview] = useState<string>(() => {
     const d = med ? MEDICATION[med.code] : null;
     return initial === "increase" && d?.monitoring.some((c) => c === "potassium" || c === "creatinine") ? "lab-7" : "none";
@@ -286,10 +303,10 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
         : review.startsWith("lab") ? { dueDate: addDays(today, Number(review.split("-")[1])), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] }
         : { dueDate: addDays(today, Number(review.split("-")[1])), title: `${def!.name} titration review` };
       // patient-reported exceptions map onto the same medication events
-      const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action;
-      const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : reason;
+      const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action === "frequency" ? "continue" : action;
+      const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : action === "frequency" ? `Frequency changed: ${med!.frequency ?? "—"} → ${newFreq}${reason ? " · " + reason.toLowerCase() : ""}` : reason;
       const r = await api(`/patients/${patientId}/medications/${medId}/events`, {
-        body: { kind, doseValue: dose ? Number(dose) : null, reason: why, contextId: contextId ?? null, review: exception ? null : reviewBody },
+        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody },
       });
       onDone(`${def!.name}: ${LABEL[action] ?? action} recorded`, r);
     } catch (e) {
@@ -308,7 +325,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!action || busy || (needsDose && !dose) || (needsReason && !reason)} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
+          <button className="btn primary" disabled={!action || busy || (needsDose && !dose) || (needsReason && !reason) || (action === "frequency" && (!newFreq || newFreq === med.frequency))} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
         </span>
       }
     >
@@ -322,6 +339,12 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
             <div className="label">Or record what the patient reports</div>
             <div className="help">Only when it differs from the prescription. Otherwise nothing needs recording.</div>
             <SingleChoice label="Patient reports" options={PATIENT_ACTIONS} value={action} onChange={(v) => (setAction(v), setDose(""), setReason(""), setReview("none"))} />
+          </div>
+        )}
+        {action === "frequency" && (
+          <div className="q">
+            <div className="label">New frequency <span className="muted small" style={{ fontWeight: 600 }}>(now {med.frequency})</span></div>
+            <FrequencyPicker usual={def.frequencies} value={newFreq} onChange={setNewFreq} />
           </div>
         )}
         {needsDose && (
@@ -339,7 +362,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
             <div className="label">Reason</div>
             <SingleChoice
               label="Reason"
-              options={(action === "increase" ? ["Titration toward target", "Symptoms not controlled"] : action === "decrease" ? ["Hyperkalaemia", "Renal function", "Hypotension", "Bradycardia", "Side effect"] : action === "hold" ? ["Hyperkalaemia", "Acute kidney injury", "Hypotension", "Procedure", "Intercurrent illness"] : action === "stop" ? ["Adverse effect", "No longer indicated", "Replaced by another drug", "Patient preference"] : action === "not_taking" || action === "patient-stop" ? NOT_TAKING_REASONS : action === "patient-dose" ? ["Side effect at the prescribed dose", "Misunderstood the dose", "Other"] : action === "resume" ? ["Taking it again as prescribed"] : ["Tolerating, repeat checks normal"]).map((r) => ({ value: r, label: r }))}
+              options={(action === "increase" ? ["Titration toward target", "Symptoms not controlled"] : action === "decrease" ? ["Hyperkalaemia", "Renal function", "Hypotension", "Bradycardia", "Side effect"] : action === "hold" ? ["Hyperkalaemia", "Acute kidney injury", "Hypotension", "Procedure", "Intercurrent illness"] : action === "stop" ? ["Adverse effect", "No longer indicated", "Replaced by another drug", "Patient preference"] : action === "not_taking" || action === "patient-stop" ? NOT_TAKING_REASONS : action === "patient-dose" ? ["Side effect at the prescribed dose", "Misunderstood the dose", "Other"] : action === "resume" ? ["Taking it again as prescribed"] : action === "frequency" ? ["Adherence / simpler regimen", "Renal function", "Side effect", "Clinical response", "Other"] : ["Tolerating, repeat checks normal"]).map((r) => ({ value: r, label: r }))}
               value={reason}
               onChange={setReason}
             />

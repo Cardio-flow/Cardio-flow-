@@ -43,7 +43,7 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
                     <td data-label="Dose">{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}</td>
                     <td data-label="Frequency">{m.frequency} {m.route}</td>
                     <td data-label="Since">{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>
-                    <td data-label="Last change">{m.lastChange ? `${({ start: "Started", increase: "Increased", decrease: "Reduced", hold: "Held", restart: "Restarted", not_taking: "Not taking", resume: "Taken again", continue: "Continued" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
+                    <td data-label="Last change">{m.lastChange ? `${({ start: "Started", increase: "Increased", decrease: "Reduced", hold: "Held", restart: "Restarted", not_taking: "Not taking", resume: "Taken again", continue: /^Frequency changed/.test(m.lastChange.reason ?? "") ? "Frequency changed" : "Continued" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
                     <td data-label="Status"><Tag sev={m.status === "held" || m.status === "not_taking" ? "orange" : "green"}>{m.status === "held" ? "Held" : m.status === "not_taking" ? "Not taking" : "Active"}</Tag></td>
                     <td data-cell="action" style={{ textAlign: "right" }}>
                       <button className="btn secondary small" onClick={() => open({ kind: "med-action", medId: m.id })}>Change</button>

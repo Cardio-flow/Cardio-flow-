@@ -41,7 +41,7 @@ function timeline(s: PatientState) {
       if (cur && at > cur.from) segs.push({ from: cur.from, to: at, dose: cur.dose != null && def ? `${doseLabel(def, cur.dose, cur.unit)} ${cur.freq ?? ""}`.trim() : "", pct: cur.dose != null && def?.target ? Math.round((cur.dose / def.target) * 100) : null, state: cur.state });
     };
     for (const e of [...m.events].sort((a, b) => a.effective_at.localeCompare(b.effective_at))) {
-      if (e.kind === "planned" || e.kind === "continue") continue;
+      if (e.kind === "planned" || (e.kind === "continue" && !/^Frequency changed/.test(e.reason))) continue;
       if (e.dose_value != null) { dose = e.dose_value; unit = e.dose_unit; }
       if (e.frequency) freq = e.frequency;
       if (e.kind === "stop") { close(e.effective_at); cur = null; stopped = e.effective_at; continue; }

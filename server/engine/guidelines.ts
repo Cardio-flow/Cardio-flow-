@@ -99,8 +99,8 @@ export function lipidRisk(s: PatientState) {
 }
 const statinIntensity = (m: MedState) => {
   if (!m.tags.includes("statin") || m.doseValue == null) return "none";
-  if (m.code === "atorvastatin") return m.doseValue >= 40 ? "high" : "moderate";
-  if (m.code === "rosuvastatin") return m.doseValue >= 20 ? "high" : "moderate";
+  if (m.code === "atorvastatin" || m.code === "atorvastatin-ezetimibe") return m.doseValue >= 40 ? "high" : "moderate";
+  if (m.code === "rosuvastatin" || m.code === "rosuvastatin-ezetimibe") return m.doseValue >= 20 ? "high" : "moderate";
   return "moderate";
 };
 

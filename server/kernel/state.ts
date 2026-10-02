@@ -137,7 +137,10 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     let status: MedState["status"] = "planned";
     let dose: MedEvent | null = null;
     let startedAt: string | null = null;
+    // a frequency change (Ahmed, 2 Oct 2026) is a "continue" event that carries the new frequency
+    let freq: string | null = null;
     for (const e of evs) {
+      if (e.frequency && e.kind !== "planned") freq = e.frequency;
       switch (e.kind) {
         case "start":
         case "restart":
@@ -164,7 +167,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
           break;
       }
     }
-    const lastChange = [...evs].reverse().find((e) => e.kind !== "continue") ?? null;
+    const lastChange = [...evs].reverse().find((e) => e.kind !== "continue" || /^Frequency changed/.test(e.reason)) ?? null;
     return {
       id: m.id,
       code: m.drug,
@@ -176,7 +179,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       status,
       doseValue: dose?.dose_value ?? null,
       doseUnit: dose?.dose_unit ?? def?.unit ?? null,
-      frequency: dose?.frequency ?? null,
+      frequency: freq ?? dose?.frequency ?? null,
       route: dose?.route ?? null,
       startedAt,
       lastChange,

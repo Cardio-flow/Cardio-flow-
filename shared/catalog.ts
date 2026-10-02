@@ -162,7 +162,7 @@ export type MedicationDef = {
   name: string;
   drugClass: string;
   // clinical purpose used to group the medication list
-  purpose: "Heart failure" | "CAD / secondary prevention" | "Anticoagulation" | "Rhythm" | "Blood pressure" | "Cardiometabolic" | "Diabetes" | "Pulmonary hypertension";
+  purpose: "Heart failure" | "CAD / secondary prevention" | "Angina" | "Lipids" | "Anticoagulation" | "Rhythm" | "Blood pressure" | "Cardiometabolic" | "Diabetes" | "Pulmonary hypertension" | "Infection" | "Anti-inflammatory" | "Supportive";
   tags: string[]; // raas, acei, arb, arni, mra, sglt2, loop, bb, antiplatelet, statin, oac, potassium-sparing
   indications: string[]; // diagnosis tags this drug is commonly used for
   unit: string;
@@ -174,7 +174,13 @@ export type MedicationDef = {
   target?: number; // guideline target dose (ESC HF 2026 table) — same unit as doses
   // trade names, searchable at entry. To confirm against the MOH / MKH formulary.
   brands?: string[];
+  // drugs not tied to a cardiac diagnosis (antibiotics, steroids…): the indication is picked from this list
+  indicationChoices?: string[];
 };
+
+// Every frequency the clinician may choose; each drug offers its usual ones first (Ahmed, 2 Oct 2026:
+// frequency must be changeable for individual patients).
+export const FREQUENCIES = ["OD", "BID", "TID", "QID", "Nightly", "Mornings", "With meals", "Alternate days", "Twice weekly", "Weekly", "Every 2 weeks", "Monthly", "Every 6 months", "Day 0, 3 months, then every 6 months", "Single infusion", "PRN", "Once"];
 
 const m = (
   code: string, name: string, drugClass: string, purpose: MedicationDef["purpose"], tags: string[],
@@ -183,6 +189,8 @@ const m = (
 ): MedicationDef => ({ code, name, drugClass, purpose, tags, indications, unit, doses, frequencies, routes: ["PO"], monitoring, ...extra });
 
 const RENAL_K = ["potassium", "creatinine", "egfr", "sbp"];
+
+const INFECTION_INDICATIONS = ["Chest infection (community-acquired)", "Chest infection (hospital-acquired)", "Urinary tract infection", "Skin / soft tissue infection", "Infective endocarditis", "Sepsis, source unclear", "Device / line infection", "Prophylaxis", "Other infection"];
 
 export const MEDICATIONS: MedicationDef[] = [
   m("sacubitril-valsartan", "Sacubitril/valsartan", "ARNI", "Heart failure", ["raas", "arni"], ["hf"], "mg", [24, 49, 97], ["BID"], RENAL_K, { doseLabels: ["24/26 mg", "49/51 mg", "97/103 mg"] , target: 97 }),
@@ -207,9 +215,9 @@ export const MEDICATIONS: MedicationDef[] = [
   m("digoxin", "Digoxin", "Cardiac glycoside", "Rhythm", ["digoxin", "rate-slowing"], ["hf", "af"], "mg", [0.0625, 0.125, 0.25], ["OD"], ["potassium", "creatinine", "hr"]),
   m("hydralazine", "Hydralazine", "Vasodilator", "Heart failure", ["vasodilator"], ["hf", "htn"], "mg", [25, 50, 75], ["TID"], ["sbp"]),
   m("isosorbide-dinitrate", "Isosorbide dinitrate", "Nitrate", "Heart failure", ["vasodilator", "nitrate"], ["hf", "cad"], "mg", [20, 40], ["TID"], ["sbp"]),
-  m("alirocumab", "Alirocumab", "PCSK9 antibody", "CAD / secondary prevention", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [75, 150], ["Every 2 weeks"], ["ldl-c"], { routes: ["SC"] }),
-  m("bempedoic-acid", "Bempedoic acid", "ACL inhibitor", "CAD / secondary prevention", ["lipid"], ["cad", "lipids"], "mg", [180], ["OD"], ["ldl-c"]),
-  m("icosapent-ethyl", "Icosapent ethyl", "Omega-3 (EPA)", "CAD / secondary prevention", [], ["cad", "lipids"], "g", [2], ["BID"], ["triglycerides"]),
+  m("alirocumab", "Alirocumab", "PCSK9 antibody", "Lipids", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [75, 150], ["Every 2 weeks"], ["ldl-c"], { routes: ["SC"] }),
+  m("bempedoic-acid", "Bempedoic acid", "ACL inhibitor", "Lipids", ["lipid"], ["cad", "lipids"], "mg", [180], ["OD"], ["ldl-c"]),
+  m("icosapent-ethyl", "Icosapent ethyl", "Omega-3 (EPA)", "Lipids", [], ["cad", "lipids"], "g", [2], ["BID"], ["triglycerides"]),
   m("liraglutide", "Liraglutide", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [0.6, 1.2, 1.8], ["OD"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("dulaglutide", "Dulaglutide", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [0.75, 1.5, 3, 4.5], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("enalapril", "Enalapril", "ACE inhibitor", "Heart failure", ["raas", "acei"], ["hf", "htn"], "mg", [2.5, 5, 10, 20], ["BID"], RENAL_K, { target: 20 }),
@@ -221,13 +229,13 @@ export const MEDICATIONS: MedicationDef[] = [
   m("clopidogrel", "Clopidogrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12"], ["cad"], "mg", [75], ["OD"], ["haemoglobin"]),
   m("ticagrelor", "Ticagrelor", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12"], ["cad"], "mg", [60, 90], ["BID"], ["haemoglobin"]),
   m("prasugrel", "Prasugrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12"], ["cad"], "mg", [5, 10], ["OD"], ["haemoglobin"]),
-  m("atorvastatin", "Atorvastatin", "Statin", "CAD / secondary prevention", ["statin", "lipid"], ["cad", "lipids", "dm"], "mg", [10, 20, 40, 80], ["Nightly", "OD"], ["ldl-c", "alt"]),
-  m("rosuvastatin", "Rosuvastatin", "Statin", "CAD / secondary prevention", ["statin", "lipid"], ["cad", "lipids", "dm"], "mg", [5, 10, 20, 40], ["OD"], ["ldl-c", "alt"]),
-  m("ezetimibe", "Ezetimibe", "Cholesterol absorption inhibitor", "CAD / secondary prevention", ["ezetimibe", "lipid"], ["cad", "lipids"], "mg", [10], ["OD"], ["ldl-c"]),
-  m("evolocumab", "Evolocumab", "PCSK9 antibody", "CAD / secondary prevention", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [140], ["Every 2 weeks"], ["ldl-c"], { routes: ["SC"] }),
-  m("inclisiran", "Inclisiran", "PCSK9 siRNA", "CAD / secondary prevention", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [284], ["Day 0, 3 months, then every 6 months"], ["ldl-c"], { routes: ["SC"] }),
+  m("atorvastatin", "Atorvastatin", "Statin", "Lipids", ["statin", "lipid"], ["cad", "lipids", "dm"], "mg", [10, 20, 40, 80], ["Nightly", "OD"], ["ldl-c", "alt"]),
+  m("rosuvastatin", "Rosuvastatin", "Statin", "Lipids", ["statin", "lipid"], ["cad", "lipids", "dm"], "mg", [5, 10, 20, 40], ["OD"], ["ldl-c", "alt"]),
+  m("ezetimibe", "Ezetimibe", "Cholesterol absorption inhibitor", "Lipids", ["ezetimibe", "lipid"], ["cad", "lipids"], "mg", [10], ["OD"], ["ldl-c"]),
+  m("evolocumab", "Evolocumab", "PCSK9 antibody", "Lipids", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [140], ["Every 2 weeks"], ["ldl-c"], { routes: ["SC"] }),
+  m("inclisiran", "Inclisiran", "PCSK9 siRNA", "Lipids", ["pcsk9", "lipid"], ["cad", "lipids"], "mg", [284], ["Day 0, 3 months, then every 6 months"], ["ldl-c"], { routes: ["SC"] }),
   m("apixaban", "Apixaban", "Factor Xa inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [2.5, 5], ["BID"], ["creatinine", "haemoglobin", "weight"]),
-  m("rivaroxaban", "Rivaroxaban", "Factor Xa inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [15, 20], ["OD"], ["creatinine", "haemoglobin"]),
+  m("rivaroxaban", "Rivaroxaban", "Factor Xa inhibitor", "Anticoagulation", ["oac"], ["af", "cad", "vascular"], "mg", [2.5, 10, 15, 20], ["OD", "BID"], ["creatinine", "haemoglobin"]),
   m("edoxaban", "Edoxaban", "Factor Xa inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [30, 60], ["OD"], ["creatinine", "haemoglobin", "weight"]),
   m("dabigatran", "Dabigatran", "Direct thrombin inhibitor", "Anticoagulation", ["oac"], ["af"], "mg", [110, 150], ["BID"], ["creatinine", "haemoglobin"]),
   m("warfarin", "Warfarin", "Vitamin K antagonist", "Anticoagulation", ["oac"], ["af", "valve"], "mg", [1, 2, 3, 5], ["OD"], ["inr", "haemoglobin"]),
@@ -262,6 +270,85 @@ export const MEDICATIONS: MedicationDef[] = [
   m("insulin-aspart", "Insulin aspart", "Rapid-acting insulin", "Diabetes", ["insulin", "insulin-prandial", "hypo-risk"], ["dm"], "units", [], ["With meals"], ["glucose", "hba1c"], { routes: ["SC"] }),
   m("insulin-lispro", "Insulin lispro", "Rapid-acting insulin", "Diabetes", ["insulin", "insulin-prandial", "hypo-risk"], ["dm"], "units", [], ["With meals"], ["glucose", "hba1c"], { routes: ["SC"] }),
   m("insulin-aspart-30", "Biphasic insulin aspart 30", "Premixed insulin", "Diabetes", ["insulin", "insulin-premix", "hypo-risk"], ["dm"], "units", [], ["BID", "OD"], ["glucose", "hba1c"], { routes: ["SC"] }),
+  // ---- Blood pressure (added 2 Oct 2026; label strengths, draft pending pharmacist review) ----
+  m("captopril", "Captopril", "ACE inhibitor", "Blood pressure", ["raas", "acei"], ["htn", "hf"], "mg", [6.25, 12.5, 25, 50], ["BID", "TID"], RENAL_K, { target: 50 }),
+  m("irbesartan", "Irbesartan", "ARB", "Blood pressure", ["raas", "arb"], ["htn", "ckd"], "mg", [75, 150, 300], ["OD"], RENAL_K),
+  m("telmisartan", "Telmisartan", "ARB", "Blood pressure", ["raas", "arb"], ["htn", "cad"], "mg", [20, 40, 80], ["OD"], RENAL_K),
+  m("olmesartan", "Olmesartan", "ARB", "Blood pressure", ["raas", "arb"], ["htn"], "mg", [10, 20, 40], ["OD"], RENAL_K),
+  m("nifedipine", "Nifedipine (long-acting)", "Calcium-channel blocker", "Blood pressure", ["vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [20, 30, 60], ["OD", "BID"], ["sbp"]),
+  m("felodipine", "Felodipine", "Calcium-channel blocker", "Blood pressure", ["vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [2.5, 5, 10], ["OD"], ["sbp"]),
+  m("lercanidipine", "Lercanidipine", "Calcium-channel blocker", "Blood pressure", ["vasodilator", "bp-lowering"], ["htn"], "mg", [10, 20], ["OD"], ["sbp"]),
+  m("verapamil", "Verapamil", "Calcium-channel blocker", "Rhythm", ["ndhp-ccb", "rate-slowing", "bp-lowering"], ["af", "htn", "cad"], "mg", [40, 80, 120, 240], ["OD", "BID", "TID"], ["hr", "sbp"]),
+  m("hydrochlorothiazide", "Hydrochlorothiazide", "Thiazide diuretic", "Blood pressure", ["thiazide", "bp-lowering"], ["htn", "hf"], "mg", [12.5, 25, 50], ["OD"], ["sodium", "potassium", "creatinine"]),
+  m("chlorthalidone", "Chlortalidone", "Thiazide-like diuretic", "Blood pressure", ["thiazide", "bp-lowering"], ["htn"], "mg", [12.5, 25, 50], ["OD"], ["sodium", "potassium", "creatinine"]),
+  m("metolazone", "Metolazone", "Thiazide-like diuretic", "Heart failure", ["thiazide"], ["hf"], "mg", [2.5, 5], ["OD", "Alternate days", "Twice weekly"], ["sodium", "potassium", "creatinine", "weight"]),
+  m("amiloride", "Amiloride", "Potassium-sparing diuretic", "Blood pressure", ["potassium-sparing", "bp-lowering"], ["htn", "hf"], "mg", [5, 10], ["OD"], ["potassium", "creatinine"]),
+  m("nebivolol", "Nebivolol", "Beta blocker", "Heart failure", ["bb"], ["hf", "htn"], "mg", [1.25, 2.5, 5, 10], ["OD"], ["hr", "sbp"], { target: 10 }),
+  m("atenolol", "Atenolol", "Beta blocker", "Blood pressure", ["bb-other", "rate-slowing", "bp-lowering"], ["htn", "cad", "af"], "mg", [25, 50, 100], ["OD"], ["hr", "sbp"]),
+  m("propranolol", "Propranolol", "Beta blocker", "Rhythm", ["bb-other", "rate-slowing", "bp-lowering"], ["af", "htn"], "mg", [10, 40, 80], ["BID", "TID"], ["hr", "sbp"]),
+  m("labetalol", "Labetalol", "Alpha/beta blocker", "Blood pressure", ["bb-other", "rate-slowing", "bp-lowering"], ["htn"], "mg", [100, 200, 400], ["BID", "TID"], ["hr", "sbp"], { routes: ["PO", "IV"] }),
+  m("doxazosin", "Doxazosin", "Alpha-1 blocker", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [1, 2, 4, 8], ["OD"], ["sbp"]),
+  m("methyldopa", "Methyldopa", "Central alpha-2 agonist", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [250, 500], ["BID", "TID"], ["sbp"]),
+  m("clonidine", "Clonidine", "Central alpha-2 agonist", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [0.1, 0.2, 0.3], ["BID", "TID"], ["sbp", "hr"]),
+  m("moxonidine", "Moxonidine", "Imidazoline-receptor agonist", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [0.2, 0.4], ["OD", "BID"], ["sbp"]),
+  m("amlodipine-valsartan", "Amlodipine/valsartan", "CCB + ARB combination", "Blood pressure", ["raas", "arb", "vasodilator", "bp-lowering"], ["htn"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/160 mg", "10/160 mg"] }),
+  m("valsartan-hctz", "Valsartan/hydrochlorothiazide", "ARB + thiazide combination", "Blood pressure", ["raas", "arb", "thiazide", "bp-lowering"], ["htn"], "mg", [80, 160], ["OD"], RENAL_K, { doseLabels: ["80/12.5 mg", "160/12.5 mg"] }),
+  m("losartan-hctz", "Losartan/hydrochlorothiazide", "ARB + thiazide combination", "Blood pressure", ["raas", "arb", "thiazide", "bp-lowering"], ["htn"], "mg", [50, 100], ["OD"], RENAL_K, { doseLabels: ["50/12.5 mg", "100/25 mg"] }),
+  m("telmisartan-amlodipine", "Telmisartan/amlodipine", "ARB + CCB combination", "Blood pressure", ["raas", "arb", "vasodilator", "bp-lowering"], ["htn"], "mg", [40, 80], ["OD"], RENAL_K, { doseLabels: ["40/5 mg", "80/10 mg"] }),
+  m("perindopril-indapamide", "Perindopril/indapamide", "ACEi + thiazide-like combination", "Blood pressure", ["raas", "acei", "thiazide", "bp-lowering"], ["htn"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/1.25 mg", "10/2.5 mg"] }),
+  m("perindopril-amlodipine", "Perindopril/amlodipine", "ACEi + CCB combination", "Blood pressure", ["raas", "acei", "vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/5 mg", "10/10 mg"] }),
+  // ---- Angina ----
+  m("gtn", "Glyceryl trinitrate (sublingual)", "Short-acting nitrate", "Angina", ["nitrate"], ["cad"], "mg", [0.4, 0.5], ["PRN"], ["sbp"], { routes: ["SL"] }),
+  m("isosorbide-mononitrate", "Isosorbide mononitrate", "Long-acting nitrate", "Angina", ["nitrate", "vasodilator"], ["cad"], "mg", [20, 30, 60, 120], ["OD", "BID"], ["sbp"]),
+  m("nicorandil", "Nicorandil", "K-ATP channel opener", "Angina", ["vasodilator"], ["cad"], "mg", [10, 20], ["BID"], ["sbp"]),
+  m("ranolazine", "Ranolazine", "Late sodium-current inhibitor", "Angina", ["qt"], ["cad"], "mg", [375, 500, 750], ["BID"], ["qtc", "creatinine"]),
+  m("trimetazidine", "Trimetazidine MR", "Metabolic agent", "Angina", [], ["cad"], "mg", [35], ["BID"], ["creatinine"]),
+  // ---- Lipids ----
+  m("atorvastatin-ezetimibe", "Atorvastatin/ezetimibe", "Statin + ezetimibe combination", "Lipids", ["statin", "ezetimibe", "lipid"], ["cad", "lipids", "dm"], "mg", [10, 20, 40, 80], ["OD"], ["ldl-c", "alt"], { doseLabels: ["10/10 mg", "20/10 mg", "40/10 mg", "80/10 mg"] }),
+  m("rosuvastatin-ezetimibe", "Rosuvastatin/ezetimibe", "Statin + ezetimibe combination", "Lipids", ["statin", "ezetimibe", "lipid"], ["cad", "lipids", "dm"], "mg", [10, 20, 40], ["OD"], ["ldl-c", "alt"], { doseLabels: ["10/10 mg", "20/10 mg", "40/10 mg"] }),
+  m("simvastatin", "Simvastatin", "Statin", "Lipids", ["statin", "lipid"], ["cad", "lipids"], "mg", [10, 20, 40], ["Nightly"], ["ldl-c", "alt"]),
+  m("pravastatin", "Pravastatin", "Statin", "Lipids", ["statin", "lipid"], ["cad", "lipids"], "mg", [10, 20, 40], ["Nightly"], ["ldl-c", "alt"]),
+  m("fenofibrate", "Fenofibrate", "Fibrate", "Lipids", ["lipid"], ["lipids"], "mg", [145, 160, 200], ["OD"], ["triglycerides", "creatinine", "alt"]),
+  m("omega-3-ethyl-esters", "Omega-3-acid ethyl esters", "Omega-3 (EPA + DHA)", "Lipids", [], ["lipids"], "g", [1, 2, 4], ["OD", "BID"], ["triglycerides"]),
+  // ---- Anticoagulation (parenteral) ----
+  m("enoxaparin", "Enoxaparin", "Low-molecular-weight heparin", "Anticoagulation", ["oac-parenteral"], ["af", "cad", "valve"], "mg", [20, 40, 60, 80, 100], ["OD", "BID"], ["creatinine", "haemoglobin", "platelets"], { routes: ["SC"] }),
+  // ---- Anti-inflammatory ----
+  m("colchicine", "Colchicine", "Anti-inflammatory", "Anti-inflammatory", [], ["cad"], "mg", [0.5], ["OD", "BID"], ["creatinine"], { indicationChoices: ["Pericarditis", "Coronary disease (anti-inflammatory secondary prevention)", "Post-pericardiotomy syndrome", "Gout", "Other"] }),
+  m("ibuprofen", "Ibuprofen", "NSAID", "Anti-inflammatory", ["nsaid"], [], "mg", [200, 400, 600], ["TID", "PRN"], ["creatinine", "sbp"], { indicationChoices: ["Pericarditis", "Pain", "Other"] }),
+  m("prednisolone", "Prednisolone", "Corticosteroid", "Anti-inflammatory", ["steroid"], [], "mg", [5, 10, 20, 40], ["OD", "Mornings"], ["glucose", "sbp"], { indicationChoices: ["COPD / asthma exacerbation", "Pericarditis (refractory / recurrent)", "Myocarditis / inflammatory cardiomyopathy", "Sarcoidosis", "Adrenal insufficiency / stress dose", "Rheumatological disease", "Other"] }),
+  m("hydrocortisone", "Hydrocortisone", "Corticosteroid", "Anti-inflammatory", ["steroid"], [], "mg", [10, 20, 50, 100], ["OD", "BID", "TID", "QID"], ["glucose", "sodium", "potassium"], { routes: ["PO", "IV"], indicationChoices: ["COPD / asthma exacerbation", "Pericarditis (refractory / recurrent)", "Myocarditis / inflammatory cardiomyopathy", "Sarcoidosis", "Adrenal insufficiency / stress dose", "Rheumatological disease", "Other"] }),
+  m("methylprednisolone", "Methylprednisolone", "Corticosteroid", "Anti-inflammatory", ["steroid"], [], "mg", [4, 16, 40, 125, 500, 1000], ["OD", "BID"], ["glucose", "sbp"], { routes: ["PO", "IV"], indicationChoices: ["COPD / asthma exacerbation", "Pericarditis (refractory / recurrent)", "Myocarditis / inflammatory cardiomyopathy", "Sarcoidosis", "Adrenal insufficiency / stress dose", "Rheumatological disease", "Other"] }),
+  m("dexamethasone", "Dexamethasone", "Corticosteroid", "Anti-inflammatory", ["steroid"], [], "mg", [2, 4, 6, 8], ["OD", "BID"], ["glucose"], { routes: ["PO", "IV"], indicationChoices: ["COPD / asthma exacerbation", "Pericarditis (refractory / recurrent)", "Myocarditis / inflammatory cardiomyopathy", "Sarcoidosis", "Adrenal insufficiency / stress dose", "Rheumatological disease", "Other"] }),
+  // ---- Infection: label strengths only; the dose and duration follow the local antimicrobial policy ----
+  m("amoxicillin", "Amoxicillin", "Penicillin", "Infection", ["antibiotic"], [], "mg", [500, 1000], ["TID"], [], { routes: ["PO"], indicationChoices: INFECTION_INDICATIONS }),
+  m("amoxicillin-clavulanate", "Amoxicillin/clavulanate", "Penicillin + beta-lactamase inhibitor", "Infection", ["antibiotic"], [], "mg", [625, 1000, 1200], ["BID", "TID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("flucloxacillin", "Flucloxacillin", "Penicillin", "Infection", ["antibiotic"], [], "mg", [500, 1000, 2000], ["QID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("piperacillin-tazobactam", "Piperacillin/tazobactam", "Penicillin + beta-lactamase inhibitor", "Infection", ["antibiotic"], [], "g", [4.5], ["TID", "QID"], [], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("cefuroxime", "Cefuroxime", "Cephalosporin", "Infection", ["antibiotic"], [], "mg", [250, 500, 750, 1500], ["BID", "TID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("ceftriaxone", "Ceftriaxone", "Cephalosporin", "Infection", ["antibiotic"], [], "g", [1, 2], ["OD", "BID"], [], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("meropenem", "Meropenem", "Carbapenem", "Infection", ["antibiotic"], [], "g", [0.5, 1, 2], ["TID"], [], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("azithromycin", "Azithromycin", "Macrolide", "Infection", ["antibiotic", "qt"], [], "mg", [250, 500], ["OD"], ["qtc"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("clarithromycin", "Clarithromycin", "Macrolide", "Infection", ["antibiotic", "qt", "cyp3a4-inhibitor"], [], "mg", [250, 500], ["BID"], ["qtc"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("doxycycline", "Doxycycline", "Tetracycline", "Infection", ["antibiotic"], [], "mg", [100], ["OD", "BID"], [], { routes: ["PO"], indicationChoices: INFECTION_INDICATIONS }),
+  m("levofloxacin", "Levofloxacin", "Fluoroquinolone", "Infection", ["antibiotic", "qt"], [], "mg", [500, 750], ["OD", "BID"], ["qtc"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("moxifloxacin", "Moxifloxacin", "Fluoroquinolone", "Infection", ["antibiotic", "qt"], [], "mg", [400], ["OD"], ["qtc"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("ciprofloxacin", "Ciprofloxacin", "Fluoroquinolone", "Infection", ["antibiotic", "qt"], [], "mg", [250, 500, 750, 400], ["BID", "TID"], ["qtc"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("vancomycin", "Vancomycin", "Glycopeptide", "Infection", ["antibiotic"], [], "mg", [500, 750, 1000, 1500], ["BID", "OD"], ["creatinine"], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("linezolid", "Linezolid", "Oxazolidinone", "Infection", ["antibiotic"], [], "mg", [600], ["BID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("gentamicin", "Gentamicin", "Aminoglycoside", "Infection", ["antibiotic"], [], "mg", [80, 120, 240, 320], ["OD", "TID"], ["creatinine"], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("metronidazole", "Metronidazole", "Nitroimidazole", "Infection", ["antibiotic"], [], "mg", [400, 500], ["TID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("clindamycin", "Clindamycin", "Lincosamide", "Infection", ["antibiotic"], [], "mg", [300, 450, 600], ["TID", "QID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("co-trimoxazole", "Co-trimoxazole", "Sulfonamide combination", "Infection", ["antibiotic"], [], "mg", [480, 960], ["BID"], [], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  m("nitrofurantoin", "Nitrofurantoin", "Nitrofuran", "Infection", ["antibiotic"], [], "mg", [50, 100], ["BID", "QID"], [], { routes: ["PO"], indicationChoices: INFECTION_INDICATIONS }),
+  m("oseltamivir", "Oseltamivir", "Neuraminidase inhibitor (antiviral)", "Infection", ["antibiotic"], [], "mg", [30, 75], ["OD", "BID"], [], { routes: ["PO"], indicationChoices: INFECTION_INDICATIONS }),
+  // ---- Supportive ----
+  m("pantoprazole", "Pantoprazole", "Proton-pump inhibitor", "Supportive", ["ppi"], [], "mg", [20, 40], ["OD", "BID"], [], { routes: ["PO", "IV"], indicationChoices: ["GI protection on antithrombotic therapy", "Dyspepsia / reflux", "Upper GI bleeding", "Other"] }),
+  m("esomeprazole", "Esomeprazole", "Proton-pump inhibitor", "Supportive", ["ppi"], [], "mg", [20, 40], ["OD", "BID"], [], { routes: ["PO", "IV"], indicationChoices: ["GI protection on antithrombotic therapy", "Dyspepsia / reflux", "Upper GI bleeding", "Other"] }),
+  m("omeprazole", "Omeprazole", "Proton-pump inhibitor", "Supportive", ["ppi", "cyp2c19-inhibitor"], [], "mg", [20, 40], ["OD", "BID"], [], { indicationChoices: ["GI protection on antithrombotic therapy", "Dyspepsia / reflux", "Other"] }),
+  m("sodium-zirconium-cyclosilicate", "Sodium zirconium cyclosilicate", "Potassium binder", "Supportive", ["k-binder"], ["hf", "ckd"], "g", [5, 10], ["OD", "TID", "Alternate days"], ["potassium"]),
+  m("patiromer", "Patiromer", "Potassium binder", "Supportive", ["k-binder"], ["hf", "ckd"], "g", [8.4, 16.8, 25.2], ["OD"], ["potassium", "magnesium"]),
+  m("potassium-chloride", "Potassium chloride (oral)", "Potassium supplement", "Supportive", [], [], "mmol", [8, 16, 24], ["OD", "BID", "TID"], ["potassium"], { indicationChoices: ["Hypokalaemia", "Diuretic therapy", "Other"] }),
+
 ];
 
 // Trade names commonly marketed in Kuwait / the Gulf. Shown and searchable at entry.
@@ -282,6 +369,20 @@ const BRANDS: Record<string, string[]> = {
   apixaban: ["Eliquis"], rivaroxaban: ["Xarelto"], edoxaban: ["Lixiana"], dabigatran: ["Pradaxa"], warfarin: ["Marevan", "Coumadin"],
   amiodarone: ["Cordarone"], sotalol: ["Sotalex"], flecainide: ["Tambocor"], diltiazem: ["Cardizem"], amlodipine: ["Norvasc"],
   sildenafil: ["Revatio"],
+  captopril: ["Capoten"], irbesartan: ["Aprovel"], telmisartan: ["Micardis"], olmesartan: ["Olmetec"], nifedipine: ["Adalat LA"], felodipine: ["Plendil"],
+  lercanidipine: ["Zanidip"], verapamil: ["Isoptin"], hydrochlorothiazide: ["Esidrex"], chlorthalidone: ["Hygroton"], metolazone: ["Zaroxolyn"], amiloride: ["Midamor"],
+  nebivolol: ["Nebilet"], atenolol: ["Tenormin"], propranolol: ["Inderal"], labetalol: ["Trandate"], doxazosin: ["Cardura"], methyldopa: ["Aldomet"],
+  clonidine: ["Catapres"], moxonidine: ["Physiotens"], "amlodipine-valsartan": ["Exforge"], "valsartan-hctz": ["Co-Diovan"], "losartan-hctz": ["Hyzaar"],
+  "telmisartan-amlodipine": ["Twynsta"], "perindopril-indapamide": ["Coversyl Plus", "Bipreterax"], "perindopril-amlodipine": ["Coveram"],
+  gtn: ["Nitrolingual", "Glyceryl trinitrate"], "isosorbide-mononitrate": ["Imdur", "Elantan"], nicorandil: ["Ikorel"], ranolazine: ["Ranexa"], trimetazidine: ["Vastarel MR"],
+  "atorvastatin-ezetimibe": ["Atozet"], "rosuvastatin-ezetimibe": ["Zympass"], simvastatin: ["Zocor"], pravastatin: ["Pravachol"], fenofibrate: ["Lipanthyl"],
+  "omega-3-ethyl-esters": ["Omacor"], enoxaparin: ["Clexane"],
+  colchicine: ["Colchicine"], ibuprofen: ["Brufen"], prednisolone: ["Prednisolone"], hydrocortisone: ["Solu-Cortef"], methylprednisolone: ["Solu-Medrol", "Medrol"], dexamethasone: ["Dexamethasone"],
+  amoxicillin: ["Amoxil"], "amoxicillin-clavulanate": ["Augmentin"], flucloxacillin: ["Floxapen"], "piperacillin-tazobactam": ["Tazocin"], cefuroxime: ["Zinnat"], ceftriaxone: ["Rocephin"],
+  meropenem: ["Meronem"], azithromycin: ["Zithromax"], clarithromycin: ["Klacid"], doxycycline: ["Vibramycin"], levofloxacin: ["Tavanic"], moxifloxacin: ["Avelox"],
+  ciprofloxacin: ["Ciprobay"], vancomycin: ["Vancocin"], linezolid: ["Zyvox"], gentamicin: ["Garamycin"], metronidazole: ["Flagyl"], clindamycin: ["Dalacin C"],
+  "co-trimoxazole": ["Septrin"], nitrofurantoin: ["Macrobid"], oseltamivir: ["Tamiflu"],
+  pantoprazole: ["Controloc"], esomeprazole: ["Nexium"], omeprazole: ["Losec"], "sodium-zirconium-cyclosilicate": ["Lokelma"], patiromer: ["Veltassa"], "potassium-chloride": ["Slow-K"],
   metformin: ["Glucophage", "Glucophage XR"], liraglutide: ["Victoza", "Saxenda"], dulaglutide: ["Trulicity"],
   semaglutide: ["Ozempic", "Wegovy"], "semaglutide-oral": ["Rybelsus"], tirzepatide: ["Mounjaro"],
   sitagliptin: ["Januvia"], linagliptin: ["Trajenta"], vildagliptin: ["Galvus"], saxagliptin: ["Onglyza"], alogliptin: ["Vipidia"],
@@ -304,19 +405,20 @@ export const medicationSearchText = (d: MedicationDef) => [d.name, d.drugClass, 
 export const MEDICATION: Record<string, MedicationDef> = Object.fromEntries(MEDICATIONS.map((d) => [d.code, d]));
 
 export const PURPOSE_ORDER: MedicationDef["purpose"][] = [
-  "Heart failure", "CAD / secondary prevention", "Anticoagulation", "Rhythm", "Blood pressure", "Cardiometabolic", "Diabetes", "Pulmonary hypertension",
+  "Heart failure", "CAD / secondary prevention", "Angina", "Lipids", "Anticoagulation", "Rhythm", "Blood pressure", "Cardiometabolic", "Diabetes", "Pulmonary hypertension",
+  "Infection", "Anti-inflammatory", "Supportive",
 ];
 
 // Which medication purposes are relevant to which diagnosis tags
 export const PURPOSE_FOR_TAG: Record<string, MedicationDef["purpose"][]> = {
   hf: ["Heart failure"],
-  cad: ["CAD / secondary prevention"],
-  acs: ["CAD / secondary prevention"],
+  cad: ["CAD / secondary prevention", "Angina", "Lipids"],
+  acs: ["CAD / secondary prevention", "Lipids"],
   af: ["Anticoagulation", "Rhythm"],
   htn: ["Blood pressure"],
   dm: ["Cardiometabolic", "Diabetes"],
   ckd: ["Cardiometabolic"],
-  lipids: ["CAD / secondary prevention"],
+  lipids: ["CAD / secondary prevention", "Lipids"],
 };
 
 export function doseLabel(def: MedicationDef | undefined, value: number | null | undefined, unit?: string | null) {

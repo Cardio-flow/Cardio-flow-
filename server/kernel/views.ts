@@ -214,7 +214,7 @@ export function medicationGroups(s: PatientState) {
         startedAt: m.startedAt,
         tags: m.tags,
         indication: m.indication,
-        lastChange: m.lastChange ? { kind: m.lastChange.kind, at: m.lastChange.effective_at } : null,
+        lastChange: m.lastChange ? { kind: m.lastChange.kind === "continue" && /^Frequency changed/.test(m.lastChange.reason) ? "frequency" : m.lastChange.kind, at: m.lastChange.effective_at } : null,
         planned: s.plan.find((p) => p.status === "planned" && p.medication_id === m.id) ?? null,
       })),
   })).filter((g) => g.meds.length);
