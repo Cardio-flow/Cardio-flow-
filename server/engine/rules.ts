@@ -30,7 +30,7 @@ export type Finding = {
     | { type: "start-med"; code: string; dose?: number; label: string }
     | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
     | { type: "add-labs"; codes: string[]; label: string }
-    | { type: "med-action"; medicationId: string; action: "stop" | "hold" | "decrease"; label: string }
+    | { type: "med-action"; medicationId: string; action: "stop" | "hold" | "decrease" | "resume"; label: string }
     | { type: "history"; focus: "risk" | "cardiac"; label: string };
   // guideline provenance shown in "Why?"
   source?: string;
@@ -283,6 +283,32 @@ export const RULES: RuleDef[] = [
             facts: [{ label: "Due", value: fmtDay(a.due_date!, { weekday: true }) }],
             missing: [],
             action: { type: "plan" as const, planId: a.id },
+          };
+        });
+    },
+  },
+  {
+    id: "meds.not-taking",
+    kind: "operational",
+    title: "Prescribed medicine not being taken",
+    inputs: ["meds"],
+    defaultParams: {},
+    evidence: "Workflow: a prescribed medicine the patient reports not taking is shown until the record matches reality (taken again, changed or stopped). Disease-modifying and antithrombotic drugs are flagged orange.",
+    evaluate(s) {
+      const key = ["bb", "raas", "arni", "mra", "sglt2", "oac", "p2y12", "antiplatelet", "statin", "glp1"];
+      return s.meds
+        .filter((m) => m.status === "not_taking")
+        .map((m) => {
+          const e = [...m.events].reverse().find((x) => x.kind === "not_taking")!;
+          return {
+            key: "nt-" + m.id,
+            signature: e.id,
+            severity: m.tags.some((t) => key.includes(t)) ? ("orange" as const) : ("yellow" as const),
+            title: `${m.name} prescribed but not taken${e.reason ? `: ${e.reason.toLowerCase()}` : ""}`,
+            detail: "Address the reason, then mark it taken again, change it or stop it so the record matches what the patient takes.",
+            facts: [{ label: "Prescribed", value: `${m.name}${m.doseValue != null ? " " + formatNumber(m.doseValue) + " " + (m.doseUnit ?? "") : ""} ${m.frequency ?? ""}`.trim() }, { label: "Reported not taking", value: e.reason || "reason not given", date: e.effective_at }],
+            missing: [],
+            action: { type: "med-action" as const, medicationId: m.id, action: "resume" as const, label: "Update medicine" },
           };
         });
     },

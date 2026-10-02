@@ -73,6 +73,7 @@ export function connectPostgres(connectionString: string): DB {
 export const MIGRATIONS = [
   { name: "v2-001-kernel", file: "./schema.sql" },
   { name: "v2-002-general-core", file: "./002-general-core.sql" },
+  { name: "v2-003-medication-exceptions", file: "./003-medication-exceptions.sql" },
 ];
 
 export async function migrate(db: DB) {

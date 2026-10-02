@@ -1,10 +1,10 @@
 import { targets } from "../engine/guidelines.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
-import { DIAGNOSIS, MEASURES, PURPOSE_ORDER, doseLabel, MEDICATION, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, attributesText, historyCode } from "../../shared/history.js";
-import { loadState, latestDischarge, openContext, type PatientState } from "./state.js";
+import { activeBarrier, loadState, latestDischarge, openContext, type PatientState } from "./state.js";
 import { today as todayFn } from "./base.js";
 
 const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
@@ -13,13 +13,10 @@ const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 // Suggestions that propose a drug of the same class (an SGLT2 inhibitor from the HF rule and from
 // the diabetes rule, a GLP-1 RA from the diabetes and obesity rules, finerenone from the HF and
 // cardiorenal rules) are shown once: the most urgent card carries the others as "also".
-const CLASS_TAGS = ["sglt2", "glp1", "mra", "arni", "raas", "bb", "statin", "ezetimibe", "pcsk9", "p2y12", "oac", "antiplatelet", "iv-iron"];
 export function mergeKey(r: { action?: any }) {
   const a = typeof r.action === "string" ? JSON.parse(r.action) : r.action;
   if (a?.type !== "start-med") return null;
-  const tags = MEDICATION[a.code]?.tags ?? [];
-  const t = CLASS_TAGS.find((x) => tags.includes(x));
-  return t ? `start:${t}` : `start:${a.code}`;
+  return `start:${drugClassOf(a.code)}`;
 }
 
 export async function recommendations(tx: Q, patientId: string) {
@@ -359,6 +356,11 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)
     targets: targets(s),
+    // why a drug class is not given (recorded once, reused by every rule)
+    barriers: s.barriers.map((b) => ({
+      cls: b.drug_class, label: classLabel(b.drug_class), category: b.category, reason: BARRIER_LABEL[b.category], detail: b.detail, at: b.effective_at,
+      active: !!activeBarrier(s, b.drug_class), lasting: b.category === "intolerance" || b.category === "contraindication",
+    })),
   };
 }
 

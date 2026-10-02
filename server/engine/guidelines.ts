@@ -15,9 +15,9 @@
 //  - 2024 ESC AF guidelines (CHA2DS2-VA; DOAC dosing)
 //  - 2024 ESC hypertension guidelines (SBP target 120–129 mmHg if tolerated)
 //  - 2023 ESC ACS guidelines (DAPT 12 months by default)
-import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, doseLabel, drugClassOf, formatNumber } from "../../shared/catalog.js";
 import { bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.js";
-import type { MedState, PatientState } from "../kernel/state.js";
+import { activeBarrier, type MedState, type PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
 import { DIABETES_RULES, diabetesRecord, glycaemicTarget } from "./diabetes-rules.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
@@ -143,18 +143,19 @@ export function fmtStatus(s: PatientState) {
     lvef: cur(s, "lvef")?.value_num ?? null,
     pillars: pillarsFor(s).map((p) => {
       const on = live(s).find((m) => p.tags.some((t) => m.tags.includes(t)));
-      const held = s.meds.find((m) => m.status === "held" && p.tags.some((t) => m.tags.includes(t)));
+      const held = s.meds.find((m) => (m.status === "held" || m.status === "not_taking") && p.tags.some((t) => m.tags.includes(t)));
+      const barrier = !on && !held ? [...p.tags, drugClassOf(p.start.code)].map((t) => activeBarrier(s, t)).find(Boolean) : null;
       const def = on ? MEDICATION[on.code] : null;
       const pct = on && def?.target && on.doseValue != null ? Math.round((on.doseValue / def.target) * 100) : null;
       const gate = pillarGate(s, p.key, "start");
       return {
         key: p.key,
         label: p.label,
-        state: on ? (pct != null && pct >= 100 ? "target" : "on") : held ? "held" : gate.block ? "blocked" : "missing",
-        med: on ? medLine(on) : held ? medLine(held) + " (held)" : null,
+        state: on ? (pct != null && pct >= 100 ? "target" : "on") : held ? "held" : gate.block || barrier ? "blocked" : "missing",
+        med: on ? medLine(on) : held ? medLine(held) + (held.status === "not_taking" ? " (not taking)" : " (held)") : null,
         percentOfTarget: pct,
         target: on && def?.target ? doseLabel(def, def.target, on.doseUnit) : null,
-        note: !on && gate.block ? `Not now: ${gate.block}` : null,
+        note: !on && barrier ? `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}` : !on && gate.block ? `Not now: ${gate.block}` : null,
       };
     }),
   };
@@ -177,7 +178,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const ef = cur(s, "lvef");
       const out: Finding[] = [];
       for (const p of pillarsFor(s)) {
-        if (s.meds.some((m) => (m.status === "active" || m.status === "held") && p.tags.some((t) => m.tags.includes(t)))) continue;
+        if (s.meds.some((m) => (m.status === "active" || m.status === "held" || m.status === "not_taking") && p.tags.some((t) => m.tags.includes(t)))) continue;
         const gate = pillarGate(s, p.key, "start");
         if (gate.block) continue;
         const def = MEDICATION[p.start.code];

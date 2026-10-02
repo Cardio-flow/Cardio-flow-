@@ -2,6 +2,13 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-02 · Medication exceptions instead of full reconciliation
+
+- **Decision (Ahmed):** no per-visit reconciliation. Every medicine counts as taken as prescribed; the clinician records only exceptions.
+- **Patient-reported exceptions** (medicine drawer → "Or record what the patient reports"): *Not taking it* (new event `not_taking`, status `not_taking`, reason required), *Taking a different dose* (a dose change with "Patient reports taking this dose"), *Stopped it on their own* (a stop with "Stopped by patient: …"), and *Taking it again* (`resume`). Not-taking is distinct from a clinician's hold, so the patient plan never tells the patient "do not take".
+- **Effects:** a not-taking drug leaves dose/target calculations and uptitration; the HF pillar shows "(not taking)"; "start a drug of this class" suggestions are replaced by one operational alert `meds.not-taking` (orange for disease-modifying and antithrombotic drugs); documents mark it NOT TAKING with the reason.
+- **Why a drug is not given** (Why? panel on a medicine suggestion → reason chips): intolerance, contraindication, patient declines, not available, cost, not now. Stored once per drug class in `cf.treatment_barrier` (migration 003, append-only; uptitration reasons use class `up:<class>`). Intolerance and contraindication silence that class from every rule until removed; the others until the next visit or admission. Listed under "Not given · reason recorded" with Remove; shown on the HF pillar and in the clinical summary. A closed suggestion with a recorded reason is governed by that reason, so it can return when the reason lapses or is removed.
+
 ## 2026-10-01 · Patient Overview v1, copy-ready documents, nightly re-run
 
 - **Overview** (the Summary tab is renamed Overview): five questions on top, from `overview()` in views.ts: why here (open admission/visit, recent discharge, or last visit), what changed since the last review, needs attention (counts by severity), unfinished (overdue/due plan items), what's next. The detailed cards stay below.

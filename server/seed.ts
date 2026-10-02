@@ -154,7 +154,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 8;
+export const SEED_VERSION = 9;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -354,6 +354,15 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(kr, d(-120), [{ code: "hba1c", value: 7.9 }, { code: "creatinine", value: 132 }]);
       await obs(kr, d(-3), [{ code: "hba1c", value: 8.4 }, { code: "creatinine", value: 150 }, { code: "potassium", value: 4.6 }, { code: "uacr", value: 28 }, { code: "weight", value: 96 }, { code: "height", value: 172 }, { code: "sbp", value: 138 }, { code: "dbp", value: 80 }, { code: "hr", value: 74 }]);
       touched.push(kr);
+    }
+    // Seed v9: a medication exception (patient reports not taking spironolactone)
+    if (seeded < 9) {
+      const y9 = await byMrn("100277190");
+      const spiro = y9 && ((await tx.query(`SELECT id FROM cf.medication WHERE patient_id=$1 AND drug='spironolactone'`, [y9])).rows[0] as any);
+      if (y9 && spiro) {
+        await K.medicationEvent(tx, sys, y9, spiro.id, { kind: "not_taking", reason: "Side effect", effectiveAt: at(d(-6)) });
+        touched.push(y9);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

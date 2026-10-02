@@ -1,7 +1,7 @@
 // Write operations on the kernel. Each returns the list of "inputs" it changed so the
 // engine only re-runs rules that read them.
 import type { Q } from "../db/db.js";
-import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
@@ -434,7 +434,7 @@ export async function medicationEvent(
   actor: Actor,
   patientId: string,
   medicationId: string,
-  input: { kind: "increase" | "decrease" | "hold" | "restart" | "stop" | "continue"; doseValue?: number | null; frequency?: string | null; reason?: string; effectiveAt: string; contextId?: string | null; decisionId?: string | null },
+  input: { kind: "increase" | "decrease" | "hold" | "restart" | "stop" | "continue" | "not_taking" | "resume"; doseValue?: number | null; frequency?: string | null; reason?: string; effectiveAt: string; contextId?: string | null; decisionId?: string | null },
 ) {
   const med = (await tx.query(`SELECT * FROM cf.medication WHERE id=$1 AND patient_id=$2`, [medicationId, patientId])).rows[0];
   if (!med) throw new ApiError(404, "Medication not found");
@@ -445,6 +445,10 @@ export async function medicationEvent(
   const lastAny = (await tx.query(`SELECT kind FROM cf.medication_event WHERE medication_id=$1 ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
   if (lastAny?.kind === "stop" && input.kind !== "restart") throw new ApiError(409, `${def?.name} has been stopped`);
   if ((input.kind === "increase" || input.kind === "decrease") && input.doseValue == null) throw new ApiError(400, "Choose the new dose");
+  // exceptions reported by the patient: only against the current state
+  if (input.kind === "not_taking" && !["start", "restart", "increase", "decrease", "continue", "resume"].includes(lastAny?.kind)) throw new ApiError(409, `${def?.name} is not currently being taken as prescribed`);
+  if (input.kind === "resume" && lastAny?.kind !== "not_taking") throw new ApiError(409, `${def?.name} is not marked as not taken`);
+  if (input.kind === "not_taking" && !input.reason?.trim()) throw new ApiError(400, "Give the reason the patient is not taking it");
   const dose = input.kind === "increase" || input.kind === "decrease" || input.kind === "restart" ? input.doseValue ?? last?.dose_value ?? null : null;
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
@@ -455,7 +459,7 @@ export async function medicationEvent(
     ],
   );
   if (input.kind !== "continue") {
-    const verb = { increase: "increased", decrease: "reduced", hold: "held", restart: "restarted", stop: "stopped" }[input.kind];
+    const verb = { increase: "increased", decrease: "reduced", hold: "held", restart: "restarted", stop: "stopped", not_taking: "not being taken (patient report)", resume: "taken again" }[input.kind];
     await journeyEvent(tx, actor, {
       patientId,
       occurredAt: input.effectiveAt,
@@ -472,6 +476,40 @@ export async function medicationEvent(
   }
   await audit(tx, actor, input.kind, "medication", medicationId, patientId, { dose });
   return ["meds"] as Changed;
+}
+
+// ---------- treatment barriers: why a drug class is not given ----------
+export async function recordBarrier(
+  tx: Q, actor: Actor, patientId: string,
+  input: { drugClass: string; category: string; detail?: string; drug?: string | null; recommendationId?: string | null; effectiveAt?: string },
+) {
+  if (!BARRIER_CATEGORIES.some((c) => c.value === input.category)) throw new ApiError(400, "Choose a reason");
+  if (input.category === "other" && !input.detail?.trim()) throw new ApiError(400, "Add a short note");
+  const at = input.effectiveAt ?? nowIso();
+  await tx.query(
+    `INSERT INTO cf.treatment_barrier(id,patient_id,drug_class,category,detail,drug,recommendation_id,effective_at,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [uuid(), patientId, input.drugClass, input.category, input.detail?.trim() ?? "", input.drug ?? null, input.recommendationId ?? null, at, actor.id],
+  );
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: at, kind: "treatment-barrier", category: "medication",
+    title: `${classLabel(input.drugClass)}: not given`,
+    detail: `${BARRIER_LABEL[input.category]}${input.detail?.trim() ? ` · ${input.detail.trim()}` : ""}`,
+    refType: "barrier",
+  });
+  await audit(tx, actor, "barrier", "treatment_barrier", input.drugClass, patientId, { category: input.category });
+  return null as Changed | null; // every rule re-runs
+}
+
+export async function clearBarrier(tx: Q, actor: Actor, patientId: string, drugClass: string) {
+  const cur = (await tx.query(`SELECT * FROM cf.treatment_barrier WHERE patient_id=$1 AND drug_class=$2 ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [patientId, drugClass])).rows[0];
+  if (!cur || cur.cleared) throw new ApiError(404, "No recorded reason for this drug class");
+  await tx.query(
+    `INSERT INTO cf.treatment_barrier(id,patient_id,drug_class,category,detail,drug,cleared,effective_at,recorded_by) VALUES($1,$2,$3,$4,'',$5,true,$6,$7)`,
+    [uuid(), patientId, drugClass, cur.category, cur.drug, nowIso(), actor.id],
+  );
+  await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "treatment-barrier", category: "medication", title: `${classLabel(drugClass)}: reason removed`, detail: "Suggestions for this class can return", refType: "barrier" });
+  await audit(tx, actor, "barrier-clear", "treatment_barrier", drugClass, patientId, {});
+  return null as Changed | null;
 }
 
 // ---------- plan ----------

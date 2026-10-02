@@ -25,7 +25,8 @@ export type MedState = {
   purpose: string;
   tags: string[];
   indication: string;
-  status: "active" | "held" | "stopped" | "planned";
+  // not_taking: prescribed, but the patient reports not taking it (an exception, not a decision)
+  status: "active" | "held" | "stopped" | "planned" | "not_taking";
   doseValue: number | null;
   doseUnit: string | null;
   frequency: string | null;
@@ -64,6 +65,8 @@ export type ContextRow = {
 export type ConditionRow = { id: string; logical_id: string; code: string; display: string; status: string; onset: string | null; detail: string; recorded_at: string; attributes: Record<string, any> };
 export type StudyRow = { id: string; kind: string; performed_at: string; quality: string; findings: string[]; conclusion: string; attributes: Record<string, any> };
 
+export type BarrierRow = { id: string; drug_class: string; category: string; detail: string; drug: string | null; cleared: boolean; recommendation_id: string | null; effective_at: string; recorded_by: string };
+
 export type PatientState = {
   patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null };
   today: string;
@@ -79,6 +82,8 @@ export type PatientState = {
   // newest vital and follow-up status (null = never recorded: alive, active by default)
   status: { vital: StatusRow | null; followUp: StatusRow | null };
   deceased: boolean;
+  // why a drug class is not given (newest per class, cleared ones removed)
+  barriers: BarrierRow[];
 };
 export type StatusRow = { id: string; kind: string; status: string; effective_on: string; place: string | null; cause_group: string | null; detail: string };
 
@@ -99,7 +104,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
         (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study WHERE patient_id=$1) st) AS studies,
         (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs,
-        (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status`,
+        (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status,
+        (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers`,
       [patientId],
     )
   ).rows[0];
@@ -113,6 +119,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const contexts = j(bundle.contexts) as { rows: ContextRow[] };
   const studies = j(bundle.studies) as { rows: StudyRow[] };
   const prefs = j(bundle.prefs) as { rows: { code: string; observation_id: string }[] };
+  const barrierRows = (j(bundle.barriers).rows as BarrierRow[]).filter((b) => !b.cleared).map((b) => ({ ...b, effective_at: new Date(b.effective_at).toISOString() }));
   const statusRows = (j(bundle.status).rows as StatusRow[]).map((r) => ({ ...r, effective_on: String(r.effective_on).slice(0, 10) }));
   const vital = statusRows.find((r) => r.kind === "vital") ?? null;
   const conditions = conds.rows.filter((c) => c.status === "active").map((c) => ({ ...c, attributes: (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes) ?? {} }));
@@ -145,6 +152,12 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
           break;
         case "hold":
           status = "held";
+          break;
+        case "not_taking":
+          status = "not_taking";
+          break;
+        case "resume":
+          status = "active";
           break;
         case "stop":
           status = "stopped";
@@ -187,6 +200,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     preferences,
     status: { vital, followUp: statusRows.find((r) => r.kind === "follow_up") ?? null },
     deceased: vital?.status === "died",
+    barriers: barrierRows,
   };
 }
 
@@ -226,3 +240,13 @@ export const latestStudy = (s: PatientState, kind: string, withinDays?: number) 
   if (!st || withinDays == null) return st;
   return (Date.parse(s.today) - Date.parse(st.performed_at)) / 86400000 <= withinDays ? st : null;
 };
+
+// A recorded reason that currently stops suggestions for this class. Intolerance and
+// contraindication last until cleared; the others last until the next visit or admission.
+export function activeBarrier(s: PatientState, cls: string) {
+  const b = s.barriers.find((x) => x.drug_class === cls);
+  if (!b) return null;
+  if (b.category === "intolerance" || b.category === "contraindication") return b;
+  const reviewedSince = s.contexts.some((c) => (c.kind === "clinic_visit" || c.kind === "admission") && c.started_at > b.effective_at);
+  return reviewedSince ? null : b;
+}

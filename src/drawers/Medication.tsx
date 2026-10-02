@@ -241,12 +241,24 @@ const ACTIONS = [
   { value: "stop", label: "Stop" },
   { value: "continue", label: "Continue unchanged" },
 ];
+// Exceptions only: by default every medicine is taken as prescribed. One of these is recorded
+// only when the patient reports otherwise (Ahmed, 2 Oct 2026).
+const PATIENT_ACTIONS = [
+  { value: "not_taking", label: "Not taking it" },
+  { value: "patient-dose", label: "Taking a different dose" },
+  { value: "patient-stop", label: "Stopped it on their own" },
+];
+const NOT_TAKING_REASONS = ["Side effect", "Forgot / irregular", "Ran out / not available", "Cost", "Did not understand the instructions", "Chose not to take it"];
+const LABEL: Record<string, string> = {
+  increase: "increase", decrease: "reduction", hold: "hold", stop: "stop", continue: "continue", restart: "restart",
+  not_taking: "not taking", "patient-dose": "patient's actual dose", "patient-stop": "stopped by patient", resume: "taken again",
+};
 
 export function MedicationAction({ patientId, summary, medId, initial, initialDose, initialReason, contextId, onClose, onDone }: { patientId: string; summary: any; medId: string; initial?: string; initialDose?: number; initialReason?: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
   const med = summary.medications.groups.flatMap((g: any) => g.meds).find((m: any) => m.id === medId);
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const def = med ? MEDICATION[med.code] : null;
-  const [action, setAction] = useState<string>(initial ?? (med?.status === "held" ? "restart" : ""));
+  const [action, setAction] = useState<string>(initial ?? (med?.status === "held" ? "restart" : med?.status === "not_taking" ? "resume" : ""));
   const [dose, setDose] = useState<string>(initialDose != null ? String(initialDose) : "");
   const [reason, setReason] = useState(initialReason ?? "");
   const [review, setReview] = useState<string>(() => {
@@ -256,11 +268,15 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!med || !def) return null;
-  const doses = def.doses.filter((d) => (action === "increase" ? med.doseValue == null || d > med.doseValue : action === "decrease" ? med.doseValue == null || d < med.doseValue : true));
+  const doses = def.doses.filter((d) => (action === "increase" ? med.doseValue == null || d > med.doseValue : action === "decrease" ? med.doseValue == null || d < med.doseValue : d !== med.doseValue));
   const today = summary.today;
   const renalK = def.monitoring.some((c) => c === "potassium" || c === "creatinine");
   const history = rec?.meds.find((m: any) => m.id === medId)?.events ?? [];
-  const actions = med.status === "held" ? [{ value: "restart", label: "Restart" }, { value: "stop", label: "Stop" }] : ACTIONS;
+  const actions =
+    med.status === "held" ? [{ value: "restart", label: "Restart" }, { value: "stop", label: "Stop" }]
+    : med.status === "not_taking" ? [{ value: "resume", label: "Taking it again" }, { value: "stop", label: "Stop" }]
+    : ACTIONS;
+  const exception = ["not_taking", "patient-dose", "patient-stop", "resume"].includes(action);
   async function save() {
     setBusy(true);
     setError("");
@@ -269,41 +285,52 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
         review === "none" ? null
         : review.startsWith("lab") ? { dueDate: addDays(today, Number(review.split("-")[1])), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] }
         : { dueDate: addDays(today, Number(review.split("-")[1])), title: `${def!.name} titration review` };
+      // patient-reported exceptions map onto the same medication events
+      const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action;
+      const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : reason;
       const r = await api(`/patients/${patientId}/medications/${medId}/events`, {
-        body: { kind: action, doseValue: dose ? Number(dose) : null, reason, contextId: contextId ?? null, review: reviewBody },
+        body: { kind, doseValue: dose ? Number(dose) : null, reason: why, contextId: contextId ?? null, review: exception ? null : reviewBody },
       });
-      onDone(`${def!.name}: ${ACTIONS.find((a) => a.value === action)?.label.toLowerCase() ?? action} recorded`, r);
+      onDone(`${def!.name}: ${LABEL[action] ?? action} recorded`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
-  const needsDose = action === "increase" || action === "decrease";
+  const needsDose = action === "increase" || action === "decrease" || action === "patient-dose";
+  const needsReason = action === "not_taking" || action === "patient-stop";
   return (
     <Drawer
       title={def.name}
-      subtitle={`${med.dose} · ${med.frequency}${med.status === "held" ? " · currently held" : ""}`}
+      subtitle={`${med.dose} · ${med.frequency}${med.status === "held" ? " · currently held" : med.status === "not_taking" ? " · patient not taking" : ""}`}
       icon={<Pill size={22} />}
       onClose={onClose}
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!action || busy || (needsDose && !dose)} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
+          <button className="btn primary" disabled={!action || busy || (needsDose && !dose) || (needsReason && !reason)} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
         </span>
       }
     >
       <div className="drawer-body">
         <div className="q">
           <div className="label">What do you want to do?</div>
-          <SingleChoice label="Medication action" options={actions} value={action} onChange={(v) => (setAction(v), setDose(""), setReview(v === "increase" && renalK ? "lab-7" : "none"))} />
+          <SingleChoice label="Medication action" options={actions} value={action} onChange={(v) => (setAction(v), setDose(""), setReason(""), setReview(v === "increase" && renalK ? "lab-7" : "none"))} />
         </div>
+        {med.status !== "held" && med.status !== "not_taking" && (
+          <div className="q">
+            <div className="label">Or record what the patient reports</div>
+            <div className="help">Only when it differs from the prescription. Otherwise nothing needs recording.</div>
+            <SingleChoice label="Patient reports" options={PATIENT_ACTIONS} value={action} onChange={(v) => (setAction(v), setDose(""), setReason(""), setReview("none"))} />
+          </div>
+        )}
         {needsDose && (
           <div className="q">
-            <div className="label">New dose</div>
+            <div className="label">{action === "patient-dose" ? "Dose the patient actually takes" : "New dose"}</div>
             {doses.length ? (
               <SingleChoice label="New dose" options={doses.map((d) => ({ value: String(d), label: doseLabel(def, d) }))} value={dose} onChange={setDose} />
             ) : (
-              <div className="infobox">No {action === "increase" ? "higher" : "lower"} catalogue strength. Current dose is at the end of the listed range.</div>
+              <div className="infobox">{action === "patient-dose" ? "No other catalogue strength for this medicine." : `No ${action === "increase" ? "higher" : "lower"} catalogue strength. Current dose is at the end of the listed range.`}</div>
             )}
           </div>
         )}
@@ -312,13 +339,13 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
             <div className="label">Reason</div>
             <SingleChoice
               label="Reason"
-              options={(action === "increase" ? ["Titration toward target", "Symptoms not controlled"] : action === "decrease" ? ["Hyperkalaemia", "Renal function", "Hypotension", "Bradycardia", "Side effect"] : action === "hold" ? ["Hyperkalaemia", "Acute kidney injury", "Hypotension", "Procedure", "Intercurrent illness"] : action === "stop" ? ["Adverse effect", "No longer indicated", "Replaced by another drug", "Patient preference"] : ["Tolerating, repeat checks normal"]).map((r) => ({ value: r, label: r }))}
+              options={(action === "increase" ? ["Titration toward target", "Symptoms not controlled"] : action === "decrease" ? ["Hyperkalaemia", "Renal function", "Hypotension", "Bradycardia", "Side effect"] : action === "hold" ? ["Hyperkalaemia", "Acute kidney injury", "Hypotension", "Procedure", "Intercurrent illness"] : action === "stop" ? ["Adverse effect", "No longer indicated", "Replaced by another drug", "Patient preference"] : action === "not_taking" || action === "patient-stop" ? NOT_TAKING_REASONS : action === "patient-dose" ? ["Side effect at the prescribed dose", "Misunderstood the dose", "Other"] : action === "resume" ? ["Taking it again as prescribed"] : ["Tolerating, repeat checks normal"]).map((r) => ({ value: r, label: r }))}
               value={reason}
               onChange={setReason}
             />
           </div>
         )}
-        {action && action !== "stop" && action !== "continue" && (
+        {action && action !== "stop" && action !== "continue" && !exception && (
           <div className="q">
             <div className="label">Follow-up</div>
             <Segmented
@@ -338,7 +365,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
           <div className="label" style={{ fontSize: 15 }}>History</div>
           {history.slice().reverse().map((e: any) => (
             <div key={e.id} className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", padding: "8px 0" }}>
-              <span style={{ fontWeight: 700 }}>{e.kind[0].toUpperCase() + e.kind.slice(1)}{e.dose_value != null ? ` · ${doseLabel(def, e.dose_value)}` : ""}</span>
+              <span style={{ fontWeight: 700 }}>{({ not_taking: "Not taking", resume: "Taking again" } as Record<string, string>)[e.kind] ?? e.kind[0].toUpperCase() + e.kind.slice(1)}{e.dose_value != null ? ` · ${doseLabel(def, e.dose_value)}` : ""}</span>
               <span className="small muted" style={{ fontWeight: 600 }}>{e.reason ? e.reason + " · " : ""}{fmtDay(e.effective_at, { year: true })}</span>
             </div>
           ))}

@@ -44,7 +44,7 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
                     <td>{m.frequency} {m.route}</td>
                     <td>{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>
                     <td>{m.lastChange ? `${m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
-                    <td><Tag sev={m.status === "held" ? "orange" : "green"}>{m.status === "held" ? "Held" : "Active"}</Tag></td>
+                    <td><Tag sev={m.status === "held" || m.status === "not_taking" ? "orange" : "green"}>{m.status === "held" ? "Held" : m.status === "not_taking" ? "Not taking" : "Active"}</Tag></td>
                     <td style={{ textAlign: "right" }}>
                       <button className="btn secondary small" onClick={() => open({ kind: "med-action", medId: m.id })}>Change</button>
                     </td>

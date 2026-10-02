@@ -3,7 +3,7 @@
 // plan in English and Arabic. Nothing is invented: every line comes from the record, and the
 // patient advice is fixed guideline-based education chosen by the patient's medicines.
 import type { Q } from "../db/db.js";
-import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
 import { attributesText } from "../../shared/history.js";
 import { mechanicalInrTarget } from "../engine/acute-rules.js";
@@ -13,7 +13,7 @@ import { planView, recommendations, whatChanged } from "./views.js";
 export type Doc = { id: string; title: string; text: string; dir?: "rtl" };
 
 const on = (s: PatientState, ...tags: string[]) => s.meds.filter((m) => m.status === "active" && m.tags.some((t) => tags.includes(t)));
-const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
+const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held" || m.status === "not_taking");
 const brand = (code: string) => MEDICATION[code]?.brands?.[0];
 const dose = (m: MedState) => (m.doseValue != null ? doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit) : "dose not recorded");
 
@@ -23,10 +23,14 @@ function recentChanges(s: PatientState) {
   const out: { med: MedState; kind: string; at: string; dose: number | null; reason: string }[] = [];
   for (const m of s.meds)
     for (const e of m.events)
-      if (e.effective_at > since && ["start", "restart", "increase", "decrease", "hold", "stop"].includes(e.kind))
+      if (e.effective_at > since && ["start", "restart", "increase", "decrease", "hold", "stop", "not_taking", "resume"].includes(e.kind))
         out.push({ med: m, kind: e.kind, at: e.effective_at, dose: e.dose_value, reason: e.reason });
   return { since, items: out.sort((a, b) => a.at.localeCompare(b.at)) };
 }
+const notTakingReason = (m: MedState) => {
+  const e = [...m.events].reverse().find((x) => x.kind === "not_taking");
+  return e?.reason ? `: ${e.reason.toLowerCase()}` : "";
+};
 const latestChange = (s: PatientState, m: MedState, since: string) => [...m.events].reverse().find((e) => e.effective_at > since && e.kind !== "continue");
 
 // ---------------------------------------------------------------- English clinical documents
@@ -62,8 +66,13 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
   }
   L.push("");
   L.push("Current medications:");
-  for (const m of live(s)) L.push(`- ${m.name}${brand(m.code) ? ` (${brand(m.code)})` : ""} ${dose(m)} ${m.frequency ?? ""}${m.status === "held" ? " — ON HOLD" : ""}`.trimEnd());
+  for (const m of live(s)) L.push(`- ${m.name}${brand(m.code) ? ` (${brand(m.code)})` : ""} ${dose(m)} ${m.frequency ?? ""}${m.status === "held" ? " — ON HOLD" : m.status === "not_taking" ? ` — NOT TAKING (patient report${notTakingReason(m)})` : ""}`.trimEnd());
   if (!live(s).length) L.push("- none");
+  if (s.barriers.length) {
+    L.push("");
+    L.push("Not given (reason recorded):");
+    for (const b of s.barriers) L.push(`- ${classLabel(b.drug_class)}: ${BARRIER_LABEL[b.category].toLowerCase()}${b.detail ? ` (${b.detail})` : ""}, ${fmtDay(b.effective_at, { year: true })}`);
+  }
   const ch = recentChanges(s);
   if (ch.items.length) {
     L.push("");
@@ -97,7 +106,7 @@ function medicationList(s: PatientState): string {
     L.push(purpose + ":");
     for (const m of meds) {
       const e = latestChange(s, m, ch.since);
-      const tag = m.status === "held" ? "ON HOLD" : e?.kind === "start" || e?.kind === "restart" ? "NEW" : e?.kind === "increase" ? "INCREASED" : e?.kind === "decrease" ? "REDUCED" : "";
+      const tag = m.status === "held" ? "ON HOLD" : m.status === "not_taking" ? `NOT TAKING${notTakingReason(m)}` : e?.kind === "start" || e?.kind === "restart" ? "NEW" : e?.kind === "increase" ? "INCREASED" : e?.kind === "decrease" ? "REDUCED" : "";
       L.push(`- ${m.name}${brand(m.code) ? ` (${brand(m.code)})` : ""} ${dose(m)} ${m.frequency ?? ""}${m.route && m.route !== "PO" ? " " + m.route : ""}${tag ? `  [${tag}]` : ""}`.trimEnd());
     }
   }
@@ -221,6 +230,7 @@ function patientPlan(s: PatientState, lang: "en" | "ar"): string {
     const purpose = ar ? AR_PURPOSE[m.purpose] : EN_PURPOSE[m.purpose];
     const tag = m.status === "held"
       ? (ar ? "متوقف مؤقتاً" : "ON HOLD")
+      : m.status === "not_taking" ? (ar ? "لا تتناوله حالياً — ناقش ذلك مع طبيبك" : "you are not taking this — talk to your doctor")
       : e?.kind === "start" || e?.kind === "restart" ? (ar ? "دواء جديد" : "NEW")
       : e?.kind === "increase" ? (ar ? "تمت زيادة الجرعة" : "dose increased")
       : e?.kind === "decrease" ? (ar ? "تم تخفيض الجرعة" : "dose reduced") : "";

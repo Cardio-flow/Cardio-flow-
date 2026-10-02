@@ -3,7 +3,7 @@ import { BookOpen, Check } from "lucide-react";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
 import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
-import { MEDICATION, formatNumber } from "../../shared/catalog";
+import { BARRIER_CATEGORIES, MEDICATION, formatNumber } from "../../shared/catalog";
 import type { Open } from "./Patient";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
@@ -18,7 +18,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <ActivePlan s={s} open={open} />
         </div>
         <div className="stack">
-          <Meds s={s} open={open} />
+          <Meds s={s} open={open} done={done} />
           <Results s={s} open={open} />
           <Upcoming s={s} />
         </div>
@@ -147,7 +147,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
     );
   if (act.type === "med-action")
     return (
-      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.action, reason: a.title })}>
+      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.action, reason: act.action === "resume" ? undefined : a.title })}>
         {act.label}
       </button>
     );
@@ -170,12 +170,14 @@ export function WhyPanel({ a, patientId, done }: { a: any; patientId?: string; d
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const close = async (outcome: "deferred" | "declined") => {
+  const [cat, setCat] = useState("");
+  const isDrug = a.action?.type === "start-med" || (a.action?.type === "titrate" && a.action.direction === "increase");
+  const close = async (outcome: "deferred" | "declined", category?: string) => {
     setBusy(true);
     setError("");
     try {
-      await api(`/patients/${patientId}/recommendations/${a.id}/decline`, { body: { outcome, reason, also: (a.also ?? []).map((x: any) => x.id) } });
-      done?.(outcome === "deferred" ? "Suggestion deferred" : "Suggestion closed");
+      await api(`/patients/${patientId}/recommendations/${a.id}/decline`, { body: { outcome, reason, also: (a.also ?? []).map((x: any) => x.id), ...(category ? { category } : {}) } });
+      done?.(category ? "Reason recorded" : outcome === "deferred" ? "Suggestion deferred" : "Suggestion closed");
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -216,7 +218,20 @@ export function WhyPanel({ a, patientId, done }: { a: any; patientId?: string; d
           Assessment incomplete: {a.missing.join(", ")} not available. Missing data is never assumed normal.
         </div>
       )}
-      {patientId && a.action?.type !== "wizard" && (
+      {patientId && isDrug && (
+        <div className="notnow">
+          <span className="small" style={{ fontWeight: 700, color: "var(--ink-3)", flexBasis: "100%" }}>Not giving it? Record why once: this drug class stops being suggested.</span>
+          <div className="choices" role="radiogroup" aria-label="Reason the medicine is not given" style={{ flexBasis: "100%" }}>
+            {BARRIER_CATEGORIES.map((c) => (
+              <button key={c.value} type="button" className="choice small" role="radio" aria-checked={cat === c.value} aria-pressed={cat === c.value} onClick={() => setCat(c.value)}>{c.label}</button>
+            ))}
+          </div>
+          <input className="input" placeholder={cat === "other" ? "Note (required)" : "Note (optional), e.g. genital infection, angioedema"} value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Note" />
+          <button className="btn ghost small" disabled={busy || !cat || (cat === "other" && reason.trim().length < 3)} onClick={() => close("declined", cat)}>Record reason</button>
+          {error && <span className="small" style={{ color: "var(--red-ink)", fontWeight: 700 }}>{error}</span>}
+        </div>
+      )}
+      {patientId && a.action?.type !== "wizard" && !isDrug && (
         <div className="notnow">
           <input className="input" placeholder="Reason (e.g. patient preference, not available, already tried)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for not acting now" />
           <button className="btn ghost small" disabled={busy || reason.trim().length < 3} onClick={() => close("deferred")}>Not now</button>
@@ -310,7 +325,11 @@ function ActivePlan({ s, open }: { s: any; open(o: Open): void }) {
   );
 }
 
-function Meds({ s, open }: { s: any; open(o: Open): void }) {
+function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
+  const clear = async (cls: string) => {
+    await api(`/patients/${s.header.id}/barriers/${encodeURIComponent(cls)}/clear`, { body: {} });
+    done("Reason removed · suggestions for this drug class can return");
+  };
   return (
     <section className="card pad" style={{ paddingBottom: 14 }}>
       <div className="card-head">
@@ -324,13 +343,13 @@ function Meds({ s, open }: { s: any; open(o: Open): void }) {
           {g.meds.map((m: any) => (
             <button key={m.id} className={`med ${m.status === "held" ? "held" : ""}`} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line-2)", width: "100%" }} onClick={() => open({ kind: "med-action", medId: m.id })}>
               <span className="col grow" style={{ gap: 2 }}>
-                <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" ? "line-through" : undefined, color: m.status === "held" ? "var(--ink-4)" : undefined }}>
+                <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" || m.status === "not_taking" ? "line-through" : undefined, color: m.status === "held" || m.status === "not_taking" ? "var(--ink-4)" : undefined }}>
                   {m.name}
                   {MEDICATION[m.code]?.brands?.length ? <span className="trade"> · {MEDICATION[m.code].brands![0]}</span> : null}
                 </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
                   {m.dose} · {m.frequency}
-                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${m.lastChange.kind === "hold" ? "held" : m.lastChange.kind === "decrease" ? "reduced" : m.lastChange.kind === "increase" ? "increased" : m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
+                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
                 </span>
               </span>
               <MedTag m={m} s={s} />
@@ -338,12 +357,27 @@ function Meds({ s, open }: { s: any; open(o: Open): void }) {
           ))}
         </div>
       ))}
+      {s.barriers?.length > 0 && (
+        <div className="med-group">
+          <div className="eyebrow">Not given · reason recorded</div>
+          {s.barriers.map((b: any) => (
+            <div key={b.cls} className="barrier">
+              <span className="col grow" style={{ gap: 2 }}>
+                <b>{b.label}</b>
+                <span>{b.reason}{b.detail ? ` · ${b.detail}` : ""} · {fmtDay(b.at)}{b.lasting ? "" : b.active ? " · until next visit" : " · lapsed, suggestions can return"}</span>
+              </span>
+              <button className="btn ghost small" onClick={() => clear(b.cls)}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 function MedTag({ m, s }: { m: any; s: any }) {
   if (m.status === "held") return <Tag sev="orange">Held</Tag>;
+  if (m.status === "not_taking") return <Tag sev="orange">Not taking</Tag>;
   const k = s.attention.find((a: any) => a.rule_id === "hf.hyperkalaemia-review");
   if (k && (m.tags.includes("mra") || m.tags.includes("raas"))) return <Tag sev={m.tags.includes("mra") ? "red" : "orange"}>K review</Tag>;
   if (m.planned) return <Tag sev="blue">{m.planned.category === "monitoring" ? "Check" : "Review"} {fmtDay(m.planned.due_date)}</Tag>;

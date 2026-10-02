@@ -342,3 +342,30 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "dm-eyes", category: "referral", title: "Diabetic retinal screening", completesOn: { type: "manual" }, offsets: [28, 90] },
   { id: "dm-feet", category: "monitoring", title: "Diabetic foot examination", completesOn: { type: "manual" }, offsets: [0, 28] },
 ];
+
+// Drug classes used to merge duplicate suggestions and to record why a class is not given.
+export const CLASS_TAGS = ["sglt2", "glp1", "mra", "arni", "raas", "bb", "statin", "ezetimibe", "pcsk9", "p2y12", "oac", "antiplatelet", "iv-iron"];
+export const CLASS_LABEL: Record<string, string> = {
+  sglt2: "SGLT2 inhibitor", glp1: "GLP-1 receptor agonist", mra: "MRA", arni: "ARNI", raas: "ACE inhibitor / ARB / ARNI", bb: "Beta-blocker",
+  statin: "Statin", ezetimibe: "Ezetimibe", pcsk9: "PCSK9 therapy", p2y12: "P2Y12 inhibitor", oac: "Anticoagulant", antiplatelet: "Antiplatelet", "iv-iron": "IV iron",
+};
+export const drugClassOf = (code: string) => CLASS_TAGS.find((t) => MEDICATION[code]?.tags.includes(t)) ?? code;
+// "SGLT2 inhibitor", "Dose increase: Beta-blocker", or the drug name for a class-less drug
+export const classLabel = (cls: string) => {
+  const up = cls.startsWith("up:");
+  const c = up ? cls.slice(3) : cls;
+  const name = CLASS_LABEL[c] ?? MEDICATION[c]?.name ?? c;
+  return up ? `Dose increase: ${name}` : name;
+};
+
+// Why a drug class is not given. Intolerance and contraindication stay until cleared; the others
+// come back at the next visit or admission.
+export const BARRIER_CATEGORIES = [
+  { value: "intolerance", label: "Intolerance / side effect", lasting: true },
+  { value: "contraindication", label: "Contraindication", lasting: true },
+  { value: "declined", label: "Patient declines", lasting: false },
+  { value: "unavailable", label: "Not available", lasting: false },
+  { value: "cost", label: "Cost", lasting: false },
+  { value: "other", label: "Not now (review next visit)", lasting: false },
+] as const;
+export const BARRIER_LABEL: Record<string, string> = Object.fromEntries(BARRIER_CATEGORIES.map((c) => [c.value, c.label]));

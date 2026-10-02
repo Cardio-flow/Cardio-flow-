@@ -1,7 +1,8 @@
 import type { Q } from "../db/db.js";
 import { uuid } from "../kernel/base.js";
-import { loadState, type PatientState } from "../kernel/state.js";
-import { RULES, type RuleDef } from "./rules.js";
+import { activeBarrier, loadState, type PatientState } from "../kernel/state.js";
+import { drugClassOf } from "../../shared/catalog.js";
+import { RULES, type Finding, type RuleDef } from "./rules.js";
 import { NEEDS_REVIEW, POLICY_NOTE, POLICY_PUBLISHER, publishedByPolicy } from "./publication.js";
 
 export type RuleVersion = { rule_id: string; version: number; status: string; params: Record<string, any>; title: string; kind: string };
@@ -23,6 +24,21 @@ export async function activeRuleVersions(tx: Q, siteMode: "sandbox" | "productio
   return chosen;
 }
 
+// A drug suggestion stays quiet while a recorded reason covers its class, or while the patient
+// reports not taking a prescribed drug of that class (the not-taking alert speaks instead).
+export function suppressed(s: PatientState, f: Finding) {
+  const a = f.action as any;
+  if (a.type === "start-med") {
+    const cls = drugClassOf(a.code);
+    return !!activeBarrier(s, cls) || s.meds.some((m) => m.status === "not_taking" && drugClassOf(m.code) === cls);
+  }
+  if (a.type === "titrate" && a.direction === "increase") {
+    const m = s.meds.find((x) => x.id === a.medicationId);
+    return !!m && !!activeBarrier(s, "up:" + drugClassOf(m.code));
+  }
+  return false;
+}
+
 export type ReassessResult = { created: { id: string; severity: string; title: string; rule_id: string }[]; resolved: number; superseded: number };
 
 export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "production", changed: string[] | null = null, state?: PatientState): Promise<ReassessResult> {
@@ -30,7 +46,8 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   const versions = await activeRuleVersions(tx, siteMode);
   const result: ReassessResult = { created: [], resolved: 0, superseded: 0 };
   // a deceased patient leaves every reminder list: all rules run and find nothing
-  const shouldRun = (rule: RuleDef) => s.deceased || !changed || rule.inputs.some((i) => changed.includes(i));
+  // a new visit or admission can end a "until next review" reason: then every rule runs
+  const shouldRun = (rule: RuleDef) => s.deceased || !changed || rule.inputs.some((i) => changed.includes(i)) || (changed.includes("contexts") && s.barriers.length > 0);
   // Two reads for the whole patient instead of per rule (the database may be far away).
   const existing = (
     await tx.query<{ id: string; rule_id: string; fingerprint: string; rule_status: string; rule_version: number; status: string }>(
@@ -38,7 +55,10 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
       [patientId],
     )
   ).rows;
-  const decidedSet = new Set(existing.filter((r) => r.status === "decided").map((r) => r.rule_id + "#" + r.fingerprint));
+  // a suggestion closed with a recorded reason is governed by that reason (it can return when the
+  // reason lapses or is cleared); any other closed suggestion stays closed for the same data
+  const governed = new Set(((await tx.query(`SELECT recommendation_id FROM cf.treatment_barrier WHERE patient_id=$1 AND recommendation_id IS NOT NULL`, [patientId])).rows as any[]).map((r) => r.recommendation_id));
+  const decidedSet = new Set(existing.filter((r) => r.status === "decided" && !governed.has(r.id)).map((r) => r.rule_id + "#" + r.fingerprint));
   for (const rule of RULES) {
     const version = versions.get(rule.id);
     const active = existing.filter((r) => r.status === "active" && r.rule_id === rule.id);
@@ -51,7 +71,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
       continue;
     }
     if (!shouldRun(rule)) continue;
-    const findings = s.deceased ? [] : rule.evaluate(s, { ...rule.defaultParams, ...version.params });
+    const findings = s.deceased ? [] : rule.evaluate(s, { ...rule.defaultParams, ...version.params }).filter((f) => !suppressed(s, f));
     const seen = new Set<string>();
     for (const f of findings) {
       const fingerprint = `${f.key}|${f.signature}`;

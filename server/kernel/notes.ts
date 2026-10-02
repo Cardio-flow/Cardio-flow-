@@ -59,7 +59,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     "Current medications: " +
       (s.meds
         .filter((m) => m.status !== "stopped")
-        .map((m) => `${m.name} ${doseLabel(MEDICATION[m.code], m.doseValue)} ${m.frequency ?? ""}${m.status === "held" ? " (HELD)" : ""}`.trim())
+        .map((m) => `${m.name} ${doseLabel(MEDICATION[m.code], m.doseValue)} ${m.frequency ?? ""}${m.status === "held" ? " (HELD)" : m.status === "not_taking" ? " (NOT TAKING, patient report)" : ""}`.trim())
         .join("; ") || "none"),
   );
   const plan = planView(s).filter((p) => p.status === "planned");

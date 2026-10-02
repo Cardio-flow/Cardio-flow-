@@ -7,6 +7,7 @@ import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
+import { BARRIER_LABEL, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
@@ -337,7 +338,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["increase", "decrease", "hold", "restart", "stop", "continue"]),
+        kind: z.enum(["increase", "decrease", "hold", "restart", "stop", "continue", "not_taking", "resume"]),
         doseValue: z.number().positive().nullish(),
         frequency: z.string().max(60).nullish(),
         reason: z.string().max(300).optional(),
@@ -482,12 +483,41 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/recommendations/:rid/decline", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ outcome: z.enum(["declined", "deferred"]), reason: z.string().max(300), also: z.array(uuidS).max(10).optional() }).parse(req.body);
+    const input = z
+      .object({
+        outcome: z.enum(["declined", "deferred"]),
+        reason: z.string().max(300),
+        also: z.array(uuidS).max(10).optional(),
+        // why the drug is not given: recorded once per drug class and reused by every rule
+        category: z.enum(["intolerance", "contraindication", "declined", "unavailable", "cost", "other"]).optional(),
+      })
+      .parse(req.body);
     // a merged card closes with the suggestions it carries (same drug class, other rules)
     await write(res, id, async (tx, a) => {
-      for (const rid of [uuidS.parse(req.params.rid), ...(input.also ?? [])]) await declineRecommendation(tx, a, id, rid, { outcome: input.outcome, reason: input.reason });
-      return { changed: [] };
+      const rid = uuidS.parse(req.params.rid);
+      if (input.category) {
+        const rec = (await tx.query(`SELECT action FROM cf.recommendation WHERE id=$1 AND patient_id=$2 AND status='active'`, [rid, id])).rows[0] as any;
+        const act = rec && (typeof rec.action === "string" ? JSON.parse(rec.action) : rec.action);
+        let cls: string | null = null, drug: string | null = null;
+        if (act?.type === "start-med") (cls = drugClassOf(act.code)), (drug = act.code);
+        if (act?.type === "titrate") {
+          const m = (await tx.query(`SELECT drug FROM cf.medication WHERE id=$1 AND patient_id=$2`, [act.medicationId, id])).rows[0] as any;
+          if (m) (cls = "up:" + drugClassOf(m.drug)), (drug = m.drug);
+        }
+        if (!cls) throw new ApiError(400, "A reason category applies to medicine suggestions only");
+        await K.recordBarrier(tx, a, id, { drugClass: cls, category: input.category, detail: input.reason, drug, recommendationId: rid });
+      }
+      const outcome = input.category && ["intolerance", "contraindication"].includes(input.category) ? "declined" : input.outcome;
+      const reason = input.category ? `${BARRIER_LABEL[input.category]}${input.reason.trim() ? ": " + input.reason.trim() : ""}` : input.reason;
+      for (const r of [rid, ...(input.also ?? [])]) await declineRecommendation(tx, a, id, r, { outcome, reason });
+      return { changed: input.category ? (null as any) : [] };
     });
+  }));
+
+  app.post("/api/patients/:id/barriers/:cls/clear", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const cls = z.string().min(2).max(40).parse(req.params.cls);
+    await write(res, id, async (tx, a) => (await K.clearBarrier(tx, a, id, cls), { changed: null as any }));
   }));
 
   // ---------- governance ----------
