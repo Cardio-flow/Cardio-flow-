@@ -89,7 +89,7 @@ export function WizardDrawer({
       tone={tone}
       onClose={onClose}
       head={
-        <ol className="steps" style={{ gridTemplateColumns: `repeat(${def.steps.length + 1}, minmax(0, 1fr))` }}>
+        <ol className="steps" data-caption={`Step ${step + 1} of ${def.steps.length + 1} · ${[...def.steps.map((s) => s.title), "Confirm"][step]}`} style={{ gridTemplateColumns: `repeat(${def.steps.length + 1}, minmax(0, 1fr))` }}>
           {[...def.steps.map((s) => s.title), "Confirm"].map((t, i) => (
             <li key={t} className={i < step ? "done" : i === step ? "cur" : ""} aria-current={i === step ? "step" : undefined}>
               <i />

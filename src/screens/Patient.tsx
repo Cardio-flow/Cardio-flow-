@@ -138,7 +138,11 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             )}
           </div>
         </div>
-        <nav className="tabs" aria-label="Patient sections">
+        <nav className="tabs" aria-label="Patient sections" ref={(el) => {
+          // keep the current tab visible when the bar scrolls sideways (phones), without moving the page
+          const a = el?.querySelector<HTMLElement>('[aria-current="page"]');
+          if (el && a) el.scrollLeft = a.offsetLeft - el.clientWidth / 2 + a.clientWidth / 2;
+        }}>
           {TABS.map(([key, label]) => (
             <Link key={key} to={`/patients/${id}${key === "summary" ? "" : "/" + key}`} aria-current={tab === key ? "page" : undefined}>
               {label}

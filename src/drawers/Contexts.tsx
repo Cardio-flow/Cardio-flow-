@@ -327,7 +327,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       icon={<Stethoscope size={22} />}
       onClose={() => (visitId && step > 0 ? onDone() : onClose())}
       head={
-        <ol className="steps" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           {steps.map((t, i) => (
             <li key={t} className={i < step ? "done" : i === step ? "cur" : ""}>
               <i />

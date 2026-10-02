@@ -573,3 +573,63 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 .barrier { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-2); }
 .barrier b { font-size: 14px; color: var(--navy); }
 .barrier span span, .barrier .col > span { font-size: 12.5px; font-weight: 600; color: var(--ink-4); }
+
+/* ---------------- phones (2 Oct 2026) ---------------- */
+.grid-journey { grid-template-columns: minmax(0, 1fr) 400px; }
+.jr-detail { margin-top: 10px; padding: 14px; border: 1px solid var(--blue-line); border-radius: 12px; background: #fff; box-shadow: var(--shadow-lg); }
+@media (max-width: 900px) {
+  .grid-journey { grid-template-columns: minmax(0, 1fr); }
+  /* patient header: no avatar, compact rows */
+  .pt-avatar { display: none; }
+  .pt-head { padding-top: 14px; gap: 12px; }
+  .pt-name h1 { font-size: 24px; }
+  .pt-actions { gap: 8px; }
+  .pt-actions .btn { height: 40px; padding: 0 14px; font-size: 14px; }
+  /* tabs scroll sideways with a fade so hidden tabs are discoverable */
+  .tabs { gap: 20px; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); padding-right: 40px; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { font-size: 14px; padding-bottom: 12px; }
+  .tabs .tab-action { margin-left: 0; height: 32px; margin-bottom: 8px; }
+  /* page titles: text above, buttons below */
+  .page-head { flex-direction: column; align-items: stretch; }
+  .page-head > :last-child:not(:first-child) { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* tables become stacked cards: label above each value */
+  table.data, table.data tbody, table.data tr, table.data td { display: block; width: 100%; }
+  table.data thead { display: none; }
+  table.data tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 14px; padding: 14px 0; border-top: 1px solid var(--line-2); }
+  table.data tr:first-child { border-top: 0; }
+  table.data td { border: 0; padding: 0; min-width: 0; text-align: left !important; overflow-wrap: anywhere; }
+  table.data td:first-child { grid-column: 1 / -1; font-size: 15px; }
+  table.data td[data-label]:not(:first-child)::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-4); margin-bottom: 2px; }
+  table.data td[data-cell="action"] { justify-self: end; align-self: end; }
+  table.data td[data-cell="action"]:empty, table.data td[data-label]:empty { display: none; }
+  table.data tr:hover td { background: transparent; }
+  /* journey rows: narrower date column */
+  .jr { grid-template-columns: 56px 30px minmax(0, 1fr); gap: 8px; }
+  .jr .date b { font-size: 12.5px; }
+  .jr .node { width: 28px; height: 28px; }
+  /* alerts: "Why?" and the action share one row under the text */
+  .alert { flex-wrap: wrap; gap: 10px 12px; padding: 14px; }
+  .alert .ic { width: 36px; height: 36px; }
+  .alert .txt { flex-basis: calc(100% - 50px); }
+  .alert .why { margin-left: 46px; }
+  .alert .go { margin-left: auto; max-width: calc(100% - 110px); height: auto; min-height: 40px; white-space: normal; text-align: left; padding: 8px 14px; }
+  .why-panel .facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .card.pad { padding: 18px 16px; }
+}
+@media (max-width: 420px) {
+  .why-panel .facts { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  /* step bars: only the current step keeps its title on phones */
+  .steps li, .steps li.cur { font-size: 0; gap: 0; }
+  .steps[data-caption]::after { content: attr(data-caption); grid-column: 1 / -1; font-size: 13px; font-weight: 800; color: var(--navy); }
+  .steps { row-gap: 8px; }
+  /* drawer footer: status line on its own row, buttons share the next */
+  .drawer-foot { flex-wrap: wrap; padding: 12px 16px; gap: 8px 10px; }
+  .drawer-foot .note, .drawer-foot > span:not(.end) { flex-basis: 100%; font-size: 12.5px; }
+  .drawer-foot .end { margin-left: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .drawer-foot .end .btn { flex: 1 1 auto; min-width: 0; white-space: normal; height: auto; min-height: 44px; }
+  /* data from the record: a compact strip above the questions */
+  .wiz-side { max-height: 32vh; padding: 14px 16px; }
+}

@@ -39,13 +39,13 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
               <tbody>
                 {meds.map((m: any) => (
                   <tr key={m.id}>
-                    <td><b>{m.name}</b><div className="small muted">{m.drugClass}{MEDICATION[m.code]?.brands?.length ? ` · ${MEDICATION[m.code].brands!.join(", ")}` : ""}</div></td>
-                    <td>{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}</td>
-                    <td>{m.frequency} {m.route}</td>
-                    <td>{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>
-                    <td>{m.lastChange ? `${m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
-                    <td><Tag sev={m.status === "held" || m.status === "not_taking" ? "orange" : "green"}>{m.status === "held" ? "Held" : m.status === "not_taking" ? "Not taking" : "Active"}</Tag></td>
-                    <td style={{ textAlign: "right" }}>
+                    <td data-label="Medication"><b>{m.name}</b><div className="small muted">{m.drugClass}{MEDICATION[m.code]?.brands?.length ? ` · ${MEDICATION[m.code].brands!.join(", ")}` : ""}</div></td>
+                    <td data-label="Dose">{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}</td>
+                    <td data-label="Frequency">{m.frequency} {m.route}</td>
+                    <td data-label="Since">{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>
+                    <td data-label="Last change">{m.lastChange ? `${({ start: "Started", increase: "Increased", decrease: "Reduced", hold: "Held", restart: "Restarted", not_taking: "Not taking", resume: "Taken again", continue: "Continued" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
+                    <td data-label="Status"><Tag sev={m.status === "held" || m.status === "not_taking" ? "orange" : "green"}>{m.status === "held" ? "Held" : m.status === "not_taking" ? "Not taking" : "Active"}</Tag></td>
+                    <td data-cell="action" style={{ textAlign: "right" }}>
                       <button className="btn secondary small" onClick={() => open({ kind: "med-action", medId: m.id })}>Change</button>
                     </td>
                   </tr>
@@ -116,12 +116,12 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                 const isCurrent = obsId && lvef?.current.id === obsId;
                 return (
                   <tr key={s.id}>
-                    <td>{fmtDay(s.performed_at, { year: true })}</td>
-                    <td><Tag sev={s.quality === "formal" ? "blue" : "gray"}>{s.quality}</Tag></td>
-                    <td><b>{s.lvef != null ? `${formatNumber(s.lvef, 0)}%` : "—"}</b></td>
-                    <td className="small">{s.findings.join(" · ")}</td>
-                    <td>{isCurrent ? <Tag sev="green">Current</Tag> : null}</td>
-                    <td style={{ textAlign: "right" }}>
+                    <td data-label="Date">{fmtDay(s.performed_at, { year: true })}</td>
+                    <td data-label="Quality"><Tag sev={s.quality === "formal" ? "blue" : "gray"}>{s.quality}</Tag></td>
+                    <td data-label="LVEF"><b>{s.lvef != null ? `${formatNumber(s.lvef, 0)}%` : "—"}</b></td>
+                    <td data-label="Findings" className="small">{s.findings.join(" · ")}</td>
+                    <td data-label="Used as current">{isCurrent ? <Tag sev="green">Current</Tag> : null}</td>
+                    <td data-cell="action" style={{ textAlign: "right" }}>
                       {obsId && !isCurrent && (
                         <button className="btn ghost small" disabled={busy} onClick={() => prefer(obsId, "Clinician preferred this study")}>Use this study</button>
                       )}
@@ -153,10 +153,10 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
             <tbody>
               {others.map((st: any) => (
                 <tr key={st.id}>
-                  <td>{fmtDay(st.performed_at, { year: true })}</td>
-                  <td><Tag sev="blue">{STUDY_LABEL[st.kind] ?? st.kind}</Tag></td>
-                  <td><b>{st.findings[0] ?? "—"}</b></td>
-                  <td className="small muted">{st.conclusion || "—"}</td>
+                  <td data-label="Date">{fmtDay(st.performed_at, { year: true })}</td>
+                  <td data-label="Study"><Tag sev="blue">{STUDY_LABEL[st.kind] ?? st.kind}</Tag></td>
+                  <td data-label="Findings"><b>{st.findings[0] ?? "—"}</b></td>
+                  <td data-label="Conclusion" className="small muted">{st.conclusion || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -174,11 +174,11 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                 const flag = flagFor(r.current.value, def?.ref);
                 return (
                   <tr key={r.code}>
-                    <td><b>{r.display}</b>{def?.derived && <div className="small" style={{ color: "var(--blue-ink)", fontWeight: 700 }}>Calculated</div>}</td>
-                    <td><b style={{ color: flag === "high" ? "var(--red-ink)" : flag === "low" ? "var(--orange-ink)" : undefined }}>{formatNumber(r.current.value, r.decimals)}</b> <span className="muted small">{r.unit}</span> {flag && <Tag sev={flag === "high" ? "red" : "orange"}>{flag.toUpperCase()}</Tag>}</td>
-                    <td>{fmtDay(r.current.at, { year: true })}</td>
-                    <td><Sparkline values={r.series.map((p: any) => p.value)} tone={flag ? "orange" : "gray"} /></td>
-                    <td className="small muted">{r.series.slice(0, -1).reverse().slice(0, 3).map((p: any) => `${formatNumber(p.value, r.decimals)} (${fmtDay(p.at)})`).join(" · ") || "—"}</td>
+                    <td data-label="Test"><b>{r.display}</b>{def?.derived && <div className="small" style={{ color: "var(--blue-ink)", fontWeight: 700 }}>Calculated</div>}</td>
+                    <td data-label="Latest"><b style={{ color: flag === "high" ? "var(--red-ink)" : flag === "low" ? "var(--orange-ink)" : undefined }}>{formatNumber(r.current.value, r.decimals)}</b> <span className="muted small">{r.unit}</span> {flag && <Tag sev={flag === "high" ? "red" : "orange"}>{flag.toUpperCase()}</Tag>}</td>
+                    <td data-label="Date">{fmtDay(r.current.at, { year: true })}</td>
+                    <td data-label="Trend"><Sparkline values={r.series.map((p: any) => p.value)} tone={flag ? "orange" : "gray"} /></td>
+                    <td data-label="Previous" className="small muted">{r.series.slice(0, -1).reverse().slice(0, 3).map((p: any) => `${formatNumber(p.value, r.decimals)} (${fmtDay(p.at)})`).join(" · ") || "—"}</td>
                   </tr>
                 );
               })}

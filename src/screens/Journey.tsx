@@ -35,72 +35,18 @@ export function JourneyTab({ id, version }: { id: string; version: number }) {
       .filter((e: any) => filter === "all" || e.category === filter)
       .filter((e: any) => !recent || e.planned || e.occurred_at >= cutoff);
   }, [data, filter, recent]);
+  const narrow = useNarrow();
   useEffect(() => {
-    if (data && !sel) setSel([...data.events].reverse().find((e: any) => e.kind === "discharge") ?? data.events.filter((e: any) => !e.planned).pop());
+    if (data && !sel && !narrow) setSel([...data.events].reverse().find((e: any) => e.kind === "discharge") ?? data.events.filter((e: any) => !e.planned).pop());
   }, [data, sel]);
   useEffect(() => setNote(null), [sel]);
   if (!data) return <main className="page" />;
   const ctx = sel?.context_id ? data.contexts.find((c: any) => c.id === sel.context_id) : null;
   const pastCount = events.filter((e: any) => !e.planned).length;
-  return (
-    <main className="page">
-      <div className="grid-main" style={{ gridTemplateColumns: "minmax(0, 1fr) 400px" }}>
-        <section className="card pad">
-          <div className="card-head" style={{ flexWrap: "wrap" }}>
-            <h2>Journey</h2>
-            <div className="filters">
-              {FILTERS.map(([k, l]) => (
-                <button key={k} className="filter" style={{ height: 34, fontSize: 12.5 }} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="row small" style={{ fontWeight: 600, color: "var(--ink-3)", marginBottom: 8 }}>
-            <input type="checkbox" checked={!recent} onChange={(e) => setRecent(!e.target.checked)} /> Show older history
-          </label>
-          {events.length === 0 && <div className="empty">No events in this view.</div>}
-          <div>
-            {events.map((e: any, i: number) => {
-              const day = isoDay(new Date(e.occurred_at));
-              const prevDay = i > 0 ? isoDay(new Date(events[i - 1].occurred_at)) : null;
-              const isToday = day === data.today;
-              const last = i === events.length - 1;
-              return (
-                <div key={e.id}>
-                  {i === pastCount && pastCount > 0 && (
-                    <div className="today-mark">
-                      <span>TODAY</span>
-                      <hr />
-                    </div>
-                  )}
-                  <div className={`jr ${sel?.id === e.id ? "sel" : ""} ${e.planned ? "planned" : ""}`}>
-                    <div className="date">
-                      {day !== prevDay && (
-                        <>
-                          <b style={{ color: isToday ? "var(--red-ink)" : e.planned ? "var(--ink-3)" : undefined }}>{fmtDay(day)}</b>
-                          <span>{e.planned ? "Planned" : isToday ? "Today" : new Date(day).getFullYear() !== new Date(data.today).getFullYear() ? new Date(day).getFullYear() : fmtTime(e.occurred_at)}</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="rail">
-                      <span className={`node ${e.planned ? "planned" : e.category}`}>{icon(e)}</span>
-                      {!last && <span className={`line ${e.planned || events[i + 1]?.planned ? "dash" : ""}`} />}
-                    </div>
-                    <div className="body">
-                      <button onClick={() => setSel(e)} aria-pressed={sel?.id === e.id}>
-                        <div className="t">{e.title}</div>
-                        {e.detail && <div className="dt">{e.detail}</div>}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-        <aside className="card pad" style={{ position: "sticky", top: 96, boxShadow: "var(--shadow-lg)" }}>
-          {sel ? (
+  // the selected event's detail: a side panel on wide screens, opened under the event on phones
+  const detail = (
+    <>
+      {sel ? (
             <div className="col" style={{ gap: 14 }}>
               <div className="col" style={{ gap: 4 }}>
                 <span className="eyebrow" style={{ color: "var(--action)" }}>Selected · {sel.planned ? "planned" : sel.category}</span>
@@ -158,8 +104,85 @@ export function JourneyTab({ id, version }: { id: string; version: number }) {
           ) : (
             <div className="muted">Select an event</div>
           )}
-        </aside>
+    </>
+  );
+  return (
+    <main className="page">
+      <div className="grid-main grid-journey">
+        <section className="card pad">
+          <div className="card-head" style={{ flexWrap: "wrap" }}>
+            <h2>Journey</h2>
+            <div className="filters">
+              {FILTERS.map(([k, l]) => (
+                <button key={k} className="filter" style={{ height: 34, fontSize: 12.5 }} aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="row small" style={{ fontWeight: 600, color: "var(--ink-3)", marginBottom: 8 }}>
+            <input type="checkbox" checked={!recent} onChange={(e) => setRecent(!e.target.checked)} /> Show older history
+          </label>
+          {events.length === 0 && <div className="empty">No events in this view.</div>}
+          <div>
+            {events.map((e: any, i: number) => {
+              const day = isoDay(new Date(e.occurred_at));
+              const prevDay = i > 0 ? isoDay(new Date(events[i - 1].occurred_at)) : null;
+              const isToday = day === data.today;
+              const last = i === events.length - 1;
+              return (
+                <div key={e.id}>
+                  {i === pastCount && pastCount > 0 && (
+                    <div className="today-mark">
+                      <span>TODAY</span>
+                      <hr />
+                    </div>
+                  )}
+                  <div className={`jr ${sel?.id === e.id ? "sel" : ""} ${e.planned ? "planned" : ""}`}>
+                    <div className="date">
+                      {day !== prevDay && (
+                        <>
+                          <b style={{ color: isToday ? "var(--red-ink)" : e.planned ? "var(--ink-3)" : undefined }}>{fmtDay(day)}</b>
+                          <span>{e.planned ? "Planned" : isToday ? "Today" : new Date(day).getFullYear() !== new Date(data.today).getFullYear() ? new Date(day).getFullYear() : fmtTime(e.occurred_at)}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="rail">
+                      <span className={`node ${e.planned ? "planned" : e.category}`}>{icon(e)}</span>
+                      {!last && <span className={`line ${e.planned || events[i + 1]?.planned ? "dash" : ""}`} />}
+                    </div>
+                    <div className="body">
+                      <button onClick={() => setSel(narrow && sel?.id === e.id ? null : e)} aria-pressed={sel?.id === e.id} aria-expanded={narrow ? sel?.id === e.id : undefined}>
+                        <div className="t">{e.title}</div>
+                        {e.detail && <div className="dt">{e.detail}</div>}
+                      </button>
+                      {narrow && sel?.id === e.id && <div className="jr-detail">{detail}</div>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        {!narrow && (
+          <aside className="card pad" style={{ position: "sticky", top: 96, boxShadow: "var(--shadow-lg)" }}>
+            {detail}
+          </aside>
+        )}
       </div>
     </main>
   );
+}
+
+// phones and narrow windows: one column
+function useNarrow(px = 900) {
+  const q = `(max-width: ${px}px)`;
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const on = () => setNarrow(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, [q]);
+  return narrow;
 }
