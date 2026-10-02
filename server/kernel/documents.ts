@@ -158,7 +158,7 @@ const AR_STUDY: Record<string, string> = {
 const EN_STUDY: Record<string, string> = { echo: "Echo (heart ultrasound)", ecg: "ECG", holter: "Holter (24-hour heart monitor)", stress: "Exercise stress test", cmr: "Heart MRI", ccta: "CT of the heart arteries", cath: "Cardiac catheterisation" };
 // known template titles; anything else keeps its English title
 const AR_TITLE: Record<string, string> = {
-  "Phone follow-up": "مكالمة متابعة هاتفية", "Cardiac rehabilitation referral": "تحويل إلى برنامج التأهيل القلبي",
+  "Phone follow-up": "مكالمة متابعة هاتفية", "Advanced HF centre consultation": "تحويل إلى مركز متخصص في فشل القلب المتقدم", "Cardiac rehabilitation referral": "تحويل إلى برنامج التأهيل القلبي",
   "HF self-care education": "تثقيف عن العناية الذاتية لضعف القلب", "Diabetic retinal screening": "فحص قاع العين للسكري",
   "Diabetic foot examination": "فحص القدمين للسكري", "Endocrinology referral": "تحويل إلى عيادة الغدد الصماء",
   "Dietitian / diabetes educator": "موعد مع أخصائي التغذية / مثقف السكري", "Nephrology referral": "تحويل إلى عيادة الكلى",

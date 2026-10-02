@@ -43,7 +43,7 @@ function Glance({ o }: { o: any }) {
       </div>
       <button onClick={() => go("chg")}>
         <small>What changed</small>
-        <b>{o.changed.since ? `${o.changed.count} change${o.changed.count === 1 ? "" : "s"} since ${o.changed.label?.toLowerCase() ?? "last review"}` : "No earlier review"}</b>
+        <b>{o.changed.since ? `${o.changed.count} change${o.changed.count === 1 ? "" : "s"} since ${o.changed.label?.toLowerCase().replace(/^since /, "") ?? "last review"}` : "No earlier review"}</b>
         {o.changed.top.length > 0 && <span>{o.changed.top.join(" · ")}</span>}
       </button>
       <button onClick={() => go("att")}>
