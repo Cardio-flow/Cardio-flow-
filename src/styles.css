@@ -728,3 +728,20 @@ tr.reg-only td { color: var(--ink-4); }
   .docs-phone { display: inline-flex; }
   .tabs .tab-action { display: none; }
 }
+
+/* Phone navigation (2 Oct 2026): bottom bar with the main sections, and a back link on the patient page */
+.phone-nav, .pt-back { display: none; }
+@media (max-width: 900px) {
+  .phone-nav {
+    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: var(--surface); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .phone-nav a, .phone-nav button {
+    all: unset; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; cursor: pointer;
+    font-size: 11px; font-weight: 700; color: var(--ink-4); text-decoration: none;
+  }
+  .phone-nav [aria-current="page"] { color: var(--navy); }
+  .phone-nav [aria-current="page"] svg { color: var(--flow-blue); }
+  .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .pt-back { display: inline-block; margin-bottom: 6px; font-size: 14px; font-weight: 700; color: var(--action); text-decoration: none; }
+}

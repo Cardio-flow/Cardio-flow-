@@ -105,6 +105,25 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
             {attention > 0 && <span style={{ position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: "50%", background: "var(--red)", border: "2px solid #fff" }} />}
           </button>
         </header>
+        {/* phones: the sidebar is hidden, so the main sections sit in a bar at the bottom */}
+        <nav className="phone-nav" aria-label="Main (phone)">
+          <Link to="/" aria-current={section === "worklist" ? "page" : undefined}>
+            <ListChecks size={20} />
+            <span>Worklist{attention > 0 ? ` · ${attention}` : ""}</span>
+          </Link>
+          <Link to="/patients" aria-current={section === "patients" ? "page" : undefined}>
+            <Users size={20} />
+            <span>Patients</span>
+          </Link>
+          <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
+            <ShieldCheck size={20} />
+            <span>Rules</span>
+          </Link>
+          <button onClick={onLogout} aria-label="Sign out">
+            <LogOut size={20} />
+            <span>Sign out</span>
+          </button>
+        </nav>
         {patientMatch ? (
           <PatientPage key={patientMatch[1]} id={patientMatch[1]} tab={patientMatch[2] ?? "summary"} />
         ) : section === "patients" ? (

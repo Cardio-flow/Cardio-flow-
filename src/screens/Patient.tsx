@@ -68,6 +68,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   return (
     <>
       <section className="pt-head">
+        <Link to="/" className="pt-back">‹ Worklist</Link>
         <div className="pt-top">
           <div className="pt-avatar">{initials(h.name)}</div>
           <div className="col" style={{ gap: 8, minWidth: 0 }}>
