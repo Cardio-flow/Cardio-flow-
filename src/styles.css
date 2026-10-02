@@ -748,3 +748,34 @@ tr.reg-only td { color: var(--ink-4); }
 .reg-mini { display: block; height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 5px; max-width: 120px; }
 .reg-mini i { display: block; height: 100%; background: var(--flow-blue); border-radius: 99px; }
 .reg-chip { display: inline-block; margin: 4px 0 0 8px; padding: 2px 9px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--ink-3); }
+
+/* wizard: option cards with examples, the record panel toggle on phones, the closing assessment (2 Oct 2026) */
+.choices.cards { flex-direction: column; flex-wrap: nowrap; }
+.choices.cards .choice { width: 100%; padding: 12px 16px; align-items: flex-start; }
+.choice-text { display: flex; flex-direction: column; gap: 3px; }
+.choice-text b { font-size: 15px; font-weight: 800; }
+.choice-hint { font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--ink-4); }
+.choice[aria-checked="true"] .choice-hint { color: #d6e4ff; }
+.side-toggle { display: none; }
+.assess { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: var(--surface-2); }
+.assess h3 { margin: 0 0 10px; font-size: 16px; color: var(--navy); }
+.assess dl { margin: 0; display: grid; gap: 6px; }
+.assess dl > div { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; padding: 6px 10px; border-radius: 10px; background: var(--surface); border-left: 3px solid var(--line); }
+.assess dl > div.tone-orange { border-left-color: var(--orange, #F97316); }
+.assess dl > div.tone-green { border-left-color: var(--green); }
+.assess dt { font-size: 13px; font-weight: 700; color: var(--ink-4); }
+.assess dd { margin: 0; font-weight: 700; color: var(--ink); }
+.assess-sub { margin: 14px 0 6px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); }
+.assess ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-weight: 600; line-height: 1.45; }
+@media (max-width: 900px) {
+  /* one scroll for the whole wizard: the record panel folds into a bar and scrolls away with the page */
+  .wiz { display: block; overflow-y: auto; }
+  .wiz-side, .wiz-main { overflow: visible; }
+  .wiz-side { max-height: none; gap: 12px; }
+  .side-toggle { all: unset; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13.5px; font-weight: 800; color: var(--navy); }
+  .side-toggle span:last-child { color: var(--action); font-size: 13px; }
+  .wiz-side[data-open="false"] > :not(.side-toggle) { display: none !important; }
+  .wiz-side > .eyebrow:first-of-type { display: none; }
+  .wiz-main { padding: 18px 16px 24px; gap: 22px; }
+  .assess dl > div { grid-template-columns: 1fr; gap: 2px; }
+}

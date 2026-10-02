@@ -34,10 +34,19 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   if (def?.facts) {
     // content-driven wizards: facts, trend and AUTO detection all come from the definition
     for (const q of def.steps.flatMap((st) => st.questions))
-      for (const o of q.options ?? []) if (o.detectTag?.some((t) => on(t))) (detected[q.id] ??= []).push(o.value);
+      for (const o of q.options ?? []) {
+        const lab = o.detectLab ? s.resolved(o.detectLab.code).current?.value_num : null;
+        if (o.detectTag?.some((t) => on(t)) || o.detectCondition?.some((c) => s.conditions.some((x) => x.code === c)) || (lab != null && lab > o.detectLab!.above))
+          (detected[q.id] ??= []).push(o.value);
+      }
     const t = def.trend ? series(s, def.trend).slice(0, 5).reverse() : [];
     return {
       today: s.today, meds, detected,
+      profile: {
+        age: s.patient.age,
+        cvd: ["cad", "hf", "stroke", "af", "valve", "vascular", "ascvd"].some((t) => s.tags.has(t)),
+        riskFactors: s.patient.age >= 65 || ["htn", "dm", "ckd", "lipids", "obesity"].some((t) => s.tags.has(t)) || s.conditions.some((c) => c.code === "smoker"),
+      },
       facts: def.facts.filter((c) => MEASURES[c]).map((c) => fact(c)),
       trend: def.trend && MEASURES[def.trend] ? { code: def.trend, label: MEASURES[def.trend].display, unit: MEASURES[def.trend].unit, points: t.map((o) => ({ date: o.effective_at, value: o.value_num! })) } : undefined,
     };
@@ -121,14 +130,16 @@ export async function completeWizard(
     await tx.query(`UPDATE cf.recommendation SET status='decided', closed_at=now() WHERE id=$1 AND patient_id=$2 AND status='active'`, [input.recommendationId, patientId]);
   await tx.query(`UPDATE cf.wizard_draft SET status='completed', updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, wizardId]);
   const actions = (input.answers.actions as string[] | undefined) ?? [];
+  const assessment = def.assess?.(input.answers, ctx);
+  const summary = assessment ? [...assessment.rows.map((r) => `${r.label}: ${r.value}`), ...assessment.recommendations].join(" · ") : "";
   await journeyEvent(tx, actor, {
     patientId, occurredAt: at, kind: "complication-review", category: "complication",
     title: def.title,
-    detail: outcome.map((o) => o.label).filter(Boolean).join(" · ") || actions.join(", "),
+    detail: [summary, outcome.map((o) => o.label).filter(Boolean).join(" · ") || actions.join(", ")].filter(Boolean).join(" · "),
     refType: "decision", refId: decisionId, contextId: input.contextId,
   });
   await audit(tx, actor, "complete-wizard", "decision", decisionId, patientId, { wizard: wizardId });
-  return { decisionId, outcome, changed: [...new Set(changed)] };
+  return { decisionId, outcome, assessment: assessment ?? null, changed: [...new Set(changed)] };
 }
 
 export async function declineRecommendation(tx: Q, actor: Actor, patientId: string, recommendationId: string, input: { outcome: "declined" | "deferred"; reason: string }) {

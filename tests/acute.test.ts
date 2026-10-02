@@ -142,10 +142,20 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
   await start(pid, "dapagliflozin", 10, "OD");
   await start(pid, "clopidogrel", 75, "OD", "cad");
   const w = await tx((q) => getWizard(q, pid, "pre-procedure"));
+  // RCRI items come prefilled from the record: heart failure yes, ischaemic heart disease no
+  assert.ok(w.context.detected.rcri?.includes("hf") && !w.context.detected.rcri?.includes("ihd"));
+  const assess = WIZARDS["pre-procedure"].assess!({
+    urgency: "elective", risk: "high", capacity: "poor", active: ["none"], pci: "none", rcri: ["hf", "surgery"], meds: ["doac"], conclusion: "after-tests",
+  }, w.context);
+  assert.match(assess.rows.find((r) => r.label === "Patient risk")!.value, /RCRI 2 points · elevated risk/);
+  assert.ok(assess.recommendations.some((t) => /Echo \(I B\); stress imaging/.test(t)));
+  assert.ok(assess.recommendations.some((t) => /hs-troponin before surgery and at 24 h and 48 h/.test(t)));
+  const low = WIZARDS["pre-procedure"].assess!({ urgency: "elective", risk: "low", capacity: "good", active: ["none"], pci: "none", rcri: ["none"] }, w.context);
+  assert.ok(low.recommendations.some((t) => /^Low-risk surgery/.test(t)));
   const medOpts = WIZARDS["pre-procedure"].steps.find((s) => s.id === "meds")!.questions[0].options!.map((o) => o.value);
   assert.ok(medOpts.includes("doac") && medOpts.includes("sglt2"));
   await tx((q) => completeWizard(q, doc, pid, "pre-procedure", { answers: {
-    urgency: "elective", risk: "high", bleeding: "high", active: ["none"], capacity: "poor", pci: "none",
+    urgency: "elective", risk: "high", bleeding: "high", active: ["none"], capacity: "poor", pci: "none", rcri: ["hf"],
     tests: ["troponin", "bnp", "echo"], meds: ["doac", "sglt2", "p2y12"], conclusion: "after-tests", review: "none",
   } }));
   const titles = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).map((r) => r.title);
@@ -153,7 +163,8 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
   assert.ok(titles.some((t) => /Interrupt DOAC/.test(t)));
   assert.ok(titles.some((t) => /Stop SGLT2 inhibitor at least 3 days/.test(t)));
   assert.ok(titles.some((t) => /Interrupt P2Y12 inhibitor/.test(t)));
-  assert.ok(w);
+  const journey = (await db.query(`SELECT detail FROM cf.clinical_event WHERE patient_id=$1 AND title LIKE 'Pre-procedure%'`, [pid])).rows as any[];
+  assert.match(journey[0].detail, /Patient risk: RCRI 1 point · low risk/);
 
   const p2 = await newPatient(["hfref", "af"]);
   await start(p2, "amiodarone", 200, "OD", "af");

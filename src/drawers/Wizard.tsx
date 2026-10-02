@@ -17,6 +17,8 @@ export function WizardDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [declining, setDeclining] = useState(false);
+  // phones: the record panel is folded away by default so it never covers the questions
+  const [sideOpen, setSideOpen] = useState(false);
   const [reason, setReason] = useState("");
   const loaded = useRef(false);
   useEffect(() => {
@@ -56,6 +58,7 @@ export function WizardDrawer({
   const current = def.steps[step];
   const missing = current ? missingRequired(current, answers) : [];
   const outcome = useMemo(() => (ctx ? buildOutcome(wizard, answers, ctx) : []), [ctx, wizard, answers]);
+  const assessment = useMemo(() => (ctx && def.assess ? def.assess(answers, ctx) : null), [ctx, def, answers]);
   const set = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
   const tone = def.tone;
   async function confirm() {
@@ -132,7 +135,11 @@ export function WizardDrawer({
       }
     >
       <div className="wiz">
-        <aside className="wiz-side">
+        <aside className="wiz-side" data-open={sideOpen}>
+          <button type="button" className="side-toggle" aria-expanded={sideOpen} onClick={() => setSideOpen(!sideOpen)}>
+            <span>Values from the record{ctx ? ` · ${ctx.facts.length + (ctx.trend?.points.length ? 1 : 0)}` : ""}</span>
+            <span aria-hidden>{sideOpen ? "Hide ▴" : "Show ▾"}</span>
+          </button>
           <span className="eyebrow">Prefilled from record</span>
           {ctx?.trend && ctx.trend.points.length > 0 && (
             <div className="card" style={{ padding: 16, borderColor: tone === "red" && !trendInRange ? "var(--red-line)" : "var(--line)" }}>
@@ -184,7 +191,7 @@ export function WizardDrawer({
                 {q.type === "multi" && (
                   <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} />
                 )}
-                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22) ? (
+                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) ? (
                   <Segmented label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
                 ) : (
                   <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} />
@@ -203,6 +210,27 @@ export function WizardDrawer({
                 })()}
               </div>
             ))}
+          {ctx && isReview && assessment && (
+            <section className="assess" aria-label={assessment.heading}>
+              <h3>{assessment.heading}</h3>
+              <dl>
+                {assessment.rows.map((r) => (
+                  <div key={r.label} className={r.tone ? `tone-${r.tone}` : ""}>
+                    <dt>{r.label}</dt>
+                    <dd>{r.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {assessment.recommendations.length > 0 && (
+                <>
+                  <div className="assess-sub">Recommendations</div>
+                  <ol>
+                    {assessment.recommendations.map((t, i) => <li key={i}>{t}</li>)}
+                  </ol>
+                </>
+              )}
+            </section>
+          )}
           {ctx && isReview && (
             <div className="q">
               <div className="label">This will be recorded</div>

@@ -20,6 +20,9 @@ export type Option = {
   effects?: Effect;
   // prefilled (AUTO) when the patient takes a drug with one of these tags
   detectTag?: string[];
+  // prefilled (AUTO) when the record holds one of these diagnosis codes, or the latest lab is above a value
+  detectCondition?: string[];
+  detectLab?: { code: string; above: number };
 };
 export type Question = {
   id: string;
@@ -44,6 +47,8 @@ export type WizardDef = {
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
+  // closing summary shown before confirming and saved with the decision
+  assess?: (answers: Answers, ctx: WizardContext) => Assessment;
   // side-panel facts and trend (codes from the catalogue)
   facts?: string[];
   trend?: string;
@@ -64,7 +69,11 @@ export type WizardContext = {
   facts: { label: string; value: string; date?: string; tone?: string }[];
   detected: Record<string, string[]>; // questionId -> auto-detected option values
   trend?: { code: string; label: string; unit: string; points: { date: string; value: number }[] };
+  // who the patient is, for pathways whose summary depends on it (age, known CVD, CV risk factors)
+  profile?: { age: number; cvd: boolean; riskFactors: boolean };
 };
+// a pathway's closing summary: the patient's risk and the guideline recommendations for the answers given
+export type Assessment = { heading: string; rows: { label: string; value: string; tone?: "orange" | "green" }[]; recommendations: string[] };
 export type Answers = Record<string, string[] | string | number | undefined>;
 
 const RECHECK: Option[] = [

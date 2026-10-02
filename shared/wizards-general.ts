@@ -18,7 +18,7 @@
 //  - Chest infection: NICE NG138 (CAP, 2019) and NG139 (HAP, 2019) with BTS CAP; ATS/IDSA CAP 2019
 //    (CURB-65 for site of care; 5-day course for CAP when improving; beta-lactam + macrolide for
 //    moderate–severe CAP); macrolide / fluoroquinolone QT and CYP3A4 interactions with cardiac drugs.
-import type { Option, WizardDef } from "./wizards.js";
+import type { Answers, Assessment, Option, WizardContext, WizardDef } from "./wizards.js";
 
 const now = (title: string, completesOn: Record<string, unknown> = { type: "manual" }, category = "follow_up", days = 0) => ({ plan: [{ category, title, days, completesOn }] });
 const RECHECK: Option[] = [
@@ -47,26 +47,26 @@ export const GENERAL_WIZARDS: Record<string, WizardDef> = {
           {
             id: "urgency", label: "Urgency", type: "single", required: true,
             options: [
-              { value: "emergency", label: "Emergency (proceed; no testing that delays surgery)" },
-              { value: "time-sensitive", label: "Time-sensitive (days–weeks, e.g. cancer)" },
-              { value: "elective", label: "Elective" },
+              { value: "emergency", label: "Emergency", hint: "Proceed now; no cardiac testing that delays surgery" },
+              { value: "time-sensitive", label: "Time-sensitive", hint: "Within days to weeks, e.g. cancer surgery" },
+              { value: "elective", label: "Elective", hint: "Can wait for cardiac work-up and treatment" },
             ],
           },
           {
-            id: "risk", label: "Surgical risk (30-day CV death, MI, stroke)", type: "single", required: true,
-            help: "Low: breast, dental, eye, thyroid, minor gynae/ortho/urology. Intermediate: intraperitoneal, carotid, peripheral angioplasty, head & neck, major ortho/neuro/urology, renal transplant. High: aortic and major vascular, open lower-limb revascularisation or amputation, pancreatic, liver, oesophageal, pneumonectomy, cystectomy.",
+            id: "risk", label: "Surgical risk", type: "single", required: true,
+            help: "Estimated 30-day risk of cardiovascular death, MI or stroke (ESC 2022).",
             options: [
-              { value: "low", label: "Low (<1%)" },
-              { value: "intermediate", label: "Intermediate (1–5%)" },
-              { value: "high", label: "High (>5%)" },
+              { value: "low", label: "Low · <1%", hint: "Breast, dental, eye, thyroid, minor gynae / ortho / urology, superficial" },
+              { value: "intermediate", label: "Intermediate · 1–5%", hint: "Intraperitoneal, carotid, peripheral angioplasty, head & neck, major ortho / neuro / urology, renal transplant" },
+              { value: "high", label: "High · >5%", hint: "Aortic and major vascular, open limb revascularisation or amputation, pancreas, liver, oesophagus, pneumonectomy, cystectomy" },
             ],
           },
           {
             id: "bleeding", label: "Bleeding risk of the procedure", type: "single", required: true,
             options: [
-              { value: "minimal", label: "Minimal (dental, cataract, superficial skin)" },
-              { value: "low", label: "Low–moderate" },
-              { value: "high", label: "High (major surgery, neuraxial anaesthesia, intracranial / spinal)" },
+              { value: "minimal", label: "Minimal", hint: "Dental, cataract, superficial skin" },
+              { value: "low", label: "Low–moderate", hint: "Most other procedures" },
+              { value: "high", label: "High", hint: "Major surgery, neuraxial anaesthesia, intracranial or spinal" },
             ],
           },
         ],
@@ -99,6 +99,19 @@ export const GENERAL_WIZARDS: Record<string, WizardDef> = {
               { value: "pci-1", label: "PCI within 1 month", effects: now("Postpone elective surgery: ≥6 months after elective PCI (time-sensitive surgery ≥1 month on DAPT)", { type: "manual" }) },
               { value: "pci-6", label: "Elective PCI 1–6 months ago", effects: now("Discuss timing: elective surgery ideally ≥6 months after elective PCI", { type: "manual" }) },
               { value: "acs-12", label: "ACS within 12 months", effects: now("Discuss timing: elective surgery ideally ≥12 months after ACS", { type: "manual" }) },
+            ],
+          },
+          {
+            id: "rcri", label: "Revised Cardiac Risk Index (prefilled from the record)", type: "multi", required: true,
+            help: "One point each (Lee 1999). 0–1 point: low risk; 2 or more: elevated risk.",
+            options: [
+              { value: "none", label: "None of these" },
+              { value: "surgery", label: "Intraperitoneal, intrathoracic or suprainguinal vascular surgery" },
+              { value: "ihd", label: "Ischaemic heart disease", detectCondition: ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"] },
+              { value: "hf", label: "Heart failure", detectCondition: ["hfref", "hfmref", "hfpef", "hfimpef"] },
+              { value: "cvd", label: "Stroke or TIA", detectCondition: ["stroke-tia"] },
+              { value: "insulin", label: "Diabetes on insulin", detectTag: ["insulin"] },
+              { value: "creatinine", label: "Creatinine >177 µmol/L (2.0 mg/dL)", detectLab: { code: "creatinine", above: 177 } },
             ],
           },
         ],
@@ -289,3 +302,50 @@ export const GENERAL_WIZARDS: Record<string, WizardDef> = {
     ],
   },
 };
+
+// The pre-procedure summary (ESC 2022 stepwise approach): surgical risk × patient risk × functional
+// capacity → recommendations. RCRI points are counted from the confirmed answers (Lee 1999; ≥2 =
+// elevated risk). Recommendation classes as in the ESC 2022 non-cardiac surgery guidelines.
+function labelOf(def: WizardDef, qid: string, value: string) {
+  for (const st of def.steps) for (const q of st.questions) if (q.id === qid) return q.options?.find((o) => o.value === value)?.label ?? value;
+  return value;
+}
+function preProcedureAssess(a: Answers, ctx: WizardContext): Assessment {
+  const def = GENERAL_WIZARDS["pre-procedure"];
+  const list = (id: string) => ((a[id] as string[] | undefined) ?? []).filter((v) => v !== "none");
+  const rcri = list("rcri").length;
+  const elevated = rcri >= 2;
+  const active = list("active");
+  const urgency = String(a.urgency ?? "");
+  const risk = String(a.risk ?? "");
+  const capacity = String(a.capacity ?? "");
+  const poor = capacity !== "good";
+  const p = ctx.profile;
+  const atRisk = !!p && (p.cvd || p.riskFactors || p.age >= 65) || rcri >= 1;
+  const rows: Assessment["rows"] = [
+    { label: "Surgical risk", value: risk ? labelOf(def, "risk", risk) : "Not given", tone: risk === "high" ? "orange" : undefined },
+    { label: "Patient risk", value: `RCRI ${rcri} point${rcri === 1 ? "" : "s"} · ${elevated ? "elevated" : "low"} risk`, tone: elevated ? "orange" : "green" },
+    { label: "Functional capacity", value: capacity === "good" ? "Good (≥2 flights of stairs)" : capacity === "poor" ? "Poor" : "Not assessable", tone: poor ? "orange" : "green" },
+    { label: "Active cardiac conditions", value: active.length ? active.map((v) => labelOf(def, "active", v)).join(", ") : "None", tone: active.length ? "orange" : "green" },
+  ];
+  if (a.pci && a.pci !== "none") rows.push({ label: "Recent coronary event", value: labelOf(def, "pci", String(a.pci)), tone: "orange" });
+  const rec: string[] = [];
+  if (urgency === "emergency") rec.push("Emergency surgery: proceed without delay; cardiac testing must not delay surgery.");
+  else if (active.length) rec.push(`Treat the active cardiac condition before ${urgency === "elective" ? "elective" : "time-sensitive"} surgery (${active.map((v) => labelOf(def, "active", v)).join(", ")}).`);
+  if (a.pci === "pci-1" || a.pci === "pci-6") rec.push("Elective surgery ideally ≥6 months after elective PCI; time-sensitive surgery not before 1 month on DAPT.");
+  if (a.pci === "acs-12") rec.push("Elective surgery ideally ≥12 months after ACS.");
+  if (urgency !== "emergency" && !active.length) {
+    if (risk === "low") rec.push(atRisk ? "Low-risk surgery: proceed; further cardiac testing is not needed." : "Low-risk surgery in a low-risk patient: proceed; routine ECG and biomarkers are not recommended.");
+    else if (risk) {
+      if (atRisk) rec.push("Known CVD, CV risk factors or age ≥65: ECG (I C) and hs-troponin before surgery and at 24 h and 48 h after (I B); consider NT-proBNP (IIa B).");
+      if (risk === "high" && poor) rec.push("Poor or unknown functional capacity before high-risk surgery: Echo (I B); stress imaging if high likelihood of CAD or high clinical risk (I B).");
+      else if (poor) rec.push("Poor or unknown functional capacity: Echo if NT-proBNP is raised, a murmur is heard or HF is suspected (I B).");
+      else rec.push("Good functional capacity: no further cardiac testing needed before surgery.");
+    }
+  }
+  const meds = list("meds").map((v) => labelOf(def, "meds", v));
+  if (meds.length) rec.push(`Medicines: ${meds.join("; ")}.`);
+  if (a.conclusion) rec.push(`Conclusion: ${labelOf(def, "conclusion", String(a.conclusion))}.`);
+  return { heading: "Pre-operative risk and recommendations", rows, recommendations: rec };
+}
+GENERAL_WIZARDS["pre-procedure"].assess = preProcedureAssess;

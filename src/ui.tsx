@@ -162,12 +162,19 @@ export function MultiChoice({
     </div>
   );
 }
-export function SingleChoice({ options, value, onChange, label }: { options: { value: string; label: string }[]; value: string | undefined; onChange(v: string): void; label: string }) {
+export function SingleChoice({ options, value, onChange, label }: { options: { value: string; label: string; hint?: string }[]; value: string | undefined; onChange(v: string): void; label: string }) {
+  // options with a hint render as full-width cards: title on the first line, examples beneath
+  const cards = options.some((o) => o.hint);
   return (
-    <div className="choices" role="radiogroup" aria-label={label}>
+    <div className={cards ? "choices cards" : "choices"} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button type="button" key={o.value} role="radio" className="choice" aria-checked={value === o.value} onClick={() => onChange(o.value)}>
-          {o.label}
+          {cards ? (
+            <span className="choice-text">
+              <b>{o.label}</b>
+              {o.hint && <span className="choice-hint">{o.hint}</span>}
+            </span>
+          ) : o.label}
         </button>
       ))}
     </div>
