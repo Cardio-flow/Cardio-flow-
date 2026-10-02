@@ -135,3 +135,35 @@ test("INR below a mechanical-valve target is red; digoxin risk; severe BP", asyn
   await assert.rejects(tx((q) => completeWizard(q, doc, pid, "hyperglycaemia", { answers: { picture: "uncontrolled", actions: ["stop-sglt2"], recheck: "7", review: "none" } })), /does not apply/);
   assert.ok(w.context.facts.length > 0);
 });
+
+test("pre-procedure and chest-infection pathways write the dated plan and holds the clinician chose", async () => {
+  const pid = await newPatient(["hfref", "af", "htn"]);
+  await start(pid, "apixaban", 5, "BID", "af");
+  await start(pid, "dapagliflozin", 10, "OD");
+  await start(pid, "clopidogrel", 75, "OD", "cad");
+  const w = await tx((q) => getWizard(q, pid, "pre-procedure"));
+  const medOpts = WIZARDS["pre-procedure"].steps.find((s) => s.id === "meds")!.questions[0].options!.map((o) => o.value);
+  assert.ok(medOpts.includes("doac") && medOpts.includes("sglt2"));
+  await tx((q) => completeWizard(q, doc, pid, "pre-procedure", { answers: {
+    urgency: "elective", risk: "high", bleeding: "high", active: ["none"], capacity: "poor", pci: "none",
+    tests: ["troponin", "bnp", "echo"], meds: ["doac", "sglt2", "p2y12"], conclusion: "after-tests", review: "none",
+  } }));
+  const titles = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).map((r) => r.title);
+  assert.ok(titles.some((t) => /hs-troponin before surgery/.test(t)));
+  assert.ok(titles.some((t) => /Interrupt DOAC/.test(t)));
+  assert.ok(titles.some((t) => /Stop SGLT2 inhibitor at least 3 days/.test(t)));
+  assert.ok(titles.some((t) => /Interrupt P2Y12 inhibitor/.test(t)));
+  assert.ok(w);
+
+  const p2 = await newPatient(["hfref", "af"]);
+  await start(p2, "amiodarone", 200, "OD", "af");
+  await start(p2, "dapagliflozin", 10, "OD");
+  await tx((q) => completeWizard(q, doc, p2, "chest-infection", { answers: {
+    setting: "cap", curb: ["u", "65"], severity: "moderate", tests: ["cxr", "cultures", "cardiac"], "cap-abx": "amox-mac",
+    cardiac: ["qt", "sickday"], recheck: "2", after: ["review", "vaccines"], review: "clinic-7",
+  } }));
+  const t2 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).map((r) => r.title);
+  assert.ok(t2.some((t) => /CAP \(moderate\): amoxicillin \+ macrolide/.test(t)));
+  assert.ok(t2.some((t) => /QTc on ECG/.test(t)));
+  assert.equal(await status(p2, "dapagliflozin"), "held");
+});
