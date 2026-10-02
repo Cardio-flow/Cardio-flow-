@@ -6,6 +6,7 @@ import { SignIn } from "./SignIn";
 import { Worklist } from "./screens/Worklist";
 import { PatientPage } from "./screens/Patient";
 import { Patients } from "./screens/Patients";
+import { Registries } from "./screens/Registries";
 import { Governance } from "./screens/Governance";
 import { fmtDay } from "../shared/clinical";
 
@@ -52,7 +53,7 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
   useEffect(() => {
     api("/attention-count").then((r) => setAttention(r.count)).catch(() => {});
   }, [path]);
-  const section = path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : "worklist";
+  const section = path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : path.startsWith("/registries") ? "registries" : "worklist";
   const patientMatch = path.match(/^\/patients\/([0-9a-f-]{36})(?:\/(\w+))?/);
   return (
     <div className="shell">
@@ -71,10 +72,10 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
             <Users size={18} />
             Patients
           </Link>
-          <a href="#" onClick={(e) => e.preventDefault()} title="Registries switch on after the HF slice is in daily use" style={{ opacity: 0.6 }}>
+          <Link to="/registries" aria-current={section === "registries" ? "page" : undefined}>
             <BarChart3 size={18} />
-            Registries &amp; Analytics
-          </a>
+            Registries
+          </Link>
         </nav>
         <nav className="nav" aria-label="Administration">
           <div className="nav-label">ADMIN</div>
@@ -115,6 +116,10 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
             <Users size={20} />
             <span>Patients</span>
           </Link>
+          <Link to="/registries" aria-current={section === "registries" ? "page" : undefined}>
+            <BarChart3 size={20} />
+            <span>Registries</span>
+          </Link>
           <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
             <ShieldCheck size={20} />
             <span>Rules</span>
@@ -130,6 +135,8 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
           <Patients />
         ) : section === "governance" ? (
           <Governance />
+        ) : section === "registries" ? (
+          <Registries />
         ) : (
           <Worklist />
         )}

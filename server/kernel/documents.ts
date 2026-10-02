@@ -152,16 +152,16 @@ const EN_FREQ: Record<string, string> = {
   OD: "once a day", BID: "twice a day", TID: "three times a day", Nightly: "once at night", Weekly: "once a week",
   "Every 2 weeks": "every 2 weeks", "With meals": "with meals", "Single infusion": "single infusion",
 };
-const AR_ROUTE: Record<string, string> = { SC: "حقنة تحت الجلد", IV: "بالوريد" };
+const AR_ROUTE: Record<string, string> = { SC: "حقنة تحت الجلد", IV: "بالوريد", INH: "بخاخ استنشاق", Transdermal: "لصقة على الجلد" };
 const AR_PURPOSE: Record<string, string> = {
   "Heart failure": "لعلاج ضعف عضلة القلب", "CAD / secondary prevention": "لحماية شرايين القلب", Anticoagulation: "لمنع الجلطات (سيولة الدم)",
   Rhythm: "لتنظيم ضربات القلب", "Blood pressure": "لضغط الدم", Cardiometabolic: "لحماية القلب والكلى", Diabetes: "للسكري", "Pulmonary hypertension": "لضغط الشريان الرئوي",
-  Angina: "لآلام الذبحة الصدرية", Lipids: "للكوليسترول", Infection: "مضاد حيوي للالتهاب", "Anti-inflammatory": "مضاد للالتهاب", Supportive: "علاج مساعد",
+  Angina: "لآلام الذبحة الصدرية", Lipids: "للكوليسترول", Infection: "مضاد حيوي للالتهاب", "Anti-inflammatory": "مضاد للالتهاب", Supportive: "علاج مساعد", Cardiomyopathy: "لاعتلال عضلة القلب", "General medicine": "علاج عام",
 };
 const EN_PURPOSE: Record<string, string> = {
   "Heart failure": "for the heart muscle", "CAD / secondary prevention": "to protect the heart arteries", Anticoagulation: "to prevent clots (blood thinner)",
   Rhythm: "for the heart rhythm", "Blood pressure": "for blood pressure", Cardiometabolic: "to protect the heart and kidneys", Diabetes: "for diabetes", "Pulmonary hypertension": "for lung blood pressure",
-  Angina: "for chest pain (angina)", Lipids: "for cholesterol", Infection: "antibiotic for the infection", "Anti-inflammatory": "against inflammation", Supportive: "supportive treatment",
+  Angina: "for chest pain (angina)", Lipids: "for cholesterol", Infection: "antibiotic for the infection", "Anti-inflammatory": "against inflammation", Supportive: "supportive treatment", Cardiomyopathy: "for the heart muscle disease", "General medicine": "general treatment",
 };
 const AR_LAB: Record<string, string> = {
   potassium: "البوتاسيوم", creatinine: "وظائف الكلى", egfr: "وظائف الكلى", sodium: "الصوديوم", magnesium: "المغنيسيوم", hba1c: "السكر التراكمي",
@@ -244,7 +244,7 @@ function patientPlan(s: PatientState, lang: "en" | "ar"): string {
     const e = latestChange(s, m, ch.since);
     const name = `${m.name}${brand(m.code) ? ` (${brand(m.code)})` : ""}`;
     const freq = m.frequency ? (ar ? AR_FREQ[m.frequency] : EN_FREQ[m.frequency]) ?? m.frequency : "";
-    const route = m.route && m.route !== "PO" ? (ar ? AR_ROUTE[m.route] : m.route === "SC" ? "injection under the skin" : m.route) : "";
+    const route = m.route && m.route !== "PO" ? (ar ? AR_ROUTE[m.route] : m.route === "SC" ? "injection under the skin" : m.route === "INH" ? "inhaler" : m.route === "Transdermal" ? "skin patch" : m.route) : "";
     const purpose = ar ? AR_PURPOSE[m.purpose] : EN_PURPOSE[m.purpose];
     const tag = m.status === "held"
       ? (ar ? "متوقف مؤقتاً" : "ON HOLD")

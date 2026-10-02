@@ -247,3 +247,41 @@ export function hfRegistryProjection(s: PatientState) {
     csv: header.join(",") + "\n" + filled.map((f) => csvCell(f.value!)).join(","),
   };
 }
+
+// The registry as a whole (blueprint P2.10, second part): every HF patient of the site with the
+// share of mapped registry fields the record already fills, the mapped fields still missing, and
+// one CSV with a row per patient (all mapped registry columns; blank where not recorded).
+// Read-only and descriptive — enrolment, codebook and statistics come at the end of the build.
+export function hfRegistryCohort(states: PatientState[]) {
+  const mappedKeys = HF_REGISTRY.flatMap((sec) => sec.fields.filter((f) => f.get).map((f) => f.key));
+  const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const rows = states
+    .map((s) => ({ s, p: hfRegistryProjection(s) }))
+    .filter((x): x is { s: PatientState; p: NonNullable<ReturnType<typeof hfRegistryProjection>> } => !!x.p)
+    .map(({ s, p }) => {
+      const fields = p.sections.flatMap((x) => x.fields).filter((f) => f.mapped);
+      const byKey = Object.fromEntries(fields.map((f) => [f.key, f.value]));
+      const lvef = s.resolved("lvef").current;
+      return {
+        id: s.patient.id,
+        name: s.patient.name,
+        mrn: s.patient.mrn,
+        type: (byKey.HF_Type === "Others" ? "HF improved LVEF" : byKey.HF_Type) ?? "—",
+        lvef: lvef?.value_num ?? null,
+        filled: p.counts.filled,
+        mapped: p.counts.mapped,
+        missing: fields.filter((f) => f.value == null).map((f) => f.label),
+        cells: mappedKeys.map((k) => byKey[k] ?? ""),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const byType: Record<string, number> = {};
+  for (const r of rows) byType[r.type] = (byType[r.type] ?? 0) + 1;
+  const filled = rows.reduce((n, r) => n + r.filled, 0), mapped = rows.reduce((n, r) => n + r.mapped, 0);
+  return {
+    registry: "MKH HF Clinic Registry",
+    counts: { patients: rows.length, byType, filledPct: mapped ? Math.round((filled / mapped) * 100) : null },
+    patients: rows.map(({ cells, ...r }) => r),
+    csv: [mappedKeys.join(","), ...rows.map((r) => r.cells.map((c) => (c ? csvCell(c) : "")).join(","))].join("\n"),
+  };
+}

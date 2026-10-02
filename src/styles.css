@@ -733,7 +733,7 @@ tr.reg-only td { color: var(--ink-4); }
 .phone-nav, .pt-back { display: none; }
 @media (max-width: 900px) {
   .phone-nav {
-    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     background: var(--surface); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   }
   .phone-nav a, .phone-nav button {
@@ -745,3 +745,6 @@ tr.reg-only td { color: var(--ink-4); }
   .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .pt-back { display: inline-block; margin-bottom: 6px; font-size: 14px; font-weight: 700; color: var(--action); text-decoration: none; }
 }
+.reg-mini { display: block; height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 5px; max-width: 120px; }
+.reg-mini i { display: block; height: 100%; background: var(--flow-blue); border-radius: 99px; }
+.reg-chip { display: inline-block; margin: 4px 0 0 8px; padding: 2px 9px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--ink-3); }

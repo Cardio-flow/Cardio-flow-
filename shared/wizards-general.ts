@@ -113,7 +113,7 @@ export const GENERAL_WIZARDS: Record<string, WizardDef> = {
               { value: "none", label: "No further tests" },
               { value: "ecg", label: "12-lead ECG", effects: now("Pre-operative 12-lead ECG", { type: "study", kind: "ecg" }, "investigation") },
               { value: "troponin", label: "hs-troponin before, and at 24 h and 48 h after", effects: { plan: [
-                { category: "monitoring", title: "hs-troponin before surgery (baseline)", days: 0, completesOn: { type: "lab", codes: ["troponin"] } },
+                { category: "monitoring", title: "hs-troponin before surgery (baseline)", days: 0, completesOn: { type: "lab", codes: ["hs-troponin"] } },
                 { category: "monitoring", title: "hs-troponin 24 h and 48 h after surgery", days: 1, completesOn: { type: "manual" } },
               ] } },
               { value: "bnp", label: "NT-proBNP", effects: now("NT-proBNP before surgery", { type: "lab", codes: ["nt-probnp"] }, "monitoring") },
@@ -217,7 +217,7 @@ export const GENERAL_WIZARDS: Record<string, WizardDef> = {
               { value: "abg", label: "Blood gas if SpO₂ <92% or high severity", effects: now("Arterial blood gas", { type: "manual" }, "investigation") },
               { value: "cardiac", label: "ECG and troponin (chest pain, AF, HF, ischaemia)", effects: { plan: [
                 { category: "investigation", title: "12-lead ECG", days: 0, completesOn: { type: "study", kind: "ecg" } },
-                { category: "monitoring", title: "Troponin", days: 0, completesOn: { type: "lab", codes: ["troponin"] } },
+                { category: "monitoring", title: "Troponin", days: 0, completesOn: { type: "lab", codes: ["hs-troponin"] } },
               ] } },
               { value: "bnp", label: "NT-proBNP (pneumonia vs HF uncertain)", effects: now("NT-proBNP", { type: "lab", codes: ["nt-probnp"] }, "monitoring") },
             ],

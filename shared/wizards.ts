@@ -6,6 +6,7 @@ import { addDays, fmtDay } from "./clinical.js";
 import { ACUTE_WIZARDS } from "./wizards-acute.js";
 import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
 import { GENERAL_WIZARDS } from "./wizards-general.js";
+import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -39,7 +40,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes" | "Procedures & general medicine";
+  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
@@ -492,6 +493,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...ACUTE_WIZARDS,
   ...DIABETES_WIZARDS,
   ...GENERAL_WIZARDS,
+  ...INFLAMMATORY_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.

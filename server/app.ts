@@ -9,7 +9,7 @@ import { attentionCount, historyView, journey, summary, worklist, planView, resu
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
-import { hfRegistryProjection } from "./engine/hf-registry.js";
+import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
@@ -470,6 +470,20 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/patients/:id/registries/hf", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), hfRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
+  }));
+
+  // the HF registry as a whole: every HF patient of the site, read-only
+  app.get("/api/registries/hf", route(async (_req, res) => {
+    const siteId = actor(res).siteId;
+    res.json(await db.transaction(async (tx) => {
+      const ids = (await tx.query<{ patient_id: string }>(
+        `SELECT DISTINCT c.patient_id FROM cf.condition c JOIN cf.patient p ON p.id=c.patient_id WHERE p.site_id=$1 AND c.code = ANY($2)`,
+        [siteId, ["hfref", "hfmref", "hfpef", "hfimpef"]],
+      )).rows.map((r) => r.patient_id);
+      const states = [];
+      for (const id of ids) states.push(await loadState(tx, id));
+      return hfRegistryCohort(states);
+    }));
   }));
 
   // ---------- wizards & recommendations ----------

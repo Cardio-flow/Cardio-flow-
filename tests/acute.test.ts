@@ -167,3 +167,40 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
   assert.ok(t2.some((t) => /QTc on ECG/.test(t)));
   assert.equal(await status(p2, "dapagliflozin"), "held");
 });
+
+test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated plan; options follow the medicines", async () => {
+  const pid = await newPatient(["af"]);
+  await start(pid, "apixaban", 5, "BID", "af");
+  const peri = WIZARDS.pericarditis.steps.find((s) => s.id === "treatment")!.questions[0];
+  const opts = (await tx((q) => getWizard(q, pid, "pericarditis"))).context;
+  const { optionsFor } = await import("../shared/wizards.js");
+  const shown = optionsFor(peri, opts).map((o: any) => o.value);
+  assert.ok(shown.includes("aspirin") && !shown.includes("nsaid"), "no NSAID option on anticoagulation");
+  await tx((q) => completeWizard(q, doc, pid, "pericarditis", { answers: {
+    criteria: ["ecg", "crp"], episode: "first", myocardium: "yes", highrisk: ["oac"], tests: ["ecg", "echo"],
+    first: ["aspirin", "colchicine", "ppi"], activity: "myo", crp: "7", review: "clinic-7",
+  } }));
+  const t1 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).map((r) => r.title);
+  assert.ok(t1.some((t) => /Colchicine for pericarditis: continue at least 3–6 months/.test(t)));
+  assert.ok(t1.some((t) => /Cardiac MRI/.test(t)));
+  assert.ok(t1.some((t) => /haemopericardium/.test(t)));
+
+  const p2 = await newPatient(["prosthetic-valve"]);
+  await tx((q) => completeWizard(q, doc, p2, "endocarditis", { answers: {
+    features: ["prosthetic", "fever-murmur"], tests: ["cultures", "tte", "toe", "pet"], duke: "possible",
+    team: "refer", surgery: ["uncontrolled"], abx: "empirical", monitoring: ["clearance", "dental"], review: "none",
+  } }));
+  const t2 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).map((r) => r.title);
+  assert.ok(t2.some((t) => /Three sets of blood cultures/.test(t)));
+  assert.ok(t2.some((t) => /Urgent cardiac surgery \(within 3–5 days\): uncontrolled infection/.test(t)));
+  assert.ok(t2.some((t) => /Endocarditis Team discussion/.test(t)));
+
+  const p3 = await newPatient(["af"]);
+  await start(p3, "amiodarone", 200, "OD", "af");
+  await tx((q) => completeWizard(q, doc, p3, "amiodarone-thyroid", { answers: {
+    situation: "thyrotox", type: "type2", cardiac: ["amio", "rate"], endo: "refer", review: "clinic-14",
+  } }));
+  const t3 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p3])).rows as any[]).map((r) => r.title);
+  assert.ok(t3.some((t) => /Type 2 amiodarone thyrotoxicosis: oral glucocorticoid/.test(t)));
+  assert.ok(t3.some((t) => /Endocrinology referral/.test(t)));
+});

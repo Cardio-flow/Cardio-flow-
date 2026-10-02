@@ -75,3 +75,19 @@ test("non-HF patients have no HF registry projection; the API says so", async ()
     server.close();
   }
 });
+
+test("the registry as a whole: every HF patient with fields filled, missing fields and one CSV row each", async () => {
+  const { hfRegistryCohort } = await import("../server/engine/hf-registry.js");
+  const ids = (await db.query(`SELECT id FROM cf.patient ORDER BY name`)).rows.map((r: any) => r.id as string);
+  const states = await db.transaction(async (q) => { const out = []; for (const id of ids) out.push(await loadState(q, id)); return out; });
+  const c = hfRegistryCohort(states);
+  assert.ok(c.counts.patients >= 4, "seeded HF patients are listed");
+  assert.ok(!c.patients.some((p: any) => p.name === "Mariam Hussain"), "non-HF patients are not listed");
+  const saad = c.patients.find((p: any) => p.name === "Saad Al-Otaibi")!;
+  assert.ok(saad.filled > 0 && saad.filled <= saad.mapped);
+  assert.equal(saad.missing.length, saad.mapped - saad.filled);
+  const lines = c.csv.split("\n");
+  assert.equal(lines.length, c.counts.patients + 1, "header + one row per patient");
+  assert.ok(lines[0].startsWith("Patient_Name,"));
+  assert.equal(Object.values(c.counts.byType).reduce((a: number, b) => a + (b as number), 0), c.counts.patients);
+});
