@@ -19,14 +19,19 @@ export function WizardDrawer({
   const [declining, setDeclining] = useState(false);
   // phones: the record panel is folded away by default so it never covers the questions
   const [sideOpen, setSideOpen] = useState(false);
+  // an open episode of this pathway: this run is its review
+  const [episode, setEpisode] = useState<{ id: string; startedAt: string; day: number; reviews: number; lastAt: string } | null>(null);
   const [reason, setReason] = useState("");
   const loaded = useRef(false);
   useEffect(() => {
     api(`/patients/${patientId}/wizards/${wizard}`).then((r) => {
       setCtx(r.context);
-      if (r.draft) {
+      setEpisode(r.episode ?? null);
+      // a review starts from the episode's last answers (a newer draft wins)
+      const base = r.draft?.answers ?? r.episode?.answers;
+      if (base) {
         // drop choices that no longer fit the patient's medicines (e.g. the drug was stopped since the draft)
-        const clean: Record<string, any> = { ...r.draft.answers };
+        const clean: Record<string, any> = { ...base };
         for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
           const ok = new Set(optionsFor(q, r.context).map((o) => o.value));
           const v = clean[q.id];
@@ -34,7 +39,7 @@ export function WizardDrawer({
           else if (v != null && !ok.has(String(v))) delete clean[q.id];
         }
         setAnswers(clean);
-        setStep(Math.min(r.draft.step, def.steps.length));
+        setStep(r.draft ? Math.min(r.draft.step, def.steps.length) : 0);
       } else {
         // everything the record already shows is prefilled (and marked AUTO); the clinician confirms or changes it
         const pre: Record<string, any> = {};
@@ -66,7 +71,7 @@ export function WizardDrawer({
     setError("");
     try {
       const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers, recommendationId: recommendationId ?? null, contextId: contextId ?? null } });
-      onDone(`${def.title} recorded · ${outcome.length} action${outcome.length === 1 ? "" : "s"} added to the plan`, r);
+      onDone(`${def.title}${r.review ? " review" : ""} recorded · ${outcome.length} action${outcome.length === 1 ? "" : "s"} added to the plan`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -91,7 +96,7 @@ export function WizardDrawer({
     <Drawer
       wide
       title={def.title}
-      subtitle={`${patientName} · prefilled from the record`}
+      subtitle={`${patientName} · ${episode ? `review, day ${episode.day}` : "prefilled from the record"}`}
       icon={<Icon size={22} />}
       tone={tone}
       onClose={onClose}
@@ -182,6 +187,12 @@ export function WizardDrawer({
         </aside>
         <div className="wiz-main">
           {error && <div className="error-box">{error}</div>}
+          {episode && step === 0 && (
+            <div className="wiz-review">
+              <b>Review · day {episode.day}</b> of the episode opened {fmtDay(episode.startedAt)}
+              {episode.reviews ? ` (${episode.reviews} earlier review${episode.reviews === 1 ? "" : "s"})` : ""}. Your last answers are kept: change what is different. New plan items are added; earlier ones stay.
+            </div>
+          )}
           {!ctx && !error && <div className="muted">Loading patient data…</div>}
           {ctx && current &&
             visibleQuestions(current, answers).map((q) => (

@@ -74,6 +74,7 @@ export const MIGRATIONS = [
   { name: "v2-001-kernel", file: "./schema.sql" },
   { name: "v2-002-general-core", file: "./002-general-core.sql" },
   { name: "v2-003-medication-exceptions", file: "./003-medication-exceptions.sql" },
+  { name: "v2-004-episodes", file: "./004-episodes.sql" },
 ];
 
 export async function migrate(db: DB) {

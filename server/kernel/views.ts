@@ -5,7 +5,8 @@ import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, attributesText, historyCode } from "../../shared/history.js";
-import { activeBarrier, loadState, latestDischarge, openContext, type PatientState } from "./state.js";
+import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
+import { WIZARDS } from "../../shared/wizards.js";
 import { today as todayFn } from "./base.js";
 
 const FAMILY_ORDER = ["Heart failure", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
@@ -359,6 +360,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     targets: targets(s),
     // HF profile: type with dates, LVEF history, status, therapy per drug (HF patients only)
     hf: hfProfile(s),
+    // complications followed as episodes (open, and resolved in the last 30 days)
+    episodes: episodesView(s),
     // why a drug class is not given (recorded once, reused by every rule)
     barriers: s.barriers.map((b) => ({
       cls: b.drug_class, label: classLabel(b.drug_class), category: b.category, reason: BARRIER_LABEL[b.category], detail: b.detail, at: b.effective_at,
@@ -518,3 +521,41 @@ export async function attentionCount(q: Q, siteId: string) {
 }
 
 export { fmtDay };
+
+// Complication episodes (migration 004): what was decided, what is still open, what is on hold,
+// how the pathway's lead value moved since the start, and the next dated step.
+export function episodesView(s: PatientState) {
+  return s.episodes
+    .filter((e) => e.status === "open" || (e.resolved_at && daysBetween(e.resolved_at, s.today) <= 30))
+    .map((e) => {
+      const def = WIZARDS[e.wizard];
+      const ids = new Set(e.decisions.map((d) => d.id));
+      const items = s.plan.filter((p) => p.decision_id && ids.has(p.decision_id) && p.status !== "superseded" && p.status !== "cancelled");
+      const open = items.filter((p) => p.status === "planned").sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+      const held = s.meds.filter((m) => m.status === "held" && m.events.some((ev) => ev.kind === "hold" && ev.decision_id && ids.has(ev.decision_id)));
+      let trend = null;
+      if (def?.trend && MEASURES[def.trend]) {
+        const h = series(s, def.trend);
+        const now = h[0];
+        const before = h.find((o) => o.effective_at <= e.started_at);
+        if (now) trend = {
+          label: MEASURES[def.trend].short, unit: MEASURES[def.trend].unit,
+          start: before && before.id !== now.id ? { value: formatNumber(before.value_num!, MEASURES[def.trend].decimals), at: before.effective_at } : null,
+          now: { value: formatNumber(now.value_num!, MEASURES[def.trend].decimals), at: now.effective_at },
+        };
+      }
+      const last = e.decisions[e.decisions.length - 1];
+      return {
+        id: e.id, wizard: e.wizard, title: def?.title ?? e.wizard, tone: def?.tone ?? "blue", status: e.status,
+        startedAt: e.started_at, day: daysBetween(e.started_at, e.resolved_at ?? s.today) + 1,
+        reviews: Math.max(0, e.decisions.length - 1), lastAt: last?.decided_at ?? e.started_at,
+        resolvedAt: e.resolved_at, outcome: e.outcome, note: e.note,
+        done: items.filter((p) => p.status === "completed").length, total: items.length,
+        next: open[0] ? { id: open[0].id, title: open[0].title, due: open[0].due_date, overdue: !!open[0].due_date && open[0].due_date < s.today } : null,
+        open: open.map((p) => ({ id: p.id, title: p.title, due: p.due_date, overdue: !!p.due_date && p.due_date < s.today })),
+        held: held.map((m) => ({ id: m.id, name: m.name })),
+        trend,
+      };
+    })
+    .sort((a, b) => (a.status === b.status ? b.startedAt.localeCompare(a.startedAt) : a.status === "open" ? -1 : 1));
+}

@@ -12,6 +12,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       <Glance o={s.overview} />
       <div className="grid-main">
         <div className="stack">
+          <Episodes s={s} open={open} done={done} />
           <Attention s={s} open={open} done={done} />
           <HfPanel hf={s.hf} open={open} />
           <Targets s={s} open={open} />
@@ -113,7 +114,8 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
         {({ hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
-          diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan" } as Record<string, string>)[act.wizard] ?? "Review"}
+          diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan",
+          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")
@@ -286,6 +288,109 @@ export function PlanMark({ view }: { view: string }) {
     <span className={`pmark sev-${sev} ${view === "done" ? "fill" : ""}`} aria-hidden="true">
       {view === "done" && <Check size={14} strokeWidth={3} />}
     </span>
+  );
+}
+
+// Complications followed as episodes: opened by a pathway, reviewed, then resolved.
+const EPISODE_OUTCOMES = ["Resolved", "Improved, follow-up continues", "Transferred / referred", "Opened in error"];
+function Episodes({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
+  const eps = s.episodes ?? [];
+  if (!eps.length) return null;
+  const active = eps.filter((e: any) => e.status === "open");
+  const closed = eps.filter((e: any) => e.status !== "open");
+  return (
+    <section className="card pad" aria-labelledby="eph">
+      <div className="card-head">
+        <h2 id="eph">Complications</h2>
+        <span className="meta">{active.length ? `${active.length} open` : "None open"} · followed until resolved</span>
+      </div>
+      <div className="ep-list">
+        {active.map((e: any) => <EpisodeCard key={e.id} e={e} s={s} open={open} done={done} />)}
+      </div>
+      {closed.length > 0 && (
+        <div className="ep-closed">
+          {closed.map((e: any) => (
+            <div key={e.id}>
+              <Check size={15} /> <b>{e.title}</b> · {e.outcome.toLowerCase()} {fmtDay(e.resolvedAt)} after {e.day} day{e.day === 1 ? "" : "s"}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EpisodeCard({ e, s, open, done }: { e: any; s: any; open(o: Open): void; done(message?: string): void }) {
+  const [closing, setClosing] = useState(false);
+  const [outcome, setOutcome] = useState("Resolved");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const resolve = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api(`/patients/${s.header.id}/episodes/${e.id}/resolve`, { body: { outcome, note } });
+      done(`${e.title}: ${outcome.toLowerCase()}`);
+    } catch (x) {
+      setErr((x as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={`ep sev-${e.tone}`}>
+      <div className="ep-head">
+        <span className="ep-day">Day {e.day}</span>
+        <span className="ep-title">
+          <b>{e.title}</b>
+          <small>Opened {fmtDay(e.startedAt)}{e.reviews ? ` · ${e.reviews} review${e.reviews === 1 ? "" : "s"}, last ${fmtDay(e.lastAt)}` : ""}</small>
+        </span>
+      </div>
+      <div className="ep-facts">
+        {e.trend && (
+          <span>
+            {e.trend.label} {e.trend.start ? <>{e.trend.start.value} → </> : null}<b>{e.trend.now.value}</b> {e.trend.unit}
+            <small> · {fmtDay(e.trend.now.at)}</small>
+          </span>
+        )}
+        {e.held.length > 0 && <span className="ep-held">On hold: {e.held.map((m: any) => m.name).join(", ")}</span>}
+        {e.next ? (
+          <button className={`ep-next ${e.next.overdue ? "overdue" : ""}`} onClick={() => open({ kind: "plan-item", planId: e.next.id })}>
+            Next: {e.next.title}{e.next.due ? ` · ${e.next.overdue ? "overdue since" : "due"} ${fmtDay(e.next.due, { weekday: true })}` : ""}
+          </button>
+        ) : (
+          <span className="muted">No open plan items</span>
+        )}
+        {e.total > 0 && <span className="muted small">{e.done} of {e.total} plan items done</span>}
+      </div>
+      {!closing ? (
+        <div className="ep-actions">
+          <button className="btn secondary small" onClick={() => open({ kind: "wizard", wizard: e.wizard })}>Review</button>
+          <button className="btn ghost small" onClick={() => setClosing(true)}>Resolve</button>
+        </div>
+      ) : (
+        <div className="ep-resolve">
+          <label className="small" style={{ fontWeight: 700 }}>
+            Outcome
+            <select className="input" value={outcome} onChange={(x) => setOutcome(x.target.value)}>
+              {EPISODE_OUTCOMES.map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </label>
+          <input className="input" placeholder="Note (optional)" value={note} maxLength={300} onChange={(x) => setNote(x.target.value)} aria-label="Note" />
+          {(e.held.length > 0 || e.open.length > 0) && (
+            <div className="infobox small">
+              {e.held.length > 0 && <div>Still on hold: {e.held.map((m: any) => m.name).join(", ")}. Restart or stop them in Medications.</div>}
+              {e.open.length > 0 && <div>{e.open.length} plan item{e.open.length === 1 ? " stays" : "s stay"} open in the plan.</div>}
+            </div>
+          )}
+          {err && <div className="error-box">{err}</div>}
+          <div className="ep-actions">
+            <button className="btn ghost small" onClick={() => setClosing(false)}>Cancel</button>
+            <button className="btn primary small" disabled={busy} onClick={resolve}>{busy ? "Saving…" : "Close episode"}</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

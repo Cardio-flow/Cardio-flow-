@@ -16,6 +16,7 @@ export type MedEvent = {
   route: string | null;
   reason: string;
   effective_at: string;
+  decision_id?: string | null;
 };
 export type MedState = {
   id: string;
@@ -47,8 +48,14 @@ export type PlanRow = {
   completed_at: string | null;
   source_context_id: string | null;
   medication_id: string | null;
+  decision_id: string | null;
   created_at: string;
   version: number;
+};
+// A complication followed as one thread (migration 004): opened by a pathway, reviewed, resolved.
+export type EpisodeRow = {
+  id: string; wizard: string; status: "open" | "resolved"; started_at: string; resolved_at: string | null; outcome: string; note: string;
+  context_id: string | null; decisions: { id: string; decided_at: string }[];
 };
 export type ContextRow = {
   id: string;
@@ -84,6 +91,7 @@ export type PatientState = {
   deceased: boolean;
   // why a drug class is not given (newest per class, cleared ones removed)
   barriers: BarrierRow[];
+  episodes: EpisodeRow[];
 };
 export type StatusRow = { id: string; kind: string; status: string; effective_on: string; place: string | null; cause_group: string | null; detail: string };
 
@@ -99,13 +107,16 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
         (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1) AS meds,
-        (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at FROM cf.medication_event WHERE patient_id=$1) e) AS events,
-        (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
+        (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at,decision_id FROM cf.medication_event WHERE patient_id=$1) e) AS events,
+        (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,decision_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
         (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study WHERE patient_id=$1) st) AS studies,
         (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs,
         (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status,
-        (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers`,
+        (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers,
+        (SELECT coalesce(json_agg(ep ORDER BY ep.started_at), '[]') FROM (SELECT e.id,e.wizard,e.status,e.started_at,e.resolved_at,e.outcome,e.note,e.context_id,
+            (SELECT coalesce(json_agg(json_build_object('id', d.id, 'decided_at', d.decided_at) ORDER BY d.decided_at), '[]') FROM cf.decision d WHERE d.episode_id = e.id) AS decisions
+            FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes`,
       [patientId],
     )
   ).rows[0];
@@ -204,6 +215,12 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     status: { vital, followUp: statusRows.find((r) => r.kind === "follow_up") ?? null },
     deceased: vital?.status === "died",
     barriers: barrierRows,
+    episodes: (j(bundle.episodes).rows as any[]).map((e) => ({
+      ...e,
+      started_at: new Date(e.started_at).toISOString(),
+      resolved_at: e.resolved_at ? new Date(e.resolved_at).toISOString() : null,
+      decisions: (typeof e.decisions === "string" ? JSON.parse(e.decisions) : e.decisions ?? []).map((d: any) => ({ id: d.id, decided_at: new Date(d.decided_at).toISOString() })),
+    })),
   };
 }
 

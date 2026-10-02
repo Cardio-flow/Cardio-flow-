@@ -35,7 +35,7 @@ const brand = brandOf;
 
 export const DIABETES_WIZARDS: Record<string, WizardDef> = {
   diabetes: {
-    id: "diabetes", title: "Diabetes management", tone: "yellow", group: "Diabetes",
+    id: "diabetes", title: "Diabetes management", tone: "yellow", group: "Diabetes", episode: false,
     source: "ADA Standards of Care 2026 · ESC diabetes & CVD 2023 · ESC/ERA CVD–CKD 2026",
     note: "Heart and kidney protection comes first and does not depend on HbA1c. Then lower glucose without hypoglycaemia. Pioglitazone is not offered: it is contraindicated in heart failure. Trade names to confirm against the MOH / MKH formulary.",
     facts: ["hba1c", "glucose", "egfr", "uacr", "potassium", "weight"], trend: "hba1c",
@@ -220,7 +220,7 @@ export const DIABETES_WIZARDS: Record<string, WizardDef> = {
   },
 
   ramadan: {
-    id: "ramadan", title: "Ramadan fasting plan", tone: "blue", group: "Diabetes",
+    id: "ramadan", title: "Ramadan fasting plan", tone: "blue", group: "Diabetes", episode: false,
     source: "IDF-DAR Diabetes and Ramadan Practical Guidelines 2021",
     note: "Best done 6–8 weeks before Ramadan. Score the risk with the IDF-DAR 2021 tool; CardioFlow records the category and the plan. Timing changes only: doses are decided by the clinician, nothing changes automatically.",
     facts: ["hba1c", "glucose", "egfr", "sbp", "weight"], trend: "hba1c",

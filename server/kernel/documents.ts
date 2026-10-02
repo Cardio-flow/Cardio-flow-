@@ -9,7 +9,7 @@ import { fmtDay } from "../../shared/clinical.js";
 import { attributesText } from "../../shared/history.js";
 import { mechanicalInrTarget } from "../engine/acute-rules.js";
 import { loadState, type MedState, type PatientState } from "./state.js";
-import { planView, recommendations, whatChanged } from "./views.js";
+import { episodesView, planView, recommendations, whatChanged } from "./views.js";
 
 export type Doc = { id: string; title: string; text: string; dir?: "rtl" };
 
@@ -69,6 +69,15 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
     ].filter(Boolean);
     if (st.length) L.push(`- ${st.join("; ")}`);
     L.push(`- HF admissions in the last 12 months: ${hf.admissions.last12m}`);
+  }
+  const eps = episodesView(s);
+  if (eps.length) {
+    L.push("");
+    L.push("Complications:");
+    for (const e of eps)
+      L.push(e.status === "open"
+        ? `- ${e.title}: open since ${fmtDay(e.startedAt, { year: true })} (day ${e.day})${e.held.length ? `; on hold: ${e.held.map((m) => m.name).join(", ")}` : ""}${e.next ? `; next: ${e.next.title}${e.next.due ? ` ${fmtDay(e.next.due)}` : ""}` : ""}`
+        : `- ${e.title}: ${fmtDay(e.startedAt)}–${fmtDay(e.resolvedAt!, { year: true })}, ${e.outcome.toLowerCase()}${e.note ? ` (${e.note})` : ""}`);
   }
   const labs = ["sbp", "hr", "weight", "creatinine", "egfr", "potassium", "sodium", "haemoglobin", "nt-probnp", "hba1c", "ldl-c", "uacr", "inr"]
     .map((code) => {

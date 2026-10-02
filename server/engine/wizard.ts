@@ -72,7 +72,15 @@ export async function getWizard(tx: Q, patientId: string, wizardId: string) {
   const draft = (
     await tx.query(`SELECT id,answers,step,recommendation_id FROM cf.wizard_draft WHERE patient_id=$1 AND wizard=$2 AND status='draft' ORDER BY updated_at DESC LIMIT 1`, [patientId, wizardId])
   ).rows[0];
-  return { context: wizardContext(s, wizardId), draft: draft ?? null };
+  // an open episode of this pathway: the wizard opens as its review, with the last answers kept
+  const ep = s.episodes.find((e) => e.wizard === wizardId && e.status === "open");
+  let episode = null;
+  if (ep) {
+    const last = ep.decisions[ep.decisions.length - 1];
+    const answers = last ? ((await tx.query(`SELECT answers FROM cf.decision WHERE id=$1`, [last.id])).rows[0] as any)?.answers ?? {} : {};
+    episode = { id: ep.id, startedAt: ep.started_at, day: daysBetween(ep.started_at, s.today) + 1, reviews: Math.max(0, ep.decisions.length - 1), lastAt: last?.decided_at ?? ep.started_at, answers: typeof answers === "string" ? JSON.parse(answers) : answers };
+  }
+  return { context: wizardContext(s, wizardId), draft: draft ?? null, episode };
 }
 
 export async function saveDraft(tx: Q, actor: Actor, patientId: string, wizardId: string, input: { answers: Answers; step: number; recommendationId?: string | null }) {
@@ -109,12 +117,23 @@ export async function completeWizard(
   }
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   const decisionId = uuid();
-  await tx.query(
-    `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by) VALUES($1,$2,$3,$4,'acted',$5,$6,$7)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify(input.answers), input.contextId ?? null, actor.id],
-  );
   const at = nowIso();
-  const changed: Changed = ["plan"];
+  // the complication episode: the first completion opens it, later ones are its reviews
+  let episodeId: string | null = null;
+  let review = false;
+  if (def.episode !== false) {
+    const open = s.episodes.find((e) => e.wizard === wizardId && e.status === "open");
+    if (open) { episodeId = open.id; review = true; }
+    else {
+      episodeId = uuid();
+      await tx.query(`INSERT INTO cf.episode(id,patient_id,wizard,status,started_at,started_by,context_id) VALUES($1,$2,$3,'open',$4,$5,$6)`, [episodeId, patientId, wizardId, at, actor.id, input.contextId ?? null]);
+    }
+  }
+  await tx.query(
+    `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify(input.answers), input.contextId ?? null, actor.id, episodeId],
+  );
+  const changed: Changed = ["plan", "episodes"];
   for (const item of outcome) {
     if (item.kind === "medication") {
       changed.push(...(await medicationEvent(tx, actor, patientId, item.medicationId, {
@@ -134,12 +153,12 @@ export async function completeWizard(
   const summary = assessment ? [...assessment.rows.map((r) => `${r.label}: ${r.value}`), ...assessment.recommendations].join(" · ") : "";
   await journeyEvent(tx, actor, {
     patientId, occurredAt: at, kind: "complication-review", category: "complication",
-    title: def.title,
+    title: review ? `${def.title} · review` : def.title,
     detail: [summary, outcome.map((o) => o.label).filter(Boolean).join(" · ") || actions.join(", ")].filter(Boolean).join(" · "),
     refType: "decision", refId: decisionId, contextId: input.contextId,
   });
   await audit(tx, actor, "complete-wizard", "decision", decisionId, patientId, { wizard: wizardId });
-  return { decisionId, outcome, assessment: assessment ?? null, changed: [...new Set(changed)] };
+  return { decisionId, episodeId, review, outcome, assessment: assessment ?? null, changed: [...new Set(changed)] };
 }
 
 export async function declineRecommendation(tx: Q, actor: Actor, patientId: string, recommendationId: string, input: { outcome: "declined" | "deferred"; reason: string }) {
@@ -216,4 +235,26 @@ function extraContext(
     facts: [fact("hr"), fact("sbp"), fact("potassium"), fact("tsh"), ...studyFacts],
     trend: { code: "hr", label: "Heart rate", unit: "bpm", points: hist.map((o) => ({ date: o.effective_at, value: o.value_num! })) },
   };
+}
+
+// Close a complication episode with its outcome. Plan items and held medicines are not changed
+// here: the screen shows what is still open so the clinician decides about each one.
+export const EPISODE_OUTCOMES = ["Resolved", "Improved, follow-up continues", "Transferred / referred", "Opened in error"] as const;
+export async function resolveEpisode(tx: Q, actor: Actor, patientId: string, episodeId: string, input: { outcome: string; note?: string }) {
+  const ep = (await tx.query(`SELECT * FROM cf.episode WHERE id=$1 AND patient_id=$2`, [episodeId, patientId])).rows[0] as any;
+  if (!ep) throw new ApiError(404, "Episode not found");
+  if (ep.status !== "open") throw new ApiError(409, "This episode is already closed");
+  if (!(EPISODE_OUTCOMES as readonly string[]).includes(input.outcome)) throw new ApiError(400, "Choose an outcome");
+  const at = nowIso();
+  await tx.query(`UPDATE cf.episode SET status='resolved', resolved_at=$2, resolved_by=$3, outcome=$4, note=$5 WHERE id=$1`, [episodeId, at, actor.id, input.outcome, input.note?.trim() ?? ""]);
+  const def = WIZARDS[ep.wizard];
+  const days = daysBetween(new Date(ep.started_at).toISOString(), at.slice(0, 10)) + 1;
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: at, kind: "complication-review", category: "complication",
+    title: `${def?.title ?? ep.wizard} · ${input.outcome === "Opened in error" ? "closed" : "resolved"}`,
+    detail: [`${input.outcome} after ${days} day${days === 1 ? "" : "s"}`, input.note?.trim()].filter(Boolean).join(" · "),
+    refType: "episode", refId: episodeId,
+  });
+  await audit(tx, actor, "resolve-episode", "episode", episodeId, patientId, { outcome: input.outcome });
+  return { changed: ["episodes"] };
 }

@@ -47,6 +47,9 @@ export type WizardDef = {
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
+  // a completed pathway opens (or reviews) a complication episode, unless this is false
+  // (management plans such as diabetes or Ramadan are not complications)
+  episode?: boolean;
   // closing summary shown before confirming and saved with the decision
   assess?: (answers: Answers, ctx: WizardContext) => Assessment;
   // side-panel facts and trend (codes from the catalogue)

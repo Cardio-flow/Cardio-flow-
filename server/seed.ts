@@ -4,6 +4,7 @@ import { addDays } from "../shared/clinical.js";
 import { today, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
 import { reassess } from "./engine/engine.js";
+import { completeWizard } from "./engine/wizard.js";
 
 const at = (day: string, time = "09:00") => new Date(`${day}T${time}:00+03:00`).toISOString();
 // "earlier today" that is never in the future and never yesterday
@@ -154,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 11;
+export const SEED_VERSION = 12;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -408,6 +409,28 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await K.medicationEvent(tx, sys, hu, bb.id, { kind: "stop", reason: "LVEF normalised", effectiveAt: at(d(-14)) });
         await obs(hu, d(-14), [{ code: "sbp", value: 118 }, { code: "hr", value: 82 }, { code: "creatinine", value: 70 }, { code: "potassium", value: 4.3 }]);
         touched.push(hu);
+      }
+    }
+    // Seed v12: complication episodes — Saad started an antibiotic for a chest infection (the pathway
+    // is offered); Faisal (inpatient) developed a chest infection yesterday: an open episode, fever settling
+    if (seeded < 12) {
+      const sd = await byMrn("100733962");
+      if (sd) {
+        await K.startMedication(tx, sys, sd, { code: "amoxicillin", doseValue: 500, frequency: "TID", route: "PO", indication: "Chest infection (community-acquired)", effectiveAt: at(d(-1), "18:00") });
+        await obs(sd, d(-1), [{ code: "crp", value: 96 }, { code: "temp", value: 37.9 }, { code: "rr", value: 18 }, { code: "spo2", value: 95 }]);
+      }
+      const fa = await byMrn("100845127");
+      if (fa) {
+        await K.startMedication(tx, sys, fa, { code: "amoxicillin-clavulanate", doseValue: 625, frequency: "TID", route: "PO", indication: "Chest infection (community-acquired)", effectiveAt: at(d(-1), "10:00") });
+        await obs(fa, d(-1), [{ code: "crp", value: 142 }, { code: "temp", value: 38.6 }]);
+        const adm = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='open'`, [fa])).rows[0] as any;
+        await completeWizard(tx, sys, fa, "chest-infection", { contextId: adm?.id ?? null, answers: {
+          setting: "cap", curb: ["65"], severity: "moderate", tests: ["cxr", "bloods", "cultures"], "cap-abx": "amox-mac",
+          cardiac: ["none"], recheck: "3", after: ["review", "vaccines"], review: "clinic-7",
+        } });
+        // the episode began on the day the infection was treated
+        await tx.query(`UPDATE cf.episode SET started_at=$2 WHERE patient_id=$1 AND wizard='chest-infection'`, [fa, at(d(-1), "11:00")]);
+        await obs(fa, d(0), [{ code: "crp", value: 61 }, { code: "temp", value: 37.2 }]);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

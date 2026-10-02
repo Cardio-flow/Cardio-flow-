@@ -12,7 +12,7 @@ import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
-import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
+import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays } from "../shared/clinical.js";
@@ -501,6 +501,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish() }).parse(req.body);
     await write(res, id, (tx, a) => completeWizard(tx, a, id, String(req.params.wizard), input));
+  }));
+  app.post("/api/patients/:id/episodes/:eid/resolve", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const eid = uuidS.parse(req.params.eid);
+    const input = z.object({ outcome: z.string().max(60), note: z.string().max(300).optional() }).parse(req.body);
+    await write(res, id, (tx, a) => resolveEpisode(tx, a, id, eid, input));
   }));
   app.post("/api/patients/:id/recommendations/:rid/decline", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
