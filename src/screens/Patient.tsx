@@ -168,7 +168,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "medications" && <MedicationsTab id={id} version={version} open={setOpen} />}
       {tab === "investigations" && <InvestigationsTab id={id} version={version} open={setOpen} done={done} />}
       {tab === "plan" && <PlanTab id={id} version={version} open={setOpen} />}
-      {tab === "registries" && <RegistriesTab />}
+      {tab === "registries" && <RegistriesTab id={id} version={version} />}
 
       {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} onClose={close} onDone={done} />}
       {open?.kind === "wizard" && <WizardDrawer patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.recommendationId} contextId={ctx?.id} onClose={close} onDone={done} />}

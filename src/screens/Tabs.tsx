@@ -283,15 +283,72 @@ export function VisitsTab({ id, version, open }: { id: string; version: number; 
   );
 }
 
-export function RegistriesTab() {
+export function RegistriesTab({ id, version }: { id: string; version: number }) {
+  const { data: r } = useData<any>(`/patients/${id}/registries/hf`, [version]);
+  const toast = useToast();
+  const [showOnly, setShowOnly] = useState(false);
+  if (!r || r.applicable === false) {
+    return (
+      <main className="page">
+        <section className="card pad">
+          <div className="card-head"><h2>Registries</h2></div>
+          <p className="reg-intro">{r ? "Registry projections appear for patients with heart failure. Other registries (CAD, EP) follow with their modules." : "Loading…"}</p>
+        </section>
+      </main>
+    );
+  }
+  const pct = Math.round((r.counts.filled / r.counts.mapped) * 100);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(r.csv); toast({ text: "Registry row copied (CSV)" }); } catch { toast({ text: "Copy not available in this browser", err: true }); }
+  };
+  const download = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([r.csv], { type: "text/csv" }));
+    a.download = "hf-registry-row.csv";
+    a.click();
+  };
   return (
     <main className="page">
-      <section className="card pad">
-        <div className="card-head"><h2>Registries</h2></div>
-        <p style={{ fontWeight: 500, color: "var(--ink-3)", lineHeight: 1.6, margin: 0, maxWidth: 720 }}>
-          Registry linkage switches on after the HF slice is in daily use. Registries will read from the clinical record already captured here
-          (diagnoses, Echo, medications, labs, admissions) and only ask for registry-only fields. Your existing HF, CAD and EP registries keep running until then.
-        </p>
+      <section className="card pad reg">
+        <div className="card-head">
+          <h2>{r.registry}</h2>
+          <span className="meta">Read from the CardioFlow record · nothing is sent to the registry</span>
+        </div>
+        <div className="reg-sum">
+          <div>
+            <b>{r.counts.filled} of {r.counts.mapped}</b> registry fields filled from the record
+            <span className="bar" aria-label={`${pct}% filled`}><i style={{ width: `${pct}%` }} /></span>
+          </div>
+          <div className="muted small">{r.counts.mapped - r.counts.filled} mapped fields not recorded yet · {r.counts.registryOnly} fields are asked in the registry only</div>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <button className="btn secondary small" onClick={copy}>Copy registry row (CSV)</button>
+            <button className="btn ghost small" onClick={download}>Download CSV</button>
+            <label className="row small" style={{ gap: 6, fontWeight: 700 }}>
+              <input type="checkbox" checked={showOnly} onChange={(e) => setShowOnly(e.target.checked)} /> Show registry-only fields
+            </label>
+          </div>
+        </div>
+        {r.sections.map((sec: any) => {
+          const rows = sec.fields.filter((f: any) => f.mapped || showOnly);
+          if (!rows.length) return null;
+          return (
+            <div key={sec.title} className="reg-sec">
+              <div className="tgt-title">{sec.title}</div>
+              <table className="data">
+                <thead><tr><th>Registry field</th><th>Value</th><th>From CardioFlow</th></tr></thead>
+                <tbody>
+                  {rows.map((f: any) => (
+                    <tr key={f.key} className={f.mapped ? (f.value == null ? "reg-missing" : "") : "reg-only"}>
+                      <td data-label="Registry field"><b>{f.label}</b> <span className="muted small">{f.key}</span></td>
+                      <td data-label="Value">{f.mapped ? f.value ?? "Not recorded" : "Asked in the registry"}</td>
+                      <td data-label="From CardioFlow">{[f.at, f.note].filter(Boolean).join(" · ") || (f.mapped ? "" : "—")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
       </section>
     </main>
   );

@@ -693,3 +693,14 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 @media (max-width: 900px) {
   .tl-row { grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 }
+
+/* Registries tab (2 Oct 2026) */
+.reg-intro { font-weight: 500; color: var(--ink-3); line-height: 1.6; margin: 0; max-width: 720px; }
+.reg-sum { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); margin-bottom: 16px; }
+.reg-sum b { color: var(--navy); }
+.reg-sum .bar { display: block; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 6px; max-width: 360px; }
+.reg-sum .bar i { display: block; height: 100%; background: var(--flow-blue); border-radius: 99px; }
+.reg-sec { margin-bottom: 16px; }
+.reg-sec td .muted { font-family: ui-monospace, monospace; font-size: 11px; }
+tr.reg-missing td:nth-child(2) { color: var(--orange-ink); font-weight: 700; }
+tr.reg-only td { color: var(--ink-4); }

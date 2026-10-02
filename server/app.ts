@@ -9,6 +9,7 @@ import { attentionCount, historyView, journey, summary, worklist, planView, resu
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
+import { hfRegistryProjection } from "./engine/hf-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, saveDraft } from "./engine/wizard.js";
@@ -463,6 +464,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/patients/:id/documents", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), documents(tx, id))));
+  }));
+
+  // HF Clinic Registry projection: read-only, the registry fields CardioFlow can already fill
+  app.get("/api/patients/:id/registries/hf", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), hfRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
   }));
 
   // ---------- wizards & recommendations ----------
