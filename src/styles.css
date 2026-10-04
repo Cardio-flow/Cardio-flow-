@@ -823,7 +823,7 @@ tr.reg-only td { color: var(--ink-4); }
 .cad-events li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .cad-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-align: center; padding: 3px 0; border-radius: 6px; background: var(--surface-2); color: var(--navy); }
 .cad-events li.k-acs .cad-k, .cad-events li.k-mi .cad-k { background: #fdecea; color: #a8321f; }
-.cad-events li.k-pci .cad-k, .cad-events li.k-cabg .cad-k { background: #e3eefc; color: var(--action); }
+.cad-events li.k-pci .cad-k, .cad-events li.k-cabg .cad-k, .cad-events li.k-device .cad-k, .cad-events li.k-ablation .cad-k { background: #e3eefc; color: var(--action); }
 .cad-t { display: flex; flex-direction: column; min-width: 0; }
 .cad-t b { font-size: 14px; color: var(--navy); }
 .cad-t small { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }

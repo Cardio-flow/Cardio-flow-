@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 14;
+export const SEED_VERSION = 15;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -459,6 +459,31 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       if (sa && !(await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND status='open'`, [sa])).rows[0]) {
         await K.startVisit(tx, sys, sa, { reasons: ["Chest pain"], symptoms: ["Chest pain"], service: "Cardiology clinic", startedAt: new Date(Date.now() - 60_000).toISOString() } as any);
         touched.push(sa);
+      }
+    }
+    // Seed v15: rhythm & devices — Fatma: paroxysmal AF with a cardioversion and a flutter (CTI)
+    // ablation in her history; Abdullah: permanent AF with a single-chamber pacemaker for slow AF
+    if (seeded < 15) {
+      const pattern = async (id: string, value: string) => {
+        const c = (await tx.query(`SELECT logical_id, onset, attributes FROM (SELECT DISTINCT ON (logical_id) logical_id, code, status, onset, attributes FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code='af' AND status='active'`, [id])).rows[0] as any;
+        if (!c) return;
+        const attrs = typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {};
+        const onset = c.onset ? (typeof c.onset === "string" ? c.onset.slice(0, 10) : new Date(c.onset).toISOString().slice(0, 10)) : null;
+        const { onsetYear, ...rest } = attrs;
+        await K.updateCondition(tx, sys, id, c.logical_id, { onset, onsetYear: onsetYear ?? null, attributes: { ...rest, pattern: value } });
+      };
+      const fa = await byMrn("100391054");
+      if (fa && !(await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1 AND kind IN ('ablation','cardioversion')`, [fa])).rows[0]) {
+        await pattern(fa, "Paroxysmal");
+        await K.recordProcedure(tx, sys, fa, { kind: "cardioversion", date: at(d(-610), "10:00"), details: { method: "Electrical", rhythm: "Atrial fibrillation", prep: "Anticoagulated ≥3 weeks", result: "Sinus rhythm restored" } });
+        await K.recordProcedure(tx, sys, fa, { kind: "ablation", date: at(d(-420), "09:00"), details: { targets: ["Atrial flutter (CTI)"], energy: "Radiofrequency", result: "Acute success" } });
+        touched.push(fa);
+      }
+      const ab = await byMrn("100318842");
+      if (ab && !(await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1 AND kind='device'`, [ab])).rows[0]) {
+        await pattern(ab, "Permanent");
+        await K.recordProcedure(tx, sys, ab, { kind: "device", date: at(d(-700), "11:00"), details: { type: "Pacemaker (single chamber)", action: "New implant", indication: "AF with slow ventricular rate", pacing: "RV pacing" } });
+        touched.push(ab);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

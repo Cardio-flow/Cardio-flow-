@@ -30,7 +30,7 @@ export function cadEvents(s: PatientState): CadEvent[] {
     if (ev.some((e) => e.kind === "acs" && Math.abs(daysBetween(e.at, at)) <= 7)) continue;
     ev.push({ at, kind: "mi", title: DIAGNOSIS[c.code]?.display ?? c.display, detail: [attributesText(c.code, c.attributes), c.onset ? null : `${year}, month not recorded`].filter(Boolean).join(" · "), acs: true, dateKnown: !!c.onset });
   }
-  for (const p of s.procedures)
+  for (const p of s.procedures.filter((x) => x.kind === "pci" || x.kind === "cabg"))
     ev.push({ at: p.performed_at, kind: p.kind as "pci" | "cabg", title: PROCEDURE_LABEL[p.kind as "pci"] ?? p.kind, detail: p.summary, acs: isAcsProcedure(p), dateKnown: true });
   for (const st of s.studies.filter((x) => x.kind === "cath")) {
     const cad = obstructiveCad("cath", st.attributes);

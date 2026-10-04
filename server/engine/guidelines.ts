@@ -84,6 +84,24 @@ export function cha2ds2va(s: PatientState) {
   return { score: items.reduce((n, i) => n + i.pts, 0), items: items.filter((i) => i.pts > 0) };
 }
 
+// DOAC label dose for each current DOAC (ESC AF 2024 / EHRA practical guide), where the record has
+// what the criteria need: the dose the label gives and why.
+export function doacDoseCheck(s: PatientState): { med: MedState; right: number; why: string }[] {
+  const out: { med: MedState; right: number; why: string }[] = [];
+  const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
+  const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
+  for (const m of onTag(s, "oac")) {
+    if (m.code === "apixaban" && cr != null && wt != null) {
+      const n = [age >= 80, wt <= 60, cr >= 133].filter(Boolean).length;
+      out.push({ med: m, right: n >= 2 ? 2.5 : 5, why: `${n} of 3 dose-reduction criteria (age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L)` });
+    }
+    if (m.code === "rivaroxaban" && crcl != null && crcl >= 15) out.push({ med: m, right: crcl < 50 ? 15 : 20, why: `CrCl ${Math.round(crcl)} mL/min` });
+    if (m.code === "edoxaban" && crcl != null && wt != null && crcl >= 15) out.push({ med: m, right: crcl <= 50 || wt <= 60 ? 30 : 60, why: `CrCl ${Math.round(crcl)} mL/min · weight ${formatNumber(wt, 0)} kg` });
+    if (m.code === "dabigatran") out.push({ med: m, right: age >= 80 ? 110 : 150, why: `Age ${age}` });
+  }
+  return out;
+}
+
 // ---------- ESC/EAS lipids: risk category and LDL-C goal ----------
 export function lipidRisk(s: PatientState) {
   const egfr = val(s, "egfr", 365);
@@ -499,23 +517,14 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const out: Finding[] = [];
       const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
       const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
-      const push = (m: MedState, right: number, why: string) => {
-        if (m.doseValue == null || m.doseValue === right) return;
+      for (const { med: m, right, why } of doacDoseCheck(s)) {
+        if (m.doseValue == null || m.doseValue === right) continue;
         const def = MEDICATION[m.code];
         out.push({ key: "doac-" + m.id, signature: `${m.id}:${m.doseValue}:${right}`, severity: "orange",
           title: `${m.name} ${doseLabel(def, m.doseValue)}: label dose is ${doseLabel(def, right)}`, detail: why,
           facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), crcl ? { label: "CrCl (Cockcroft-Gault)", value: `${Math.round(crcl)} mL/min` } : null, src("ESC AF 2024 / EHRA DOAC guide")),
           missing: [cr == null && "Creatinine", wt == null && "Weight"].filter(Boolean) as string[],
           action: { type: "titrate", medicationId: m.id, dose: right, direction: right > m.doseValue ? "increase" : "decrease", label: `Change to ${doseLabel(def, right)}` } });
-      };
-      for (const m of onTag(s, "oac")) {
-        if (m.code === "apixaban" && cr != null && wt != null) {
-          const n = [age >= 80, wt <= 60, cr >= 133].filter(Boolean).length;
-          push(m, n >= 2 ? 2.5 : 5, `${n} of 3 dose-reduction criteria (age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L)`);
-        }
-        if (m.code === "rivaroxaban" && crcl != null && crcl >= 15) push(m, crcl < 50 ? 15 : 20, `CrCl ${Math.round(crcl)} mL/min`);
-        if (m.code === "edoxaban" && crcl != null && wt != null && crcl >= 15) push(m, crcl <= 50 || wt <= 60 ? 30 : 60, `CrCl ${Math.round(crcl)} mL/min · weight ${formatNumber(wt, 0)} kg`);
-        if (m.code === "dabigatran") push(m, age >= 80 ? 110 : 150, `Age ${age}`);
       }
       return out;
     },

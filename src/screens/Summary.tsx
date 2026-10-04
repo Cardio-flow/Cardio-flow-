@@ -16,6 +16,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <Attention s={s} open={open} done={done} />
           <HfPanel hf={s.hf} open={open} />
           <CadPanel cad={s.cad} open={open} />
+          <RhythmPanel r={s.rhythm} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -688,7 +689,7 @@ function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
       <div className="card-head">
         <h2 id="cadp">Coronary disease</h2>
         <span className="meta">
-          <button className="btn ghost small" onClick={() => open({ kind: "procedure" })}>+ PCI / CABG</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "coronary" })}>+ PCI / CABG</button>
         </span>
       </div>
       {ix && (
@@ -740,6 +741,93 @@ function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
         {tile("Cardiac rehab", cad.rehab ? (cad.rehab.status === "completed" ? "Done" : cad.rehab.status === "planned" ? "Referral planned" : cad.rehab.status) : null, cad.rehab?.due ? fmtDay(cad.rehab.due, { year: true }) : cad.rehab ? "" : "No referral recorded")}
         {cad.smoker && tile("Smoking", "Current smoker", "Cessation support", true)}
       </div>
+    </section>
+  );
+}
+
+// Rhythm & devices (rhythm module): AF with its stroke-risk score and anticoagulation, rate and
+// rhythm control, the latest ECG and ambulatory ECG, devices, ablations and cardioversions.
+const RH_KIND: Record<string, string> = { device: "Device", ablation: "Ablation", cardioversion: "DCCV" };
+function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
+  if (!r) return null;
+  const ago = (iso: string | null) => (iso ? fmtDay(iso, { year: true }) : "date not recorded");
+  const drugs = (l: any[]) => (l.length ? l.map((d) => `${d.name} ${d.dose}${d.status === "held" ? " (on hold)" : ""}`).join(" + ") : null);
+  const tile = (label: string, value: string | null, sub: string, warn = false) => (
+    <div className={`hf-tile${value ? "" : " none"}${warn ? " warn" : ""}`}>
+      <small>{label}</small>
+      <b>{value ?? "None"}</b>
+      {sub && <em>{sub}</em>}
+    </div>
+  );
+  const oac = r.anticoagulation[0];
+  const needsOac = r.stroke && r.stroke.score >= 2 && !oac;
+  return (
+    <section className="card pad cad-panel" aria-labelledby="rhp">
+      <div className="card-head">
+        <h2 id="rhp">Rhythm &amp; devices</h2>
+        <span className="meta">
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "rhythm" })}>+ Device / ablation / DCCV</button>
+        </span>
+      </div>
+      {r.af && (
+        <div className="hf-type">
+          <b>{r.af.title}{r.af.pattern ? ` · ${r.af.pattern.toLowerCase()}` : " · pattern not recorded"}</b>
+          <span>
+            {[r.af.since ? `since ${r.af.since.length === 4 ? r.af.since : fmtDay(r.af.since, { year: true })}` : null,
+              r.stroke ? `CHA₂DS₂-VA ${r.stroke.score}${r.stroke.items.length ? ` (${r.stroke.items.join(", ")})` : ""} · ${r.stroke.advice}` : null].filter(Boolean).join(" · ")}
+          </span>
+        </div>
+      )}
+      {r.conditions.length > 0 && (
+        <div className="row wrap" style={{ gap: 6, margin: "4px 0 10px" }}>
+          {r.conditions.map((c: any, i: number) => <span key={i} className="reg-chip">{c.title}{c.detail ? ` · ${c.detail}` : ""}</span>)}
+        </div>
+      )}
+      <div className="hf-tiles">
+        {(r.af || oac) && tile(
+          "Anticoagulation",
+          oac ? `${oac.name} ${oac.dose}` : needsOac ? "Not anticoagulated" : null,
+          oac ? [oac.since ? `since ${fmtDay(oac.since, { year: true })}` : null, oac.doseCheck].filter(Boolean).join(" · ") : r.stroke ? `CHA₂DS₂-VA ${r.stroke.score}` : "",
+          needsOac || oac?.doseOk === false,
+        )}
+        {tile("Rate control", drugs(r.rate), r.rate.length ? "" : "No rate-control drug")}
+        {tile("Rhythm control", drugs(r.rhythm), r.rhythm.length ? r.rhythm.map((d: any) => (d.since ? `${d.name} since ${fmtDay(d.since, { year: true })}` : "")).filter(Boolean).join(" · ") : "No antiarrhythmic drug")}
+        {tile("Heart rate", r.hr ? `${formatNumber(r.hr.value, 0)} bpm` : null, r.hr ? fmtDay(r.hr.at) : "Not recorded")}
+        {tile(
+          "Latest ECG",
+          r.ecg ? `${r.ecg.rhythm ?? "Rhythm not recorded"}${r.ecg.rate ? ` · ${r.ecg.rate} bpm` : ""}` : null,
+          r.ecg ? [fmtDay(r.ecg.at, { year: true }), r.ecg.qrs ? `QRS ${r.ecg.qrs} ms${r.ecg.morphology && r.ecg.morphology !== "Normal" ? ` ${r.ecg.morphology}` : ""}` : null, r.ecg.qtc ? `QTc ${r.ecg.qtc} ms` : null, r.ecg.avBlock && r.ecg.avBlock !== "None" ? r.ecg.avBlock : null].filter(Boolean).join(" · ") : "No ECG recorded",
+        )}
+        {tile("Ambulatory ECG", r.holter ? r.holter.summary || "Recorded" : null, r.holter ? fmtDay(r.holter.at, { year: true }) : "No Holter recorded")}
+      </div>
+      {r.devices.length > 0 && (
+        <>
+          <div className="tgt-title" style={{ marginTop: 14 }}>Devices</div>
+          <div className="cad-drugs">
+            {r.devices.map((d: any, i: number) => (
+              <div key={i} className="cad-drug">
+                <small>{d.action ?? "Device"}</small>
+                <b>{d.type}</b>
+                <em>{[ago(d.at), d.indication, d.pacing && d.pacing !== "No pacing lead" ? d.pacing : null].filter(Boolean).join(" · ")}</em>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {r.events.length > 0 && (
+        <>
+          <div className="tgt-title" style={{ marginTop: 14 }}>Procedures</div>
+          <ol className="cad-events">
+            {r.events.map((e: any, i: number) => (
+              <li key={i} className={`k-${e.kind}`}>
+                <span className="cad-k">{RH_KIND[e.kind] ?? e.title}</span>
+                <span className="cad-t"><b>{e.title}</b>{e.detail ? <small>{e.detail}</small> : null}</span>
+                <span className="cad-d">{fmtDay(e.at, { year: true })}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
     </section>
   );
 }

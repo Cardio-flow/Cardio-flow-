@@ -6,7 +6,7 @@ import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { STUDY, cleanStudy, studySummary } from "../../shared/studies.js";
-import { PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
+import { CIED_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
 export type Changed = string[];
@@ -403,22 +403,37 @@ export async function recordProcedure(
   // the problem list carries the procedure as past coronary history (keeps every coronary rule in step)
   const day = isoDay(new Date(input.date));
   const changed: Changed = ["procedures", "conditions"];
-  const code = input.kind === "pci" ? "prior-pci" : "prior-cabg";
-  const condAttrs = input.kind === "pci"
-    ? { vessels: attributes.vessels }
-    : { grafts: (attributes.grafts as string[]).map((g) => (g === "LIMA to LAD" ? "LIMA" : g === "Other arterial graft" ? "Other arterial" : "Vein grafts")) };
-  // the same procedure already on the problem list (entered with a date within a week, or with no
-  // date or only this year) is completed with the exact date and detail instead of listed twice
-  const same = ((await tx.query(
-    `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, onset, attributes FROM cf.condition WHERE patient_id=$1 AND code=$2 ORDER BY logical_id, version DESC) c WHERE status='active'`,
-    [patientId, code],
-  )).rows as any[]).find((c) => {
-    const on = c.onset ? (typeof c.onset === "string" ? c.onset.slice(0, 10) : isoDay(new Date(c.onset))) : null;
-    const attrs = typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {};
-    return on ? Math.abs(Date.parse(on) - Date.parse(day)) <= 7 * 86400000 : !attrs.onsetYear || Number(attrs.onsetYear) === Number(day.slice(0, 4));
-  });
-  if (same) await updateCondition(tx, actor, patientId, same.logical_id, { onset: day, attributes: condAttrs });
-  else await addCondition(tx, actor, patientId, { code, onset: day, contextId: input.contextId, attributes: condAttrs });
+  if (input.kind === "pci" || input.kind === "cabg") {
+    const code = input.kind === "pci" ? "prior-pci" : "prior-cabg";
+    const condAttrs = input.kind === "pci"
+      ? { vessels: attributes.vessels }
+      : { grafts: (attributes.grafts as string[]).map((g) => (g === "LIMA to LAD" ? "LIMA" : g === "Other arterial graft" ? "Other arterial" : "Vein grafts")) };
+    // the same procedure already on the problem list (entered with a date within a week, or with no
+    // date or only this year) is completed with the exact date and detail instead of listed twice
+    const same = ((await tx.query(
+      `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, onset, attributes FROM cf.condition WHERE patient_id=$1 AND code=$2 ORDER BY logical_id, version DESC) c WHERE status='active'`,
+      [patientId, code],
+    )).rows as any[]).find((c) => {
+      const on = c.onset ? (typeof c.onset === "string" ? c.onset.slice(0, 10) : isoDay(new Date(c.onset))) : null;
+      const attrs = typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {};
+      return on ? Math.abs(Date.parse(on) - Date.parse(day)) <= 7 * 86400000 : !attrs.onsetYear || Number(attrs.onsetYear) === Number(day.slice(0, 4));
+    });
+    if (same) await updateCondition(tx, actor, patientId, same.logical_id, { onset: day, attributes: condAttrs });
+    else await addCondition(tx, actor, patientId, { code, onset: day, contextId: input.contextId, attributes: condAttrs });
+  } else if (input.kind === "device" && ["New implant", "Upgrade", "Generator change"].includes(attributes.action)) {
+    // the problem list carries the device (device rules read it); an upgrade changes the listed type
+    const type = CIED_TYPE(attributes.type);
+    const cur = ((await tx.query(
+      `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, attributes FROM cf.condition WHERE patient_id=$1 AND code='cied' ORDER BY logical_id, version DESC) c WHERE status='active'`,
+      [patientId],
+    )).rows as any[]);
+    // one device on the problem list (the diagnosis is single): a pacing/defibrillator device wins
+    // over a loop recorder, and a different device (upgrade, new system) replaces the listed type
+    const listed = cur[0] ? (typeof cur[0].attributes === "string" ? JSON.parse(cur[0].attributes) : cur[0].attributes ?? {}).type : null;
+    if (!cur[0]) await addCondition(tx, actor, patientId, { code: "cied", onset: day, contextId: input.contextId, attributes: { type } });
+    else if (listed !== type && !(type === "Loop recorder" && listed && listed !== "Loop recorder"))
+      await updateCondition(tx, actor, patientId, cur[0].logical_id, { onset: day, attributes: { type } });
+  }
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.date, kind: input.kind, category: "procedure",
     title: `${PROCEDURE_LABEL[input.kind]} · ${summary}`.slice(0, 200), detail: "", refType: "procedure", refId: id, contextId: input.contextId,

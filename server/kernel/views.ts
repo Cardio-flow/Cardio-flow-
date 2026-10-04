@@ -1,6 +1,7 @@
 import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
 import { cadProfile } from "../engine/cad-profile.js";
+import { rhythmProfile } from "../engine/rhythm-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
@@ -363,6 +364,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     hf: hfProfile(s),
     // coronary profile: events with dates, antithrombotic regimen with planned stops, lipids (CAD patients)
     cad: cadProfile(s),
+    rhythm: rhythmProfile(s),
     // complications followed as episodes (open, and resolved in the last 30 days)
     episodes: episodesView(s),
     // why a drug class is not given (recorded once, reused by every rule)

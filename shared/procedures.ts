@@ -16,8 +16,35 @@ export const COMPLEX_FEATURES = ["≥3 vessels treated", "≥3 stents", "≥3 le
 export const CABG_GRAFTS = ["LIMA to LAD", "Other arterial graft", "Vein grafts"] as const;
 export const ACCESS = ["Radial", "Femoral"] as const;
 
-export type ProcedureKind = "pci" | "cabg";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG" };
+// Rhythm & devices module (5 Oct 2026): device implants, ablations and cardioversions use the same
+// append-only table; the kind is validated here, not in the schema.
+export const DEVICE_TYPES = [
+  "Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Leadless pacemaker", "ICD (transvenous)", "Subcutaneous ICD",
+  "CRT-P", "CRT-D", "Implantable loop recorder",
+] as const;
+export const DEVICE_ACTIONS = ["New implant", "Upgrade", "Generator change", "Lead revision", "Extraction"] as const;
+export const DEVICE_INDICATIONS = [
+  "Sinus node dysfunction", "AV block", "AF with slow ventricular rate", "Pace and ablate", "Primary prevention ICD", "Secondary prevention ICD",
+  "CRT for heart failure", "Syncope / arrhythmia monitoring", "Other",
+] as const;
+export const PACING_SITES = ["RV pacing", "Conduction system pacing (His / LBBAP)", "Biventricular", "No pacing lead"] as const;
+export const ABLATION_TARGETS = [
+  "AF (pulmonary vein isolation)", "Atrial flutter (CTI)", "Atypical flutter / atrial tachycardia", "AVNRT", "Accessory pathway", "VT", "PVCs", "AV node (pace and ablate)",
+] as const;
+export const ABLATION_ENERGY = ["Radiofrequency", "Cryoballoon", "Pulsed field", "Other"] as const;
+export const ABLATION_RESULT = ["Acute success", "Partial", "Unsuccessful"] as const;
+export const CV_METHOD = ["Electrical", "Pharmacological"] as const;
+export const CV_RHYTHM = ["Atrial fibrillation", "Atrial flutter", "Other"] as const;
+export const CV_PREP = ["Anticoagulated ≥3 weeks", "TOE-guided", "AF onset <24 h", "Emergency (haemodynamic instability)"] as const;
+export const CV_RESULT = ["Sinus rhythm restored", "Unsuccessful", "Early recurrence"] as const;
+
+export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion" };
+export const CORONARY_KINDS: ProcedureKind[] = ["pci", "cabg"];
+export const RHYTHM_KINDS: ProcedureKind[] = ["device", "ablation", "cardioversion"];
+// the problem-list device type for a device record
+export const CIED_TYPE = (t: string) =>
+  /^Pacemaker|Leadless/.test(t) ? "Pacemaker" : /ICD/.test(t) ? "ICD" : t === "CRT-P" ? "CRT-P" : t === "CRT-D" ? "CRT-D" : "Loop recorder";
 
 const oneOf = <T extends readonly string[]>(list: T, v: unknown, what: string) => {
   if (v == null || v === "") return null;
@@ -46,6 +73,31 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
       access: oneOf(ACCESS, a.access, "Access"),
     };
   }
+  if (kind === "device") {
+    const type = oneOf(DEVICE_TYPES, a.type, "Device");
+    if (!type) throw new Error("Choose the device");
+    return {
+      type,
+      action: oneOf(DEVICE_ACTIONS, a.action, "Procedure") ?? "New implant",
+      indication: oneOf(DEVICE_INDICATIONS, a.indication, "Indication"),
+      pacing: oneOf(PACING_SITES, a.pacing, "Pacing"),
+    };
+  }
+  if (kind === "ablation") {
+    const targets = someOf(ABLATION_TARGETS, a.targets, "Target");
+    if (!targets.length) throw new Error("Choose what was ablated");
+    return { targets, energy: oneOf(ABLATION_ENERGY, a.energy, "Energy"), result: oneOf(ABLATION_RESULT, a.result, "Result") ?? "Acute success" };
+  }
+  if (kind === "cardioversion") {
+    const method = oneOf(CV_METHOD, a.method, "Method");
+    if (!method) throw new Error("Electrical or pharmacological?");
+    return {
+      method,
+      rhythm: oneOf(CV_RHYTHM, a.rhythm, "Rhythm") ?? "Atrial fibrillation",
+      prep: oneOf(CV_PREP, a.prep, "Before cardioversion"),
+      result: oneOf(CV_RESULT, a.result, "Result") ?? "Sinus rhythm restored",
+    };
+  }
   const grafts = someOf(CABG_GRAFTS, a.grafts, "Grafts");
   const count = a.count == null || a.count === "" ? null : Number(a.count);
   if (count != null && (!Number.isInteger(count) || count < 1 || count > 8)) throw new Error("Number of grafts: 1–8");
@@ -64,5 +116,8 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
     const dev = a.device === "Drug-eluting stent" ? (a.stents ? `DES ×${a.stents}` : "DES") : a.device === "Drug-coated balloon" ? "DCB" : a.device === "Balloon only" ? "balloon only" : "";
     return [`${(a.vessels ?? []).join(", ")}${dev ? ` ${dev}` : ""}`, setting, a.complex?.length ? "complex PCI" : null].filter(Boolean).join(" · ");
   }
+  if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null].filter(Boolean).join(" · ");
+  if (kind === "ablation") return [(a.targets ?? []).join(" + "), a.energy, a.result !== "Acute success" ? a.result?.toLowerCase() : null].filter(Boolean).join(" · ");
+  if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");
   return [a.count ? `${a.count} graft${a.count === 1 ? "" : "s"}` : null, (a.grafts ?? []).join(", ") || null, a.setting === "acs" ? "during ACS" : null].filter(Boolean).join(" · ");
 }

@@ -86,7 +86,7 @@ test("Fatma (NSTE-ACS PCI on apixaban + aspirin + ticagrelor): switch to clopido
   assert.equal(potent.severity, "orange");
   assert.equal(await rec(pid, "cad.antithrombotic-plan"), undefined, "the more specific finding stands alone");
   assert.equal((await rec(pid, "cad.ppi-combined-antithrombotic")).severity, "yellow");
-  const pciAt = (await loadState(db, pid)).procedures[0].performed_at.slice(0, 10);
+  const pciAt = (await loadState(db, pid)).procedures.find((p) => p.kind === "pci")!.performed_at.slice(0, 10);
 
   await complete(pid, { setting: "acs", oac: "yes", hbr: ["oac-long"], ischaemic: ["none"], tat: "1w", dual: "12m", now: ["to-clopidogrel", "ppi"], review: "none" }, potent.id);
   const s = await loadState(db, pid);
@@ -109,7 +109,7 @@ test("Salem (elective PCI, DAPT): 6-month DAPT then clopidogrel alone; Noura (ST
   assert.match(r.title, /^Elective PCI .*antithrombotic stop dates not set/);
   await complete(sa, { setting: "ccs", oac: "no", hbr: ["none"], ischaemic: ["none"], dapt: "6m", sapt: "clopidogrel", now: ["none"], review: "none" }, r.id);
   let s = await loadState(db, sa);
-  const pciAt = s.procedures[0].performed_at.slice(0, 10);
+  const pciAt = s.procedures.find((p) => p.kind === "pci")!.performed_at.slice(0, 10);
   const asp = s.meds.find((m) => m.code === "aspirin" && m.status === "active")!;
   const item = s.plan.find((p) => p.medication_id === asp.id && p.status === "planned")!;
   assert.equal(item.due_date, addDays(pciAt, 182));
@@ -121,7 +121,7 @@ test("Salem (elective PCI, DAPT): 6-month DAPT then clopidogrel alone; Noura (ST
   s = await loadState(db, no);
   const p2 = s.meds.find((m) => m.tags.includes("p2y12") && m.status === "active")!;
   const it = s.plan.find((p) => p.medication_id === p2.id && p.status === "planned")!;
-  assert.equal(it.due_date, addDays(s.procedures[0].performed_at.slice(0, 10), 365));
+  assert.equal(it.due_date, addDays(s.procedures.find((p) => p.kind === "pci")!.performed_at.slice(0, 10), 365));
   assert.match(it.title, /End of 12-month DAPT: stop .*, continue aspirin/);
   assert.equal(await rec(no, "cad.rehab"), undefined, "Noura has a rehabilitation referral");
 });
