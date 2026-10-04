@@ -4,7 +4,7 @@
 // prevention picture (LDL-C against the ESC/EAS goal, LVEF, BP, rehabilitation).
 import { DIAGNOSIS, MEDICATION, doseLabel } from "../../shared/catalog.js";
 import { attributesText } from "../../shared/history.js";
-import { daysBetween } from "../../shared/clinical.js";
+import { daysBetween, localDay } from "../../shared/clinical.js";
 import { PROCEDURE_LABEL, isAcsProcedure, isComplexPci } from "../../shared/procedures.js";
 import { obstructiveCad } from "../../shared/studies.js";
 import type { MedState, PatientState } from "../kernel/state.js";
@@ -54,6 +54,16 @@ export function indexEvent(s: PatientState) {
   };
 }
 
+// The ACS that the secondary-prevention bundle answers: the latest index event when it is an ACS,
+// dated from the first ACS/MI record within 30 days before it (a PCI the day after the admission
+// belongs to the same ACS).
+export function acsIndex(s: PatientState) {
+  const ix = indexEvent(s);
+  if (!ix?.acs) return null;
+  const first = cadEvents(s).filter((e) => (e.kind === "acs" || e.kind === "mi") && e.dateKnown && e.at <= ix.at && daysBetween(e.at, ix.at) <= 30)[0];
+  const at = localDay(first?.at ?? ix.at);
+  return { ...ix, acsAt: at, acsDays: daysBetween(at, s.today) };
+}
 // The antithrombotic regimen now, named the way it is discussed on the ward.
 export function antithrombotic(s: PatientState) {
   const meds = live(s).filter((m) => m.tags.includes("antiplatelet") || m.tags.includes("oac"));

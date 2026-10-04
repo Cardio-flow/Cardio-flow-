@@ -7,12 +7,12 @@ import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "
 import { addPlanAction, medicationEvent, startMedication, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
-import { arcHbr, indexEvent } from "./cad-profile.js";
+import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
     .filter((m) => m.status === "active" || m.status === "held")
-    .map((m) => ({ id: m.id, code: m.code, name: m.name, doseValue: m.doseValue, doseUnit: m.doseUnit, frequency: m.frequency, tags: m.tags }));
+    .map((m) => ({ id: m.id, code: m.code, name: m.name, doseValue: m.doseValue, doseUnit: m.doseUnit, frequency: m.frequency, tags: m.tags, startedAt: m.startedAt ?? null }));
   const fact = (code: string, tone?: string) => {
     const c = s.resolved(code).current;
     if (!c) return { label: MEASURES[code]?.display ?? code, value: "Not available", tone: "orange" };
@@ -85,11 +85,14 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   };
   const ix = indexEvent(s);
   const hbr = arcHbr(s);
+  const acs = acsIndex(s);
   const coronary = ix ? {
+    acsAt: acs?.acsAt ?? null,
     indexAt: (ix.pci?.at ?? ix.at), indexTitle: `${ix.title}${ix.detail ? ` · ${ix.detail}` : ""}`, acs: ix.acs, pciAt: ix.pci?.at ?? null,
     complexPci: !!ix.pci?.complex, days: ix.days, hbrMajor: hbr.major, hbrMinor: hbr.minor,
   } : null;
-  return { ...base, values, dx, profile: { ...profile, sex: s.patient.sex }, coronary };
+  const planned = s.plan.filter((p) => p.status === "planned").map((p) => p.title);
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -159,7 +162,7 @@ export async function completeWizard(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
     [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify(input.answers), input.contextId ?? null, actor.id, episodeId],
   );
-  const changed: Changed = ["plan", "episodes"];
+  const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them
   for (const item of outcome.filter((i) => i.kind === "start")) {
     if (item.kind !== "start") continue;

@@ -95,6 +95,8 @@ export type PatientState = {
   // why a drug class is not given (newest per class, cleared ones removed)
   barriers: BarrierRow[];
   episodes: EpisodeRow[];
+  // the latest completed run of each pathway (wizard id → ISO time), for rules that ask "done since the event?"
+  pathwaysDone: Record<string, string>;
 };
 export type StatusRow = { id: string; kind: string; status: string; effective_on: string; place: string | null; cause_group: string | null; detail: string };
 
@@ -121,7 +123,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
             (SELECT coalesce(json_agg(json_build_object('id', d.id, 'decided_at', d.decided_at) ORDER BY d.decided_at), '[]') FROM cf.decision d WHERE d.episode_id = e.id) AS decisions
             FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes,
         (SELECT coalesce(json_agg(pr ORDER BY pr.performed_at), '[]') FROM (SELECT p.id,p.kind,p.performed_at,p.attributes,p.summary,p.context_id FROM cf.procedure p
-            WHERE p.patient_id=$1 AND p.status='final' AND NOT EXISTS (SELECT 1 FROM cf.procedure r WHERE r.replaces=p.id)) pr) AS procedures`,
+            WHERE p.patient_id=$1 AND p.status='final' AND NOT EXISTS (SELECT 1 FROM cf.procedure r WHERE r.replaces=p.id)) pr) AS procedures,
+        (SELECT coalesce(json_object_agg(w.wizard, w.at), '{}') FROM (SELECT wizard, max(decided_at) AS at FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IS NOT NULL GROUP BY wizard) w) AS pathways`,
       [patientId],
     )
   ).rows[0];
@@ -227,6 +230,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       resolved_at: e.resolved_at ? new Date(e.resolved_at).toISOString() : null,
       decisions: (typeof e.decisions === "string" ? JSON.parse(e.decisions) : e.decisions ?? []).map((d: any) => ({ id: d.id, decided_at: new Date(d.decided_at).toISOString() })),
     })),
+    pathwaysDone: Object.fromEntries(Object.entries((typeof bundle.pathways === "string" ? JSON.parse(bundle.pathways) : bundle.pathways) ?? {}).map(([k, v]) => [k, new Date(v as string).toISOString()])),
   };
 }
 

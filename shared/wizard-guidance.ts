@@ -14,6 +14,7 @@
 // hyponatraemia guideline 2014; ESC 2024 hypertension; IDF-DAR 2021; ESC 2022 non-cardiac surgery;
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
+import { localDay } from "./clinical.js";
 import { highIschaemic, isHbr } from "./wizards-coronary.js";
 
 export type Suggestion = { value: string; why: string };
@@ -427,7 +428,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
 
   // ---------------- Coronary ----------------
   antithrombotic: {
-    setting: (_a, c) => [c.coronary ? S(c.coronary.acs ? "acs" : "ccs", `${c.coronary.indexTitle} (${c.coronary.indexAt.slice(0, 10)})`) : null],
+    setting: (_a, c) => [c.coronary ? S(c.coronary.acs ? "acs" : "ccs", `${c.coronary.indexTitle} (${localDay(c.coronary.indexAt)})`) : null],
     oac: (_a, c) => [on(c, "oac") ? S("yes", "On an oral anticoagulant") : S("no", "No anticoagulant recorded")],
     hbr: (_a, c) => {
       const egfr = val(c, "egfr"), hb = val(c, "haemoglobin"), plt = val(c, "platelets"), age = c.profile?.age ?? 0;
@@ -471,6 +472,43 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         combined && !on(c, "ppi") && S("ppi", "PPI with combined antithrombotic therapy at increased GI-bleeding risk (ESC ACS 2023, I A)"),
       ];
     },
+  },
+
+  "acs-discharge": {
+    type: (_a, c) => {
+      const t = c.coronary?.acs ? c.coronary.indexTitle : "";
+      return [/NSTE|NSTEMI/i.test(t) ? S("nstemi", `${t} recorded`) : /STEMI/i.test(t) ? S("stemi", `${t} recorded`) : dx(c, "acs-stemi") ? S("stemi", "STEMI on the problem list") : dx(c, "acs-nstemi") ? S("nstemi", "NSTEMI on the problem list") : null];
+    },
+    lvef: (_a, c) => {
+      const ef = c.values?.lvef;
+      const since = ef && c.coronary?.acsAt ? localDay(ef.at) >= c.coronary.acsAt : !!ef;
+      if (!ef || !since) return [S("not-measured", "No LVEF since the ACS: echo during the admission to assess LV function (ESC ACS 2023)")];
+      return [S(ef.value <= 40 ? "le40" : ef.value < 50 ? "41-49" : "ge50", `LVEF ${ef.value}% (${localDay(ef.at)})`)];
+    },
+    start: (a, c) => {
+      const lowEf = a.lvef === "le40";
+      const ldl = val(c, "ldl-c");
+      const onStatinBefore = c.meds.some((m) => m.tags.includes("statin") && (!c.coronary?.acsAt || !m.startedAt || localDay(m.startedAt) < c.coronary.acsAt));
+      return [
+        !on(c, "statin") && S("statin", "High-intensity statin as early as possible after ACS (ESC ACS 2023, I A)"),
+        on(c, "statin") && !c.meds.some((m) => m.tags.includes("statin") && ((m.code.startsWith("atorvastatin") && (m.doseValue ?? 0) >= 40) || (m.code.startsWith("rosuvastatin") && (m.doseValue ?? 0) >= 20))) && S("intensify", "Statin below high intensity (atorvastatin 40–80 mg / rosuvastatin 20–40 mg) (ESC ACS 2023, I A)"),
+        !on(c, "ezetimibe") && onStatinBefore && ldl != null && ldl >= 1.4 && S("ezetimibe", `Already on a statin at the ACS and LDL-C ${ldl}: intensify lipid-lowering therapy (ESC ACS 2023, I)`),
+        lowEf && !on(c, "bb") && S("bb", "LVEF ≤40% after ACS: beta-blocker (ESC ACS 2023, I A)"),
+        !on(c, "raas") && (lowEf || dx(c, "hf", "dm", "htn", "ckd")) && S("acei", `ACE inhibitor: ${[lowEf && "LVEF ≤40%", dx(c, "hf") && "HF", dx(c, "dm") && "diabetes", dx(c, "htn") && "hypertension", dx(c, "ckd") && "CKD"].filter(Boolean).join(", ")} (ESC ACS 2023, I A)`),
+        !on(c, "mra") && lowEf && dx(c, "hf", "dm") && S("mra", `LVEF ≤40% with ${dx(c, "hf") ? "HF" : "diabetes"}: MRA (ESC ACS 2023, I A)`),
+      ];
+    },
+    prevent: (_a, c) => [
+      !(c.planned ?? []).some((t) => /rehabilitation/i.test(t)) && S("rehab", "Comprehensive cardiac rehabilitation for all ACS patients (ESC ACS 2023, I A)"),
+      dx(c, "smoker") && S("smoking", "Current smoker: stop smoking (ESC ACS 2023)"),
+      S("flu", "Influenza vaccination for ACS patients (ESC ACS 2023)"),
+      val(c, "hba1c") == null && S("hba1c", "No HbA1c recorded: assess glycaemic status in every ACS patient (ESC ACS 2023)"),
+    ],
+    followup: (a, c) => [
+      !(c.planned ?? []).some((t) => /lipid/i.test(t)) && S("lipids", "Re-evaluate lipids 4–6 weeks after ACS (ESC ACS 2023)"),
+      a.lvef === "le40" && S("echo", "LVEF ≤40%: re-evaluate 6–12 weeks after MI for a primary-prevention ICD (ESC VA 2022, I C)"),
+      a.revasc === "staged" && S("staged", a.type === "stemi" ? "STEMI: complete revascularisation within 45 days (ESC ACS 2023, I A)" : "Complete the planned revascularisation"),
+    ],
   },
 
   // ---------------- Inflammatory & infective ----------------

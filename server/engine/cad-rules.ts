@@ -4,9 +4,9 @@
 // up to 1 month if high ischaemic risk; ticagrelor/prasugrel not recommended in triple therapy;
 // PPI with combined antithrombotic therapy at GI-bleeding risk I A; cardiac rehabilitation I A);
 // 2024 ESC CCS (DAPT 6 months after PCI; rehabilitation I A).
-import { fmtDay } from "../../shared/clinical.js";
+import { addDays, fmtDay, localDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
-import { antithrombotic, indexEvent } from "./cad-profile.js";
+import { acsIndex, antithrombotic, indexEvent } from "./cad-profile.js";
 import type { RuleDef } from "./rules.js";
 
 const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
@@ -15,7 +15,92 @@ const antithromboticMeds = (s: PatientState) => live(s).filter((m) => m.tags.inc
 // a dated stop is planned for one of the antithrombotic medicines (open, due in the future or today)
 const plannedStop = (s: PatientState, ids: string[]) => s.plan.some((p) => p.status === "planned" && p.medication_id && ids.includes(p.medication_id) && !!p.due_date);
 
+const bundleDone = (s: PatientState, acsAt: string) => !!s.pathwaysDone["acs-discharge"] && localDay(s.pathwaysDone["acs-discharge"]) >= acsAt;
+const plannedTitle = (s: PatientState, re: RegExp) => s.plan.some((p) => p.status === "planned" && re.test(p.title));
+const measuredSince = (s: PatientState, code: string, from: string) =>
+  s.observations.some((o) => o.code === code && o.status !== "entered_in_error" && o.value_num != null && localDay(o.effective_at) >= from);
+
 export const CAD_RULES: RuleDef[] = [
+  {
+    id: "cad.acs-bundle",
+    kind: "clinical",
+    title: "Secondary-prevention bundle after ACS",
+    inputs: ["procedures", "contexts", "conditions", "pathways"],
+    defaultParams: {},
+    evidence: "2023 ESC ACS, long-term management: rehabilitation (I A), high-intensity statin and LDL-C goal (I A), lipids re-evaluated at 4–6 weeks, beta-blocker / ACE inhibitor / MRA by LVEF and comorbidity (I A), echocardiography during the admission, glycaemic status, influenza vaccination, complete revascularisation. Offered once per ACS within the 12-month DAPT window, until the ACS discharge bundle is completed.",
+    evaluate(s) {
+      const ix = acsIndex(s);
+      if (!ix || ix.acsDays > 365 || bundleDone(s, ix.acsAt)) return [];
+      const inHospital = s.contexts.some((c) => c.kind === "admission" && !c.ended_at && localDay(c.started_at) >= addDays(ix.acsAt, -2));
+      return [{
+        key: "bundle", signature: ix.acsAt, severity: "orange",
+        title: inHospital ? "ACS: complete the secondary-prevention bundle before discharge" : `ACS ${fmtDay(ix.acsAt)}: secondary-prevention bundle not completed`,
+        detail: "Statin and LDL-C goal, beta-blocker / ACE inhibitor / MRA by LVEF, rehabilitation, lipids at 4–6 weeks, LVEF follow-up.",
+        facts: [{ label: "Event", value: `${ix.title}${ix.detail ? ` · ${ix.detail}` : ""}`, date: ix.at }, { label: "Guideline", value: "ESC ACS 2023" }],
+        missing: [], action: { type: "wizard", wizard: "acs-discharge" },
+      }];
+    },
+  },
+  {
+    id: "cad.lvef-after-acs",
+    kind: "clinical",
+    title: "No LVEF after ACS",
+    inputs: ["lvef", "plan", "pathways", "procedures", "contexts", "conditions"],
+    defaultParams: {},
+    evidence: "2023 ESC ACS: echocardiography during the admission to assess LV function. Shown once the ACS bundle is done (until then the bundle covers it).",
+    evaluate(s) {
+      const ix = acsIndex(s);
+      if (!ix || ix.acsDays > 365 || !bundleDone(s, ix.acsAt) || measuredSince(s, "lvef", ix.acsAt) || plannedTitle(s, /echo/i)) return [];
+      return [{
+        key: "lvef", signature: ix.acsAt, severity: "yellow",
+        title: "No LVEF recorded since the ACS",
+        detail: "LV function guides beta-blocker, ACE inhibitor, MRA and ICD decisions.",
+        facts: [{ label: "ACS", value: ix.title, date: ix.acsAt }, { label: "Guideline", value: "ESC ACS 2023" }],
+        missing: [], action: { type: "add-plan", template: "echo" },
+      }];
+    },
+  },
+  {
+    id: "cad.lvef-reassess-after-mi",
+    kind: "clinical",
+    title: "LVEF ≤40% after MI: reassess at 6–12 weeks",
+    inputs: ["lvef", "plan", "procedures", "contexts", "conditions"],
+    defaultParams: {},
+    evidence: "2022 ESC ventricular arrhythmias: in patients with pre-discharge LVEF ≤40%, re-evaluation of LVEF 6–12 weeks after MI is recommended to assess the need for a primary-prevention ICD (I C).",
+    evaluate(s) {
+      const ix = acsIndex(s);
+      if (!ix || ix.acsDays < 42 || ix.acsDays > 365) return [];
+      const efs = s.observations.filter((o) => o.code === "lvef" && o.status !== "entered_in_error" && o.value_num != null && localDay(o.effective_at) >= ix.acsAt).sort((a, b) => a.effective_at.localeCompare(b.effective_at));
+      const early = efs.find((o) => localDay(o.effective_at) < addDays(ix.acsAt, 42));
+      if (!early || early.value_num! > 40 || efs.some((o) => localDay(o.effective_at) >= addDays(ix.acsAt, 42)) || plannedTitle(s, /echo/i)) return [];
+      return [{
+        key: "reassess", signature: early.id, severity: "orange",
+        title: `LVEF ${early.value_num}% after MI: reassess LVEF now (ICD decision)`,
+        detail: `${Math.round(ix.acsDays / 7)} weeks since the ACS; re-evaluate LVEF 6–12 weeks after MI on optimal therapy.`,
+        facts: [{ label: "LVEF after the ACS", value: `${early.value_num}%`, date: early.effective_at }, { label: "Guideline", value: "ESC VA 2022 · I C" }],
+        missing: [], action: { type: "add-plan", template: "echo" },
+      }];
+    },
+  },
+  {
+    id: "cad.lipids-after-acs",
+    kind: "clinical",
+    title: "Lipids 4–6 weeks after ACS",
+    inputs: ["ldl-c", "plan", "pathways", "procedures", "contexts", "conditions"],
+    defaultParams: {},
+    evidence: "2023 ESC ACS: lipid levels re-evaluated 4–6 weeks after ACS to check the LDL-C goal (<1.4 mmol/L and ≥50% reduction); ezetimibe if not at goal (I B). Shown once the ACS bundle is done.",
+    evaluate(s) {
+      const ix = acsIndex(s);
+      if (!ix || ix.acsDays <= 42 || ix.acsDays > 365 || !bundleDone(s, ix.acsAt) || measuredSince(s, "ldl-c", addDays(ix.acsAt, 28)) || plannedTitle(s, /lipid/i)) return [];
+      return [{
+        key: "lipids", signature: ix.acsAt, severity: "yellow",
+        title: "No lipid profile since 4 weeks after the ACS",
+        detail: "Re-evaluate LDL-C against the goal <1.4 mmol/L; add ezetimibe if not reached.",
+        facts: [{ label: "ACS", value: ix.title, date: ix.acsAt }, { label: "Guideline", value: "ESC ACS 2023" }],
+        missing: [], action: { type: "add-plan", template: "lipids" },
+      }];
+    },
+  },
   {
     id: "cad.antithrombotic-plan",
     kind: "clinical",
@@ -140,7 +225,7 @@ export const CAD_RULES: RuleDef[] = [
     id: "cad.rehab",
     kind: "clinical",
     title: "Cardiac rehabilitation after ACS / PCI / CABG",
-    inputs: ["procedures", "contexts", "conditions", "plan"],
+    inputs: ["procedures", "contexts", "conditions", "plan", "pathways"],
     defaultParams: {},
     evidence: "2023 ESC ACS and 2024 ESC CCS: a structured, supervised, exercise-based cardiac rehabilitation programme is recommended after ACS and revascularisation (I A).",
     evaluate(s) {
@@ -148,9 +233,12 @@ export const CAD_RULES: RuleDef[] = [
       const cabg = [...s.procedures].reverse().find((p) => p.kind === "cabg");
       const at = [ix?.at, cabg?.performed_at].filter(Boolean).sort().pop();
       if (!at) return [];
-      const days = Math.round((Date.parse(s.today) - Date.parse(at.slice(0, 10))) / 86400000);
+      const days = Math.round((Date.parse(s.today) - Date.parse(localDay(at))) / 86400000);
       if (days > 365 || (!ix?.acs && ix?.kind !== "pci" && !cabg)) return [];
       if (s.plan.some((p) => /rehabilitation/i.test(p.title))) return [];
+      // after an ACS the bundle carries rehabilitation until it is completed
+      const acs = acsIndex(s);
+      if (acs && acs.acsDays <= 365 && !bundleDone(s, acs.acsAt)) return [];
       return [{
         key: "rehab", signature: at, severity: "orange",
         title: "No cardiac rehabilitation referral after " + (cabg && cabg.performed_at === at ? "CABG" : ix?.acs ? "ACS" : "PCI"),

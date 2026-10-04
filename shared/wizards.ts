@@ -68,6 +68,7 @@ export type WizardMed = {
   doseUnit: string | null;
   frequency: string | null;
   tags: string[];
+  startedAt?: string | null;
 };
 export type WizardContext = {
   today: string;
@@ -81,9 +82,12 @@ export type WizardContext = {
   // guideline suggestions (shared/wizard-guidance.ts)
   values?: Record<string, { value: number; at: string; prev: number | null }>;
   dx?: string[];
+  // titles of open (planned) plan items, so a pathway does not plan the same thing twice
+  planned?: string[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found
   coronary?: {
     indexAt: string; indexTitle: string; acs: boolean; pciAt: string | null; complexPci: boolean; days: number;
+    acsAt?: string | null; // first ACS/MI record of the index ACS (admission date): ACS follow-up counts from here
     hbrMajor: string[]; hbrMinor: string[];
   } | null;
 };

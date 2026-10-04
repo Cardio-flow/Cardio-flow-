@@ -15,8 +15,8 @@
 //    anticoagulant, triple therapy up to 1 week, then anticoagulant + clopidogrel to 6 months.
 //  - ARC-HBR (Urban 2019): high bleeding risk = ≥1 major or ≥2 minor criteria.
 // CardioFlow never gives loading doses; clopidogrel 75 mg daily is the maintenance dose.
-import { addDays } from "./clinical.js";
-import type { Answers, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
+import { addDays, localDay } from "./clinical.js";
+import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
   { value: "none", label: "No extra visit" },
@@ -32,7 +32,114 @@ export const isHbr = (a: Answers) => {
 };
 export const highIschaemic = (a: Answers) => ((a.ischaemic as string[]) ?? []).filter((v) => v !== "none").length > 0;
 
+// ACS discharge bundle (coronary module, slice 3) — secondary prevention before discharge or at the
+// first visit after an ACS. Sources:
+//  - 2023 ESC ACS, long-term management: comprehensive cardiac rehabilitation for all ACS patients
+//    (I A); stop smoking; high-intensity statin as early as possible, LDL-C <1.4 mmol/L and ≥50%
+//    reduction (I A); lipids re-evaluated 4–6 weeks after ACS, ezetimibe if not at goal (I B);
+//    statin + ezetimibe during the index admission may be considered (IIb B); beta-blocker if LVEF
+//    ≤40% (I A); ACE inhibitor with HF symptoms, LVEF ≤40%, diabetes, hypertension or CKD (I A); MRA
+//    with LVEF ≤40% and HF or diabetes (I A); low-dose colchicine may be considered (IIb A); influenza
+//    vaccination; echocardiography during the admission to assess LV function; glycaemic status
+//    assessed in every ACS patient; complete revascularisation in STEMI during the index PCI or within
+//    45 days (I A).
+//  - 2022 ESC ventricular arrhythmias: LVEF ≤40% before discharge → re-evaluate LVEF 6–12 weeks after
+//    MI for a primary-prevention ICD decision (I C).
+// Starting doses are the guideline/trial starting doses already used elsewhere in CardioFlow
+// (bisoprolol 1.25 mg, ramipril 2.5 mg twice daily, eplerenone 25 mg, atorvastatin 80 mg high
+// intensity, ezetimibe 10 mg, colchicine 0.5 mg). Antithrombotic durations are the separate
+// "Antithrombotic plan" pathway.
+export const ACS_MEDS: Record<string, { code: string; dose: number; frequency: string; label: string }> = {
+  statin: { code: "atorvastatin", dose: 80, frequency: "OD", label: "Atorvastatin 80 mg daily" },
+  ezetimibe: { code: "ezetimibe", dose: 10, frequency: "OD", label: "Ezetimibe 10 mg daily" },
+  bb: { code: "bisoprolol", dose: 1.25, frequency: "OD", label: "Bisoprolol 1.25 mg daily" },
+  acei: { code: "ramipril", dose: 2.5, frequency: "BID", label: "Ramipril 2.5 mg twice daily" },
+  mra: { code: "eplerenone", dose: 25, frequency: "OD", label: "Eplerenone 25 mg daily" },
+  colchicine: { code: "colchicine", dose: 0.5, frequency: "OD", label: "Colchicine 0.5 mg daily" },
+};
+
 export const CORONARY_WIZARDS: Record<string, WizardDef> = {
+  "acs-discharge": {
+    id: "acs-discharge", title: "ACS discharge bundle", tone: "blue", group: "Coronary", episode: false,
+    source: "ESC ACS 2023 · ESC VA 2022",
+    note: "Secondary prevention after an acute coronary syndrome, before discharge or at the first visit. Follow-up dates count from the ACS. Antithrombotic durations are set in the Antithrombotic plan pathway.",
+    facts: ["lvef", "ldl-c", "hba1c", "egfr", "potassium", "sbp", "hr"],
+    steps: [
+      {
+        id: "event", title: "The event",
+        questions: [
+          {
+            id: "type", label: "Type of ACS", type: "single", required: true,
+            options: [{ value: "stemi", label: "STEMI" }, { value: "nstemi", label: "NSTEMI" }, { value: "ua", label: "Unstable angina" }],
+          },
+          {
+            id: "revasc", label: "Revascularisation", type: "single", required: true,
+            options: [
+              { value: "complete", label: "Complete", hint: "All significant lesions treated" },
+              { value: "staged", label: "Staged PCI still to do", hint: "STEMI: complete within 45 days (ESC ACS 2023, I A)" },
+              { value: "cabg", label: "CABG planned" },
+              { value: "medical", label: "Medical therapy only" },
+            ],
+          },
+          {
+            id: "lvef", label: "LVEF on this admission", type: "single", required: true,
+            options: [
+              { value: "le40", label: "≤40%" }, { value: "41-49", label: "41–49%" }, { value: "ge50", label: "≥50%" },
+              { value: "not-measured", label: "Not measured yet", hint: "Echo during the admission is recommended" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "meds", title: "Secondary-prevention medicines",
+        questions: [
+          {
+            id: "start", label: "Start now", type: "multi", required: true,
+            options: [
+              { value: "none", label: "Nothing to start" },
+              { value: "statin", label: "High-intensity statin: atorvastatin 80 mg", unless: ["statin"] },
+              { value: "intensify", label: "Increase the statin to high intensity", requires: ["statin"] },
+              { value: "ezetimibe", label: "Ezetimibe 10 mg", unless: ["ezetimibe"] },
+              { value: "bb", label: "Beta-blocker: bisoprolol 1.25 mg", unless: ["bb"] },
+              { value: "acei", label: "ACE inhibitor: ramipril 2.5 mg twice daily", unless: ["raas"] },
+              { value: "mra", label: "MRA: eplerenone 25 mg", unless: ["mra"] },
+              { value: "colchicine", label: "Colchicine 0.5 mg daily" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "prevention", title: "Rehabilitation and prevention",
+        questions: [
+          {
+            id: "prevent", label: "Arrange", type: "multi", required: true,
+            options: [
+              { value: "none", label: "Nothing more" },
+              { value: "rehab", label: "Cardiac rehabilitation referral", hint: "Not added again if a referral is already planned" },
+              { value: "smoking", label: "Smoking cessation support" },
+              { value: "flu", label: "Influenza vaccination" },
+              { value: "hba1c", label: "HbA1c (glycaemic status)" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "follow", title: "Follow-up",
+        questions: [
+          {
+            id: "followup", label: "Dated follow-up", type: "multi", required: true,
+            options: [
+              { value: "none", label: "None" },
+              { value: "lipids", label: "Lipid profile 4–6 weeks after the ACS", hint: "Not added again if one is already planned" },
+              { value: "echo", label: "Repeat echo 6–12 weeks after the MI", hint: "LVEF ≤40%: primary-prevention ICD decision (ESC VA 2022, I C)" },
+              { value: "staged", label: "Staged PCI within 45 days" },
+            ],
+          },
+          { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+        ],
+      },
+    ],
+  },
   antithrombotic: {
     id: "antithrombotic", title: "Antithrombotic plan after ACS / PCI", tone: "blue", group: "Coronary", episode: false,
     source: "ESC ACS 2023 · ESC CCS 2024 · ARC-HBR",
@@ -151,7 +258,7 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
 // Dated stops, linked to the medicine they stop.
 CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
   const out: OutcomeItem[] = [];
-  const i0 = (ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today).slice(0, 10);
+  const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
   const due = (days: number) => addDays(i0, days);
   const aspirin = ctx.meds.find((m) => m.code === "aspirin");
   const p2y12 = ctx.meds.find((m) => m.tags.includes("p2y12"));
@@ -176,4 +283,70 @@ CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): Outc
   if (((a.now as string[]) ?? []).includes("ppi") && !ctx.meds.some((m) => m.tags.includes("ppi")))
     out.push({ kind: "start", code: "pantoprazole", doseValue: 40, frequency: "OD", indication: "GI protection on antithrombotic therapy", label: "Pantoprazole 40 mg daily: start" });
   return out;
+};
+
+// ACS discharge bundle: medicines started at their starting dose, dated follow-up from the ACS.
+CORONARY_WIZARDS["acs-discharge"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const out: OutcomeItem[] = [];
+  const i0 = localDay(ctx.coronary?.acsAt ?? ctx.today);
+  const due = (days: number) => { const d = addDays(i0, days); return d < ctx.today ? ctx.today : d; };
+  const pick = (id: string) => ((a[id] as string[]) ?? []).filter((v) => v !== "none");
+  const plan = (category: string, title: string, dueDate: string, completesOn: Record<string, unknown> = { type: "manual" }, medicationId: string | null = null): OutcomeItem =>
+    ({ kind: "plan", category, title, dueDate, completesOn, label: "", medicationId });
+  for (const v of pick("start")) {
+    const m = ACS_MEDS[v];
+    if (m && !ctx.meds.some((x) => x.code === m.code)) out.push({ kind: "start", code: m.code, doseValue: m.dose, frequency: m.frequency, indication: "cad", label: `${m.label}: start` });
+    if (v === "intensify") {
+      const st = ctx.meds.find((x) => x.tags.includes("statin"));
+      if (st) out.push(plan("medication", `Increase ${st.name.toLowerCase()} to high intensity (atorvastatin 40–80 mg / rosuvastatin 20–40 mg)`, ctx.today, { type: "manual" }, st.id));
+    }
+  }
+  const prevent = pick("prevent");
+  const has = (re: RegExp) => (ctx.planned ?? []).some((t) => re.test(t));
+  if (a.lvef === "not-measured" && !has(/echo/i)) out.push(plan("investigation", "Echo: LV function after ACS", ctx.today, { type: "study", kind: "echo" }));
+  if (prevent.includes("rehab") && !has(/rehabilitation/i)) out.push(plan("referral", "Cardiac rehabilitation referral", addDays(ctx.today, 7)));
+  if (prevent.includes("smoking")) out.push(plan("education", "Smoking cessation support", ctx.today));
+  if (prevent.includes("flu")) out.push(plan("medication", "Influenza vaccination", ctx.today));
+  if (prevent.includes("hba1c")) out.push(plan("monitoring", "HbA1c (glycaemic status after ACS)", ctx.today, { type: "lab", codes: ["hba1c"] }));
+  const follow = pick("followup");
+  if (follow.includes("lipids") && !has(/lipid/i)) out.push(plan("monitoring", "Lipid profile 4–6 weeks after ACS", due(42), { type: "lab", codes: ["ldl-c"] }));
+  if (follow.includes("echo") && !has(/echo/i)) out.push(plan("investigation", "Repeat echo 6–12 weeks after MI (LVEF for ICD decision)", due(84), { type: "study", kind: "echo" }));
+  if (follow.includes("staged")) out.push(plan("follow_up", "Staged PCI (complete revascularisation within 45 days)", due(45)));
+  return out;
+};
+
+// Closing summary: what is in place and what the guideline still asks for.
+CORONARY_WIZARDS["acs-discharge"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const on = (...tags: string[]) => ctx.meds.some((m) => m.tags.some((t) => tags.includes(t)));
+  const start = ((a.start as string[]) ?? []);
+  const prevent = ((a.prevent as string[]) ?? []);
+  const follow = ((a.followup as string[]) ?? []);
+  const dx = (...d: string[]) => (ctx.dx ?? []).some((x) => d.includes(x));
+  const ldl = ctx.values?.["ldl-c"]?.value ?? null;
+  const lowEf = a.lvef === "le40";
+  const statin = on("statin") || start.includes("statin");
+  const rehab = prevent.includes("rehab") || (ctx.planned ?? []).some((t) => /rehabilitation/i.test(t));
+  const rows: Assessment["rows"] = [
+    { label: "Event", value: `${{ stemi: "STEMI", nstemi: "NSTEMI", ua: "Unstable angina" }[String(a.type)] ?? "ACS"}${ctx.coronary?.acsAt ? ` · ${ctx.coronary.acsAt}` : ""}` },
+    { label: "Revascularisation", value: { complete: "Complete", staged: "Staged PCI to do", cabg: "CABG planned", medical: "Medical therapy" }[String(a.revasc)] ?? "Not given", tone: a.revasc === "staged" && !follow.includes("staged") ? "orange" : undefined },
+    { label: "LVEF", value: { le40: "≤40%", "41-49": "41–49%", ge50: "≥50%", "not-measured": "Not measured" }[String(a.lvef)] ?? "Not given", tone: lowEf || a.lvef === "not-measured" ? "orange" : "green" },
+    { label: "LDL-C", value: ldl != null ? `${ldl} mmol/L · goal <1.4` : "Not measured", tone: ldl == null || ldl >= 1.4 ? "orange" : "green" },
+  ];
+  const rec: string[] = [];
+  const gap = (cond: boolean, text: string) => { if (cond) rec.push(text); };
+  gap(!statin, "High-intensity statin as early as possible (I A).");
+  gap(!rehab, "Cardiac rehabilitation for every ACS patient (I A).");
+  gap(lowEf && !on("bb") && !start.includes("bb"), "LVEF ≤40%: beta-blocker (I A).");
+  gap((lowEf || dx("hf", "dm", "htn", "ckd")) && !on("raas") && !start.includes("acei"), "ACE inhibitor: HF symptoms, LVEF ≤40%, diabetes, hypertension or CKD (I A).");
+  gap(lowEf && dx("hf", "dm") && !on("mra") && !start.includes("mra"), "LVEF ≤40% with HF or diabetes: MRA (I A).");
+  gap(a.lvef === "not-measured", "LVEF not measured since the ACS: echo to assess LV function (planned today).");
+  gap(lowEf && !follow.includes("echo"), "LVEF ≤40%: re-evaluate LVEF 6–12 weeks after the MI for the ICD decision (ESC VA 2022, I C).");
+  gap(!follow.includes("lipids") && !(ctx.planned ?? []).some((t) => /lipid/i.test(t)), "Lipid profile 4–6 weeks after the ACS; add ezetimibe if LDL-C is not at goal (I B).");
+  gap(a.revasc === "staged" && a.type === "stemi" && !follow.includes("staged"), "STEMI with multivessel disease: complete revascularisation within 45 days (I A).");
+  gap(dx("smoker") && !prevent.includes("smoking"), "Current smoker: smoking cessation support.");
+  gap(!prevent.includes("flu"), "Influenza vaccination.");
+  if (!ctx.meds.some((m) => m.tags.includes("p2y12")) && !on("oac")) rec.push("No P2Y12 inhibitor recorded: DAPT for 12 months by default after ACS (I A).");
+  rec.push("Antithrombotic durations and stop dates: Antithrombotic plan pathway.");
+  if (rec.length === 1) rec.unshift("All guideline bundle items are in place.");
+  return { heading: "Secondary prevention after ACS", rows, recommendations: rec };
 };

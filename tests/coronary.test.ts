@@ -7,7 +7,8 @@ import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
 import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
-import { completeWizard } from "../server/engine/wizard.js";
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
 import { summary } from "../server/kernel/views.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
@@ -98,7 +99,8 @@ test("Fatma (NSTE-ACS PCI on apixaban + aspirin + ticagrelor): switch to clopido
   assert.equal(stop("clopidogrel").at, addDays(pciAt, 365));
   assert.equal(stop("apixaban"), null, "the anticoagulant continues");
   for (const r of ["cad.potent-p2y12-with-oac", "cad.antithrombotic-plan", "cad.ppi-combined-antithrombotic"]) assert.equal(await rec(pid, r), undefined, r);
-  assert.ok(await rec(pid, "cad.rehab"), "rehabilitation is still due");
+  assert.ok(await rec(pid, "cad.acs-bundle"), "the ACS bundle (with rehabilitation) is still due");
+  assert.equal(await rec(pid, "cad.rehab"), undefined, "rehabilitation is carried by the bundle");
 });
 
 test("Salem (elective PCI, DAPT): 6-month DAPT then clopidogrel alone; Noura (STEMI): 12 months then aspirin", async () => {
@@ -146,4 +148,62 @@ test("DAPT beyond the default and triple therapy beyond 1 month are flagged", as
   const act = typeof t.action === "string" ? JSON.parse(t.action) : t.action;
   assert.equal(act.type, "med-action");
   assert.equal(await rec(b, "cad.dapt-beyond-default"), undefined, "no DAPT finding on an anticoagulant");
+});
+
+// ---- slice 3: ACS discharge bundle ----
+const run = (pid: string, wizard: string, answers: any, recommendationId?: string) =>
+  tx(async (q) => { const r = await completeWizard(q, doc, pid, wizard, { answers, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
+
+test("Noura (STEMI, no LVEF since): the bundle is offered once, suggests echo and lipids, and dates follow-up from the ACS", async () => {
+  const pid = await byName("Noura Al-Kandari");
+  const b = await rec(pid, "cad.acs-bundle");
+  assert.ok(b && b.severity === "orange");
+  assert.match(b.title, /secondary-prevention bundle not completed/);
+  assert.equal(await rec(pid, "cad.rehab"), undefined, "the bundle carries rehabilitation");
+  const ctx = (await tx((q) => getWizard(q, pid, "acs-discharge"))).context;
+  assert.deepEqual(suggest("acs-discharge", "type", {}, ctx).map((x) => x.value), ["stemi"]);
+  assert.deepEqual(suggest("acs-discharge", "lvef", {}, ctx).map((x) => x.value), ["not-measured"]);
+  assert.ok(!suggest("acs-discharge", "start", { lvef: "not-measured" }, ctx).some((x) => x.value === "statin"), "already on atorvastatin 80");
+  assert.ok(!suggest("acs-discharge", "prevent", {}, ctx).some((x) => x.value === "rehab"), "rehabilitation referral already planned");
+
+  const r = await run(pid, "acs-discharge", { type: "stemi", revasc: "complete", lvef: "not-measured", start: ["none"], prevent: ["flu"], followup: ["lipids"], review: "none" }, b.id);
+  assert.ok(r.assessment!.recommendations.some((x: string) => /echo to assess LV function/.test(x)));
+  assert.ok(!r.assessment!.recommendations.some((x: string) => /rehabilitation/.test(x)), "referral already planned");
+  const s = await loadState(db, pid);
+  assert.equal(s.plan.filter((p) => /lipid/i.test(p.title) && p.status === "planned").length, 1, "the planned lipid profile is not duplicated");
+  assert.equal(await rec(pid, "cad.acs-bundle"), undefined, "bundle done");
+  assert.ok(s.plan.some((p) => p.title === "Echo: LV function after ACS" && p.due_date === T), "LVEF not measured: echo planned today");
+  assert.equal(await rec(pid, "cad.lvef-after-acs"), undefined, "echo planned");
+});
+
+test("LVEF ≤40% after NSTEMI with diabetes: beta-blocker, ACE inhibitor and MRA suggested and started; LVEF reassessment due after 6 weeks", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Acs " + Date.now(), mrn: "S" + Math.random().toString(36).slice(2, 8) + Date.now(), sex: "Female", birthDate: "1958-01-01", conditions: ["t2dm"] }));
+  await pci(pid, -50, "nste-acs");
+  await tx(async (q) => { await K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -49)), items: [{ code: "lvef", value: 35 }] }); await reassess(q, pid, "sandbox"); });
+  const re = await rec(pid, "cad.lvef-reassess-after-mi");
+  assert.ok(re && re.severity === "orange");
+  assert.match(re.title, /^LVEF 35% after MI: reassess LVEF now/);
+  const ctx = (await tx((q) => getWizard(q, pid, "acs-discharge"))).context;
+  assert.deepEqual(suggest("acs-discharge", "lvef", {}, ctx).map((x) => x.value), ["le40"]);
+  const st = suggest("acs-discharge", "start", { lvef: "le40" }, ctx).map((x) => x.value);
+  for (const v of ["statin", "bb", "acei", "mra"]) assert.ok(st.includes(v), v);
+  assert.ok(suggest("acs-discharge", "followup", { lvef: "le40" }, ctx).some((x) => x.value === "echo"));
+
+  await run(pid, "acs-discharge", { type: "nstemi", revasc: "complete", lvef: "le40", start: ["statin", "bb", "acei", "mra"], prevent: ["rehab", "flu"], followup: ["lipids", "echo"], review: "clinic-14" });
+  const s = await loadState(db, pid);
+  const live = s.meds.filter((m) => m.status === "active").map((m) => `${m.code} ${m.doseValue} ${m.frequency}`).sort();
+  assert.deepEqual(live, ["atorvastatin 80 OD", "bisoprolol 1.25 OD", "eplerenone 25 OD", "ramipril 2.5 BID"]);
+  assert.equal(s.plan.find((p) => p.title.startsWith("Repeat echo 6–12 weeks after MI"))!.due_date, addDays(T, 34), "12 weeks after the ACS");
+  assert.equal(s.plan.find((p) => p.title === "Lipid profile 4–6 weeks after ACS")!.due_date, T, "6 weeks already passed: due today");
+  assert.equal(await rec(pid, "cad.lvef-reassess-after-mi"), undefined, "echo planned");
+  assert.equal(await rec(pid, "cad.rehab"), undefined, "rehab referral planned");
+});
+
+test("bundle done but no LVEF and nothing planned: the LVEF finding stands alone", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Lv " + Date.now(), mrn: "L" + Math.random().toString(36).slice(2, 8) + Date.now(), sex: "Male", birthDate: "1965-01-01", conditions: [] }));
+  await pci(pid, -10, "stemi");
+  await run(pid, "acs-discharge", { type: "stemi", revasc: "complete", lvef: "ge50", start: ["none"], prevent: ["none"], followup: ["none"], review: "none" });
+  assert.equal(await rec(pid, "cad.acs-bundle"), undefined);
+  assert.equal((await rec(pid, "cad.lvef-after-acs")).severity, "yellow", "the answer said LVEF ≥50% but none is recorded");
+  assert.ok(await rec(pid, "cad.rehab"), "rehab declined in the bundle: the rehab finding returns");
 });

@@ -34,6 +34,8 @@ export const SITE_TZ = "Asia/Kuwait";
 export function isoDay(date: Date = new Date(), tz = SITE_TZ) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
+// the site's calendar day of a timestamp (a bare YYYY-MM-DD is returned as is)
+export const localDay = (value: string) => (value.length <= 10 ? value : isoDay(new Date(value)));
 export function addDays(day: string, days: number) {
   const d = new Date(day.slice(0, 10) + "T12:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
