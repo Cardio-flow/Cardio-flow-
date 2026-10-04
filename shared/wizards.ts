@@ -7,6 +7,7 @@ import { ACUTE_WIZARDS } from "./wizards-acute.js";
 import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
 import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
+import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -43,13 +44,15 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease";
+  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
   // a completed pathway opens (or reviews) a complication episode, unless this is false
   // (management plans such as diabetes or Ramadan are not complications)
   episode?: boolean;
+  // items computed from the answers and the record (e.g. stop dates counted from a PCI)
+  outcome?: (answers: Answers, ctx: WizardContext) => OutcomeItem[];
   // closing summary shown before confirming and saved with the decision
   assess?: (answers: Answers, ctx: WizardContext) => Assessment;
   // side-panel facts and trend (codes from the catalogue)
@@ -73,11 +76,16 @@ export type WizardContext = {
   detected: Record<string, string[]>; // questionId -> auto-detected option values
   trend?: { code: string; label: string; unit: string; points: { date: string; value: number }[] };
   // who the patient is, for pathways whose summary depends on it (age, known CVD, CV risk factors)
-  profile?: { age: number; cvd: boolean; riskFactors: boolean };
+  profile?: { age: number; cvd: boolean; riskFactors: boolean; sex?: "Male" | "Female" };
   // latest value of each measure (and the one before), and diagnosis codes + tags: read by the
   // guideline suggestions (shared/wizard-guidance.ts)
   values?: Record<string, { value: number; at: string; prev: number | null }>;
   dx?: string[];
+  // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found
+  coronary?: {
+    indexAt: string; indexTitle: string; acs: boolean; pciAt: string | null; complexPci: boolean; days: number;
+    hbrMajor: string[]; hbrMinor: string[];
+  } | null;
 };
 // a pathway's closing summary: the patient's risk and the guideline recommendations for the answers given
 export type Assessment = { heading: string; rows: { label: string; value: string; tone?: "orange" | "green" }[]; recommendations: string[] };
@@ -510,6 +518,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...DIABETES_WIZARDS,
   ...GENERAL_WIZARDS,
   ...INFLAMMATORY_WIZARDS,
+  ...CORONARY_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.
@@ -563,7 +572,10 @@ export function doseChoices(ctx: WizardContext, q: Question) {
 
 export type OutcomeItem =
   | { kind: "medication"; medicationId: string; event: "increase" | "decrease" | "hold" | "stop"; doseValue: number | null; label: string }
-  | { kind: "plan"; category: string; title: string; dueDate: string; completesOn: Record<string, unknown>; label: string }
+  // medicationRef "code:<drug>" links a dated plan item to the current (or newly started) medicine
+  | { kind: "plan"; category: string; title: string; dueDate: string; completesOn: Record<string, unknown>; label: string; medicationId?: string | null; medicationRef?: string }
+  // a maintenance medicine started by the pathway (catalogue dose; never acute or loading doses)
+  | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
   | { kind: "note"; label: string };
 
 // wizards whose dose questions are handled explicitly above the generic pass
@@ -681,7 +693,9 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       label: "",
     });
   }
-  return out.map((item) =>
-    item.kind === "plan" ? { ...item, label: `${item.title} · ${fmtDay(item.dueDate, { weekday: true })}` } : item,
+  // pathways that compute their own items (dates from the index event, linked medicines)
+  const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
+  return [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")].map((item) =>
+    item.kind === "plan" ? { ...item, label: `${item.title} · ${fmtDay(item.dueDate, { weekday: true, year: true })}` } : item,
   );
 }

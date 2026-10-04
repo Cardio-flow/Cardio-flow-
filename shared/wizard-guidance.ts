@@ -14,6 +14,7 @@
 // hyponatraemia guideline 2014; ESC 2024 hypertension; IDF-DAR 2021; ESC 2022 non-cardiac surgery;
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
+import { highIschaemic, isHbr } from "./wizards-coronary.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -422,6 +423,54 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       (c.profile?.age ?? 0) >= 50 && dx(c, "smoker") && S("cxr6", "Age ≥50 and smoker: repeat chest X-ray at 6 weeks"),
       S("vaccines", "Influenza, pneumococcal and COVID-19 vaccination"),
     ],
+  },
+
+  // ---------------- Coronary ----------------
+  antithrombotic: {
+    setting: (_a, c) => [c.coronary ? S(c.coronary.acs ? "acs" : "ccs", `${c.coronary.indexTitle} (${c.coronary.indexAt.slice(0, 10)})`) : null],
+    oac: (_a, c) => [on(c, "oac") ? S("yes", "On an oral anticoagulant") : S("no", "No anticoagulant recorded")],
+    hbr: (_a, c) => {
+      const egfr = val(c, "egfr"), hb = val(c, "haemoglobin"), plt = val(c, "platelets"), age = c.profile?.age ?? 0;
+      const male = c.profile?.sex !== "Female";
+      const out = [
+        on(c, "oac") && S("oac-long", "On an oral anticoagulant (ARC-HBR major)"),
+        egfr != null && egfr < 30 && S("egfr30", `eGFR ${Math.round(egfr)} (ARC-HBR major)`),
+        egfr != null && egfr >= 30 && egfr < 60 && S("egfr59", `eGFR ${Math.round(egfr)} (ARC-HBR minor)`),
+        hb != null && hb < 11 && S("hb11", `Hb ${hb} g/dL (ARC-HBR major)`),
+        hb != null && hb >= 11 && hb < (male ? 13 : 12) && S("hb-minor", `Hb ${hb} g/dL (ARC-HBR minor — 11–12.9 men, 11–11.9 women)`),
+        plt != null && plt < 100 && S("plt100", `Platelets ${plt} (ARC-HBR major)`),
+        dx(c, "liver-disease") && S("liver", "Chronic liver disease recorded: major if cirrhosis with portal hypertension"),
+        age >= 75 && S("age75", `Age ${age} (ARC-HBR minor)`),
+        on(c, "nsaid", "steroid") && S("nsaid", "On an NSAID or steroid (ARC-HBR minor)"),
+        dx(c, "stroke-tia") && S("stroke", "Previous stroke/TIA recorded (ARC-HBR minor if ischaemic)"),
+      ];
+      return out.some(Boolean) ? out : [S("none", "No ARC-HBR criterion in the record")];
+    },
+    ischaemic: (_a, c) => {
+      const egfr = val(c, "egfr");
+      const out = [
+        c.coronary?.complexPci && S("complex", "Complex PCI recorded"),
+        dx(c, "dm") && (on(c, "metformin", "insulin", "sulfonylurea", "glp1", "dpp4", "sglt2")) && S("dm", "Diabetes on treatment"),
+        egfr != null && egfr >= 15 && egfr < 60 && S("ckd", `eGFR ${Math.round(egfr)}`),
+        dx(c, "pad") && S("pad", "Peripheral arterial disease recorded"),
+      ];
+      return out.some(Boolean) ? out : [S("none", "No high ischaemic risk feature in the record")];
+    },
+    dapt: (a) => {
+      const hbr = isHbr(a);
+      if (a.setting === "acs") return [hbr ? S("1m-acs", "ACS with high bleeding risk: single antiplatelet after 1 month of DAPT may be considered (ESC ACS 2023, IIb A)") : S("12m", "ACS: DAPT for 12 months by default (ESC ACS 2023, I A)")];
+      if (a.setting === "ccs") return [hbr && !highIschaemic(a) ? S("1-3m", "Elective PCI with high bleeding risk, not high ischaemic risk: DAPT 1–3 months (ESC CCS 2024, I A)") : S("6m", "Elective PCI: DAPT 6 months (ESC CCS 2024)")];
+      return [];
+    },
+    tat: (a) => [highIschaemic(a) && !isHbr(a) ? S("1m", "High ischaemic risk without high bleeding risk: triple therapy up to 1 month (ESC ACS 2023)") : S("1w", "Triple therapy up to 1 week, then stop aspirin (ESC ACS 2023 / CCS 2024, I A)")],
+    dual: (a) => [a.setting === "ccs" ? S("6m", "Elective PCI: anticoagulant + clopidogrel to 6 months, then anticoagulant alone (ESC CCS 2024)") : isHbr(a) ? S("6m", "ACS with high bleeding risk: consider stopping the antiplatelet at 6 months (ESC ACS 2023)") : a.setting === "acs" ? S("12m", "ACS: anticoagulant + clopidogrel to 12 months, then anticoagulant alone (ESC ACS 2023, I A)") : null],
+    now: (a, c) => {
+      const combined = c.meds.filter((m) => m.tags.some((t) => t === "antiplatelet" || t === "oac")).length >= 2;
+      return [
+        on(c, "p2y12-potent") && (on(c, "oac") || a.oac === "yes") && S("to-clopidogrel", "With an anticoagulant, clopidogrel is the P2Y12 inhibitor of choice; ticagrelor/prasugrel are not recommended in triple therapy (ESC ACS 2023)"),
+        combined && !on(c, "ppi") && S("ppi", "PPI with combined antithrombotic therapy at increased GI-bleeding risk (ESC ACS 2023, I A)"),
+      ];
+    },
   },
 
   // ---------------- Inflammatory & infective ----------------

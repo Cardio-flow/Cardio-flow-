@@ -116,7 +116,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
           diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan",
-          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway" } as Record<string, string>)[act.wizard] ?? "Review"}
+          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")
@@ -720,7 +720,7 @@ function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
             <div key={d.id} className="cad-drug">
               <small>{d.role}</small>
               <b>{d.name} <span className="muted">{d.dose}</span>{d.status === "held" ? <span className="tag-held"> ON HOLD</span> : null}</b>
-              <em>{d.since ? `since ${fmtDay(d.since, { year: true })}${d.days != null ? ` · ${d.days === 1 ? "1 day" : d.days < 60 ? `${d.days} days` : `${Math.round(d.days / 30.4)} months`}` : ""}` : "start date not recorded"}</em>
+              <em>{d.since ? `since ${fmtDay(d.since, { year: true })}${d.days != null ? ` · ${d.days === 0 ? "today" : d.days === 1 ? "1 day" : d.days < 60 ? `${d.days} days` : `${Math.round(d.days / 30.4)} months`}` : ""}` : "start date not recorded"}</em>
               <em className={d.plannedStop ? "stop" : "nostop"}>{d.plannedStop ? `Planned: ${d.plannedStop.title} · ${fmtDay(d.plannedStop.at, { year: true })}` : "No planned stop date"}</em>
             </div>
           ))}

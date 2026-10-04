@@ -304,7 +304,7 @@ export function WizardDrawer({
                 {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
                 {outcome.map((o, i) => (
                   <div key={i}>
-                    {o.kind === "medication" ? <Pill size={18} /> : <CalendarCheck size={18} />}
+                    {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : <CalendarCheck size={18} />}
                     {o.label}
                   </div>
                 ))}

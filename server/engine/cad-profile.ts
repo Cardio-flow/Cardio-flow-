@@ -113,3 +113,25 @@ export function cadProfile(s: PatientState) {
   };
 }
 export type CadProfile = NonNullable<ReturnType<typeof cadProfile>>;
+
+// Academic Research Consortium high bleeding risk (ARC-HBR, Urban 2019): the criteria the record can
+// show. HBR = ≥1 major or ≥2 minor. Criteria the record cannot show (prior ICH, active cancer,
+// planned major surgery, recent major bleeding) are asked in the pathway.
+export function arcHbr(s: PatientState) {
+  const v = (code: string) => s.resolved(code).current?.value_num ?? null;
+  const egfr = v("egfr"), hb = v("haemoglobin"), plt = v("platelets");
+  const male = s.patient.sex === "Male";
+  const onTag = (...t: string[]) => live(s).some((m) => m.tags.some((x) => t.includes(x)));
+  const major: string[] = [], minor: string[] = [];
+  if (onTag("oac")) major.push("Long-term oral anticoagulation");
+  if (egfr != null && egfr < 30) major.push(`eGFR ${Math.round(egfr)} (<30)`);
+  if (hb != null && hb < 11) major.push(`Haemoglobin ${hb} g/dL (<11)`);
+  if (plt != null && plt < 100) major.push(`Platelets ${plt} ×10⁹/L (<100)`);
+  if (s.conditions.some((c) => c.code === "liver-disease")) major.push("Chronic liver disease (major if cirrhosis with portal hypertension)");
+  if (s.patient.age >= 75) minor.push(`Age ${s.patient.age} (≥75)`);
+  if (egfr != null && egfr >= 30 && egfr < 60) minor.push(`eGFR ${Math.round(egfr)} (30–59)`);
+  if (hb != null && hb >= 11 && hb < (male ? 13 : 12)) minor.push(`Haemoglobin ${hb} g/dL (11–${male ? "12.9" : "11.9"})`);
+  if (onTag("nsaid", "steroid")) minor.push("Long-term NSAID or steroid");
+  if (s.conditions.some((c) => c.code === "stroke-tia")) minor.push("Previous ischaemic stroke");
+  return { major, minor, hbr: major.length >= 1 || minor.length >= 2 };
+}

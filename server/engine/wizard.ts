@@ -4,9 +4,10 @@ import { daysBetween } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
-import { addPlanAction, medicationEvent, type Changed } from "../kernel/clinical.js";
+import { addPlanAction, medicationEvent, startMedication, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
+import { arcHbr, indexEvent } from "./cad-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -82,7 +83,13 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     cvd: ["cad", "hf", "stroke", "af", "valve", "vascular", "ascvd"].some((t) => s.tags.has(t)),
     riskFactors: s.patient.age >= 65 || ["htn", "dm", "ckd", "lipids", "obesity"].some((t) => s.tags.has(t)) || s.conditions.some((c) => c.code === "smoker"),
   };
-  return { ...base, values, dx, profile };
+  const ix = indexEvent(s);
+  const hbr = arcHbr(s);
+  const coronary = ix ? {
+    indexAt: (ix.pci?.at ?? ix.at), indexTitle: `${ix.title}${ix.detail ? ` · ${ix.detail}` : ""}`, acs: ix.acs, pciAt: ix.pci?.at ?? null,
+    complexPci: !!ix.pci?.complex, days: ix.days, hbrMajor: hbr.major, hbrMinor: hbr.minor,
+  } : null;
+  return { ...base, values, dx, profile: { ...profile, sex: s.patient.sex }, coronary };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -153,7 +160,20 @@ export async function completeWizard(
     [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify(input.answers), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes"];
+  // medicines started by the pathway come first so dated plan items can link to them
+  for (const item of outcome.filter((i) => i.kind === "start")) {
+    if (item.kind !== "start") continue;
+    if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
+    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId });
+    changed.push(...r.changed);
+  }
+  const medByRef = async (ref: string | undefined) => {
+    if (!ref?.startsWith("code:")) return null;
+    const row = (await tx.query(`SELECT m.id FROM cf.medication m WHERE m.patient_id=$1 AND m.drug=$2 ORDER BY m.created_at DESC LIMIT 1`, [patientId, ref.slice(5)])).rows[0] as any;
+    return row?.id ?? null;
+  };
   for (const item of outcome) {
+    if (item.kind === "start") continue;
     if (item.kind === "medication") {
       changed.push(...(await medicationEvent(tx, actor, patientId, item.medicationId, {
         kind: item.event, doseValue: item.doseValue, reason: def.title, effectiveAt: at, contextId: input.contextId, decisionId,
@@ -161,6 +181,7 @@ export async function completeWizard(
     } else if (item.kind === "plan") {
       await addPlanAction(tx, actor, patientId, {
         category: item.category, title: item.title, reason: def.title, dueDate: item.dueDate, completesOn: item.completesOn, contextId: input.contextId, decisionId,
+        medicationId: item.medicationId ?? (await medByRef(item.medicationRef)),
       });
     }
   }
