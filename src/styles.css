@@ -817,3 +817,25 @@ tr.reg-only td { color: var(--ink-4); }
 .guide.not-taken .guide-head > span:first-child { color: var(--ink-3); }
 .choice .rec { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; color: var(--action); background: #e3eefc; border-radius: 6px; padding: 1px 6px; }
 .choice[aria-pressed="true"] .rec, .choice[aria-checked="true"] .rec { color: #fff; background: rgba(255,255,255,.18); }
+
+/* coronary panel (4 Oct 2026) */
+.cad-events { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cad-events li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.cad-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-align: center; padding: 3px 0; border-radius: 6px; background: var(--surface-2); color: var(--navy); }
+.cad-events li.k-acs .cad-k, .cad-events li.k-mi .cad-k { background: #fdecea; color: #a8321f; }
+.cad-events li.k-pci .cad-k, .cad-events li.k-cabg .cad-k { background: #e3eefc; color: var(--action); }
+.cad-t { display: flex; flex-direction: column; min-width: 0; }
+.cad-t b { font-size: 14px; color: var(--navy); }
+.cad-t small { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
+.cad-d { font-size: 12.5px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
+.cad-drugs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.cad-drug { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.cad-drug small { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-4); }
+.cad-drug b { color: var(--navy); font-size: 14.5px; }
+.cad-drug b .muted { font-weight: 600; font-size: 13px; }
+.cad-drug em { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.cad-drug em.stop { color: var(--action); font-weight: 700; }
+.cad-drug em.nostop { color: var(--ink-4); }
+.tag-held { color: var(--orange-ink); font-size: 11px; font-weight: 800; }
+.hf-tile.warn b { color: var(--orange-ink); }
+.cad-regimen { margin-left: 8px; padding: 2px 9px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font-size: 11.5px; font-weight: 800; letter-spacing: .02em; text-transform: none; color: var(--navy); }

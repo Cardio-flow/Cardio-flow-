@@ -6,6 +6,7 @@ import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { STUDY, cleanStudy, studySummary } from "../../shared/studies.js";
+import { PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
 export type Changed = string[];
@@ -375,6 +376,42 @@ export async function recordStudy(
   if (completed.length) changed.push("plan");
   await audit(tx, actor, "record", "study", id, patientId, { kind: input.kind });
   return { id, changed: [...new Set(changed)], completed };
+}
+
+// ---------- procedures (PCI, CABG) ----------
+export async function recordProcedure(
+  tx: Q,
+  actor: Actor,
+  patientId: string,
+  input: { kind: ProcedureKind; date: string; details: Record<string, unknown>; contextId?: string | null },
+) {
+  await patientInSite(tx, actor, patientId);
+  if (!PROCEDURE_LABEL[input.kind]) throw new ApiError(400, "Unknown procedure");
+  if (isoDay(new Date(input.date)) > today()) throw new ApiError(400, "A procedure cannot be dated in the future");
+  let attributes: Record<string, any>;
+  try {
+    attributes = cleanProcedure(input.kind, input.details);
+  } catch (e) {
+    throw new ApiError(400, `${PROCEDURE_LABEL[input.kind]}: ${(e as Error).message}`);
+  }
+  const summary = procedureSummary(input.kind, attributes);
+  const id = uuid();
+  await tx.query(
+    `INSERT INTO cf.procedure(id,patient_id,kind,performed_at,attributes,summary,context_id,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [id, patientId, input.kind, input.date, JSON.stringify(attributes), summary, input.contextId ?? null, actor.id],
+  );
+  // the problem list carries the procedure as past coronary history (keeps every coronary rule in step)
+  const day = isoDay(new Date(input.date));
+  const changed: Changed = ["procedures", "conditions"];
+  if (input.kind === "pci")
+    await addCondition(tx, actor, patientId, { code: "prior-pci", onset: day, contextId: input.contextId, attributes: { vessels: attributes.vessels } });
+  else await addCondition(tx, actor, patientId, { code: "prior-cabg", onset: day, contextId: input.contextId, attributes: { grafts: (attributes.grafts as string[]).map((g) => (g === "LIMA to LAD" ? "LIMA" : g === "Other arterial graft" ? "Other arterial" : "Vein grafts")) } });
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: input.date, kind: input.kind, category: "procedure",
+    title: `${PROCEDURE_LABEL[input.kind]} · ${summary}`.slice(0, 200), detail: "", refType: "procedure", refId: id, contextId: input.contextId,
+  });
+  await audit(tx, actor, "record", "procedure", id, patientId, { kind: input.kind });
+  return { id, changed };
 }
 
 // ---------- medications ----------

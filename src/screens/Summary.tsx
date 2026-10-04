@@ -15,6 +15,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <Episodes s={s} open={open} done={done} />
           <Attention s={s} open={open} done={done} />
           <HfPanel hf={s.hf} open={open} />
+          <CadPanel cad={s.cad} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -668,6 +669,81 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
 // Heart failure panel (blueprint P2.1, P2.8): HF type with dates, LVEF history, today's status
 // against the last value, and each foundational drug with its dates. Reads the record only.
 const LAST_CHANGE: Record<string, string> = { frequency: "frequency changed", continue: "frequency changed", start: "started", restart: "restarted", increase: "increased", decrease: "reduced", hold: "held", not_taking: "not taking", resume: "taken again" };
+// Coronary disease (coronary module): what happened and when, the antithrombotic regimen with
+// each drug's start and planned stop, and secondary prevention at a glance.
+const CAD_KIND: Record<string, string> = { acs: "ACS", mi: "MI", pci: "PCI", cabg: "CABG", cath: "Angio" };
+function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
+  if (!cad) return null;
+  const at = cad.antithrombotic;
+  const ix = cad.index;
+  const tile = (label: string, value: string | null, sub: string, warn = false) => (
+    <div className={`hf-tile${value ? "" : " none"}${warn ? " warn" : ""}`}>
+      <small>{label}</small>
+      <b>{value ?? "Not recorded"}</b>
+      {sub && <em>{sub}</em>}
+    </div>
+  );
+  return (
+    <section className="card pad cad-panel" aria-labelledby="cadp">
+      <div className="card-head">
+        <h2 id="cadp">Coronary disease</h2>
+        <span className="meta">
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure" })}>+ PCI / CABG</button>
+        </span>
+      </div>
+      {ix && (
+        <div className="hf-type">
+          <b>{ix.title}{ix.detail ? ` · ${ix.detail}` : ""}</b>
+          <span>{fmtDay(ix.at, { year: true })} · {ix.days === 0 ? "today" : ix.days === 1 ? "yesterday" : ix.days < 60 ? `${ix.days} days ago` : `${Math.round(ix.days / 30.4)} months ago`} · {ix.acs ? "acute coronary syndrome" : "chronic coronary syndrome"}{ix.pci?.complex ? " · complex PCI" : ""}</span>
+        </div>
+      )}
+      {cad.events.length > 0 && (
+        <ol className="cad-events">
+          {cad.events.map((e: any, i: number) => (
+            <li key={i} className={`k-${e.kind}`}>
+              <span className="cad-k">{CAD_KIND[e.kind]}</span>
+              <span className="cad-t"><b>{e.title}</b>{e.detail ? <small>{e.detail}</small> : null}</span>
+              <span className="cad-d">{e.dateKnown ? fmtDay(e.at, { year: true }) : e.at.slice(0, 4)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="tgt-title" style={{ marginTop: 14 }}>
+        Antithrombotic therapy
+        <span className="cad-regimen">{at.regimen}</span>
+      </div>
+      {at.drugs.length === 0 ? (
+        <div className="empty">No antiplatelet or anticoagulant recorded.</div>
+      ) : (
+        <div className="cad-drugs">
+          {at.drugs.map((d: any) => (
+            <div key={d.id} className="cad-drug">
+              <small>{d.role}</small>
+              <b>{d.name} <span className="muted">{d.dose}</span>{d.status === "held" ? <span className="tag-held"> ON HOLD</span> : null}</b>
+              <em>{d.since ? `since ${fmtDay(d.since, { year: true })}${d.days != null ? ` · ${d.days === 1 ? "1 day" : d.days < 60 ? `${d.days} days` : `${Math.round(d.days / 30.4)} months`}` : ""}` : "start date not recorded"}</em>
+              <em className={d.plannedStop ? "stop" : "nostop"}>{d.plannedStop ? `Planned: ${d.plannedStop.title} · ${fmtDay(d.plannedStop.at, { year: true })}` : "No planned stop date"}</em>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="tgt-title" style={{ marginTop: 14 }}>Secondary prevention</div>
+      <div className="hf-tiles">
+        {tile(
+          "LDL-C",
+          cad.lipids.ldl ? `${formatNumber(cad.lipids.ldl.value, 2)} mmol/L` : null,
+          [cad.lipids.ldl ? fmtDay(cad.lipids.ldl.at) : null, cad.lipids.goal ? `goal <${cad.lipids.goal.value} (${cad.lipids.goal.category} risk)` : null, cad.lipids.atGoal === true ? "at goal" : cad.lipids.atGoal === false ? "above goal" : null].filter(Boolean).join(" · "),
+          cad.lipids.atGoal === false,
+        )}
+        {tile("Lipid therapy", cad.lipids.therapy.length ? cad.lipids.therapy.map((t: any) => `${t.name} ${t.dose}`).join(" + ") : null, cad.lipids.therapy.find((t: any) => t.intensity) ? `${cad.lipids.therapy.find((t: any) => t.intensity).intensity}-intensity statin` : "", !cad.lipids.therapy.length)}
+        {tile("LVEF", cad.lvef ? `${formatNumber(cad.lvef.value, 0)}%` : null, cad.lvef ? fmtDay(cad.lvef.at, { year: true }) : "")}
+        {tile("Systolic BP", cad.sbp ? `${formatNumber(cad.sbp.value, 0)} mmHg` : null, cad.sbp ? fmtDay(cad.sbp.at) : "")}
+        {tile("Cardiac rehab", cad.rehab ? (cad.rehab.status === "completed" ? "Done" : cad.rehab.status === "planned" ? "Referral planned" : cad.rehab.status) : null, cad.rehab?.due ? fmtDay(cad.rehab.due, { year: true }) : cad.rehab ? "" : "No referral recorded")}
+        {cad.smoker && tile("Smoking", "Current smoker", "Cessation support", true)}
+      </div>
+    </section>
+  );
+}
+
 function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
   if (!hf) return null;
   const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));

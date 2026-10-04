@@ -35,7 +35,7 @@ after(async () => db.close());
 
 test("migration 002 is applied once, recorded, and the status history is append-only", async () => {
   const names = (await db.query(`SELECT name FROM cf.migration ORDER BY name`)).rows.map((r: any) => r.name);
-  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes"]);
+  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes", "v2-005-procedures"]);
   const pid = await newPatient();
   const id = uuid();
   await db.query(`INSERT INTO cf.status_event(id,patient_id,kind,status,effective_on,recorded_by) VALUES($1,$2,'vital','alive',$3,'t')`, [id, pid, T]);

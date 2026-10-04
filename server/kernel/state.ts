@@ -70,6 +70,7 @@ export type ContextRow = {
   summary: Record<string, unknown>;
 };
 export type ConditionRow = { id: string; logical_id: string; code: string; display: string; status: string; onset: string | null; detail: string; recorded_at: string; attributes: Record<string, any> };
+export type ProcedureRow = { id: string; kind: string; performed_at: string; attributes: Record<string, any>; summary: string; context_id: string | null };
 export type StudyRow = { id: string; kind: string; performed_at: string; quality: string; findings: string[]; conclusion: string; attributes: Record<string, any> };
 
 export type BarrierRow = { id: string; drug_class: string; category: string; detail: string; drug: string | null; cleared: boolean; recommendation_id: string | null; effective_at: string; recorded_by: string };
@@ -85,6 +86,8 @@ export type PatientState = {
   plan: PlanRow[];
   contexts: ContextRow[];
   studies: StudyRow[];
+  // PCI, CABG… (migration 005), oldest first; corrected or entered-in-error rows left out
+  procedures: ProcedureRow[];
   preferences: Record<string, string>;
   // newest vital and follow-up status (null = never recorded: alive, active by default)
   status: { vital: StatusRow | null; followUp: StatusRow | null };
@@ -116,7 +119,9 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers,
         (SELECT coalesce(json_agg(ep ORDER BY ep.started_at), '[]') FROM (SELECT e.id,e.wizard,e.status,e.started_at,e.resolved_at,e.outcome,e.note,e.context_id,
             (SELECT coalesce(json_agg(json_build_object('id', d.id, 'decided_at', d.decided_at) ORDER BY d.decided_at), '[]') FROM cf.decision d WHERE d.episode_id = e.id) AS decisions
-            FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes`,
+            FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes,
+        (SELECT coalesce(json_agg(pr ORDER BY pr.performed_at), '[]') FROM (SELECT p.id,p.kind,p.performed_at,p.attributes,p.summary,p.context_id FROM cf.procedure p
+            WHERE p.patient_id=$1 AND p.status='final' AND NOT EXISTS (SELECT 1 FROM cf.procedure r WHERE r.replaces=p.id)) pr) AS procedures`,
       [patientId],
     )
   ).rows[0];
@@ -215,6 +220,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     status: { vital, followUp: statusRows.find((r) => r.kind === "follow_up") ?? null },
     deceased: vital?.status === "died",
     barriers: barrierRows,
+    procedures: (j(bundle.procedures).rows as any[]).map((p) => ({ ...p, performed_at: new Date(p.performed_at).toISOString(), attributes: (typeof p.attributes === "string" ? JSON.parse(p.attributes) : p.attributes) ?? {} })),
     episodes: (j(bundle.episodes).rows as any[]).map((e) => ({
       ...e,
       started_at: new Date(e.started_at).toISOString(),

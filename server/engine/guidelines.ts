@@ -97,7 +97,7 @@ export function lipidRisk(s: PatientState) {
     return { category: "high", goal: 1.8, reduction: 50, why: dm ? "diabetes" : egfr != null && egfr < 60 ? "CKD, eGFR 30–59" : "familial hypercholesterolaemia", recentAcs: false };
   return null; // needs SCORE2 — not estimated automatically
 }
-const statinIntensity = (m: MedState) => {
+export const statinIntensity = (m: MedState) => {
   if (!m.tags.includes("statin") || m.doseValue == null) return "none";
   if (m.code === "atorvastatin" || m.code === "atorvastatin-ezetimibe") return m.doseValue >= 40 ? "high" : "moderate";
   if (m.code === "rosuvastatin" || m.code === "rosuvastatin-ezetimibe") return m.doseValue >= 20 ? "high" : "moderate";

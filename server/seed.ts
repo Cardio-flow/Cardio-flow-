@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 12;
+export const SEED_VERSION = 13;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -432,6 +432,25 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await tx.query(`UPDATE cf.episode SET started_at=$2 WHERE patient_id=$1 AND wizard='chest-infection'`, [fa, at(d(-1), "11:00")]);
         await obs(fa, d(0), [{ code: "crp", value: 61 }, { code: "temp", value: 37.2 }]);
       }
+    }
+    // Seed v13: coronary procedures — Noura (primary PCI to LAD a month ago), Fatma (PCI to LCx yesterday
+    // during her NSTEMI admission, on aspirin + ticagrelor + apixaban), Salem (elective PCI to RCA five
+    // months ago on aspirin + clopidogrel), Saad (primary PCI to LAD about 7 months ago)
+    if (seeded < 13) {
+      const pci = async (mrn: string, day: string, details: Record<string, unknown>) => {
+        const id = await byMrn(mrn);
+        if (!id) return null;
+        const has = (await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1`, [id])).rows[0];
+        if (!has) await K.recordProcedure(tx, sys, id, { kind: "pci", date: at(day, "11:00"), details });
+        touched.push(id);
+        return id;
+      };
+      await pci("100502663", d(-33), { setting: "stemi", vessels: ["LAD"], device: "Drug-eluting stent", stents: 1, access: "Radial" });
+      await pci("100391054", d(-1), { setting: "nste-acs", vessels: ["LCx"], device: "Drug-eluting stent", stents: 1, access: "Radial" });
+      const sa = await pci("100611478", d(-160), { setting: "elective", vessels: ["RCA"], device: "Drug-eluting stent", stents: 2, access: "Radial" });
+      if (sa && !(await tx.query(`SELECT 1 FROM cf.medication WHERE patient_id=$1 AND drug='clopidogrel'`, [sa])).rows[0])
+        await K.startMedication(tx, sys, sa, { code: "clopidogrel", doseValue: 75, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(d(-160), "14:00") });
+      await pci("100733962", d(-200), { setting: "stemi", vessels: ["LAD"], device: "Drug-eluting stent", stents: 1, access: "Radial" });
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

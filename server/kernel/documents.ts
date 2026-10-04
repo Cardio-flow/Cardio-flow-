@@ -3,6 +3,7 @@
 // plan in English and Arabic. Nothing is invented: every line comes from the record, and the
 // patient advice is fixed guideline-based education chosen by the patient's medicines.
 import { hfProfile } from "../engine/hf-profile.js";
+import { cadProfile } from "../engine/cad-profile.js";
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
@@ -69,6 +70,14 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
     ].filter(Boolean);
     if (st.length) L.push(`- ${st.join("; ")}`);
     L.push(`- HF admissions in the last 12 months: ${hf.admissions.last12m}`);
+  }
+  const cad = cadProfile(s);
+  if (cad) {
+    L.push("");
+    L.push("Coronary disease:");
+    for (const e of cad.events) L.push(`- ${e.dateKnown ? fmtDay(e.at, { year: true }) : e.at.slice(0, 4)}: ${e.title}${e.detail ? ` (${e.detail})` : ""}`);
+    L.push(`- Antithrombotic: ${cad.antithrombotic.regimen}${cad.antithrombotic.drugs.length ? ` — ${cad.antithrombotic.drugs.map((d) => `${d.name}${d.since ? ` since ${fmtDay(d.since, { year: true })}` : ""}${d.plannedStop ? `, planned: ${d.plannedStop.title} ${fmtDay(d.plannedStop.at!, { year: true })}` : ""}`).join("; ")}` : ""}`);
+    if (cad.lipids.ldl) L.push(`- LDL-C ${formatNumber(cad.lipids.ldl.value, 2)} mmol/L (${fmtDay(cad.lipids.ldl.at)})${cad.lipids.goal ? `, goal <${cad.lipids.goal.value}` : ""}`);
   }
   const eps = episodesView(s);
   if (eps.length) {

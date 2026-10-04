@@ -7,6 +7,7 @@ import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
 import { QuickLabs } from "../drawers/QuickLabs";
 import { WizardDrawer } from "../drawers/Wizard";
+import { ProcedureDrawer } from "../drawers/Procedure";
 import { AddMedication, MedicationAction } from "../drawers/Medication";
 import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
 import { AddEcho } from "../drawers/AddEcho";
@@ -32,6 +33,7 @@ export type Open =
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
   | { kind: "dx" }
+  | { kind: "procedure" }
   | { kind: "history"; focus?: "risk" | "cardiac" }
   | { kind: "identity"; identity: any }
   | { kind: "status" }
@@ -186,6 +188,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
       {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}
+      {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}

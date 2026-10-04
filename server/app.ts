@@ -248,6 +248,18 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       .parse(req.body);
     await write(res, id, (tx, a) => K.recordEcho(tx, a, id, input));
   }));
+  app.post("/api/patients/:id/procedures", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z
+      .object({
+        kind: z.enum(["pci", "cabg"]),
+        date: isoDateTime,
+        details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
+        contextId: uuidS.nullish(),
+      })
+      .parse(req.body);
+    await write(res, id, (tx, a) => K.recordProcedure(tx, a, id, input));
+  }));
   app.post("/api/patients/:id/studies", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z

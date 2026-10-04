@@ -30,7 +30,7 @@ test("Saad: registry vocabulary — HF type, cause, IHD, device, valves, GDMT, u
   assert.equal(field(p, "ECG_QRS").value, "158");
   assert.equal(field(p, "Valvular_Disease").value, "Yes");
   assert.equal(field(p, "Valvular_Type").value, "MR (secondary) severe");
-  assert.equal(field(p, "PCI_CABG").value, "No");
+  assert.equal(field(p, "PCI_CABG").value, "Yes", "seed v13 gives Saad a primary PCI to the LAD");
   assert.equal(field(p, "Quad_GDMT").value, "Yes");
   assert.equal(field(p, "Recovered_LV").value, "No");
   assert.equal(field(p, "Mortality").value, "Alive");
