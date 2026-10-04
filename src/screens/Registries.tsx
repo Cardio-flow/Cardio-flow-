@@ -1,19 +1,35 @@
 import { useState } from "react";
 import { useData } from "../api";
-import { Link, useToast } from "../ui";
+import { Link, Segmented, useToast } from "../ui";
 
-// The HF registry as a whole: every HF patient of the site, how much of the registry form the
+// Each registry as a whole: every eligible patient of the site, how much of the registry form the
 // record already fills, what is still missing, and one CSV with a row per patient. Read-only.
+// HF Clinic Registry (heart failure) and SACC CAD Registry (PCI, angiography or ACS admission).
+const REGS = [
+  { value: "hf", name: "MKH HF Clinic Registry", label: "HF Clinic Registry", who: "patients with heart failure", type: "HF type", file: "hf-registry.csv" },
+  { value: "cad", name: "SACC CAD Registry", label: "SACC CAD Registry", who: "patients with a PCI, angiography or ACS admission", type: "Presentation", file: "sacc-cad-registry.csv" },
+];
 export function Registries() {
-  const { data: r } = useData<any>(`/registries/hf`);
+  const [reg, setReg] = useState("hf");
+  const def = REGS.find((x) => x.value === reg)!;
+  const { data: r } = useData<any>(`/registries/${reg}`, [reg]);
   const toast = useToast();
   const [q, setQ] = useState("");
-  if (!r) return <main className="page"><p className="muted">Loading…</p></main>;
+  const head = (
+    <div className="page-head">
+      <div>
+        <h1>Registries</h1>
+        <p>{def.label} · filled from the CardioFlow record · nothing is sent to the registry</p>
+      </div>
+      <Segmented label="Registry" options={REGS.map((x) => ({ value: x.value, label: x.label }))} value={reg} onChange={setReg} />
+    </div>
+  );
+  if (!r || r.registry !== def.name) return <main className="page">{head}<p className="muted">Loading…</p></main>;
   const rows = r.patients.filter((p: any) => !q || `${p.name} ${p.mrn}`.toLowerCase().includes(q.toLowerCase()));
   const download = () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([r.csv], { type: "text/csv" }));
-    a.download = "hf-registry.csv";
+    a.download = def.file;
     a.click();
   };
   const copy = async () => {
@@ -21,16 +37,11 @@ export function Registries() {
   };
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>Registries</h1>
-          <p>{r.registry} · filled from the CardioFlow record · nothing is sent to the registry</p>
-        </div>
-      </div>
+      {head}
       <section className="card pad reg">
         <div className="reg-sum">
           <div>
-            <b>{r.counts.patients} patients with heart failure</b>
+            <b>{r.counts.patients} {def.who}</b>
             {Object.entries(r.counts.byType).map(([t, n]) => <span key={t} className="reg-chip">{t} · {n as number}</span>)}
           </div>
           {r.counts.filledPct != null && (
@@ -43,19 +54,19 @@ export function Registries() {
             <button className="btn secondary small" onClick={download}>Download registry CSV (all patients)</button>
             <button className="btn ghost small" onClick={copy}>Copy CSV</button>
           </div>
-          <div className="muted small">Enrolment, the codebook and statistics are built at the end of the build. Registry-only fields (doctor, referral source and others) are still entered in the registry.</div>
+          <div className="muted small">Enrolment, the codebook and statistics are built at the end of the build. Registry-only fields ({reg === "hf" ? "doctor, referral source" : "Killip class, door-to-balloon, lesion form, follow-up"} and others) are still entered in the registry.</div>
         </div>
         <input className="input" style={{ maxWidth: 420, marginBottom: 12 }} placeholder="Filter by name or MRN" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter registry patients" />
         <table className="data">
-          <thead><tr><th>Patient</th><th>HF type</th><th>LVEF</th><th>Registry fields</th><th>Not recorded yet</th></tr></thead>
+          <thead><tr><th>Patient</th><th>{def.type}</th>{reg === "hf" ? <th>LVEF</th> : <th>Index record</th>}<th>Registry fields</th><th>Not recorded yet</th></tr></thead>
           <tbody>
             {rows.map((p: any) => {
               const pct = Math.round((p.filled / p.mapped) * 100);
               return (
                 <tr key={p.id}>
                   <td data-label="Patient"><Link to={`/patients/${p.id}/registries`}><b>{p.name}</b></Link> <span className="muted small">MRN {p.mrn}</span></td>
-                  <td data-label="HF type">{p.type}</td>
-                  <td data-label="LVEF">{p.lvef != null ? `${Math.round(p.lvef)}%` : "—"}</td>
+                  <td data-label={def.type}>{p.type}</td>
+                  {reg === "hf" ? <td data-label="LVEF">{p.lvef != null ? `${Math.round(p.lvef)}%` : "—"}</td> : <td data-label="Index record" className="small">{p.index}</td>}
                   <td data-label="Registry fields">
                     {p.filled} of {p.mapped}
                     <span className="reg-mini" aria-hidden><i style={{ width: `${pct}%` }} /></span>

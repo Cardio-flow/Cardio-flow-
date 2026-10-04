@@ -284,72 +284,79 @@ export function VisitsTab({ id, version, open }: { id: string; version: number; 
 }
 
 export function RegistriesTab({ id, version }: { id: string; version: number }) {
-  const { data: r } = useData<any>(`/patients/${id}/registries/hf`, [version]);
-  const toast = useToast();
-  const [showOnly, setShowOnly] = useState(false);
-  if (!r || r.applicable === false) {
+  const { data: hf } = useData<any>(`/patients/${id}/registries/hf`, [version]);
+  const { data: cad } = useData<any>(`/patients/${id}/registries/cad`, [version]);
+  const list = [hf, cad].filter((r) => r && r.applicable !== false);
+  if (!hf || !cad || !list.length) {
     return (
       <main className="page">
         <section className="card pad">
           <div className="card-head"><h2>Registries</h2></div>
-          <p className="reg-intro">{r ? "Registry projections appear for patients with heart failure. Other registries (CAD, EP) follow with their modules." : "Loading…"}</p>
+          <p className="reg-intro">{hf && cad ? "Registry projections appear for patients with heart failure (HF Clinic Registry) or with a PCI, angiography or ACS admission (SACC CAD Registry). The EP registry follows with its module." : "Loading…"}</p>
         </section>
       </main>
     );
   }
+  return <main className="page">{list.map((r) => <RegistryCard key={r.registry} r={r} />)}</main>;
+}
+
+// One registry projection: what CardioFlow fills, what is missing, and the registry-only fields.
+function RegistryCard({ r }: { r: any }) {
+  const toast = useToast();
+  const [showOnly, setShowOnly] = useState(false);
   const pct = Math.round((r.counts.filled / r.counts.mapped) * 100);
+  const file = r.registry.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
   const copy = async () => {
     try { await navigator.clipboard.writeText(r.csv); toast({ text: "Registry row copied (CSV)" }); } catch { toast({ text: "Copy not available in this browser", err: true }); }
   };
   const download = () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([r.csv], { type: "text/csv" }));
-    a.download = "hf-registry-row.csv";
+    a.download = `${file}-row.csv`;
     a.click();
   };
   return (
-    <main className="page">
-      <section className="card pad reg">
-        <div className="card-head">
-          <h2>{r.registry}</h2>
-          <span className="meta">Read from the CardioFlow record · nothing is sent to the registry</span>
+    <section className="card pad reg">
+      <div className="card-head">
+        <h2>{r.registry}</h2>
+        <span className="meta">Read from the CardioFlow record · nothing is sent to the registry</span>
+      </div>
+      {r.index && <p className="reg-intro"><b>Index record:</b> {r.index}{r.admission ? ` · admission ${r.admission.from}${r.admission.open ? " (in hospital)" : r.admission.to ? ` to ${r.admission.to}` : ""}` : ""}</p>}
+      <div className="reg-sum">
+        <div>
+          <b>{r.counts.filled} of {r.counts.mapped}</b> registry fields filled from the record
+          <span className="bar" aria-label={`${pct}% filled`}><i style={{ width: `${pct}%` }} /></span>
         </div>
-        <div className="reg-sum">
-          <div>
-            <b>{r.counts.filled} of {r.counts.mapped}</b> registry fields filled from the record
-            <span className="bar" aria-label={`${pct}% filled`}><i style={{ width: `${pct}%` }} /></span>
-          </div>
-          <div className="muted small">{r.counts.mapped - r.counts.filled} mapped fields not recorded yet · {r.counts.registryOnly} fields are asked in the registry only</div>
-          <div className="row wrap" style={{ gap: 8 }}>
-            <button className="btn secondary small" onClick={copy}>Copy registry row (CSV)</button>
-            <button className="btn ghost small" onClick={download}>Download CSV</button>
-            <label className="row small" style={{ gap: 6, fontWeight: 700 }}>
-              <input type="checkbox" checked={showOnly} onChange={(e) => setShowOnly(e.target.checked)} /> Show registry-only fields
-            </label>
-          </div>
+        <div className="muted small">{r.counts.mapped - r.counts.filled} mapped fields not recorded yet · {r.counts.registryOnly} fields are asked in the registry only</div>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button className="btn secondary small" onClick={copy}>Copy registry row (CSV)</button>
+          <button className="btn ghost small" onClick={download}>Download CSV</button>
+          <label className="row small" style={{ gap: 6, fontWeight: 700 }}>
+            <input type="checkbox" checked={showOnly} onChange={(e) => setShowOnly(e.target.checked)} /> Show registry-only fields
+          </label>
         </div>
-        {r.sections.map((sec: any) => {
-          const rows = sec.fields.filter((f: any) => f.mapped || showOnly);
-          if (!rows.length) return null;
-          return (
-            <div key={sec.title} className="reg-sec">
-              <div className="tgt-title">{sec.title}</div>
-              <table className="data">
-                <thead><tr><th>Registry field</th><th>Value</th><th>From CardioFlow</th></tr></thead>
-                <tbody>
-                  {rows.map((f: any) => (
-                    <tr key={f.key} className={f.mapped ? (f.value == null ? "reg-missing" : "") : "reg-only"}>
-                      <td data-label="Registry field"><b>{f.label}</b> <span className="muted small">{f.key}</span></td>
-                      <td data-label="Value">{f.mapped ? f.value ?? "Not recorded" : "Asked in the registry"}</td>
-                      <td data-label="From CardioFlow">{[f.at, f.note].filter(Boolean).join(" · ") || (f.mapped ? "" : "—")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
-      </section>
-    </main>
+      </div>
+      {r.sections.map((sec: any) => {
+        const rows = sec.fields.filter((f: any) => f.mapped || showOnly);
+        if (!rows.length) return null;
+        return (
+          <div key={sec.title} className="reg-sec">
+            <div className="tgt-title">{sec.title}</div>
+            <table className="data">
+              <thead><tr><th>Registry field</th><th>Value</th><th>From CardioFlow</th></tr></thead>
+              <tbody>
+                {rows.map((f: any) => (
+                  <tr key={f.key} className={f.mapped ? (f.value == null ? "reg-missing" : "") : "reg-only"}>
+                    <td data-label="Registry field"><b>{f.label}</b> <span className="muted small">{f.key}</span></td>
+                    <td data-label="Value">{f.mapped ? f.value ?? "Not recorded" : "Asked in the registry"}</td>
+                    <td data-label="From CardioFlow">{[f.at, f.note].filter(Boolean).join(" · ") || (f.mapped ? "" : "—")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </section>
   );
 }

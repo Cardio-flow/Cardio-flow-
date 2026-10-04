@@ -259,3 +259,14 @@ test("bleeding on DAPT: a bleeding visit offers the pathway; moderate bleeding â
   assert.equal(st.ticagrelor, "stopped");
   assert.equal(st.clopidogrel, "active");
 });
+
+test("a PCI already on the problem list (same week, or no date) is completed, not listed twice", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Dup " + Date.now(), mrn: "D" + Math.random().toString(36).slice(2, 8) + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["prior-pci"] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "pci", date: at(addDays(T, -20)), details: { setting: "elective", vessels: ["RCA"] } }));
+  const s = await loadState(db, pid);
+  const pcis = s.conditions.filter((c) => c.code === "prior-pci" && c.status === "active");
+  assert.equal(pcis.length, 1);
+  assert.deepEqual(pcis[0].attributes.vessels, ["RCA"]);
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "pci", date: at(addDays(T, -2)), details: { setting: "elective", vessels: ["LAD"] } }));
+  assert.equal((await loadState(db, pid)).conditions.filter((c) => c.code === "prior-pci" && c.status === "active").length, 2, "a second PCI weeks later is its own entry");
+});

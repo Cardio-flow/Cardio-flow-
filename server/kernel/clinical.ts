@@ -403,9 +403,22 @@ export async function recordProcedure(
   // the problem list carries the procedure as past coronary history (keeps every coronary rule in step)
   const day = isoDay(new Date(input.date));
   const changed: Changed = ["procedures", "conditions"];
-  if (input.kind === "pci")
-    await addCondition(tx, actor, patientId, { code: "prior-pci", onset: day, contextId: input.contextId, attributes: { vessels: attributes.vessels } });
-  else await addCondition(tx, actor, patientId, { code: "prior-cabg", onset: day, contextId: input.contextId, attributes: { grafts: (attributes.grafts as string[]).map((g) => (g === "LIMA to LAD" ? "LIMA" : g === "Other arterial graft" ? "Other arterial" : "Vein grafts")) } });
+  const code = input.kind === "pci" ? "prior-pci" : "prior-cabg";
+  const condAttrs = input.kind === "pci"
+    ? { vessels: attributes.vessels }
+    : { grafts: (attributes.grafts as string[]).map((g) => (g === "LIMA to LAD" ? "LIMA" : g === "Other arterial graft" ? "Other arterial" : "Vein grafts")) };
+  // the same procedure already on the problem list (entered with a date within a week, or with no
+  // date or only this year) is completed with the exact date and detail instead of listed twice
+  const same = ((await tx.query(
+    `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, onset, attributes FROM cf.condition WHERE patient_id=$1 AND code=$2 ORDER BY logical_id, version DESC) c WHERE status='active'`,
+    [patientId, code],
+  )).rows as any[]).find((c) => {
+    const on = c.onset ? (typeof c.onset === "string" ? c.onset.slice(0, 10) : isoDay(new Date(c.onset))) : null;
+    const attrs = typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {};
+    return on ? Math.abs(Date.parse(on) - Date.parse(day)) <= 7 * 86400000 : !attrs.onsetYear || Number(attrs.onsetYear) === Number(day.slice(0, 4));
+  });
+  if (same) await updateCondition(tx, actor, patientId, same.logical_id, { onset: day, attributes: condAttrs });
+  else await addCondition(tx, actor, patientId, { code, onset: day, contextId: input.contextId, attributes: condAttrs });
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.date, kind: input.kind, category: "procedure",
     title: `${PROCEDURE_LABEL[input.kind]} · ${summary}`.slice(0, 200), detail: "", refType: "procedure", refId: id, contextId: input.contextId,

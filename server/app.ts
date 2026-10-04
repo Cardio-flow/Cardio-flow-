@@ -10,6 +10,7 @@ import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
+import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft } from "./engine/wizard.js";
@@ -482,6 +483,29 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/patients/:id/registries/hf", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), hfRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
+  }));
+
+  // SACC CAD Registry projection: read-only, the registry fields CardioFlow can already fill
+  app.get("/api/patients/:id/registries/cad", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), cadRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
+  }));
+
+  // the CAD registry as a whole: every patient with a PCI, an angiography or an ACS admission
+  app.get("/api/registries/cad", route(async (_req, res) => {
+    const siteId = actor(res).siteId;
+    res.json(await db.transaction(async (tx) => {
+      const ids = (await tx.query<{ id: string }>(
+        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND (
+           EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND x.kind='pci')
+           OR EXISTS (SELECT 1 FROM cf.study x WHERE x.patient_id=p.id AND x.kind='cath')
+           OR EXISTS (SELECT 1 FROM cf.care_context x WHERE x.patient_id=p.id AND x.kind='admission' AND array_to_string(x.reasons, ' ') ~* '(STEMI|NSTE)'))`,
+        [siteId],
+      )).rows.map((r) => r.id);
+      const states = [];
+      for (const id of ids) states.push(await loadState(tx, id));
+      return cadRegistryCohort(states);
+    }));
   }));
 
   // the HF registry as a whole: every HF patient of the site, read-only
