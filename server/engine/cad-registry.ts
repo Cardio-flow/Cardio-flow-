@@ -1,4 +1,4 @@
-// SACC CAD Registry projection (coronary module, slice 5): the SACC CAD Registry case report form
+// CAD Registry projection (coronary module, slice 5): the CAD Registry case report form
 // (github.com/SACC-CAD/Registry, index.html SECTIONS schema; one record per cath-lab admission)
 // mapped to the CardioFlow record. Read-only, like the HF registry projection: CardioFlow fills
 // what it already holds, in the registry's own field keys, option wording and units; everything
@@ -416,7 +416,7 @@ export function cadRegistryProjection(s: PatientState) {
     ? `PCI ${fmtDay(x.pci.performed_at, { year: true })} · ${x.pci.summary}`
     : x.cath ? `Coronary angiography ${fmtDay(x.cath.performed_at, { year: true })}` : `ACS admission ${fmtDay(x.adm!.started_at, { year: true })}`;
   return {
-    registry: "SACC CAD Registry",
+    registry: "CAD Registry",
     index,
     admission: x.adm ? { from: day(x.adm.started_at), to: x.dischargeDay, open: !x.discharged } : null,
     sections,
@@ -448,7 +448,7 @@ export function cadRegistryCohort(states: PatientState[]) {
   for (const r of rows) byType[r.type] = (byType[r.type] ?? 0) + 1;
   const filled = rows.reduce((n, r) => n + r.filled, 0), mapped = rows.reduce((n, r) => n + r.mapped, 0);
   return {
-    registry: "SACC CAD Registry",
+    registry: "CAD Registry",
     counts: { patients: rows.length, byType, filledPct: mapped ? Math.round((filled / mapped) * 100) : null },
     patients: rows.map(({ cells, ...r }) => r),
     csv: [mappedKeys.join(","), ...rows.map((r) => r.cells.map((c) => (c ? csvCell(c) : "")).join(","))].join("\n"),

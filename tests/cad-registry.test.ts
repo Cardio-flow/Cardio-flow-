@@ -1,4 +1,4 @@
-// Coronary module, slice 5: the SACC CAD Registry projection (read-only, the registry's own keys).
+// Coronary module, slice 5: the CAD Registry projection (read-only, the registry's own keys).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createLocalDb, type DB } from "../server/db/db.js";
@@ -14,7 +14,7 @@ const fields = (p: any) => Object.fromEntries(p.sections.flatMap((s: any) => s.f
 
 test("Noura (primary PCI, discharged): presentation, procedure, in-hospital events and discharge medicines in the registry's wording", async () => {
   const p = cadRegistryProjection(await stateOf("Noura Al-Kandari"))!;
-  assert.equal(p.registry, "SACC CAD Registry");
+  assert.equal(p.registry, "CAD Registry");
   assert.match(p.index, /^PCI .* · LAD DES ×1 · Primary PCI \(STEMI\)$/);
   const f = fields(p);
   assert.equal(f.CA_Reason.value, "Primary PCI (STEMI)");
