@@ -58,7 +58,102 @@ export const ACS_MEDS: Record<string, { code: string; dose: number; frequency: s
   colchicine: { code: "colchicine", dose: 0.5, frequency: "OD", label: "Colchicine 0.5 mg daily" },
 };
 
+// Recurrent chest pain after ACS / PCI (coronary module, slice 4) — a complication episode.
+// Sources: 2023 ESC ACS — ECG within 10 minutes (I B); hs-troponin 0 h/1 h or 0 h/2 h algorithm
+// (I B); ST elevation with ongoing ischaemia: STEMI pathway, primary PCI (I A); very high-risk
+// NSTE-ACS (haemodynamic instability or cardiogenic shock, recurrent or refractory pain, life-
+// threatening arrhythmia or cardiac arrest, mechanical complication, acute HF, recurrent dynamic
+// ST changes) → immediate invasive strategy <2 h (I C); high-risk NSTE-ACS (confirmed NSTEMI,
+// dynamic ST/T changes) → early invasive strategy within 24 h should be considered (IIa A).
+// 2024 ESC CCS — short-acting nitrates for immediate relief of angina (I B); beta-blocker and/or
+// calcium-channel blocker first line for symptom control (I B); functional or anatomical testing.
+// ARC-2 stent thrombosis timing: acute ≤24 h, subacute >24 h–30 days, late 31 days–1 year, very
+// late >1 year after the PCI. No troponin cut-offs here: the 99th centile is assay-specific.
+const ST_TIMING = (days: number) => (days <= 1 ? "acute (≤24 h)" : days <= 30 ? "subacute (≤30 days)" : days <= 365 ? "late (31 days–1 year)" : "very late (>1 year)");
+const CP_UNSTABLE = ["shock", "arrhythmia", "ahf", "mechanical", "refractory"];
+
 export const CORONARY_WIZARDS: Record<string, WizardDef> = {
+  "chest-pain-cad": {
+    id: "chest-pain-cad", title: "Recurrent chest pain after ACS / PCI", tone: "orange", group: "Coronary",
+    source: "ESC ACS 2023 · ESC CCS 2024 · ARC-2",
+    note: "Is this a new ACS (and, after a stent, stent thrombosis), or stable angina? The ECG, troponin and instability decide the speed of the invasive strategy. Premature interruption of antiplatelet therapy is the strongest trigger of stent thrombosis.",
+    facts: ["hs-troponin", "haemoglobin", "sbp", "hr", "egfr"], trend: "hs-troponin",
+    steps: [
+      {
+        id: "presentation", title: "Presentation",
+        questions: [
+          {
+            id: "pattern", label: "Pain pattern", type: "single", required: true,
+            options: [
+              { value: "ongoing", label: "Ongoing pain now", hint: "At rest, not settling" },
+              { value: "rest", label: "Rest pain, now settled" },
+              { value: "exertional", label: "Exertional, stable pattern", hint: "Angina returning after the PCI" },
+              { value: "atypical", label: "Atypical / possibly non-cardiac" },
+            ],
+          },
+          {
+            id: "ecg", label: "ECG", type: "single", required: true,
+            options: [
+              { value: "ste", label: "ST elevation / new LBBB" }, { value: "dynamic", label: "Dynamic ST depression / T-wave changes" },
+              { value: "normal", label: "No ischaemic change" }, { value: "not-done", label: "Not done yet", hint: "ECG within 10 minutes (I B)" },
+            ],
+          },
+          {
+            id: "troponin", label: "hs-troponin", type: "single", required: true,
+            options: [
+              { value: "rising", label: "Rise and/or fall above the 99th centile" }, { value: "normal", label: "Normal / not changing" },
+              { value: "pending", label: "Pending / not done", hint: "0 h/1 h or 0 h/2 h algorithm (I B)" },
+            ],
+          },
+          {
+            id: "instability", label: "Very high-risk features", type: "multi", required: true,
+            options: [
+              { value: "none", label: "None" },
+              { value: "shock", label: "Haemodynamic instability / cardiogenic shock" },
+              { value: "arrhythmia", label: "Life-threatening arrhythmia / cardiac arrest" },
+              { value: "ahf", label: "Acute heart failure" },
+              { value: "mechanical", label: "Mechanical complication" },
+              { value: "refractory", label: "Recurrent or refractory pain despite treatment" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "stent", title: "Antiplatelet therapy",
+        questions: [
+          {
+            id: "adherence", label: "Antiplatelet therapy since the PCI / ACS", type: "single", required: true,
+            options: [
+              { value: "taking", label: "Taken as prescribed" },
+              { value: "missed", label: "Missed doses" },
+              { value: "stopped", label: "Stopped or interrupted", hint: "Bleeding, surgery, cost, misunderstanding" },
+              { value: "none", label: "None prescribed" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "management", title: "Management",
+        questions: [
+          {
+            id: "actions", label: "What will you do?", type: "multi", required: true,
+            options: [
+              { value: "cath-now", label: "Immediate coronary angiography (STEMI pathway / very high risk)", effects: { plan: [{ category: "procedure", title: "Immediate coronary angiography (primary PCI pathway)", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "invasive-24", label: "Invasive angiography within 24 h", effects: { plan: [{ category: "procedure", title: "Invasive coronary angiography within 24 h", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "serial-trop", label: "Serial hs-troponin (0 h/1 h or 0 h/2 h)", effects: { plan: [{ category: "monitoring", title: "Serial hs-troponin", days: 0, completesOn: { type: "lab", codes: ["hs-troponin"] } }] } },
+              { value: "ecg", label: "12-lead ECG (repeat)", effects: { plan: [{ category: "investigation", title: "12-lead ECG", days: 0, completesOn: { type: "study", kind: "ecg" } }] } },
+              { value: "restart-ap", label: "Restart / continue antiplatelet therapy", effects: { plan: [{ category: "medication", title: "Restart antiplatelet therapy (interrupted after PCI / ACS)", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "sl-nitrate", label: "Sublingual nitrate for relief", unless: ["nitrate"], effects: { plan: [{ category: "medication", title: "Prescribe sublingual GTN for angina relief", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "antianginal", label: "Optimise anti-anginal therapy", effects: { plan: [{ category: "medication", title: "Optimise anti-anginal therapy (beta-blocker / calcium-channel blocker, then long-acting nitrate)", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "functional", label: "Ischaemia testing / imaging", effects: { plan: [{ category: "investigation", title: "Ischaemia testing or coronary imaging (recurrent angina after PCI)", days: 14, completesOn: { type: "manual" } }] } },
+              { value: "non-cardiac", label: "Look for a non-cardiac cause", effects: { plan: [{ category: "follow_up", title: "Assess non-cardiac causes of chest pain", days: 0, completesOn: { type: "manual" } }] } },
+            ],
+          },
+          { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+        ],
+      },
+    ],
+  },
   "acs-discharge": {
     id: "acs-discharge", title: "ACS discharge bundle", tone: "blue", group: "Coronary", episode: false,
     source: "ESC ACS 2023 · ESC VA 2022",
@@ -349,4 +444,34 @@ CORONARY_WIZARDS["acs-discharge"].assess = (a: Answers, ctx: WizardContext): Ass
   rec.push("Antithrombotic durations and stop dates: Antithrombotic plan pathway.");
   if (rec.length === 1) rec.unshift("All guideline bundle items are in place.");
   return { heading: "Secondary prevention after ACS", rows, recommendations: rec };
+};
+
+// Recurrent chest pain: risk group, stent-thrombosis timing, and what the guideline says to do.
+export function chestPainRisk(a: Answers): "stemi" | "very-high" | "high" | "possible" | "stable" | "atypical" {
+  const unstable = ((a.instability as string[]) ?? []).some((v) => CP_UNSTABLE.includes(v));
+  if (a.ecg === "ste") return "stemi";
+  if (unstable) return "very-high";
+  if (a.troponin === "rising" || a.ecg === "dynamic") return "high";
+  if (a.pattern === "ongoing" || a.pattern === "rest" || a.troponin === "pending" || a.ecg === "not-done") return "possible";
+  return a.pattern === "atypical" ? "atypical" : "stable";
+}
+CORONARY_WIZARDS["chest-pain-cad"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const risk = chestPainRisk(a);
+  const pciDays = ctx.coronary?.pciAt ? Math.max(0, Math.round((Date.parse(ctx.today) - Date.parse(localDay(ctx.coronary.pciAt))) / 86400000)) : null;
+  const label = { stemi: "STEMI", "very-high": "Very high-risk NSTE-ACS", high: "High-risk NSTE-ACS", possible: "Possible ACS: not yet ruled out", stable: "Stable angina pattern", atypical: "Atypical: ACS not suggested" }[risk];
+  const rows: Assessment["rows"] = [
+    { label: "Risk group", value: label, tone: risk === "stable" || risk === "atypical" ? "green" : "orange" },
+  ];
+  if (pciDays != null) rows.push({ label: "Since the last PCI", value: `${pciDays} day${pciDays === 1 ? "" : "s"} · stent thrombosis would be ${ST_TIMING(pciDays)}` });
+  rows.push({ label: "Antiplatelet therapy", value: { taking: "Taken as prescribed", missed: "Missed doses", stopped: "Stopped or interrupted", none: "None prescribed" }[String(a.adherence)] ?? "Not given", tone: a.adherence === "taking" ? "green" : "orange" });
+  const rec: string[] = [];
+  if (risk === "stemi") rec.push("ST elevation with ongoing ischaemia: STEMI pathway, immediate primary PCI (I A)." + (pciDays != null ? " Stent thrombosis is likely in a recently stented territory." : ""));
+  if (risk === "very-high") rec.push("Very high-risk features: immediate invasive strategy (<2 h) (I C).");
+  if (risk === "high") rec.push("Troponin rise/fall or dynamic ST/T changes: NSTE-ACS; early invasive strategy within 24 h should be considered (IIa A)." + (pciDays != null && pciDays <= 365 ? " Consider stent thrombosis or early restenosis of the treated vessel." : ""));
+  if (a.ecg === "not-done") rec.push("12-lead ECG within 10 minutes of first contact (I B).");
+  if (a.troponin === "pending") rec.push("hs-troponin with the 0 h/1 h (or 0 h/2 h) algorithm (I B).");
+  if (a.adherence === "stopped" || a.adherence === "missed") rec.push("Interrupted antiplatelet therapy is the strongest trigger of stent thrombosis: restart unless active bleeding forbids it.");
+  if (risk === "stable") rec.push("Stable angina after PCI: sublingual nitrate for relief (I B); beta-blocker and/or calcium-channel blocker first line (I B); test for ischaemia or restenosis.");
+  if (risk === "atypical") rec.push("Look for non-cardiac causes; keep secondary prevention unchanged.");
+  return { heading: "Chest pain after ACS / PCI: risk and recommendations", rows, recommendations: rec };
 };

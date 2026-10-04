@@ -15,7 +15,7 @@
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
 import { localDay } from "./clinical.js";
-import { highIschaemic, isHbr } from "./wizards-coronary.js";
+import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -198,11 +198,17 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   },
   bleeding: {
     actions: (a, c) => {
-      const major = a.severity === "major", mod = a.severity === "moderate";
+      const major = a.severity === "major" || a.severity === "life", mod = a.severity === "moderate";
+      const dapt = c.meds.filter((m) => m.tags.includes("antiplatelet")).length >= 2;
       return [
         major && S("emergency", "Major bleeding: emergency assessment, resuscitation, find the source (EHRA 2021)"),
         (major || mod) && on(c, "oac") && S("hold-oac", "Hold the anticoagulant (EHRA 2021)"),
-        major && on(c, "antiplatelet") && S("hold-ap", "Major bleeding: hold antiplatelet therapy (weigh stent risk)"),
+        a.severity === "life" && on(c, "antiplatelet") && S("hold-ap", "Life-threatening bleeding: stop all antiplatelets; once controlled, re-evaluate DAPT or single antiplatelet, preferably the P2Y12 inhibitor (ESC DAPT 2017)"),
+        major && a.severity !== "life" && !dapt && on(c, "antiplatelet") && S("hold-ap", "Major bleeding: hold antiplatelet therapy (weigh stent risk)"),
+        a.severity === "minor" && dapt && S("continue-dapt", "Trivial or mild bleeding: continue DAPT; consider a shorter course or a less potent P2Y12 inhibitor if it recurs (ESC DAPT 2017)"),
+        (mod || a.severity === "major") && dapt && S("sapt", `${mod ? "Moderate" : "Severe"} bleeding on DAPT: single antiplatelet, preferably the P2Y12 inhibitor (especially upper GI); restart DAPT as soon as safe (ESC DAPT 2017)`),
+        (mod || a.severity === "minor") && dapt && on(c, "p2y12-potent") && S("to-clopidogrel", "Bleeding on ticagrelor/prasugrel: consider switching to clopidogrel (ESC DAPT 2017 / ACS 2023 de-escalation)"),
+        c.coronary && c.coronary.days <= 365 && on(c, "antiplatelet") && S("restart", `${c.coronary.pciAt ? "PCI" : "ACS"} ${c.coronary.days} days ago: plan the antiplatelet restart early — stent thrombosis risk is highest in the first months`),
         major && on(c, "oac") && S("reversal", "Life-threatening bleeding on an anticoagulant: specific reversal per protocol (EHRA 2021)"),
         a.site === "gi" && S("gi", "GI bleeding: endoscopy"),
         (a.site === "gi" || (on(c, "antiplatelet") && on(c, "oac"))) && S("ppi", "PPI with antithrombotic therapy at GI risk (ESC, I A)"),
@@ -474,6 +480,31 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
   },
 
+  "chest-pain-cad": {
+    instability: (_a, c) => {
+      const sbp = val(c, "sbp");
+      return [sbp != null && sbp < 90 ? S("shock", `SBP ${sbp} mmHg (<90: SCAI shock criterion)`) : null];
+    },
+    adherence: (_a, c) => {
+      const recent = c.coronary && c.coronary.days <= 365;
+      return [on(c, "antiplatelet") ? S("taking", "Antiplatelet therapy on the medication list: confirm doses were not missed") : recent ? S("stopped", `No antiplatelet on the list ${c.coronary!.days} days after ${c.coronary!.pciAt ? "the PCI" : "the ACS"}`) : null];
+    },
+    actions: (a, c) => {
+      const risk = chestPainRisk(a);
+      return [
+        risk === "stemi" && S("cath-now", "ST elevation with ongoing ischaemia: immediate primary PCI (ESC ACS 2023, I A)"),
+        risk === "very-high" && S("cath-now", "Very high-risk NSTE-ACS: immediate invasive strategy <2 h (ESC ACS 2023, I C)"),
+        risk === "high" && S("invasive-24", "NSTE-ACS: early invasive strategy within 24 h (ESC ACS 2023, IIa A)"),
+        a.ecg === "not-done" && S("ecg", "ECG within 10 minutes (ESC ACS 2023, I B)"),
+        a.troponin === "pending" && S("serial-trop", "hs-troponin 0 h/1 h or 0 h/2 h (ESC ACS 2023, I B)"),
+        (a.adherence === "stopped" || a.adherence === "missed") && S("restart-ap", "Interrupted antiplatelet therapy after PCI: restart unless bleeding forbids it"),
+        risk === "stable" && !on(c, "nitrate") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
+        risk === "stable" && S("antianginal", "Beta-blocker and/or calcium-channel blocker first line (ESC CCS 2024, I B)"),
+        risk === "stable" && S("functional", "Recurrent angina after PCI: test for ischaemia or restenosis (ESC CCS 2024)"),
+        risk === "atypical" && S("non-cardiac", "Look for a non-cardiac cause"),
+      ];
+    },
+  },
   "acs-discharge": {
     type: (_a, c) => {
       const t = c.coronary?.acs ? c.coronary.indexTitle : "";

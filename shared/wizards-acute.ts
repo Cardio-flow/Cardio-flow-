@@ -15,7 +15,7 @@
 //  - INR out of range: EHRA/ACCP VKA management; ESC/EACTS 2025 valvular (mechanical valves).
 //  - Digoxin toxicity: ESC HF 2021/2026 (target level 0.5–0.9 ng/mL), toxicity management.
 //  - Severe BP: ESC 2024 hypertension (hypertensive emergency = severe BP with acute organ damage).
-import type { Option, WizardDef } from "./wizards.js";
+import type { Option, OutcomeItem, WizardDef } from "./wizards.js";
 
 const RECHECK: Option[] = [
   { value: "0", label: "Same day" },
@@ -236,7 +236,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
 
   bleeding: {
     id: "bleeding", title: "Bleeding on antithrombotic therapy", tone: "red", group: "Acute & safety",
-    source: "EHRA practical guide on NOACs 2021 · ESC ACS 2023 · ESC AF 2024",
+    source: "EHRA practical guide on NOACs 2021 · ESC DAPT 2017 · ESC ACS 2023 · ESC AF 2024",
     note: "Stop the bleeding and support the circulation; reverse only for life-threatening bleeding. Decide the restart date before discharge: most patients need their antithrombotic back.",
     facts: ["haemoglobin", "platelets", "inr", "creatinine", "sbp", "hr"], trend: "haemoglobin",
     recheck: { title: "Haemoglobin and renal function", codes: ["haemoglobin", "creatinine"] },
@@ -247,7 +247,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
           {
             id: "severity", label: "Severity", type: "single", required: true,
             options: [
-              { value: "minor", label: "Minor (nuisance)" }, { value: "moderate", label: "Moderate / clinically relevant" }, { value: "major", label: "Major / life-threatening" },
+              { value: "minor", label: "Minor (nuisance)" }, { value: "moderate", label: "Moderate / clinically relevant" }, { value: "major", label: "Major / severe" }, { value: "life", label: "Life-threatening" },
             ],
           },
           { id: "site", label: "Site", type: "single", options: [{ value: "gi", label: "GI" }, { value: "intracranial", label: "Intracranial" }, { value: "gu", label: "Urinary" }, { value: "access", label: "Access site" }, { value: "nose", label: "Nose / gums" }, { value: "other", label: "Other" }] },
@@ -267,7 +267,10 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
             options: [
               { value: "emergency", label: "Emergency assessment / admission", effects: EMERGENCY },
               { value: "hold-oac", label: "Hold the anticoagulant", requires: ["oac"], effects: { hold: ["oac"] } },
-              { value: "hold-ap", label: "Hold antiplatelet therapy", requires: ["antiplatelet"], effects: { hold: ["antiplatelet"] } },
+              { value: "hold-ap", label: "Hold all antiplatelet therapy", requires: ["antiplatelet"], effects: { hold: ["antiplatelet"] } },
+              { value: "continue-dapt", label: "Continue DAPT", requires: ["p2y12"] },
+              { value: "sapt", label: "Single antiplatelet: keep the P2Y12 inhibitor, hold aspirin", requires: ["p2y12"] },
+              { value: "to-clopidogrel", label: "Switch ticagrelor / prasugrel to clopidogrel 75 mg daily", requires: ["p2y12-potent"] },
               { value: "reversal", label: "Reversal agent / PCC (life-threatening only)", effects: now("Specific reversal per protocol (idarucizumab, andexanet or PCC; vitamin K for warfarin)", { type: "manual" }, "medication") },
               { value: "gi", label: "Endoscopy / source control", effects: now("Endoscopy or source control", { type: "manual" }, "procedure") },
               { value: "ppi", label: "Add a PPI", effects: { plan: [{ category: "medication", title: "Start a proton-pump inhibitor", days: 0, completesOn: { type: "manual" } }] } },
@@ -457,4 +460,21 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
       { id: "monitoring", title: "Monitoring & plan", questions: [{ id: "recheck", label: "Renal function and K", type: "single", options: RECHECK, required: true }, { id: "review", label: "BP review", type: "single", options: REVIEW, required: true }] },
     ],
   },
+};
+
+// Bleeding on DAPT (ESC 2017 DAPT focused update, bleeding algorithm; ESC ACS 2023 de-escalation):
+// keep the P2Y12 inhibitor and hold aspirin, or switch ticagrelor/prasugrel to clopidogrel 75 mg
+// daily (maintenance dose; no loading dose).
+ACUTE_WIZARDS.bleeding.outcome = (a, ctx) => {
+  const acts = (a.actions as string[]) ?? [];
+  if (acts.includes("hold-ap")) return [];
+  const out: OutcomeItem[] = [];
+  const aspirin = ctx.meds.find((m) => m.code === "aspirin");
+  const potent = ctx.meds.find((m) => m.tags.includes("p2y12-potent"));
+  if (acts.includes("sapt") && aspirin) out.push({ kind: "medication", medicationId: aspirin.id, event: "hold", doseValue: null, label: "Aspirin: hold (single antiplatelet: P2Y12 inhibitor continues)" });
+  if (acts.includes("to-clopidogrel") && potent) {
+    out.push({ kind: "medication", medicationId: potent.id, event: "stop", doseValue: null, label: `${potent.name}: stop (switch to clopidogrel)` });
+    out.push({ kind: "start", code: "clopidogrel", doseValue: 75, frequency: "OD", indication: "cad", label: "Clopidogrel 75 mg daily: start" });
+  }
+  return out;
 };

@@ -207,3 +207,55 @@ test("bundle done but no LVEF and nothing planned: the LVEF finding stands alone
   assert.equal((await rec(pid, "cad.lvef-after-acs")).severity, "yellow", "the answer said LVEF ≥50% but none is recorded");
   assert.ok(await rec(pid, "cad.rehab"), "rehab declined in the bundle: the rehab finding returns");
 });
+
+// ---- slice 4: coronary complications ----
+test("Salem (PCI 5 months ago) with chest pain at clinic: the pathway is offered; troponin rise → NSTE-ACS, invasive within 24 h; summary names late stent thrombosis", async () => {
+  const pid = await byName("Salem Al-Rashidi");
+  const r = await rec(pid, "event.chest-pain-cad");
+  assert.ok(r && r.severity === "orange");
+  assert.match(r.title, /Visit for chest pain .*→ chest pain after ACS \/ PCI pathway/);
+  const ctx = (await tx((q) => getWizard(q, pid, "chest-pain-cad"))).context;
+  assert.deepEqual(suggest("chest-pain-cad", "adherence", {}, ctx).map((x) => x.value), ["taking"]);
+  const a = { pattern: "rest", ecg: "dynamic", troponin: "rising", instability: ["none"], adherence: "missed" };
+  const acts = suggest("chest-pain-cad", "actions", a, ctx).map((x) => x.value);
+  assert.ok(acts.includes("invasive-24") && acts.includes("restart-ap") && !acts.includes("cath-now"));
+  const done = await run(pid, "chest-pain-cad", { ...a, actions: ["invasive-24", "restart-ap"], review: "none" }, r.id);
+  assert.ok(done.episodeId, "a complication episode is opened");
+  assert.equal(done.assessment!.rows[0].value, "High-risk NSTE-ACS");
+  assert.match(done.assessment!.rows[1].value, /stent thrombosis would be late \(31 days–1 year\)/);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /within 24 h should be considered \(IIa A\)/.test(x)));
+  assert.equal(await rec(pid, "event.chest-pain-cad"), undefined, "quiet while the episode is open");
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "Invasive coronary angiography within 24 h" && p.due_date === T));
+});
+
+test("ST elevation → immediate angiography; stable exertional angina → nitrate, anti-anginal and ischaemia testing", async () => {
+  const pid = await byName("Salem Al-Rashidi");
+  const ctx = (await tx((q) => getWizard(q, pid, "chest-pain-cad"))).context;
+  assert.deepEqual(suggest("chest-pain-cad", "actions", { pattern: "ongoing", ecg: "ste", troponin: "pending", instability: ["none"] }, ctx).map((x) => x.value).slice(0, 1), ["cath-now"]);
+  const st = suggest("chest-pain-cad", "actions", { pattern: "exertional", ecg: "normal", troponin: "normal", instability: ["none"], adherence: "taking" }, ctx).map((x) => x.value);
+  for (const v of ["antianginal", "functional"]) assert.ok(st.includes(v), v);
+  assert.ok(!st.includes("invasive-24") && !st.includes("cath-now"));
+});
+
+test("bleeding on DAPT: a bleeding visit offers the pathway; moderate bleeding → keep the P2Y12 inhibitor, hold aspirin, or switch to clopidogrel", async () => {
+  const pid = await newCad("Bleed");
+  await pci(pid, -40, "nste-acs");
+  await start(pid, "aspirin", 100, "OD", "cad", -40);
+  await start(pid, "ticagrelor", 90, "BID", "cad", -40);
+  await tx(async (q) => { await K.startVisit(q, doc, pid, { reasons: ["Bleeding"], symptoms: [], service: "Cardiology clinic", startedAt: new Date(Date.now() - 60_000).toISOString() } as any); await reassess(q, pid, "sandbox"); });
+  const r = await rec(pid, "event.bleeding");
+  assert.ok(r, "bleeding pathway offered");
+  const ctx = (await tx((q) => getWizard(q, pid, "bleeding"))).context;
+  const sug = suggest("bleeding", "actions", { severity: "moderate", site: "gi" }, ctx).map((x) => x.value);
+  for (const v of ["sapt", "to-clopidogrel", "ppi", "restart"]) assert.ok(sug.includes(v), v);
+  assert.ok(!sug.includes("hold-ap"), "moderate bleeding on DAPT: not all antiplatelets");
+  assert.ok(suggest("bleeding", "actions", { severity: "life" }, ctx).some((x) => x.value === "hold-ap"));
+  assert.ok(suggest("bleeding", "actions", { severity: "minor" }, ctx).some((x) => x.value === "continue-dapt"));
+  await run(pid, "bleeding", { severity: "moderate", site: "gi", agents: ["aspirin"], actions: ["sapt", "to-clopidogrel", "ppi", "restart"], recheck: "3", review: "none" }, r.id);
+  const s = await loadState(db, pid);
+  const st = Object.fromEntries(s.meds.map((m) => [m.code, m.status]));
+  assert.equal(st.aspirin, "held");
+  assert.equal(st.ticagrelor, "stopped");
+  assert.equal(st.clopidogrel, "active");
+});

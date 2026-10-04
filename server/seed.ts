@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 13;
+export const SEED_VERSION = 14;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -451,6 +451,15 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       if (sa && !(await tx.query(`SELECT 1 FROM cf.medication WHERE patient_id=$1 AND drug='clopidogrel'`, [sa])).rows[0])
         await K.startMedication(tx, sys, sa, { code: "clopidogrel", doseValue: 75, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(d(-160), "14:00") });
       await pci("100733962", d(-200), { setting: "stemi", vessels: ["LAD"], device: "Drug-eluting stent", stents: 1, access: "Radial" });
+    }
+    // Seed v14: Salem (elective PCI to RCA five months ago) comes to clinic today with chest pain: the
+    // recurrent chest pain pathway is offered
+    if (seeded < 14) {
+      const sa = await byMrn("100611478");
+      if (sa && !(await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND status='open'`, [sa])).rows[0]) {
+        await K.startVisit(tx, sys, sa, { reasons: ["Chest pain"], symptoms: ["Chest pain"], service: "Cardiology clinic", startedAt: new Date(Date.now() - 60_000).toISOString() } as any);
+        touched.push(sa);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

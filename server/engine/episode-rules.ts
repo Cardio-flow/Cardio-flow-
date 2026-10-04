@@ -9,6 +9,7 @@ import { MEASURES } from "../../shared/catalog.js";
 import { flagFor, fmtDay } from "../../shared/clinical.js";
 import { WIZARDS } from "../../shared/wizards.js";
 import type { PatientState } from "../kernel/state.js";
+import { cadEvents } from "./cad-profile.js";
 import type { Finding, RuleDef } from "./rules.js";
 
 type Trigger = { at: string; label: string; ref: string };
@@ -34,7 +35,7 @@ function trigger(s: PatientState, wizard: string, reason: RegExp, indication: Re
   return open[0] ?? null;
 }
 
-const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure" };
+const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding" };
 const offer = (wizard: string, t: Trigger, detail: string, severity: Finding["severity"] = "orange"): Finding => ({
   key: wizard,
   signature: t.ref,
@@ -93,6 +94,33 @@ export const EPISODE_RULES: RuleDef[] = [
     evaluate(s) {
       const t = trigger(s, "pre-procedure", /pre-?operative|pre-?procedure/i, null);
       return t ? [offer("pre-procedure", t, "Surgical and patient risk, functional capacity, tests, medicines around the procedure, then the cardiology conclusion.")] : [];
+    },
+  },
+  {
+    id: "event.chest-pain-cad",
+    kind: "clinical",
+    title: "Chest pain in coronary disease → recurrent chest pain pathway",
+    inputs: ["contexts", "episodes", "procedures", "conditions"],
+    defaultParams: {},
+    evidence: "2023 ESC ACS: ECG within 10 minutes, hs-troponin 0 h/1 h, risk-based timing of the invasive strategy; after PCI think of stent thrombosis and of interrupted antiplatelet therapy. 2024 ESC CCS for a stable angina pattern.",
+    evaluate(s) {
+      const t = trigger(s, "chest-pain-cad", /chest pain|angina/i, null);
+      if (!t || !cadEvents(s).some((e) => e.kind !== "cath" && e.at < t.at)) return [];
+      return [offer("chest-pain-cad", t, "ECG, troponin and very high-risk features decide the invasive timing; stent-thrombosis timing and antiplatelet interruptions; stable angina plan.")];
+    },
+  },
+  {
+    id: "event.bleeding",
+    kind: "clinical",
+    title: "Bleeding recorded on antithrombotic therapy → bleeding pathway",
+    inputs: ["contexts", "episodes", "meds"],
+    defaultParams: {},
+    evidence: "EHRA NOAC guide 2021 and the ESC 2017 DAPT bleeding algorithm (ESC ACS 2023): severity-based management, which antithrombotic to keep, PPI, and an early restart plan.",
+    evaluate(s) {
+      const on = s.meds.filter((m) => (m.status === "active" || m.status === "held") && (m.tags.includes("antiplatelet") || m.tags.includes("oac")));
+      if (!on.length) return [];
+      const t = trigger(s, "bleeding", /bleed|haemorrhage|hemorrhage/i, null);
+      return t ? [offer("bleeding", t, `On ${on.map((m) => m.name.toLowerCase()).join(" + ")}: severity, what to hold or keep, source control, PPI and the restart plan.`)] : [];
     },
   },
   {

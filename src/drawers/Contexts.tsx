@@ -263,7 +263,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   );
 }
 
-const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Arrhythmia", "Device", "Pre-operative assessment", "Chest infection", "Pericarditis", "Routine cardiology"];
+const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Arrhythmia", "Device", "Pre-operative assessment", "Chest pain", "Bleeding", "Chest infection", "Pericarditis", "Routine cardiology"];
 
 export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void }) {
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
