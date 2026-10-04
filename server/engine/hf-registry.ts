@@ -1,4 +1,4 @@
-// HF Clinic Registry projection (blueprint P2.10, first part): the MKH HF Clinic Registry form
+// Heart Failure Registry projection (blueprint P2.10, first part): the Heart Failure Registry form
 // (github.com/MKH-Cardiology/HF-clinic-registry, baseline card fields) mapped to the CardioFlow
 // record. Read-only: CardioFlow fills what it already holds, in the registry's own vocabulary
 // and units; everything else is listed as registry-only, to be asked in the registry. Nothing is
@@ -241,7 +241,7 @@ export function hfRegistryProjection(s: PatientState) {
   const header = filled.map((f) => f.key);
   const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   return {
-    registry: "MKH HF Clinic Registry",
+    registry: "Heart Failure Registry",
     sections,
     counts: { mapped: mapped.length, filled: filled.length, registryOnly: all.length - mapped.length },
     csv: header.join(",") + "\n" + filled.map((f) => csvCell(f.value!)).join(","),
@@ -279,7 +279,7 @@ export function hfRegistryCohort(states: PatientState[]) {
   for (const r of rows) byType[r.type] = (byType[r.type] ?? 0) + 1;
   const filled = rows.reduce((n, r) => n + r.filled, 0), mapped = rows.reduce((n, r) => n + r.mapped, 0);
   return {
-    registry: "MKH HF Clinic Registry",
+    registry: "Heart Failure Registry",
     counts: { patients: rows.length, byType, filledPct: mapped ? Math.round((filled / mapped) * 100) : null },
     patients: rows.map(({ cells, ...r }) => r),
     csv: [mappedKeys.join(","), ...rows.map((r) => r.cells.map((c) => (c ? csvCell(c) : "")).join(","))].join("\n"),

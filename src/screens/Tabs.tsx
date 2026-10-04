@@ -292,7 +292,7 @@ export function RegistriesTab({ id, version }: { id: string; version: number }) 
       <main className="page">
         <section className="card pad">
           <div className="card-head"><h2>Registries</h2></div>
-          <p className="reg-intro">{hf && cad ? "Registry projections appear for patients with heart failure (HF Clinic Registry) or with a PCI, angiography or ACS admission (CAD Registry). The EP registry follows with its module." : "Loading…"}</p>
+          <p className="reg-intro">{hf && cad ? "Registry projections appear for patients with heart failure (Heart Failure Registry) or with a PCI, angiography or ACS admission (CAD Registry). The EP registry follows with its module." : "Loading…"}</p>
         </section>
       </main>
     );

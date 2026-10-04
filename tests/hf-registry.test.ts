@@ -1,4 +1,4 @@
-// HF Clinic Registry projection: registry fields filled from the record in the registry's own
+// Heart Failure Registry projection: registry fields filled from the record in the registry's own
 // vocabulary and units; registry-only fields listed, never guessed; CSV row of filled fields.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -69,7 +69,7 @@ test("non-HF patients have no HF registry projection; the API says so", async ()
     const r1 = await (await fetch(`${base}/patients/${await byName("Mariam Hussain")}/registries/hf`, { headers: { cookie } })).json();
     assert.deepEqual(r1, { applicable: false });
     const r2 = await (await fetch(`${base}/patients/${await byName("Faisal Al-Mutairi")}/registries/hf`, { headers: { cookie } })).json();
-    assert.equal(r2.registry, "MKH HF Clinic Registry");
+    assert.equal(r2.registry, "Heart Failure Registry");
     assert.equal(field(r2, "Inotropes_Used").value != null || field(r2, "Admissions").value != null, true);
   } finally {
     server.close();

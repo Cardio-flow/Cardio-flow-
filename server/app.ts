@@ -479,7 +479,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), documents(tx, id))));
   }));
 
-  // HF Clinic Registry projection: read-only, the registry fields CardioFlow can already fill
+  // Heart Failure Registry projection: read-only, the registry fields CardioFlow can already fill
   app.get("/api/patients/:id/registries/hf", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), hfRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));

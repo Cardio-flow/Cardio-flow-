@@ -4,9 +4,9 @@ import { Link, Segmented, useToast } from "../ui";
 
 // Each registry as a whole: every eligible patient of the site, how much of the registry form the
 // record already fills, what is still missing, and one CSV with a row per patient. Read-only.
-// HF Clinic Registry (heart failure) and CAD Registry (PCI, angiography or ACS admission).
+// Heart Failure Registry (heart failure) and CAD Registry (PCI, angiography or ACS admission).
 const REGS = [
-  { value: "hf", name: "MKH HF Clinic Registry", label: "HF Clinic Registry", who: "patients with heart failure", type: "HF type", file: "hf-registry.csv" },
+  { value: "hf", name: "Heart Failure Registry", label: "Heart Failure Registry", who: "patients with heart failure", type: "HF type", file: "heart-failure-registry.csv" },
   { value: "cad", name: "CAD Registry", label: "CAD Registry", who: "patients with a PCI, angiography or ACS admission", type: "Presentation", file: "cad-registry.csv" },
 ];
 export function Registries() {
