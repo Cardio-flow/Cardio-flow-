@@ -6,6 +6,9 @@ import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
 import { loadState } from "../server/kernel/state.js";
+import { reassess } from "../server/engine/engine.js";
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
 import { summary } from "../server/kernel/views.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
@@ -52,4 +55,56 @@ test("rhythm profile: Fatma's paroxysmal AF with CHA2DS2-VA, apixaban dose check
   assert.equal(a.devices[0].type, "Pacemaker (single chamber)");
   assert.equal(a.anticoagulation[0].doseCheck, "INR-guided");
   assert.equal((await sumOf("Noura Al-Kandari")).rhythm, null);
+});
+
+// ---- slice 2: AF-CARE ----
+const rec = async (pid: string, rule: string) =>
+  ((await db.query(`SELECT id, severity, title, action FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[])[0];
+const run = (pid: string, wizard: string, answers: any, recommendationId?: string) =>
+  tx(async (q) => { const r = await completeWizard(q, doc, pid, wizard, { answers, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
+
+test("Hamad: AF on today's ECG, not on the problem list → AF-CARE suggests the pattern, apixaban by CHA2DS2-VA, rate control, tests; completing it lists AF and starts apixaban", async () => {
+  const pid = await byName("Hamad Al-Shammari");
+  const r = await rec(pid, "rhythm.ecg-af-undiagnosed");
+  assert.ok(r && r.severity === "orange");
+  assert.match(r.title, /atrial fibrillation — not on the problem list/);
+  assert.equal(await rec(pid, "rhythm.af-fast-rate"), undefined, "the undiagnosed-AF finding covers the rate");
+  const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
+  assert.ok(ctx.af!.score >= 2);
+  assert.deepEqual(suggest("af-care", "pattern", {}, ctx).map((x) => x.value), ["first"]);
+  assert.deepEqual(suggest("af-care", "oac", {}, ctx).map((x) => x.value), ["apixaban"]);
+  assert.ok(suggest("af-care", "rate", { pattern: "first" }, ctx).length === 1, "rate 118: one rate-control suggestion");
+  assert.ok(suggest("af-care", "comorb", {}, ctx).some((x) => x.value === "hf") || ctx.meds.some((m) => m.tags.includes("sglt2")));
+  const done = await run(pid, "af-care", { pattern: "first", comorb: ["none"], oac: "apixaban", bleed: ["none"], rate: ["digoxin"], rhythm: ["none"], tests: ["bloods"], review: "none" }, r.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /6 months/.test(x)));
+  const s = await loadState(db, pid);
+  const af = s.conditions.find((c) => c.code === "af" && c.status === "active")!;
+  assert.equal(af.attributes.pattern, "First diagnosed");
+  const apx = s.meds.find((m) => m.code === "apixaban" && m.status === "active")!;
+  assert.ok(apx && (apx.doseValue === 5 || apx.doseValue === 2.5));
+  assert.ok(s.plan.some((p) => p.title === "Rate control: add digoxin"));
+  assert.equal(await rec(pid, "rhythm.ecg-af-undiagnosed"), undefined, "AF now on the problem list");
+  assert.equal(await rec(pid, "rhythm.af-first-plan"), undefined, "AF-CARE done for this AF");
+  assert.equal((await rec(pid, "rhythm.af-fast-rate")).severity, "yellow", "the fast rate stands on its own now");
+});
+
+test("Abdullah (permanent AF, warfarin, ECG 112 bpm): fast-rate finding; AF-CARE suggests no rhythm control and keeps warfarin with his mechanical valve", async () => {
+  const pid = await byName("Abdullah Al-Enezi");
+  assert.match((await rec(pid, "rhythm.af-fast-rate")).title, /^AF at 112 bpm .*above the lenient target <110/);
+  const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
+  assert.deepEqual(suggest("af-care", "pattern", {}, ctx).map((x) => x.value), ["permanent"]);
+  assert.deepEqual(suggest("af-care", "rhythm", { pattern: "permanent" }, ctx).map((x) => x.value), ["none"]);
+  assert.deepEqual(suggest("af-care", "oac", {}, ctx).map((x) => x.value), ["continue"], "mechanical valve: warfarin stays");
+});
+
+test("aspirin alone for AF without vascular disease: AF-CARE suggests stopping it; completing stops aspirin", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Asa " + Date.now(), mrn: "Q" + Date.now(), sex: "Female", birthDate: "1950-01-01", conditions: ["af", "htn"] }));
+  await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "aspirin", doseValue: 100, frequency: "OD", route: "PO", indication: "af", effectiveAt: at(addDays(T, -100)) }); await reassess(q, pid, "sandbox"); });
+  const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
+  assert.ok(suggest("af-care", "bleed", {}, ctx).some((x) => x.value === "stop-asa"));
+  await run(pid, "af-care", { pattern: "paroxysmal", comorb: ["none"], oac: "other-doac", bleed: ["stop-asa"], rate: ["none"], rhythm: ["ablation"], tests: ["none"], review: "none" });
+  const s = await loadState(db, pid);
+  assert.equal(s.meds.find((m) => m.code === "aspirin")!.status, "stopped");
+  assert.ok(s.plan.some((p) => p.title === "Referral for AF catheter ablation"));
+  assert.equal(s.conditions.find((c) => c.code === "af")!.attributes.pattern, "Paroxysmal");
 });

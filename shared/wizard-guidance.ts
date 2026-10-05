@@ -542,6 +542,66 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     ],
   },
 
+  "af-care": {
+    pattern: (_a, c) => {
+      const p = c.af?.pattern;
+      const map: Record<string, string> = { "First diagnosed": "first", Paroxysmal: "paroxysmal", Persistent: "persistent", Permanent: "permanent" };
+      return [p && map[p] ? S(map[p], `Recorded on the problem list: ${p.toLowerCase()}`) : !(c.dx ?? []).includes("af") && c.af?.ecgRhythm ? S("first", `ECG shows ${c.af.ecgRhythm.toLowerCase()}; no AF on the problem list`) : null];
+    },
+    comorb: (_a, c) => {
+      const sbp = val(c, "sbp"), wt = val(c, "weight"), ht = val(c, "height");
+      const bmi = wt && ht ? wt / (ht / 100) ** 2 : null;
+      return [
+        sbp != null && sbp >= 130 && dx(c, "htn") && S("htn", `SBP ${sbp}: treat hypertension to target (ESC AF 2024 / HTN 2024)`),
+        bmi != null && bmi >= 30 && S("weight", `BMI ${n1(bmi)}: weight loss reduces AF burden (ESC AF 2024)`),
+        dx(c, "dm") && S("dm", "Diabetes: glycaemic control as part of AF-CARE"),
+        dx(c, "hf") && !on(c, "sglt2") && S("hf", "AF with HF: SGLT2 inhibitor and foundational HF therapy"),
+        dx(c, "smoker") && S("smoking", "Current smoker: stop smoking"),
+      ];
+    },
+    oac: (_a, c) => {
+      const sc = c.af?.score ?? null;
+      const valve = dx(c, "mechanical-valve", "ms-significant");
+      if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated: continue, check the dose")];
+      if (sc == null) return [];
+      if (sc >= 2) return [S(valve ? "other-doac" : "apixaban", `CHA₂DS₂-VA ${sc}: oral anticoagulation recommended (ESC AF 2024, I); DOAC preferred`)];
+      if (sc === 1) return [S(valve ? "other-doac" : "apixaban", "CHA₂DS₂-VA 1: oral anticoagulation should be considered (ESC AF 2024, IIa)")];
+      return [S("not-indicated", "CHA₂DS₂-VA 0: no anticoagulation for stroke prevention")];
+    },
+    bleed: (_a, c) => {
+      const sbp = val(c, "sbp");
+      const out = [
+        sbp != null && sbp > 160 && S("bp", `SBP ${sbp} (>160: uncontrolled, a bleeding risk factor)`),
+        onCode(c, "aspirin") && !dx(c, "cad", "pad", "ascvd") && S("stop-asa", "No vascular indication: antiplatelet therapy is not used for stroke prevention in AF (ESC AF 2024, III)"),
+        on(c, "nsaid") && S("nsaid", "NSAID with anticoagulation: avoid"),
+      ];
+      return out.some(Boolean) ? out : [S("none", "No modifiable bleeding risk factor in the record (scores are not used to withhold OAC)")];
+    },
+    rate: (a, c) => {
+      const hr = c.af?.ecgRate ?? val(c, "hr");
+      const lvef = val(c, "lvef");
+      if (hr == null || hr < 110 || a.pattern === "paroxysmal") return [];
+      return [
+        !on(c, "bb") ? S("bb", `Rate ${hr}: beta-blocker for rate control (any LVEF) — lenient target <110 (ESC AF 2024, IIa)`)
+        : lvef != null && lvef > 40 && !on(c, "ndhp-ccb") ? S("ccb", `Rate ${hr} on a beta-blocker, LVEF ${lvef}%: add or switch to diltiazem/verapamil`)
+        : !on(c, "digoxin") ? S("digoxin", `Rate ${hr} on a beta-blocker${lvef != null && lvef <= 40 ? `, LVEF ${lvef}%` : ""}: add digoxin`) : null,
+      ];
+    },
+    rhythm: (a, c) => {
+      const lvef = val(c, "lvef");
+      return [
+        a.pattern === "paroxysmal" && S("ablation", "Paroxysmal AF: catheter ablation is a first-line rhythm-control option (ESC AF 2024, I A)"),
+        a.pattern !== "permanent" && lvef != null && lvef <= 40 && S("ablation", `LVEF ${lvef}%: ablation when tachycardia-induced cardiomyopathy is suspected (ESC AF 2024)`),
+        (a.pattern === "persistent" || a.pattern === "first") && S("cardioversion", "Symptomatic persistent or first AF: cardioversion as part of rhythm control (after ≥3 weeks OAC or TOE)"),
+        a.pattern === "permanent" && S("none", "Permanent AF: no further rhythm control"),
+      ];
+    },
+    tests: (_a, c) => [
+      val(c, "lvef") == null && S("echo", "No LVEF recorded: echocardiography for every new AF (ESC AF 2024)"),
+      (val(c, "tsh") == null || val(c, "creatinine") == null || val(c, "haemoglobin") == null) && S("bloods", "Renal function, blood count and thyroid function at diagnosis (ESC AF 2024)"),
+    ],
+  },
+
   // ---------------- Inflammatory & infective ----------------
   pericarditis: {
     criteria: (_a, c) => {

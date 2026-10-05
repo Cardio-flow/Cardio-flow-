@@ -23,12 +23,13 @@ export function rhythmProfile(s: PatientState) {
   const conds = s.conditions.filter((c) => ARRHYTHMIA.includes(c.code));
   const procs = s.procedures.filter((p) => (RHYTHM_KINDS as string[]).includes(p.kind));
   const rhythmDrugs = live(s).filter((m) => RHYTHM_DRUGS.includes(m.code));
-  if (!conds.length && !procs.length && !rhythmDrugs.length) return null;
+  const ecgAf = [latestStudy(s, "ecg"), latestStudy(s, "holter")].some((st) => st && /fibrillation|flutter|paroxysmal AF/i.test(String(st.attributes.rhythm ?? "")));
+  if (!conds.length && !procs.length && !rhythmDrugs.length && !ecgAf) return null;
 
   const afc = s.conditions.find((c) => c.code === "af") ?? s.conditions.find((c) => c.code === "flutter") ?? null;
   const oacs = live(s).filter((m) => m.tags.includes("oac"));
   const checks = doacDoseCheck(s);
-  const score = afc ? cha2ds2va(s) : null;
+  const score = afc || ecgAf ? cha2ds2va(s) : null;
   const ecg = latestStudy(s, "ecg");
   const holter = latestStudy(s, "holter");
   const hr = s.resolved("hr").current;
@@ -37,7 +38,9 @@ export function rhythmProfile(s: PatientState) {
   const av = s.conditions.find((c) => c.code === "av-block");
 
   return {
-    af: afc
+    af: !afc && ecgAf
+      ? { title: "AF on ECG / Holter — not on the problem list", pattern: null, since: null }
+      : afc
       ? {
           title: DIAGNOSIS[afc.code]?.display ?? afc.display,
           pattern: (afc.attributes?.pattern as string | undefined) && afc.attributes.pattern !== "Unknown" ? (afc.attributes.pattern as string) : null,

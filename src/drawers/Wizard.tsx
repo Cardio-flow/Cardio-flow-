@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Activity, Check, Info, CalendarCheck, Pill } from "lucide-react";
+import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pill } from "lucide-react";
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
@@ -304,7 +304,7 @@ export function WizardDrawer({
                 {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
                 {outcome.map((o, i) => (
                   <div key={i}>
-                    {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : <CalendarCheck size={18} />}
+                    {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
                     {o.label}
                   </div>
                 ))}

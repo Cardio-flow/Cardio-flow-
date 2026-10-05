@@ -134,7 +134,7 @@ export const STUDY_RULES: RuleDef[] = [
     title: "Study findings not on the problem list",
     inputs: ["studies", "conditions"],
     defaultParams: { days: 365 },
-    evidence: "A diagnosis shown by a study (obstructive coronary disease, AF/flutter, high-degree AV block) drives prevention, anticoagulation and device rules only once it is on the problem list.",
+    evidence: "A diagnosis shown by a study (obstructive coronary disease, high-degree AV block; AF/flutter goes through the AF-CARE pathway) drives prevention, anticoagulation and device rules only once it is on the problem list.",
     evaluate(s, p) {
       const out: Finding[] = [];
       const recent = s.studies.filter((st) => (Date.parse(s.today) - Date.parse(st.performed_at)) / 86400000 <= Number(p.days));
@@ -147,14 +147,7 @@ export const STUDY_RULES: RuleDef[] = [
           detail: "Once listed, lipid goals, antiplatelet therapy and rehabilitation follow automatically.",
           facts: [studyFact(cad)], missing: [], action: { type: "history", focus: "cardiac", label: "Update history" },
         });
-      const af = newest((st) => (st.kind === "ecg" && /fibrillation|flutter/i.test(st.attributes.rhythm ?? "")) || (st.kind === "holter" && /AF/.test(st.attributes.rhythm ?? "")));
-      if (af && !s.tags.has("af"))
-        out.push({
-          key: "af", signature: af.id, severity: "orange",
-          title: `AF/flutter on ${STUDY_LABEL[af.kind]} ${fmtDay(af.performed_at)} but not on the problem list`,
-          detail: "Add it so stroke prevention (CHA₂DS₂-VA) and rate/rhythm rules run.",
-          facts: [studyFact(af)], missing: [], action: { type: "history", focus: "cardiac", label: "Update history" },
-        });
+      // AF/flutter on an ECG or Holter is offered as the AF-CARE pathway (rhythm.ecg-af-undiagnosed), which also lists it
       const av = newest((st) => HIGH_AV.includes(st.attributes.avBlock));
       if (av && !s.conditions.some((c) => c.code === "av-block"))
         out.push({

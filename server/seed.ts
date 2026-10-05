@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 15;
+export const SEED_VERSION = 16;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -484,6 +484,15 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await pattern(ab, "Permanent");
         await K.recordProcedure(tx, sys, ab, { kind: "device", date: at(d(-700), "11:00"), details: { type: "Pacemaker (single chamber)", action: "New implant", indication: "AF with slow ventricular rate", pacing: "RV pacing" } });
         touched.push(ab);
+      }
+    }
+    // Seed v16: Hamad (HFrEF) has an ECG today showing AF at 118 bpm, not yet on his problem list:
+    // the AF-CARE pathway is offered
+    if (seeded < 16) {
+      const h = await byMrn("100457208");
+      if (h && !(await tx.query(`SELECT 1 FROM cf.study WHERE patient_id=$1 AND kind='ecg' AND attributes->>'rhythm'='Atrial fibrillation'`, [h])).rows[0]) {
+        await K.recordStudy(tx, sys, h, { kind: "ecg", date: new Date(Date.now() - 120_000).toISOString(), findings: { rhythm: "Atrial fibrillation", rate: 118, qrs: 104, qrsMorphology: "Normal", qtc: 452 } });
+        touched.push(h);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

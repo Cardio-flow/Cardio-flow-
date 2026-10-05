@@ -4,10 +4,11 @@ import { daysBetween } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
-import { addPlanAction, medicationEvent, startMedication, type Changed } from "../kernel/clinical.js";
+import { addCondition, addPlanAction, medicationEvent, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
 import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
+import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -92,7 +93,17 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     complexPci: !!ix.pci?.complex, days: ix.days, hbrMajor: hbr.major, hbrMinor: hbr.minor,
   } : null;
   const planned = s.plan.filter((p) => p.status === "planned").map((p) => p.title);
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary };
+  const afc = s.conditions.find((c) => c.code === "af" || c.code === "flutter");
+  const ecg = latestStudy(s, "ecg");
+  const ecgAf = /fibrillation|flutter/i.test(String(ecg?.attributes?.rhythm ?? ""));
+  const sc = afc || ecgAf ? cha2ds2va(s) : null;
+  const af = sc ? {
+    score: sc.score, items: sc.items.map((i) => `${i.label} +${i.pts}`),
+    pattern: (afc?.attributes?.pattern as string | undefined) ?? null,
+    ecgRhythm: (ecg?.attributes?.rhythm as string | undefined) ?? null, ecgRate: (ecg?.attributes?.rate as number | undefined) ?? null,
+    doac: doacDoseCheck(s).map((c) => ({ code: c.med.code, dose: c.med.doseValue, right: c.right, why: c.why })),
+  } : null;
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -175,8 +186,18 @@ export async function completeWizard(
     const row = (await tx.query(`SELECT m.id FROM cf.medication m WHERE m.patient_id=$1 AND m.drug=$2 ORDER BY m.created_at DESC LIMIT 1`, [patientId, ref.slice(5)])).rows[0] as any;
     return row?.id ?? null;
   };
+  // diagnoses the pathway confirms: added with today's date, or their detail updated (onset kept)
   for (const item of outcome) {
-    if (item.kind === "start") continue;
+    if (item.kind !== "condition") continue;
+    const cur = s.conditions.find((c) => c.code === item.code && c.status === "active");
+    if (!cur) changed.push(...(await addCondition(tx, actor, patientId, { code: item.code, onset: today(), contextId: input.contextId, attributes: item.attributes })).changed);
+    else {
+      const { onsetYear, ...rest } = cur.attributes ?? {};
+      changed.push(...(await updateCondition(tx, actor, patientId, cur.logical_id, { onset: cur.onset ? String(cur.onset).slice(0, 10) : null, onsetYear: (onsetYear as number | undefined) ?? null, attributes: { ...rest, ...item.attributes } })));
+    }
+  }
+  for (const item of outcome) {
+    if (item.kind === "start" || item.kind === "condition") continue;
     if (item.kind === "medication") {
       changed.push(...(await medicationEvent(tx, actor, patientId, item.medicationId, {
         kind: item.event, doseValue: item.doseValue, reason: def.title, effectiveAt: at, contextId: input.contextId, decisionId,

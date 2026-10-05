@@ -8,6 +8,7 @@ import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
 import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
+import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -82,6 +83,8 @@ export type WizardContext = {
   // guideline suggestions (shared/wizard-guidance.ts)
   values?: Record<string, { value: number; at: string; prev: number | null }>;
   dx?: string[];
+  // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
+  af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
   planned?: string[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found
@@ -523,6 +526,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...GENERAL_WIZARDS,
   ...INFLAMMATORY_WIZARDS,
   ...CORONARY_WIZARDS,
+  ...RHYTHM_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.
@@ -580,6 +584,8 @@ export type OutcomeItem =
   | { kind: "plan"; category: string; title: string; dueDate: string; completesOn: Record<string, unknown>; label: string; medicationId?: string | null; medicationRef?: string }
   // a maintenance medicine started by the pathway (catalogue dose; never acute or loading doses)
   | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
+  // a diagnosis the pathway confirms (added, or its detail updated, keeping its onset)
+  | { kind: "condition"; code: string; attributes: Record<string, unknown>; label: string }
   | { kind: "note"; label: string };
 
 // wizards whose dose questions are handled explicitly above the generic pass

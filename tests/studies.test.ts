@@ -109,8 +109,9 @@ test("ivabradine in AF, QTc on a QT-prolonging drug, and CRT rather than RV paci
   assert.equal(qt.severity, "red");
   assert.match(qt.title, /QTc 520 ms \(\+70 ms\) on amiodarone/);
   assert.ok(qt.missing.includes("Magnesium"));
-  // AF on the ECG while not on the problem list
-  assert.ok(recs.some((r) => r.rule_id === "studies.problem-list" && /AF\/flutter on ECG/.test(r.title)));
+  // AF on the ECG while not on the problem list: the AF-CARE pathway is offered (one finding, not two)
+  assert.ok(recs.some((r) => r.rule_id === "rhythm.ecg-af-undiagnosed"));
+  assert.ok(!recs.some((r) => r.rule_id === "studies.problem-list" && /AF/.test(r.title)));
 
   const p2 = await newPatient(["hfref"]);
   await tx(async (q) => {
