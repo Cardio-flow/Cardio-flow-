@@ -56,8 +56,35 @@ export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
   : a.procedure === "Transcatheter valve replacement" || a.procedure === "Valve-in-valve" ? (a.position === "Aortic" ? "TAVI" : "Transcatheter valve")
   : null;
 
-export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention" };
+export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation" };
+// Right heart catheterisation (PH module, slice 2): the measured pressures, flow and resistance, and the
+// 2022 ESC/ERS haemodynamic definition they meet. PVR is taken as measured, or computed as
+// (mPAP − PAWP) / cardiac output when only the cardiac output is given.
+export const RHC_NUMBERS = [
+  { key: "mpap", label: "Mean PA pressure", unit: "mmHg", min: 5, max: 100 },
+  { key: "pawp", label: "PA wedge pressure", unit: "mmHg", min: 1, max: 50 },
+  { key: "rap", label: "Right atrial pressure", unit: "mmHg", min: 0, max: 40 },
+  { key: "co", label: "Cardiac output", unit: "L/min", min: 1, max: 15 },
+  { key: "pvr", label: "PVR", unit: "WU", min: 0, max: 40 },
+  { key: "svo2", label: "Mixed venous O₂ saturation", unit: "%", min: 20, max: 95 },
+] as const;
+export const VASOREACTIVITY = ["Not done", "Positive", "Negative"] as const;
+export function rhcPvr(a: { mpap?: number | null; pawp?: number | null; co?: number | null; pvr?: number | null }) {
+  if (a.pvr != null) return a.pvr;
+  if (a.mpap != null && a.pawp != null && a.co) return Math.round(((a.mpap - a.pawp) / a.co) * 10) / 10;
+  return null;
+}
+// ESC/ERS 2022: PH mPAP >20 mmHg; pre-capillary PAWP ≤15 and PVR >2 WU; isolated post-capillary PAWP >15
+// and PVR ≤2 WU; combined post- and pre-capillary PAWP >15 and PVR >2 WU.
+export function rhcClass(a: { mpap?: number | null; pawp?: number | null; co?: number | null; pvr?: number | null }) {
+  const pvr = rhcPvr(a);
+  if (a.mpap == null || a.pawp == null) return null;
+  if (a.mpap <= 20) return "No pulmonary hypertension at rest";
+  if (pvr == null) return a.pawp > 15 ? "Post-capillary PH (PVR not available)" : "PH (PVR not available)";
+  if (a.pawp <= 15) return pvr > 2 ? "Pre-capillary" : "mPAP >20 with PAWP ≤15 and PVR ≤2 (neither pre- nor post-capillary)";
+  return pvr > 2 ? "Combined post- and pre-capillary" : "Isolated post-capillary";
+}
 export const VALVE_KINDS: ProcedureKind[] = ["valve"];
 export const CORONARY_KINDS: ProcedureKind[] = ["pci", "cabg"];
 export const RHYTHM_KINDS: ProcedureKind[] = ["device", "ablation", "cardioversion"];
@@ -78,6 +105,22 @@ const someOf = <T extends readonly string[]>(list: T, v: unknown, what: string) 
 
 // Validate and clean a procedure's details.
 export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) {
+  if (kind === "rhc") {
+    const out: Record<string, unknown> = {};
+    for (const n of RHC_NUMBERS) {
+      const v = a[n.key];
+      if (v == null || v === "") { out[n.key] = null; continue; }
+      const x = Number(v);
+      if (!Number.isFinite(x) || x < n.min || x > n.max) throw new Error(`${n.label}: ${n.min}–${n.max} ${n.unit}`);
+      out[n.key] = x;
+    }
+    if (out.mpap == null || out.pawp == null) throw new Error("Mean PA pressure and wedge pressure are required");
+    out.pvr = rhcPvr(out as any);
+    out.pvrComputed = a.pvr == null || a.pvr === "" ? out.pvr != null : false;
+    out.vasoreactivity = oneOf(VASOREACTIVITY, a.vasoreactivity, "Vasoreactivity") ?? "Not done";
+    out.class = rhcClass(out as any);
+    return out;
+  }
   if (kind === "pci") {
     const setting = oneOf(PCI_SETTINGS.map((s) => s.value), a.setting, "Setting");
     if (!setting) throw new Error("Setting is required");
@@ -160,6 +203,7 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
     };
     return [what[a.procedure] ?? a.procedure, a.design && a.design !== "Unknown" ? a.design : null, a.access ? a.access.toLowerCase() : null].filter(Boolean).join(" · ");
   }
+  if (kind === "rhc") return [`mPAP ${a.mpap} · PAWP ${a.pawp}${a.pvr != null ? ` · PVR ${a.pvr} WU` : ""}`, a.class ? String(a.class).replace(/^Pre-capillary$/, "pre-capillary PH").replace(/^Isolated post-capillary$/, "isolated post-capillary PH").replace(/^Combined post- and pre-capillary$/, "combined post- and pre-capillary PH") : null, a.vasoreactivity && a.vasoreactivity !== "Not done" ? `vasoreactivity ${String(a.vasoreactivity).toLowerCase()}` : null].filter(Boolean).join(" · ");
   if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");
   return [a.count ? `${a.count} graft${a.count === 1 ? "" : "s"}` : null, (a.grafts ?? []).join(", ") || null, a.setting === "acs" ? "during ACS" : null].filter(Boolean).join(" · ");
 }

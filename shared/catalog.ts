@@ -89,6 +89,12 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "lvesd", display: "LV end-systolic diameter", short: "LVESD", unit: "mm", category: "Echo", decimals: 0, max: 120 },
   { code: "lvedd", display: "LV end-diastolic diameter", short: "LVEDD", unit: "mm", category: "Echo", decimals: 0, max: 130 },
   { code: "spap", display: "Systolic pulmonary artery pressure", short: "SPAP", unit: "mmHg", category: "Echo", decimals: 0, max: 200 },
+  // pulmonary hypertension module: right heart catheter measurements (written from the RHC record)
+  { code: "mpap", display: "Mean pulmonary artery pressure", short: "mPAP", unit: "mmHg", category: "RHC", decimals: 0, max: 100 },
+  { code: "pawp", display: "Pulmonary artery wedge pressure", short: "PAWP", unit: "mmHg", category: "RHC", decimals: 0, max: 50 },
+  { code: "pvr", display: "Pulmonary vascular resistance", short: "PVR", unit: "WU", category: "RHC", decimals: 1, max: 40 },
+  { code: "rap", display: "Right atrial pressure", short: "RAP", unit: "mmHg", category: "RHC", decimals: 0, max: 40 },
+  { code: "svo2", display: "Mixed venous oxygen saturation", short: "SvO₂", unit: "%", category: "RHC", decimals: 0, max: 95 },
   // pulmonary hypertension module: peak tricuspid regurgitation velocity (echo probability of PH)
   { code: "trv", display: "Peak tricuspid regurgitation velocity", short: "TRV", unit: "m/s", category: "Echo", decimals: 1, max: 7 },
   // cardiomyopathy module: the inputs of HCM risk assessment (echo / CMR) and LGE extent (CMR)

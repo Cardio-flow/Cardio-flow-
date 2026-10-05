@@ -64,3 +64,37 @@ test("intermediate probability → yellow; low probability → no finding and no
   assert.equal((await rec(low, "ph.echo-probability")).length, 0);
   assert.equal((await tx((q) => summary(q, low, "sandbox")) as any).ph, null);
 });
+
+// ---- slice 2: right heart catheterisation ----
+import { rhcClass, rhcPvr } from "../shared/procedures.js";
+test("RHC classification (ESC/ERS 2022): pre-capillary, isolated and combined post-capillary, no PH; PVR computed from cardiac output", () => {
+  assert.equal(rhcPvr({ mpap: 45, pawp: 10, co: 4 }), 8.8);
+  assert.equal(rhcClass({ mpap: 45, pawp: 10, co: 4 }), "Pre-capillary");
+  assert.equal(rhcClass({ mpap: 30, pawp: 22, co: 5 }), "Isolated post-capillary");
+  assert.equal(rhcClass({ mpap: 40, pawp: 20, pvr: 3.5 }), "Combined post- and pre-capillary");
+  assert.equal(rhcClass({ mpap: 20, pawp: 8, pvr: 1.2 }), "No pulmonary hypertension at rest");
+  assert.equal(rhcClass({ mpap: 24, pawp: 10, pvr: 1.5 }), "mPAP >20 with PAWP ≤15 and PVR ≤2 (neither pre- nor post-capillary)");
+  assert.equal(rhcClass({ mpap: 30, pawp: 10 }), "PH (PVR not available)");
+});
+
+test("Huda's RHC: pre-capillary PH → listed with its haemodynamics, measurements recorded, the echo finding goes quiet, the panel shows the catheter", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Rhc " + Date.now(), mrn: "RH" + Date.now(), sex: "Female", birthDate: "1972-01-01", conditions: [] }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(addDays(T, -10)), quality: "formal", lvef: 62, findings: [], measures: { trv: 3.9 } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "ph.echo-probability")).length, 1);
+  const r = await tx((q) => K.recordProcedure(q, doc, pid, { kind: "rhc", date: at(T), details: { mpap: 44, pawp: 9, co: 3.8, rap: 11, svo2: 62, vasoreactivity: "Negative" } }));
+  assert.ok(r.changed.includes("mpap"));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const s = await loadState(db, pid);
+  const ph = s.conditions.find((c) => c.code === "ph")!;
+  assert.equal(ph.attributes.haemo, "Pre-capillary");
+  assert.equal(ph.attributes.group, "Not yet classified");
+  assert.equal(s.resolved("pvr").current!.value_num, 9.2);
+  const p = s.procedures.find((x) => x.kind === "rhc")!;
+  assert.equal(p.summary, "mPAP 44 · PAWP 9 · PVR 9.2 WU · pre-capillary PH · vasoreactivity negative");
+  assert.equal((await rec(pid, "ph.echo-probability")).length, 0);
+  const v = (await tx((q) => summary(q, pid, "sandbox")) as any).ph;
+  assert.equal(v.rhc.class, "Pre-capillary");
+  assert.deepEqual(v.values.map((x: any) => x.code), ["mpap", "pawp", "pvr", "trv"]);
+  await assert.rejects(tx((q) => K.recordProcedure(q, doc, pid, { kind: "rhc", date: at(T), details: { mpap: 44 } })), /wedge pressure are required/);
+});

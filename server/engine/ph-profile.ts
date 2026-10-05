@@ -20,16 +20,19 @@ export function latestPhEcho(s: PatientState) {
 export function phProfile(s: PatientState) {
   const c = s.conditions.find((x) => x.code === "ph" && x.status === "active");
   const echo = latestPhEcho(s);
-  if (!c && (!echo || echo.probability === "low")) return null;
+  if (!c && (!echo || echo.probability === "low") && !s.procedures.some((x) => x.kind === "rhc")) return null;
   const value = (code: string) => {
     const o = s.resolved(code).current;
     return o?.value_num != null ? { code, label: MEASURES[code].short, value: formatNumber(o.value_num, MEASURES[code].decimals), unit: MEASURES[code].unit, at: o.effective_at } : null;
   };
+  const rhcs = s.procedures.filter((x) => x.kind === "rhc").sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+  const rhc = rhcs[0] ? { at: rhcs[0].performed_at, class: (rhcs[0].attributes.class as string | undefined) ?? null, summary: rhcs[0].summary } : null;
   const meds = s.meds.filter((m) => (m.status === "active" || m.status === "held") && MEDICATION[m.code]?.purpose === "Pulmonary hypertension");
   return {
     listed: c ? { title: DIAGNOSIS.ph.display, since: c.onset, group: (c.attributes?.group as string | undefined) ?? null, haemo: (c.attributes?.haemo as string | undefined) ?? null } : null,
     echo: echo ? { at: echo.at, probability: echo.probability, trv: echo.trv, signs: echo.signs.map((k) => PH_SIGNS.find((x) => x.key === k)?.label ?? k), categories: echo.categories } : null,
-    values: ["trv", "spap", "nt-probnp"].map(value).filter(Boolean) as NonNullable<ReturnType<typeof value>>[],
+    rhc,
+    values: ["mpap", "pawp", "pvr", "trv", "spap", "nt-probnp"].map(value).filter(Boolean) as NonNullable<ReturnType<typeof value>>[],
     meds: meds.map((m) => ({ name: m.name, dose: `${doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)} ${m.frequency ?? ""}`.trim() })),
   };
 }

@@ -451,6 +451,24 @@ export async function recordProcedure(
     else if (listed !== type && !(type === "Loop recorder" && listed && listed !== "Loop recorder"))
       await updateCondition(tx, actor, patientId, cur[0].logical_id, { onset: day, attributes: { type } });
   }
+  else if (input.kind === "rhc") {
+    // the measurements join the observations; PH (mPAP >20) goes on the problem list, or is updated, with
+    // the haemodynamic definition met (ESC/ERS 2022)
+    const items = (["mpap", "pawp", "pvr", "rap", "svo2"] as const).filter((k) => attributes[k] != null).map((k) => ({ code: k, value: Number(attributes[k]) }));
+    await recordObservations(tx, actor, patientId, { effectiveAt: input.date, items, contextId: input.contextId, source: "Right heart catheterisation", silentEvent: true });
+    changed.push(...items.map((i) => i.code));
+    const haemo = attributes.class === "Pre-capillary" ? "Pre-capillary" : attributes.class === "Isolated post-capillary" ? "Isolated post-capillary" : attributes.class === "Combined post- and pre-capillary" ? "Combined post- and pre-capillary" : null;
+    if (Number(attributes.mpap) > 20) {
+      const cur = ((await tx.query(
+        `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, attributes FROM cf.condition WHERE patient_id=$1 AND code='ph' ORDER BY logical_id, version DESC) c WHERE status='active'`,
+        [patientId],
+      )).rows as any[])[0];
+      const prev = cur ? (typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes ?? {}) : {};
+      const attrs = { ...prev, ...(haemo ? { haemo } : {}), ...(prev.group ? {} : { group: "Not yet classified" }) };
+      if (cur) await updateCondition(tx, actor, patientId, cur.logical_id, { attributes: attrs });
+      else await addCondition(tx, actor, patientId, { code: "ph", onset: day, contextId: input.contextId, attributes: attrs });
+    }
+  }
   else if (input.kind === "valve") {
     // the prosthesis or repair goes on the problem list with its position and type (INR, endocarditis
     // and antithrombotic rules read it); a redo or valve-in-valve replaces the listed one in that position

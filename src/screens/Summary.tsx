@@ -931,6 +931,7 @@ function PhPanel({ p, open }: { p: any; open(o: Open): void }) {
         <h2 id="php">Pulmonary hypertension</h2>
         <span className="meta">
           <button className="btn ghost small" onClick={() => open({ kind: "echo" } as Open)}>+ Echo</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "ph" })}>+ Right heart cath</button>
         </span>
       </div>
       <div className="cad-drugs" style={{ marginBottom: 10 }}>
@@ -939,6 +940,13 @@ function PhPanel({ p, open }: { p: any; open(o: Open): void }) {
           <b>{p.listed ? [p.listed.title, p.listed.group && p.listed.group !== "Not yet classified" ? p.listed.group : null].filter(Boolean).join(" · ") : "Pulmonary hypertension suspected on echo"}</b>
           <em className={p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? "" : "stop"}>{p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? `Right heart catheter: ${p.listed.haemo.toLowerCase()}` : "Not confirmed by right heart catheterisation"}</em>
         </div>
+        {p.rhc && (
+          <div className="cad-drug">
+            <small>Right heart catheter {fmtDay(p.rhc.at, { year: true })}</small>
+            <b>{p.rhc.class ?? "Not classified"}</b>
+            <em>{p.rhc.summary}</em>
+          </div>
+        )}
         {p.echo && (
           <div className="cad-drug">
             <small>Echo {fmtDay(p.echo.at, { year: true })}</small>

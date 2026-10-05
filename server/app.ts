@@ -258,7 +258,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve"]),
+        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),
