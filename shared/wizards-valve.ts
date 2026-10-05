@@ -201,6 +201,8 @@ VALVE_WIZARDS["valve-antithrombotic"] = {
           id: "bio", label: "After a surgical bioprosthesis", type: "single", required: true, showIf: { question: "intervention", includes: "bio" },
           options: [
             { value: "oac", label: "Continue the anticoagulant", hint: "Clear indication for anticoagulation (I B)" },
+            { value: "early-vka", label: "Warfarin for the first 3 months, then aspirin", hint: "Mitral, tricuspid or aortic bioprosthesis · class to confirm" },
+            { value: "early-asa", label: "Aspirin 100 mg from the start", hint: "Aortic bioprosthesis only · class to confirm" },
             { value: "asa", label: "Lifelong aspirin 100 mg from 3 months", hint: "May be considered (IIb C)" },
             { value: "surgeon", label: "As set by the surgical team" },
           ],
@@ -276,6 +278,16 @@ VALVE_WIZARDS["valve-antithrombotic"].outcome = (a: Answers, ctx: WizardContext)
   }
   if (a.intervention === "bio") {
     if (a.bio === "oac") startOac("clear indication after a surgical bioprosthesis");
+    if (a.bio === "early-vka") {
+      const vka = oac.find((m) => m.tags.includes("vka"));
+      const end = addDays(day, 91);
+      if (!vka) out.push(plan("medication", "Start warfarin for the first 3 months after the surgical bioprosthesis"));
+      if (!ind.includes("af") && !ind.includes("vte") && end > t) {
+        out.push(plan("medication", "Stop warfarin 3 months after the surgical bioprosthesis (no other indication)", end, vka ? { id: vka.id } : {}));
+        if (!asa) out.push(plan("medication", "Start long-term aspirin 100 mg when warfarin stops (surgical bioprosthesis)", end));
+      }
+    }
+    if (a.bio === "early-asa") startAsa("from the start after an aortic bioprosthesis, then long-term");
     if (a.bio === "asa") {
       const from = addDays(day, 91);
       if (from > t && !asa) out.push(plan("medication", "Start lifelong aspirin 100 mg (3 months after the surgical bioprosthesis)", from));
@@ -321,7 +333,15 @@ VALVE_WIZARDS["valve-antithrombotic"].assess = (a: Answers, ctx: WizardContext):
     rec.push(oacInd ? "Another indication for anticoagulation: anticoagulation after TAVI (I B)." : "No indication for anticoagulation: aspirin 75–100 mg daily for 12 months (I A); routine anticoagulation is not recommended (III A).");
     if (!ind.includes("pci")) rec.push("Dual antiplatelet therapy is not recommended after TAVI without a clear indication (III B).");
   }
-  if (a.intervention === "bio") rec.push(oacInd ? "Clear indication: continue anticoagulation (I B)." : "Lifelong aspirin 75–100 mg from 3 months may be considered (IIb C).");
+  if (a.intervention === "bio") {
+    if (oacInd) rec.push("Clear indication: continue anticoagulation (I B).");
+    else {
+      rec.push("First 3 months: VKA after a mitral or tricuspid bioprosthesis; VKA or single antiplatelet therapy after an aortic bioprosthesis; then long-term single antiplatelet therapy (ESC/EACTS 2025 as quoted in the EJPC 2026 comparison review; class to confirm in the guideline table).");
+      rec.push("Lifelong aspirin 75–100 mg from 3 months may be considered (IIb C).");
+      const iv = interventionOf(a, ctx);
+      if (a.bio === "early-asa" && iv && iv.position !== "Aortic") rec.push(`${iv.position} bioprosthesis: aspirin alone in the first 3 months is described for aortic bioprostheses only; VKA is the described option.`);
+    }
+  }
   if (a.intervention === "repair") rec.push(a.bleeding === "high" && !oacInd ? "High bleeding risk, no indication for anticoagulation: aspirin in preference to anticoagulation may be considered (IIb B)." : "Anticoagulation (VKA or DOAC) during the first 3 months after repair should be considered (IIa B).");
   if (a.intervention === "mech") {
     rec.push("Lifelong warfarin to the INR target set by valve type, position and patient risk factors (I A), with patient education (I A).");

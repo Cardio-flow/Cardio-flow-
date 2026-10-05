@@ -375,3 +375,31 @@ test("an echo before the intervention, or a mild grade, does not offer the pathw
   await tx((q) => reassess(q, pid, "sandbox"));
   assert.match((await rec(pid, "event.prosthetic-valve"))[0].title, /^Admission for prosthetic valve problem/);
 });
+
+test("surgical bioprosthesis in the first 3 months: mitral → warfarin suggested (class to confirm) with a dated stop and aspirin after; aortic → warfarin or aspirin suggested; later → lifelong aspirin (IIb C)", async () => {
+  const mk = async (pos: string, daysAgo: number) => {
+    const pid = await tx((q) => K.createPatient(q, doc, { name: `Bio ${pos} ${daysAgo} ${Date.now()}`, mrn: `BP${pos[0]}${daysAgo}${Date.now()}`, sex: "Female", birthDate: "1955-01-01", conditions: [] }));
+    await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -daysAgo)), details: { position: pos, procedure: "Surgical replacement", prosthesis: "Bioprosthetic" } }));
+    return pid;
+  };
+  const m = await mk("Mitral", 10);
+  const cm = (await tx((q) => getWizard(q, m, "valve-antithrombotic"))).context;
+  assert.deepEqual(cm.detected.intervention, ["bio"]);
+  const sm = suggest("valve-antithrombotic", "bio", { indications: ["none"] }, cm);
+  assert.deepEqual(sm.map((x) => x.value), ["early-vka"]);
+  assert.match(sm[0].why, /class to confirm/);
+  const done = await run(m, "valve-antithrombotic", { intervention: "bio", indications: ["none"], bleeding: "usual", bio: "early-vka", care: ["none"], review: "none" });
+  assert.ok(done.assessment!.recommendations.some((x: string) => /class to confirm/.test(x)));
+  const s = await loadState(db, m);
+  assert.ok(s.plan.some((p) => p.title === "Start warfarin for the first 3 months after the surgical bioprosthesis"));
+  const stop = s.plan.find((p) => p.title === "Stop warfarin 3 months after the surgical bioprosthesis (no other indication)")!;
+  assert.equal(String(stop.due_date).slice(0, 10), addDays(addDays(T, -10), 91));
+  assert.ok(s.plan.some((p) => /^Start long-term aspirin 100 mg when warfarin stops/.test(p.title)));
+
+  const a = await mk("Aortic", 20);
+  const ca = (await tx((q) => getWizard(q, a, "valve-antithrombotic"))).context;
+  assert.deepEqual(suggest("valve-antithrombotic", "bio", { indications: ["none"] }, ca).map((x) => x.value), ["early-vka", "early-asa"]);
+  const late = await mk("Aortic", 400);
+  const cl = (await tx((q) => getWizard(q, late, "valve-antithrombotic"))).context;
+  assert.deepEqual(suggest("valve-antithrombotic", "bio", { indications: ["none"] }, cl).map((x) => x.value), ["asa"]);
+});

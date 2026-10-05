@@ -17,6 +17,7 @@ import type { Answers, WizardContext } from "./wizards.js";
 import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
+import { daysBetween } from "./clinical.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
@@ -656,9 +657,15 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const ind = (a.indications as string[]) ?? [];
       return [ind.includes("af") || ind.includes("vte") ? S("oac", "Another indication for anticoagulation (I B)") : ind.includes("pci") ? S("dapt", "Recent PCI / ACS") : S("asa", "No indication for anticoagulation (I A)")];
     },
-    bio: (a) => {
+    bio: (a, c) => {
       const ind = (a.indications as string[]) ?? [];
-      return [ind.includes("af") || ind.includes("vte") ? S("oac", "Clear indication for anticoagulation (I B)") : S("asa", "No indication for anticoagulation (IIb C)")];
+      if (ind.includes("af") || ind.includes("vte")) return [S("oac", "Clear indication for anticoagulation (I B)")];
+      const iv = (c.valve?.interventions ?? []).find((v) => interventionFor(v.type, v.procedure, v.position) === "bio");
+      const early = iv && daysBetween(iv.day, c.today) < 91;
+      if (!early) return [S("asa", "No indication for anticoagulation (IIb C)")];
+      return iv!.position === "Aortic"
+        ? [S("early-vka", "First 3 months, aortic: VKA or single antiplatelet (class to confirm)"), S("early-asa", "First 3 months, aortic: VKA or single antiplatelet (class to confirm)")]
+        : [S("early-vka", `First 3 months, ${iv!.position.toLowerCase()}: VKA (class to confirm)`)];
     },
     repair: (a) => {
       const ind = (a.indications as string[]) ?? [];
