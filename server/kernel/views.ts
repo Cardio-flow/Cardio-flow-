@@ -4,6 +4,7 @@ import { cadProfile } from "../engine/cad-profile.js";
 import { rhythmProfile } from "../engine/rhythm-profile.js";
 import { valveProfile } from "../engine/valve-profile.js";
 import { cmpProfile } from "../engine/cmp-profile.js";
+import { phProfile } from "../engine/ph-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
@@ -13,7 +14,7 @@ import { activeBarrier, loadState, latestDischarge, openContext, series, type Pa
 import { WIZARDS } from "../../shared/wizards.js";
 import { today as todayFn } from "./base.js";
 
-const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
+const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 
 // Suggestions that propose a drug of the same class (an SGLT2 inhibitor from the HF rule and from
@@ -377,6 +378,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     rhythm: rhythmProfile(s),
     valve,
     cmp: cmpProfile(s),
+    ph: phProfile(s),
     // complications followed as episodes (open, and resolved in the last 30 days)
     episodes: episodesView(s),
     // why a drug class is not given (recorded once, reused by every rule)

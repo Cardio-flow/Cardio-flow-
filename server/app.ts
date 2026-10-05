@@ -246,7 +246,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         findings: z.array(z.string().max(80)).max(20).default([]),
         valves: z.record(z.enum(["as", "ar", "mr", "ms", "tr"]), z.enum(["None", "Mild", "Moderate", "Severe"])).optional(),
         mrType: z.enum(["Primary", "Secondary"]).nullish(),
-        measures: z.record(z.enum(["av-vmax", "av-mg", "ava", "mva", "lvesd", "lvedd", "spap", "mwt", "la-diam", "lvot-rest", "lvot-provoked"]), z.number().min(0).max(250)).optional(),
+        measures: z.record(z.enum(["av-vmax", "av-mg", "ava", "mva", "lvesd", "lvedd", "spap", "trv", "mwt", "la-diam", "lvot-rest", "lvot-provoked"]), z.number().min(0).max(250)).optional(),
+        phSigns: z.array(z.enum(["rv-lv", "septum", "rvot", "pr", "pa", "ivc", "ra"])).max(7).optional(),
         conclusion: z.string().max(2000).optional(),
         contextId: uuidS.nullish(),
       })

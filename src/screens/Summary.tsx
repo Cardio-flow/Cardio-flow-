@@ -19,6 +19,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <RhythmPanel r={s.rhythm} open={open} />
           <ValvePanel v={s.valve} open={open} />
           <CmpPanel c={s.cmp} open={open} />
+          <PhPanel p={s.ph} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -916,6 +917,50 @@ function CmpPanel({ c, open }: { c: any; open(o: Open): void }) {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+// Pulmonary hypertension (PH module, slice 1): echo probability with TR velocity and signs, SPAP,
+// the PH diagnosis with group and catheter haemodynamics, PH medicines.
+function PhPanel({ p, open }: { p: any; open(o: Open): void }) {
+  if (!p) return null;
+  return (
+    <section className="card pad cad-panel" aria-labelledby="php">
+      <div className="card-head">
+        <h2 id="php">Pulmonary hypertension</h2>
+        <span className="meta">
+          <button className="btn ghost small" onClick={() => open({ kind: "echo" } as Open)}>+ Echo</button>
+        </span>
+      </div>
+      <div className="cad-drugs" style={{ marginBottom: 10 }}>
+        <div className="cad-drug">
+          <small>{p.listed ? "Problem list" : "Not on the problem list"}</small>
+          <b>{p.listed ? [p.listed.title, p.listed.group && p.listed.group !== "Not yet classified" ? p.listed.group : null].filter(Boolean).join(" · ") : "Pulmonary hypertension suspected on echo"}</b>
+          <em className={p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? "" : "stop"}>{p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? `Right heart catheter: ${p.listed.haemo.toLowerCase()}` : "Not confirmed by right heart catheterisation"}</em>
+        </div>
+        {p.echo && (
+          <div className="cad-drug">
+            <small>Echo {fmtDay(p.echo.at, { year: true })}</small>
+            <b>{p.echo.probability[0].toUpperCase() + p.echo.probability.slice(1)} probability{p.echo.trv != null ? ` · TRV ${p.echo.trv} m/s` : " · TRV not measured"}</b>
+            <em>{p.echo.signs.length ? p.echo.signs.join(" · ") : "No additional signs recorded"}</em>
+          </div>
+        )}
+      </div>
+      <div className="hf-tiles">
+        {p.values.map((x: any) => (
+          <div key={x.code} className="hf-tile">
+            <small>{x.label}</small>
+            <b>{x.value} {x.unit}</b>
+            <em>{fmtDay(x.at, { year: true })}</em>
+          </div>
+        ))}
+        <div className={`hf-tile${p.meds.length ? "" : " none"}`}>
+          <small>PH therapy</small>
+          <b>{p.meds.length ? p.meds.map((m: any) => `${m.name} ${m.dose}`).join(" + ") : "None"}</b>
+          <em />
+        </div>
+      </div>
     </section>
   );
 }

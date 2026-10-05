@@ -5,6 +5,7 @@ import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, cla
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
+import { PH_SIGNS } from "../../shared/ph.js";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, studySummary, valveFindings } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
@@ -305,6 +306,8 @@ export async function recordEcho(
     date: string; quality: "formal" | "limited" | "bedside"; lvef: number; findings: string[]; conclusion?: string; contextId?: string | null;
     // valve module: grades per valve, MR mechanism, and measured values (observations linked to the study)
     valves?: Partial<Record<string, string>>; mrType?: string | null; measures?: Partial<Record<string, number>>;
+    // PH module: the additional echo signs of PH (ESC/ERS 2022 categories A–C)
+    phSigns?: string[];
   },
 ) {
   await patientInSite(tx, actor, patientId);
@@ -317,7 +320,8 @@ export async function recordEcho(
     return { code: n.code, value: v };
   });
   const findings = [...new Set([...input.findings, ...valveFindings(valves, mrType)])];
-  const attributes = Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {};
+  const phSigns = [...new Set((input.phSigns ?? []).filter((k) => PH_SIGNS.some((s) => s.key === k)))];
+  const attributes = { ...(Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {}), ...(phSigns.length ? { phSigns } : {}) };
   await tx.query(
     `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8,$9)`,
     [id, patientId, input.date, input.quality, findings, input.conclusion ?? "", input.contextId ?? null, actor.id, JSON.stringify(attributes)],

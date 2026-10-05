@@ -17,6 +17,7 @@ import { CAD_RULES } from "./cad-rules.js";
 import { RHYTHM_RULES } from "./rhythm-rules.js";
 import { VALVE_RULES } from "./valve-rules.js";
 import { CMP_RULES } from "./cmp-rules.js";
+import { PH_RULES } from "./ph-rules.js";
 import { latestStudy } from "../kernel/state.js";
 
 export type Fact = { label: string; value: string; date?: string; tone?: "red" | "orange" | "yellow" | "blue" | "green" };
@@ -283,10 +284,11 @@ export const RULES: RuleDef[] = [
   ...RHYTHM_RULES,
   ...VALVE_RULES,
   ...CMP_RULES,
+  ...PH_RULES,
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-05.15";
+export const RULESET = "2026-10-05.16";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

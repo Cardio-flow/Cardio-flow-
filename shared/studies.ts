@@ -230,6 +230,7 @@ export const ECHO_NUMBERS = [
   { code: "lvesd", label: "LVESD", unit: "mm", min: 10, max: 120, step: 1 },
   { code: "lvedd", label: "LVEDD", unit: "mm", min: 20, max: 130, step: 1 },
   { code: "spap", label: "SPAP", unit: "mmHg", min: 5, max: 200, step: 1 },
+  { code: "trv", label: "Peak TR velocity", unit: "m/s", min: 0.5, max: 7, step: 0.1 },
   { code: "mwt", label: "Max wall thickness", unit: "mm", min: 5, max: 60, step: 1 },
   { code: "la-diam", label: "LA diameter", unit: "mm", min: 15, max: 90, step: 1 },
   { code: "lvot-rest", label: "LVOT gradient, rest", unit: "mmHg", min: 0, max: 250, step: 1 },

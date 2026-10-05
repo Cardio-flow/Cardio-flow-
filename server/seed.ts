@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 22;
+export const SEED_VERSION = 23;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -605,6 +605,13 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(om, d(-2), [{ code: "hs-troponin", value: 860 }, { code: "crp", value: 38 }, { code: "nt-probnp", value: 420 }, { code: "sbp", value: 118 }, { code: "hr", value: 104 }, { code: "height", value: 178 }, { code: "weight", value: 74 }]);
       await K.recordEcho(tx, sys, om, { date: at(d(-1), "10:00"), quality: "formal", lvef: 52, findings: ["Regional wall motion abnormality"] });
       touched.push(om);
+    }
+    // v23 (PH module): Huda, 52, exertional breathlessness; today's echo: TRV 3.8 m/s, RV/LV >1, PA 31 mm
+    if (seeded < 23 && !(await byMrn("100975420"))) {
+      const hu = await K.createPatient(tx, sys, { name: "Huda Al-Mansour", mrn: "100975420", sex: "Female", birthDate: addDays(T, -(52 * 365 + 120)), allergies: "No known drug allergies", conditions: [] });
+      await K.recordEcho(tx, sys, hu, { date: at(d(-1), "10:00"), quality: "formal", lvef: 62, findings: [], valves: { tr: "Moderate" }, measures: { trv: 3.8, spap: 68 }, phSigns: ["rv-lv", "pa"] });
+      await obs(hu, d(-1), [{ code: "sbp", value: 112 }, { code: "hr", value: 92 }, { code: "nt-probnp", value: 980 }, { code: "height", value: 160 }, { code: "weight", value: 64 }]);
+      touched.push(hu);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

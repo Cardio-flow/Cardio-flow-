@@ -89,6 +89,8 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "lvesd", display: "LV end-systolic diameter", short: "LVESD", unit: "mm", category: "Echo", decimals: 0, max: 120 },
   { code: "lvedd", display: "LV end-diastolic diameter", short: "LVEDD", unit: "mm", category: "Echo", decimals: 0, max: 130 },
   { code: "spap", display: "Systolic pulmonary artery pressure", short: "SPAP", unit: "mmHg", category: "Echo", decimals: 0, max: 200 },
+  // pulmonary hypertension module: peak tricuspid regurgitation velocity (echo probability of PH)
+  { code: "trv", display: "Peak tricuspid regurgitation velocity", short: "TRV", unit: "m/s", category: "Echo", decimals: 1, max: 7 },
   // cardiomyopathy module: the inputs of HCM risk assessment (echo / CMR) and LGE extent (CMR)
   { code: "mwt", display: "Maximal LV wall thickness", short: "MWT", unit: "mm", category: "Echo", decimals: 0, max: 60 },
   { code: "la-diam", display: "Left atrial diameter", short: "LA", unit: "mm", category: "Echo", decimals: 0, max: 90 },
@@ -147,6 +149,8 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "rcm", display: "Restrictive cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "rcm"] },
   { code: "amyloid", display: "Cardiac amyloidosis", family: "Cardiomyopathy", tags: ["cmp", "amyloid"] },
   { code: "myocarditis", display: "Myocarditis", family: "Cardiomyopathy", tags: ["myocarditis"] },
+  // pulmonary hypertension module (ESC/ERS 2022 clinical classification groups as an attribute)
+  { code: "ph", display: "Pulmonary hypertension", family: "Pulmonary hypertension", tags: ["ph"] },
   { code: "af", display: "Atrial fibrillation", family: "Arrhythmia", tags: ["af"] },
   { code: "flutter", display: "Atrial flutter", family: "Arrhythmia", tags: ["af"] },
   { code: "svt", display: "SVT", family: "Arrhythmia", tags: [] },
@@ -515,6 +519,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "arvc-bb", category: "medication", title: "ARVC with ventricular arrhythmia: start a beta-blocker", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
   { id: "myo-cmr", category: "investigation", title: "Cardiac MRI (myocarditis)", completesOn: { type: "study", kind: "cmr" }, offsets: [0, 14, 28] },
   { id: "myo-bb", category: "medication", title: "Myocarditis: beta-blocker for at least 6 months", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
+  { id: "ph-referral", category: "referral", title: "PH centre referral: right heart catheterisation (pulmonary hypertension work-up)", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "cmp-echo", category: "investigation", title: "ECG and echo (cardiomyopathy follow-up)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "valve-echo", category: "investigation", title: "Echo (valve surveillance)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "device-first-check", category: "investigation", title: "First device check after implant (in person)", completesOn: { type: "study", kind: "device_check" }, offsets: [14, 42, 84] },

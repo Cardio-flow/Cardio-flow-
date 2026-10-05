@@ -73,6 +73,7 @@ export const HISTORY_ITEMS: HistoryItem[] = [
   { key: "coronary", section: "cardiac", label: "Coronary disease", short: "Coronary disease", conditions: ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"] },
   { key: "heart-failure", section: "cardiac", label: "Heart failure / cardiomyopathy", short: "Heart failure", conditions: ["hfref", "hfmref", "hfpef", "hfimpef"] },
   { key: "cardiomyopathy", section: "cardiac", label: "Cardiomyopathy or myocarditis (HCM, DCM, NDLVC, ARVC, restrictive, amyloid)", short: "Cardiomyopathy", conditions: ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid", "myocarditis"] },
+  { key: "ph", section: "cardiac", label: "Pulmonary hypertension", short: "Pulmonary hypertension", conditions: ["ph"] },
   { key: "valve", section: "cardiac", label: "Valve disease or prosthesis", short: "Valve disease", conditions: ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr", "prosthetic-valve"] },
   { key: "rhythm", section: "cardiac", label: "Arrhythmia or conduction disease", short: "Arrhythmia", conditions: ["af", "flutter", "svt", "vt", "av-block"] },
   { key: "device", section: "cardiac", label: "Cardiac device", short: "Device", conditions: ["cied"] },
@@ -124,6 +125,10 @@ const CMP_FIELDS: AttrField[] = GENETIC;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   hcm: [{ key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) }, ...GENETIC],
   dcm: CMP_FIELDS,
+  ph: [
+    { key: "group", label: "Clinical group (ESC/ERS 2022)", options: ["Group 1 · PAH", "Group 2 · left heart disease", "Group 3 · lung disease / hypoxia", "Group 4 · CTEPH / PA obstruction", "Group 5 · unclear / multifactorial", "Not yet classified"], text: (v) => (v === "Not yet classified" ? "group not yet known" : v) },
+    { key: "haemo", label: "Haemodynamics (right heart catheter)", options: ["Pre-capillary", "Isolated post-capillary", "Combined post- and pre-capillary", "Not catheterised"], text: (v) => (v === "Not catheterised" ? null : v.toLowerCase()) },
+  ],
   myocarditis: [{ key: "form", label: "Presentation", options: ["Uncomplicated", "Complicated", "Fulminant"], text: (v) => v.toLowerCase() }],
   ndlvc: CMP_FIELDS,
   arvc: CMP_FIELDS,

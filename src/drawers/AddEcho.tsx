@@ -3,6 +3,7 @@ import { Activity } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented } from "../ui";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, VALVE_GRADES } from "../../shared/studies";
+import { PH_SIGNS, PROBABILITY_LABEL, phEchoProbability } from "../../shared/ph";
 
 // valve lesions are graded in the Valves section below; these are the other findings
 const FINDINGS = [
@@ -20,6 +21,9 @@ export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: 
   const [valves, setValves] = useState<Record<string, string>>({});
   const [mrType, setMrType] = useState<string | undefined>();
   const [nums, setNums] = useState<Record<string, string>>({});
+  const [phSigns, setPhSigns] = useState<string[]>([]);
+  const trvNum = nums.trv ? Number(nums.trv) : null;
+  const prob = trvNum != null || phSigns.length ? phEchoProbability(trvNum, phSigns) : null;
   const badNum = ECHO_NUMBERS.filter((n) => nums[n.code] && !(Number(nums[n.code]) >= n.min && Number(nums[n.code]) <= n.max));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,6 +37,7 @@ export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: 
         date: at, quality, lvef: ef, findings, conclusion, contextId: contextId ?? null,
         valves, mrType: valves.mr && valves.mr !== "None" ? mrType ?? null : null,
         measures: Object.fromEntries(Object.entries(nums).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
+        phSigns,
       } });
       onDone(`Echo recorded · LVEF ${ef}%`, r);
     } catch (e) {
@@ -99,6 +104,11 @@ export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: 
             ))}
           </div>
           {badNum.length > 0 && <div className="error-box">{badNum.map((n) => `${n.label}: ${n.min}–${n.max} ${n.unit}`).join(" · ")}</div>}
+        </div>
+        <div className="q">
+          <div className="label" style={{ fontSize: 15 }}>Signs of pulmonary hypertension <span className="muted">(with the TR velocity above)</span></div>
+          <MultiChoice options={PH_SIGNS.map((s) => ({ value: s.key, label: s.label }))} value={phSigns} onChange={setPhSigns} />
+          {prob && <div className="infobox"><span>{`Echo probability of PH: ${PROBABILITY_LABEL[prob.probability]}${prob.trv != null ? ` · TRV ${prob.trv} m/s` : " · TRV not measured"}${prob.categories.length ? ` · signs in ${prob.categories.length} categor${prob.categories.length > 1 ? "ies" : "y"}` : ""} (ESC/ERS 2022)`}</span></div>}
         </div>
         <div className="q">
           <div className="label" style={{ fontSize: 15 }}>Other findings</div>
