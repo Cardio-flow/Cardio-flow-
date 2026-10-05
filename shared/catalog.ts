@@ -89,6 +89,12 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "lvesd", display: "LV end-systolic diameter", short: "LVESD", unit: "mm", category: "Echo", decimals: 0, max: 120 },
   { code: "lvedd", display: "LV end-diastolic diameter", short: "LVEDD", unit: "mm", category: "Echo", decimals: 0, max: 130 },
   { code: "spap", display: "Systolic pulmonary artery pressure", short: "SPAP", unit: "mmHg", category: "Echo", decimals: 0, max: 200 },
+  // cardiomyopathy module: the inputs of HCM risk assessment (echo / CMR) and LGE extent (CMR)
+  { code: "mwt", display: "Maximal LV wall thickness", short: "MWT", unit: "mm", category: "Echo", decimals: 0, max: 60 },
+  { code: "la-diam", display: "Left atrial diameter", short: "LA", unit: "mm", category: "Echo", decimals: 0, max: 90 },
+  { code: "lvot-rest", display: "LVOT gradient at rest", short: "LVOT rest", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
+  { code: "lvot-provoked", display: "LVOT gradient, provoked (Valsalva / standing / exercise)", short: "LVOT provoked", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
+  { code: "lge-extent", display: "LGE extent (% of LV mass)", short: "LGE %", unit: "%", category: "CMR", decimals: 0, max: 100 },
 ];
 
 export const MEASURES: Record<string, LabDef> = Object.fromEntries(
@@ -133,6 +139,13 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "ms", display: "Mitral stenosis", family: "Valve", tags: ["valve"] },
   { code: "tr", display: "Tricuspid regurgitation", family: "Valve", tags: ["valve"] },
   { code: "prosthetic-valve", display: "Prosthetic valve / repair", family: "Valve", tags: ["valve"] },
+  // cardiomyopathy module (ESC 2023 cardiomyopathies: phenotype-based diagnosis)
+  { code: "hcm", display: "Hypertrophic cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "hcm"] },
+  { code: "dcm", display: "Dilated cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "dcm"] },
+  { code: "ndlvc", display: "Non-dilated LV cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "ndlvc"] },
+  { code: "arvc", display: "Arrhythmogenic RV cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "arvc"] },
+  { code: "rcm", display: "Restrictive cardiomyopathy", family: "Cardiomyopathy", tags: ["cmp", "rcm"] },
+  { code: "amyloid", display: "Cardiac amyloidosis", family: "Cardiomyopathy", tags: ["cmp", "amyloid"] },
   { code: "af", display: "Atrial fibrillation", family: "Arrhythmia", tags: ["af"] },
   { code: "flutter", display: "Atrial flutter", family: "Arrhythmia", tags: ["af"] },
   { code: "svt", display: "SVT", family: "Arrhythmia", tags: [] },
@@ -489,6 +502,12 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "stress", category: "investigation", title: "Stress test", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
   { id: "cmr", category: "investigation", title: "Cardiac MRI", completesOn: { type: "study", kind: "cmr" }, offsets: [28, 56] },
   { id: "device", category: "follow_up", title: "ICD/CRT reassessment after repeat Echo", completesOn: { type: "manual" }, offsets: [90, 180] },
+  { id: "cmr", category: "investigation", title: "Cardiac MRI with contrast (cardiomyopathy)", completesOn: { type: "study", kind: "cmr" }, offsets: [14, 28, 56] },
+  { id: "genetic-test", category: "referral", title: "Genetic counselling and testing (cardiomyopathy)", completesOn: { type: "manual" }, offsets: [14, 28, 56] },
+  { id: "hcm-lvot", category: "investigation", title: "Echo: LVOT gradient at rest and provoked (Valsalva, standing)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
+  { id: "exercise-echo", category: "investigation", title: "Exercise echo (LVOT gradient, HCM)", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
+  { id: "icd-referral", category: "referral", title: "ICD assessment (secondary prevention)", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
+  { id: "cmp-echo", category: "investigation", title: "ECG and echo (cardiomyopathy follow-up)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "valve-echo", category: "investigation", title: "Echo (valve surveillance)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "device-first-check", category: "investigation", title: "First device check after implant (in person)", completesOn: { type: "study", kind: "device_check" }, offsets: [14, 42, 84] },
   { id: "wound-check", category: "follow_up", title: "Clinic wound check (device)", completesOn: { type: "visit" }, offsets: [7, 10] },

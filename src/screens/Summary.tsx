@@ -18,6 +18,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <CadPanel cad={s.cad} open={open} />
           <RhythmPanel r={s.rhythm} open={open} />
           <ValvePanel v={s.valve} open={open} />
+          <CmpPanel c={s.cmp} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -852,6 +853,73 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
 
 // Valve module, slice 1: native lesions (problem list and latest echo), prostheses and repairs,
 // echo measurements, antithrombotic therapy and INR, and valve interventions.
+// Cardiomyopathy (cardiomyopathy module, slice 1): diagnoses with form and genetics, the measurements
+// risk assessment reads, the latest ECG / echo / CMR, family history, device and ventricular events.
+function CmpPanel({ c, open }: { c: any; open(o: Open): void }) {
+  if (!c) return null;
+  const last = (x: any, name: string) => (x ? `${name} ${fmtDay(x.at, { year: true })}` : `No ${name}`);
+  return (
+    <section className="card pad cad-panel" aria-labelledby="cmpp">
+      <div className="card-head">
+        <h2 id="cmpp">Cardiomyopathy</h2>
+        <span className="meta">
+          <button className="btn ghost small" onClick={() => open({ kind: "echo" } as Open)}>+ Echo</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "study", studyKind: "cmr" } as Open)}>+ CMR</button>
+        </span>
+      </div>
+      <div className="cad-drugs" style={{ marginBottom: 10 }}>
+        {c.conditions.map((d: any) => (
+          <div key={d.code} className="cad-drug">
+            <small>{d.since ? `Since ${fmtDay(d.since, { year: true })}` : "Problem list"}</small>
+            <b>{d.title}{d.form && d.form !== "Unknown" ? ` · ${d.form.toLowerCase()}` : ""}{d.type && d.type !== "Not yet typed" ? ` · ${d.type}` : ""}</b>
+            <em className={!d.genetic || d.genetic === "Not done" ? "stop" : ""}>
+              {d.genetic === "P/LP variant" ? `Pathogenic variant${d.gene ? `: ${d.gene}` : ""}` : d.genetic && d.genetic !== "Not done" ? `Genetic test: ${d.genetic.toLowerCase()}` : "Genetic test not recorded"}
+            </em>
+          </div>
+        ))}
+      </div>
+      <div className="hf-tiles">
+        {c.values.map((x: any) => (
+          <div key={x.code} className="hf-tile">
+            <small>{x.label}</small>
+            <b>{x.value} {x.unit}</b>
+            <em>{fmtDay(x.at, { year: true })}</em>
+          </div>
+        ))}
+        <div className={`hf-tile${c.familySCD ? "" : " none"}`}>
+          <small>Family SCD / cardiomyopathy</small>
+          <b>{c.familySCD ?? "Not recorded"}</b>
+          <em />
+        </div>
+        <div className={`hf-tile${c.device ? "" : " none"}`}>
+          <small>Device</small>
+          <b>{c.device?.type ?? "None"}</b>
+          <em />
+        </div>
+      </div>
+      <div className="tgt-title" style={{ marginTop: 14 }}>Studies</div>
+      <div className="cad-drugs">
+        <div className="cad-drug"><small>ECG · echo</small><b>{last(c.ecg, "ECG")} · {last(c.echo, "echo")}</b><em>ECG and echo every 1–2 years when stable (ESC 2023, I C)</em></div>
+        <div className="cad-drug">
+          <small>Cardiac MRI</small>
+          <b>{c.cmr ? fmtDay(c.cmr.at, { year: true }) : "No CMR on record"}</b>
+          <em className={c.cmr ? "" : "stop"}>{c.cmr ? [c.cmr.attributes?.lge ? `LGE: ${String(c.cmr.attributes.lge).toLowerCase()}` : null, c.cmr.attributes?.impression ?? null].filter(Boolean).join(" · ") || c.cmr.conclusion : "Contrast CMR at the initial evaluation (I B)"}</em>
+        </div>
+      </div>
+      {c.ventricular.length > 0 && (
+        <>
+          <div className="tgt-title" style={{ marginTop: 14 }}>Ventricular arrhythmia</div>
+          <div className="cad-drugs">
+            {c.ventricular.map((v: any) => (
+              <div key={v.ref} className="cad-drug"><small>{fmtDay(v.at, { year: true })}</small><b>{v.label}</b><em /></div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ValvePanel({ v, open }: { v: any; open(o: Open): void }) {
   if (!v) return null;
   const when = (iso: string | null) => (!iso ? "date not recorded" : iso.length === 4 ? iso : fmtDay(iso, { year: true }));

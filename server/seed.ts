@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 19;
+export const SEED_VERSION = 20;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -569,6 +569,18 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(yf, d(-1), [{ code: "height", value: 170 }, { code: "weight", value: 81 }, { code: "sbp", value: 128 }, { code: "hr", value: 78 }, { code: "creatinine", value: 102 }, { code: "haemoglobin", value: 13.1 }]);
       await K.recordObservations(tx, sys, yf, { effectiveAt: at(d(-1), "10:30"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
       touched.push(yf);
+    }
+    // v20 (cardiomyopathy slice 1): Reem, 34, hypertrophic cardiomyopathy found on echo; family history
+    // of sudden death; resting LVOT gradient only, no CMR, no genetic test yet
+    if (seeded < 20 && !(await byMrn("100927318"))) {
+      const rm = await K.createPatient(tx, sys, { name: "Reem Al-Otaibi", mrn: "100927318", sex: "Female", birthDate: addDays(T, -(34 * 365 + 90)), allergies: "No known drug allergies", conditions: ["hcm"] });
+      await K.recordHistory(tx, sys, rm, { effectiveAt: at(d(-20)), answers: [{ item: "fhx-scd", answer: "yes" }, { item: "smoking", answer: "never" }] });
+      await K.startMedication(tx, sys, rm, { code: "bisoprolol", doseValue: 2.5, frequency: "OD", route: "PO", indication: "hcm", effectiveAt: at(d(-20)) });
+      await K.recordStudy(tx, sys, rm, { kind: "ecg", date: at(d(-20)), findings: { rhythm: "Sinus rhythm", rate: 64, qrs: 98, qrsMorphology: "Normal", qtc: 438 } });
+      await K.recordEcho(tx, sys, rm, { date: at(d(-20), "11:00"), quality: "formal", lvef: 68, findings: ["Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)"], measures: { mwt: 24, "la-diam": 46, "lvot-rest": 30 } });
+      await obs(rm, d(-20), [{ code: "height", value: 162 }, { code: "weight", value: 61 }, { code: "sbp", value: 118 }, { code: "hr", value: 64 }]);
+      await K.recordObservations(tx, sys, rm, { effectiveAt: at(d(-20), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+      touched.push(rm);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

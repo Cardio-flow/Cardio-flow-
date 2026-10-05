@@ -72,6 +72,7 @@ export const HISTORY_ITEMS: HistoryItem[] = [
   },
   { key: "coronary", section: "cardiac", label: "Coronary disease", short: "Coronary disease", conditions: ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"] },
   { key: "heart-failure", section: "cardiac", label: "Heart failure / cardiomyopathy", short: "Heart failure", conditions: ["hfref", "hfmref", "hfpef", "hfimpef"] },
+  { key: "cardiomyopathy", section: "cardiac", label: "Cardiomyopathy (HCM, DCM, NDLVC, ARVC, restrictive, amyloid)", short: "Cardiomyopathy", conditions: ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"] },
   { key: "valve", section: "cardiac", label: "Valve disease or prosthesis", short: "Valve disease", conditions: ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr", "prosthetic-valve"] },
   { key: "rhythm", section: "cardiac", label: "Arrhythmia or conduction disease", short: "Arrhythmia", conditions: ["af", "flutter", "svt", "vt", "av-block"] },
   { key: "device", section: "cardiac", label: "Cardiac device", short: "Device", conditions: ["cied"] },
@@ -112,7 +113,21 @@ export const HF_AETIOLOGIES = [
 const HF_FIELDS: AttrField[] = [
   { key: "aetiology", label: "Aetiology", options: HF_AETIOLOGIES, multi: true, text: (v) => (v === "Unknown" ? null : v) },
 ];
+// Cardiomyopathy: the genetic result and gene (ESC 2023: genetic testing in index patients, cascade
+// testing of relatives when a P/LP variant is found), the HCM form, the amyloid type.
+export const CMP_GENES = ["MYH7", "MYBPC3", "TNNT2", "TNNI3", "TPM1", "MYL2", "MYL3", "ACTC1", "LMNA", "FLNC", "DSP", "PLN", "RBM20", "TMEM43", "TTN", "PKP2", "DSG2", "DSC2", "TTR", "GLA", "Other"];
+const GENETIC: AttrField[] = [
+  { key: "genetic", label: "Genetic test", options: ["Not done", "Pending", "P/LP variant", "VUS only", "No variant found"], text: (v) => (v === "Not done" ? null : v === "P/LP variant" ? "P/LP variant" : `genetics: ${v.toLowerCase()}`) },
+  { key: "gene", label: "Gene (P/LP variant)", options: CMP_GENES, text: (v) => v, when: { key: "genetic", equals: "P/LP variant" } },
+];
+const CMP_FIELDS: AttrField[] = GENETIC;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
+  hcm: [{ key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) }, ...GENETIC],
+  dcm: CMP_FIELDS,
+  ndlvc: CMP_FIELDS,
+  arvc: CMP_FIELDS,
+  rcm: CMP_FIELDS,
+  amyloid: [{ key: "type", label: "Type", options: ["ATTR wild-type", "ATTR variant", "AL", "Not yet typed"], text: (v) => (v === "Not yet typed" ? "type not yet known" : v) }, ...GENETIC],
   t2dm: DIABETES_FIELDS,
   t1dm: DIABETES_FIELDS,
   "dm-other": DIABETES_FIELDS,

@@ -68,10 +68,12 @@ export const STUDIES: StudyDef[] = [
     fields: [
       { key: "lvef", label: "LVEF", type: "number", unit: "%", min: 5, max: 85, obs: "lvef" },
       { key: "rvef", label: "RVEF", type: "number", unit: "%", min: 5, max: 85, obs: "rvef" },
+      { key: "mwt", label: "Maximal LV wall thickness", type: "number", unit: "mm", min: 5, max: 60, obs: "mwt" },
       { key: "lge", label: "Late gadolinium enhancement", type: "choice", options: ["None", "Ischaemic pattern", "Non-ischaemic pattern", "Both"] },
       { key: "lgePattern", label: "LGE distribution", type: "multi", options: ["Subendocardial", "Transmural", "Mid-wall", "Epicardial", "Diffuse"], when: { field: "lge", notIn: ["None"] } },
+      { key: "lgeExtent", label: "LGE extent (% of LV mass)", type: "number", unit: "%", min: 0, max: 100, obs: "lge-extent", when: { field: "lge", notIn: ["None"] } },
       { key: "oedema", label: "Myocardial oedema", type: "choice", options: ["No", "Yes"] },
-      { key: "impression", label: "Impression", type: "choice", options: ["Normal", "Ischaemic cardiomyopathy", "Dilated cardiomyopathy", "Hypertrophic cardiomyopathy", "Amyloidosis", "Myocarditis", "Other"] },
+      { key: "impression", label: "Impression", type: "choice", options: ["Normal", "Ischaemic cardiomyopathy", "Dilated cardiomyopathy", "Hypertrophic cardiomyopathy", "Amyloidosis", "Arrhythmogenic cardiomyopathy", "Non-dilated LV cardiomyopathy", "Myocarditis", "Other"] },
     ],
   },
   {
@@ -228,6 +230,10 @@ export const ECHO_NUMBERS = [
   { code: "lvesd", label: "LVESD", unit: "mm", min: 10, max: 120, step: 1 },
   { code: "lvedd", label: "LVEDD", unit: "mm", min: 20, max: 130, step: 1 },
   { code: "spap", label: "SPAP", unit: "mmHg", min: 5, max: 200, step: 1 },
+  { code: "mwt", label: "Max wall thickness", unit: "mm", min: 5, max: 60, step: 1 },
+  { code: "la-diam", label: "LA diameter", unit: "mm", min: 15, max: 90, step: 1 },
+  { code: "lvot-rest", label: "LVOT gradient, rest", unit: "mmHg", min: 0, max: 250, step: 1 },
+  { code: "lvot-provoked", label: "LVOT gradient, provoked", unit: "mmHg", min: 0, max: 250, step: 1 },
 ] as const;
 // "Severe AS", "Moderate secondary MR": the text the echo adds to its findings
 export function valveFindings(valves: Record<string, string>, mrType?: string | null) {
