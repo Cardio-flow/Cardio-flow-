@@ -99,6 +99,9 @@ export type WizardContext = {
   } | null;
   // cardiomyopathy module: latest echo findings, NSVT on the latest ambulatory ECG, FHx answer
   cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null; genetic?: string | null } | null;
+  // pulmonary hypertension (slice 4): the listed group and haemodynamics, the latest PVR and echo probability,
+  // the date of a listed pulmonary embolism, the ILD type, antiphospholipid syndrome, current anticoagulants
+  ph?: { group: string | null; haemo: string | null; pvr: number | null; echo: string | null; peAt: string | null; ildType: string | null; aps: boolean; anticoagulants: { name: string; doac: boolean }[] } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice

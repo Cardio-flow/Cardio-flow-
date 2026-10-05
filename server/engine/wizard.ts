@@ -15,6 +15,8 @@ import { historyCode } from "../../shared/history.js";
 import { daptIndication, oacIndication, valveInterventions } from "./valve-rules.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
+import { DIAGNOSIS } from "../../shared/catalog.js";
+import { latestPhEcho } from "./ph-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -136,7 +138,29 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if (kind && !base.detected.intervention) base.detected.intervention = [kind];
     if (valve.daptIndication) (base.detected.indications ??= []).push("pci");
   }
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve, cmp };
+  const active = (code: string) => s.conditions.find((c) => c.code === code && c.status === "active");
+  const phc = active("ph"), pec = active("pe"), ildc = active("ild");
+  const ph = {
+    group: (phc?.attributes?.group as string | undefined) ?? null, haemo: (phc?.attributes?.haemo as string | undefined) ?? null,
+    pvr: s.resolved("pvr").current?.value_num ?? null, echo: latestPhEcho(s)?.probability ?? null,
+    peAt: pec?.onset ? String(pec.onset).slice(0, 10) : null, ildType: (ildc?.attributes?.type as string | undefined) ?? null, aps: !!active("aps"),
+    anticoagulants: base.meds.filter((m) => m.tags.includes("oac") || m.tags.includes("oac-parenteral")).map((m) => ({ name: m.name, doac: m.tags.includes("doac") })),
+  };
+  if (wizardId === "post-pe" && ph.peAt) {
+    if (!base.detected.time) base.detected.time = [daysBetween(ph.peAt, s.today) >= 91 ? "3m" : "lt3"];
+    // NYHA II–IV recorded after the embolism reads as persistent breathlessness or exercise limitation
+    const ny = s.resolved("nyha").current;
+    if (!base.detected.symptoms && ny && localDay(ny.effective_at) >= ph.peAt && ["II", "III", "IV"].includes(String(ny.value_text))) base.detected.symptoms = ["yes"];
+  }
+  if (wizardId === "ph-lhd-lung" && !base.detected.cause) {
+    const tags = new Set(s.conditions.filter((c) => c.status === "active").flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []));
+    const cause = [
+      (ph.group?.startsWith("Group 2") || tags.has("hf") || valve.lesions.length > 0) && "lhd",
+      (ph.group?.startsWith("Group 3") || tags.has("lung")) && "lung",
+    ].filter(Boolean) as string[];
+    if (cause.length) base.detected.cause = cause;
+  }
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve, cmp, ph };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

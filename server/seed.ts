@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 24;
+export const SEED_VERSION = 26;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -625,6 +625,31 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(na, d(-3), [{ code: "6mwd", value: 350 }, { code: "nt-probnp", value: 820 }, { code: "sbp", value: 104 }, { code: "hr", value: 88 }, { code: "weight", value: 58 }, { code: "height", value: 158 }]);
       await K.recordObservations(tx, sys, na, { effectiveAt: at(d(-3), "11:00"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
       touched.push(na);
+    }
+    // v25 (PH slice 4): Khalid, 58, pulmonary embolism 5 months ago on apixaban; still breathless (NYHA II),
+    // echo 2 days ago: TRV 3.0 m/s → the CTEPH / CTEPD evaluation finding
+    if (seeded < 25 && !(await byMrn("101002417"))) {
+      const kh = await K.createPatient(tx, sys, { name: "Khalid Al-Dosari", mrn: "101002417", sex: "Male", birthDate: addDays(T, -(58 * 365 + 75)), allergies: "No known drug allergies", conditions: ["htn"] });
+      await K.recordHistory(tx, sys, kh, { effectiveAt: at(d(-150)), answers: [{ item: "smoking", answer: "ex" }], add: [{ code: "pe", onset: d(-150) }] });
+      await K.startMedication(tx, sys, kh, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "pe", effectiveAt: at(d(-143)) });
+      await K.startMedication(tx, sys, kh, { code: "amlodipine", doseValue: 5, frequency: "OD", route: "PO", indication: "htn", effectiveAt: at(d(-700)) });
+      await K.recordEcho(tx, sys, kh, { date: at(d(-2), "10:00"), quality: "formal", lvef: 60, findings: [], valves: { tr: "Mild" }, measures: { trv: 3.0, spap: 46 } });
+      await obs(kh, d(-2), [{ code: "sbp", value: 132 }, { code: "hr", value: 84 }, { code: "nt-probnp", value: 310 }, { code: "creatinine", value: 88 }, { code: "haemoglobin", value: 14.2 }, { code: "height", value: 174 }, { code: "weight", value: 86 }]);
+      await K.recordObservations(tx, sys, kh, { effectiveAt: at(d(-2), "10:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+      touched.push(kh);
+    }
+    // v26 (PH slice 4): Mona, 70, HFpEF; RHC 2 months ago: combined post- and pre-capillary PH, PVR 5.5 WU;
+    // started on sildenafil elsewhere → PH centre referral (severe pre-capillary component) and the PAH-drug review
+    if (seeded < 26 && !(await byMrn("101015836"))) {
+      const mo = await K.createPatient(tx, sys, { name: "Mona Al-Harbi", mrn: "101015836", sex: "Female", birthDate: addDays(T, -(70 * 365 + 20)), allergies: "No known drug allergies", conditions: ["hfpef", "htn", "obesity"] });
+      await K.recordProcedure(tx, sys, mo, { kind: "rhc", date: at(d(-60)), details: { mpap: 42, pawp: 20, co: 4.0, rap: 14, svo2: 66 } });
+      const ph = ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='ph' LIMIT 1`, [mo])).rows[0] as any).logical_id;
+      await K.recordHistory(tx, sys, mo, { effectiveAt: at(d(-58)), answers: [{ item: "smoking", answer: "never" }], update: [{ logicalId: ph, attributes: { group: "Group 2 · left heart disease", haemo: "Combined post- and pre-capillary" } }] });
+      for (const [code, dose, freq, ind, day] of [["empagliflozin", 10, "OD", "hf", -400], ["furosemide", 40, "OD", "hf", -400], ["sildenafil", 20, "TID", "ph", -40]] as const)
+        await K.startMedication(tx, sys, mo, { code, doseValue: dose, frequency: freq, route: "PO", indication: ind, effectiveAt: at(d(day)) });
+      await obs(mo, d(-5), [{ code: "sbp", value: 136 }, { code: "hr", value: 76 }, { code: "nt-probnp", value: 1150 }, { code: "creatinine", value: 96 }, { code: "potassium", value: 4.4 }, { code: "height", value: 158 }, { code: "weight", value: 92 }]);
+      await K.recordObservations(tx, sys, mo, { effectiveAt: at(d(-5), "11:00"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
+      touched.push(mo);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

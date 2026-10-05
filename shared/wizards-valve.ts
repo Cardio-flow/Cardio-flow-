@@ -175,7 +175,7 @@ VALVE_WIZARDS["valve-antithrombotic"] = {
           options: [
             { value: "none", label: "None" },
             { value: "af", label: "AF / atrial flutter", detectCondition: ["af", "flutter"] },
-            { value: "vte", label: "Venous thromboembolism" },
+            { value: "vte", label: "Venous thromboembolism", detectCondition: ["pe"] },
             { value: "pci", label: "PCI or ACS in the last 12 months" },
             { value: "athero", label: "Symptomatic atherosclerotic disease", hint: "Coronary, cerebrovascular or peripheral" },
           ],

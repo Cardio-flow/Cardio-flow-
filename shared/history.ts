@@ -74,6 +74,7 @@ export const HISTORY_ITEMS: HistoryItem[] = [
   { key: "heart-failure", section: "cardiac", label: "Heart failure / cardiomyopathy", short: "Heart failure", conditions: ["hfref", "hfmref", "hfpef", "hfimpef"] },
   { key: "cardiomyopathy", section: "cardiac", label: "Cardiomyopathy or myocarditis (HCM, DCM, NDLVC, ARVC, restrictive, amyloid)", short: "Cardiomyopathy", conditions: ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid", "myocarditis"] },
   { key: "ph", section: "cardiac", label: "Pulmonary hypertension", short: "Pulmonary hypertension", conditions: ["ph"] },
+  { key: "vte", section: "cardiac", label: "Pulmonary embolism", short: "Pulmonary embolism", conditions: ["pe"] },
   { key: "valve", section: "cardiac", label: "Valve disease or prosthesis", short: "Valve disease", conditions: ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr", "prosthetic-valve"] },
   { key: "rhythm", section: "cardiac", label: "Arrhythmia or conduction disease", short: "Arrhythmia", conditions: ["af", "flutter", "svt", "vt", "av-block"] },
   { key: "device", section: "cardiac", label: "Cardiac device", short: "Device", conditions: ["cied"] },
@@ -129,6 +130,8 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
     { key: "group", label: "Clinical group (ESC/ERS 2022)", options: ["Group 1 · PAH", "Group 2 · left heart disease", "Group 3 · lung disease / hypoxia", "Group 4 · CTEPH / PA obstruction", "Group 5 · unclear / multifactorial", "Not yet classified"], text: (v) => (v === "Not yet classified" ? "group not yet known" : v) },
     { key: "haemo", label: "Haemodynamics (right heart catheter)", options: ["Pre-capillary", "Isolated post-capillary", "Combined post- and pre-capillary", "Not catheterised"], text: (v) => (v === "Not catheterised" ? null : v.toLowerCase()) },
   ],
+  // ESC/ERS 2022 PH (group 3): ambrisentan is not recommended in PH with IPF, riociguat not in PH with an IIP (III)
+  ild: [{ key: "type", label: "Type", options: ["IPF", "Other idiopathic interstitial pneumonia", "Connective-tissue disease", "Other / unknown"], text: (v) => (v === "Other / unknown" ? null : v) }],
   myocarditis: [{ key: "form", label: "Presentation", options: ["Uncomplicated", "Complicated", "Fulminant"], text: (v) => v.toLowerCase() }],
   ndlvc: CMP_FIELDS,
   arvc: CMP_FIELDS,

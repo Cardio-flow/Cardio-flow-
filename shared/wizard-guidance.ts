@@ -19,7 +19,7 @@ import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
 import { daysBetween } from "./clinical.js";
 import { riskFor, riskModifiers } from "./wizards-cmp.js";
-import { pahStrata } from "./wizards-ph.js";
+import { PVR_SEVERE, pahStrata } from "./wizards-ph.js";
 import { STRATA_LABEL } from "./ph.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
@@ -690,6 +690,33 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       if (r.category === "low") return [S("continue", "Low risk: treatment goal met")];
       if (r.category === "intermediate-low") return [S("selexipag", "Intermediate-low risk"), t.includes("pde5") ? S("riociguat", "Intermediate-low risk, on a PDE5i") : null];
       return [S("parenteral", `${STRATA_LABEL[r.category]} risk`), S("transplant", `${STRATA_LABEL[r.category]} risk`)];
+    },
+  },
+  // PH slice 4 (ESC/ERS 2022): CTEPH after PE; PH with left heart or lung disease
+  "post-pe": {
+    actions: (a, c) => {
+      if (a.dx === "cteph") return [
+        S("team", "CTEPH: CTEPH team review (I)"),
+        S("aps", "CTEPH: antiphospholipid syndrome testing (I)"),
+        c.ph?.anticoagulants.length ? null : S("anticoag", "CTEPH: lifelong anticoagulation (I)"),
+        S("follow", "Long-term follow-up (I)"),
+      ];
+      if (a.dx === "none") return [S("none", "No chronic thromboembolic disease")];
+      if (a.symptoms !== "yes") return [];
+      if (a.vq === "mismatch" && a.time === "3m") return [S("refer", "Mismatched defects beyond 3 months of anticoagulation (I C)")];
+      return [S("workup", "Breathlessness after PE: evaluate for CTEPH / CTEPD (I C)")];
+    },
+  },
+  "ph-lhd-lung": {
+    actions: (a, c) => {
+      const cause = (a.cause as string[] | undefined) ?? [];
+      const severe = c.ph?.pvr != null && c.ph.pvr > PVR_SEVERE;
+      return [
+        cause.includes("lhd") && a.optimised === "no" ? S("lhd", "Optimise the left heart disease first") : null,
+        cause.includes("lung") ? S("lung", "Optimise the lung disease (I)") : null,
+        severe || a.rv === "yes" ? S("refer", severe ? `PVR ${c.ph!.pvr} WU (>5): PH centre (I)` : "RV dysfunction: PH centre (I)") : null,
+        cause.includes("lung") && severe ? S("ltx", "Severe PH with lung disease: transplant evaluation if eligible (I)") : null,
+      ];
     },
   },
   "prosthetic-valve": {

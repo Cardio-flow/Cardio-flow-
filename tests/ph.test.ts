@@ -133,3 +133,92 @@ test("Nadia (PAH on ERA + PDE5i, NYHA III, 6MWD 350, NT-proBNP 820): intermediat
   const v = (await tx((q) => summary(q, pid, "sandbox")) as any).ph;
   assert.equal(v.strata.category, "intermediate-high");
 });
+
+// ---- slice 4: CTEPH after pulmonary embolism; PH with left heart or lung disease ----
+test("Khalid (PE 5 months ago, NYHA II, TRV 3.0): orange CTEPH evaluation finding; the pathway suggests the work-up, then confirmed CTEPH lists PH group 4 and the anticoagulation rule reads the DOAC with APS", async () => {
+  const pid = await byName("Khalid Al-Dosari");
+  const f = (await rec(pid, "ph.after-pe"))[0];
+  assert.equal(f.severity, "orange");
+  assert.equal(f.rule_status, "PUBLISHED");
+  assert.match(f.detail, /^NYHA II and intermediate echo probability of PH more than 3 months after the embolism/);
+  assert.equal(f.action.wizard, "post-pe");
+  const w = await tx((q) => getWizard(q, pid, "post-pe"));
+  assert.deepEqual(w.context.detected.time, ["3m"]);
+  assert.deepEqual(w.context.detected.symptoms, ["yes"], "NYHA II after the embolism");
+  assert.deepEqual(w.context.ph!.anticoagulants, [{ name: "Apixaban", doac: true }]);
+  assert.deepEqual(suggest("post-pe", "actions", { time: "3m", symptoms: "yes", vq: "none", dx: "pending" }, w.context).map((x) => x.value), ["workup"]);
+  assert.deepEqual(suggest("post-pe", "actions", { time: "3m", symptoms: "yes", vq: "mismatch", dx: "pending" }, w.context).map((x) => x.value), ["refer"]);
+  const done = await tx((q) => completeWizard(q, doc, pid, "post-pe", { answers: { time: "3m", symptoms: "yes", vq: "mismatch", dx: "cteph", actions: ["team", "aps", "follow"] }, recommendationId: f.id } as any));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /Lifelong therapeutic anticoagulation in all patients with CTEPH \(I\)/.test(x)));
+  let s = await loadState(db, pid);
+  assert.equal(s.conditions.find((c) => c.code === "ph")!.attributes.group, "Group 4 · CTEPH / PA obstruction");
+  assert.ok(s.plan.some((p) => p.title === "CTEPH team review: multimodality management (PEA, BPA, riociguat)"));
+  assert.equal((await rec(pid, "ph.after-pe")).length, 0, "quiet once CTEPH is listed");
+  assert.equal((await rec(pid, "ph.cteph-anticoagulation")).length, 0, "on apixaban, no APS");
+  assert.equal((await rec(pid, "ph.cteph-team")).length, 0, "the pathway was completed");
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: new Date().toISOString(), add: [{ code: "aps" }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const aps = (await rec(pid, "ph.cteph-anticoagulation"))[0];
+  assert.equal(aps.severity, "orange");
+  assert.equal(aps.title, "CTEPH with antiphospholipid syndrome on a DOAC: a VKA is recommended");
+});
+
+test("after PE: quiet before 3 months and without symptoms; CTEPH with no anticoagulant → orange", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Pe Early " + Date.now(), mrn: "PE" + Date.now(), sex: "Female", birthDate: "1970-01-01", conditions: [] }));
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: at(addDays(T, -40)), add: [{ code: "pe", onset: addDays(T, -40) }] }));
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(T), items: [{ code: "nyha", text: "II" }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "ph.after-pe")).length, 0, "less than 3 months");
+  const late = await tx((q) => K.createPatient(q, doc, { name: "Pe Late " + Date.now(), mrn: "PL" + Date.now(), sex: "Female", birthDate: "1970-01-01", conditions: [] }));
+  await tx((q) => K.recordHistory(q, doc, late, { effectiveAt: at(addDays(T, -200)), add: [{ code: "pe", onset: addDays(T, -200) }] }));
+  await tx((q) => K.recordObservations(q, doc, late, { effectiveAt: at(T), items: [{ code: "nyha", text: "I" }] }));
+  await tx((q) => reassess(q, late, "sandbox"));
+  assert.equal((await rec(late, "ph.after-pe")).length, 0, "NYHA I, no echo");
+  await tx((q) => K.recordObservations(q, doc, late, { effectiveAt: new Date().toISOString(), items: [{ code: "nyha", text: "III" }] }));
+  await tx((q) => reassess(q, late, "sandbox"));
+  assert.equal((await rec(late, "ph.after-pe"))[0].severity, "yellow", "NYHA III without an echo");
+  await tx((q) => K.recordHistory(q, doc, late, { effectiveAt: new Date().toISOString(), add: [{ code: "ph", attributes: { group: "Group 4 · CTEPH / PA obstruction" } }] }));
+  await tx((q) => reassess(q, late, "sandbox"));
+  assert.equal((await rec(late, "ph.cteph-anticoagulation"))[0].title, "CTEPH without anticoagulation: lifelong therapeutic anticoagulation is recommended");
+  assert.equal((await rec(late, "ph.cteph-team"))[0].action.template, "cteph-team");
+  assert.equal((await rec(late, "ph.after-pe")).length, 0);
+});
+
+test("Mona (HFpEF, combined post- and pre-capillary PH, PVR 5.5 WU, on sildenafil): orange PH centre referral, yellow PAH-drug review; the pathway detects left heart disease", async () => {
+  const pid = await byName("Mona Al-Harbi");
+  const r = (await rec(pid, "ph.severe-precapillary"))[0];
+  assert.equal(r.severity, "orange");
+  assert.equal(r.title, "PH with left heart disease and PVR 5.5 WU: refer to a PH centre");
+  const d = (await rec(pid, "ph.pah-drug-group-2-3"))[0];
+  assert.equal(d.severity, "yellow");
+  assert.equal(d.title, "PAH drug in PH from left heart disease");
+  const w = await tx((q) => getWizard(q, pid, "ph-lhd-lung"));
+  assert.deepEqual(w.context.detected.cause, ["lhd"]);
+  assert.deepEqual(suggest("ph-lhd-lung", "actions", { cause: ["lhd"], optimised: "yes", rv: "no" }, w.context).map((x) => x.value), ["refer"]);
+  const done = await tx((q) => completeWizard(q, doc, pid, "ph-lhd-lung", { answers: { cause: ["lhd"], optimised: "yes", rv: "no", actions: ["refer"] }, recommendationId: r.id } as any));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /PVR 5.5 WU \(>5\): refer to a PH centre/.test(x)));
+  assert.equal((await rec(pid, "ph.severe-precapillary")).length, 0, "referral planned");
+});
+
+test("group 3: ambrisentan with IPF and riociguat with an IIP → orange (III); non-severe PH on a PDE5i → yellow", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Ph Ild " + Date.now(), mrn: "PD" + Date.now(), sex: "Male", birthDate: "1955-01-01", conditions: [] }));
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: new Date().toISOString(), add: [{ code: "ild", attributes: { type: "IPF" } }, { code: "ph", attributes: { group: "Group 3 · lung disease / hypoxia" } }] }));
+  for (const code of ["ambrisentan", "riociguat"]) {
+    const def = (await import("../shared/catalog.js")).MEDICATION[code];
+    await tx((q) => K.startMedication(q, doc, pid, { code, doseValue: def.doses[0], frequency: def.frequencies[0], route: "PO", indication: "ph", effectiveAt: new Date().toISOString() } as any));
+  }
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const f = await rec(pid, "ph.pah-drug-group-2-3");
+  assert.deepEqual(f.map((x) => x.severity).sort(), ["orange", "orange"]);
+  assert.ok(f.some((x) => x.title === "Ambrisentan in PH with idiopathic pulmonary fibrosis: not recommended"));
+  const ns = await tx((q) => K.createPatient(q, doc, { name: "Ph Copd " + Date.now(), mrn: "PC" + Date.now(), sex: "Male", birthDate: "1955-01-01", conditions: ["copd"] }));
+  await tx((q) => K.recordProcedure(q, doc, ns, { kind: "rhc", date: new Date().toISOString(), details: { mpap: 28, pawp: 10, co: 5.0 } }));
+  const ph = ((await db.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='ph' LIMIT 1`, [ns])).rows[0] as any).logical_id;
+  await tx((q) => K.recordHistory(q, doc, ns, { effectiveAt: new Date().toISOString(), update: [{ logicalId: ph, attributes: { group: "Group 3 · lung disease / hypoxia" } }] }));
+  await tx((q) => K.startMedication(q, doc, ns, { code: "sildenafil", doseValue: 20, frequency: "TID", route: "PO", indication: "ph", effectiveAt: new Date().toISOString() } as any));
+  await tx((q) => reassess(q, ns, "sandbox"));
+  const y = (await rec(ns, "ph.pah-drug-group-2-3"))[0];
+  assert.equal(y.severity, "yellow");
+  assert.match(y.detail, /^PVR 3\.6 WU \(not >5\)/);
+  assert.equal((await rec(ns, "ph.severe-precapillary")).length, 0);
+});
