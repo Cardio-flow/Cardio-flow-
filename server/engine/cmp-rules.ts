@@ -12,7 +12,7 @@
 //    initial evaluation to detect LVOTO (I B); symptomatic HCM with a resting or provoked peak LVOT
 //    gradient <50 mmHg: exercise echocardiography (I B).
 //  - ICD after cardiac arrest due to VT/VF or sustained VT with haemodynamic compromise / instability:
-//    HCM (I B), DCM (I B), NDLVC (I C), ARVC (I A).
+//    HCM (I B), DCM (I B), NDLVC (I C), ARVC (I A), RCM (I C).
 import { DIAGNOSIS } from "../../shared/catalog.js";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
@@ -25,7 +25,7 @@ import { historyCode } from "../../shared/history.js";
 const SRC = "ESC cardiomyopathies 2023";
 const planned = (s: PatientState, re: RegExp) => s.plan.some((p) => p.status === "planned" && re.test(p.title));
 const names = (cs: { code: string }[]) => cs.map((c) => DIAGNOSIS[c.code]?.display ?? c.code).join(", ");
-const ICD_CLASS: Record<string, string> = { hcm: "I B", dcm: "I B", ndlvc: "I C", arvc: "I A" };
+const ICD_CLASS: Record<string, string> = { hcm: "I B", dcm: "I B", ndlvc: "I C", arvc: "I A", rcm: "I C" };
 
 export const CMP_RULES: RuleDef[] = [
   {
@@ -130,7 +130,7 @@ export const CMP_RULES: RuleDef[] = [
     title: "Cardiomyopathy with cardiac arrest or sustained VT/VF and no ICD",
     inputs: ["conditions", "contexts", "studies", "plan"],
     defaultParams: {},
-    evidence: "2023 ESC cardiomyopathies: ICD in patients who survived a cardiac arrest due to VT/VF or have spontaneous sustained VT with haemodynamic compromise (HCM I B) / recovered from a ventricular arrhythmia causing haemodynamic instability (DCM I B, NDLVC I C, ARVC I A). The event comes from an admission or visit reason, a discharge event or a device check; the clinician confirms its haemodynamic effect.",
+    evidence: "2023 ESC cardiomyopathies: ICD in patients who survived a cardiac arrest due to VT/VF or have spontaneous sustained VT with haemodynamic compromise (HCM I B) / recovered from a ventricular arrhythmia causing haemodynamic instability (DCM I B, NDLVC I C, ARVC I A, RCM I C). The event comes from an admission or visit reason, a discharge event or a device check; the clinician confirms its haemodynamic effect.",
     evaluate(s) {
       const cs = cmpConditions(s).filter((c) => ICD_CLASS[c.code]);
       if (!cs.length) return [];
@@ -206,20 +206,22 @@ export const CMP_RULES: RuleDef[] = [
     },
   },
   {
-    id: "cmp.hcm-af-oac",
+    id: "cmp.af-oac",
     kind: "clinical",
-    title: "AF with HCM without anticoagulation",
+    title: "AF with HCM or cardiac amyloidosis without anticoagulation",
     inputs: ["conditions", "meds"],
     defaultParams: {},
-    evidence: "2023 ESC cardiomyopathies: oral anticoagulation to reduce the risk of stroke and thrombo-embolic events is recommended in all patients with HCM and AF (class I), whatever the CHA₂DS₂-VA score.",
+    evidence: "2023 ESC cardiomyopathies: oral anticoagulation to reduce the risk of stroke and thromboembolic events is recommended in all patients with HCM or cardiac amyloidosis and AF or atrial flutter, unless contraindicated (I B) — whatever the CHA₂DS₂-VA score.",
     evaluate(s) {
-      if (!s.conditions.some((c) => c.code === "hcm" && c.status === "active") || !s.tags.has("af")) return [];
+      const cs = s.conditions.filter((c) => (c.code === "hcm" || c.code === "amyloid") && c.status === "active");
+      if (!cs.length || !s.tags.has("af")) return [];
       if (s.meds.some((m) => (m.status === "active" || m.status === "held") && m.tags.includes("oac"))) return [];
+      const what = cs.map((c) => (c.code === "hcm" ? "hypertrophic cardiomyopathy" : "cardiac amyloidosis")).join(" and ");
       return [{
-        key: "hcm-af", signature: "af", severity: "orange",
-        title: "AF with hypertrophic cardiomyopathy: no anticoagulant",
-        detail: "Oral anticoagulation is recommended in all patients with HCM and AF, whatever the CHA₂DS₂-VA score (I).",
-        facts: [{ label: "Diagnoses", value: "HCM · atrial fibrillation / flutter" }, { label: "Guideline", value: `${SRC} · I` }],
+        key: "cmp-af", signature: cs.map((c) => c.code).join(","), severity: "orange",
+        title: `AF with ${what}: no anticoagulant`,
+        detail: "Oral anticoagulation is recommended in all patients with HCM or cardiac amyloidosis and AF or flutter, unless contraindicated, whatever the CHA₂DS₂-VA score (I B).",
+        facts: [{ label: "Diagnoses", value: `${what} · AF / flutter` }, { label: "Guideline", value: `${SRC} · I B` }],
         missing: [], action: { type: "wizard", wizard: "af-care" },
       }];
     },
@@ -244,6 +246,86 @@ export const CMP_RULES: RuleDef[] = [
         detail: plp ? "Cascade genetic testing with counselling for adult at-risk relatives (I B); carriers have ECG and imaging with long-term follow-up (I B)." : "Genetic counselling for the family (I B) and clinical evaluation of first-degree relatives with ECG and imaging (I C).",
         facts: [{ label: "Diagnosis", value: names(cs) }, { label: "Family pathway", value: done ? `Completed ${fmtDay(done, { year: true })}` : "Not done" }, { label: "Guideline", value: SRC }],
         missing: [], action: { type: "wizard", wizard: "cmp-family" },
+      }];
+    },
+  },
+  // ---- slice 4: cardiac amyloidosis, ARVC ----
+  {
+    id: "cmp.amyloid-typing",
+    kind: "clinical",
+    title: "Cardiac amyloidosis: typing (monoclonal protein and bone scintigraphy)",
+    inputs: ["conditions", "plan"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: DPD/PYP/HMDP bone-tracer scintigraphy in suspected ATTR cardiac amyloidosis (I B). ESC 2021 position statement on cardiac amyloidosis (Garcia-Pavia et al.): initial tests are monoclonal proteins (serum and urine electrophoresis with immunofixation, serum free light chain ratio) and bone-tracer scintigraphy; grade 2–3 uptake without a monoclonal protein is diagnostic of ATTR without biopsy; AL needs haematology referral. A monoclonal protein is orange: AL must be excluded promptly.",
+    evaluate(s) {
+      const am = s.conditions.find((c) => c.code === "amyloid" && c.status === "active");
+      if (!am) return [];
+      const a = am.attributes ?? {};
+      const out: Finding[] = [];
+      if (a.monoclonal === "Present" && a.type !== "AL" && !planned(s, /haematolog/i))
+        out.push({
+          key: "amyloid-mgus", signature: "present", severity: "orange",
+          title: "Cardiac amyloidosis with a monoclonal protein: haematology to exclude AL",
+          detail: "A monoclonal protein makes AL amyloidosis possible: haematology review (and tissue confirmation) before calling it ATTR.",
+          facts: [{ label: "Monoclonal protein", value: "Present" }, { label: "Scintigraphy", value: a.scintigraphy ?? "Not recorded" }, { label: "Source", value: "ESC amyloidosis position statement 2021" }],
+          missing: [], action: { type: "add-plan", template: "haematology-al" },
+        });
+      const untyped = !a.type || a.type === "Not yet typed";
+      const todo = [(!a.monoclonal || a.monoclonal === "Not done") && "monoclonal protein screen", (!a.scintigraphy || a.scintigraphy === "Not done") && "bone-tracer scintigraphy"].filter(Boolean) as string[];
+      if (untyped && todo.length && !planned(s, /amyloid typing|scintigraph/i))
+        out.push({
+          key: "amyloid-typing", signature: todo.join(","), severity: "yellow",
+          title: `Cardiac amyloidosis not typed: ${todo.join(" and ")}`,
+          detail: "Serum free light chains with serum and urine immunofixation, and bone-tracer scintigraphy (I B in suspected ATTR). Grade 2–3 uptake without a monoclonal protein confirms ATTR without biopsy.",
+          facts: [{ label: "Type", value: a.type ?? "Not recorded" }, { label: "Guideline", value: `${SRC} · I B; ESC position statement 2021` }],
+          missing: [], action: { type: "add-plan", template: "amyloid-typing" },
+        });
+      return out;
+    },
+  },
+  {
+    id: "cmp.attr-tafamidis",
+    kind: "clinical",
+    title: "ATTR cardiomyopathy, NYHA I–II, without tafamidis",
+    inputs: ["conditions", "nyha", "meds", "plan"],
+    defaultParams: {},
+    evidence: "2021 ESC heart failure guidelines: tafamidis is recommended (class I) in transthyretin amyloid cardiomyopathy — wild-type or hereditary (genetically proven) — with NYHA class I–II symptoms. ESC 2021 amyloidosis position statement: tafamidis for wild-type and hereditary ATTR-CM. To check against the current ESC HF guideline.",
+    evaluate(s) {
+      const am = s.conditions.find((c) => c.code === "amyloid" && c.status === "active" && /^ATTR/.test(String(c.attributes?.type ?? "")));
+      if (!am) return [];
+      const nyha = s.resolved("nyha").current?.value_text ?? null;
+      if (nyha !== "I" && nyha !== "II") return [];
+      if (s.meds.some((m) => m.code === "tafamidis" && m.status !== "stopped") || planned(s, /tafamidis/i)) return [];
+      return [{
+        key: "tafamidis", signature: `${am.attributes?.type}:${nyha}`, severity: "yellow",
+        title: `${am.attributes?.type} cardiomyopathy, NYHA ${nyha}: tafamidis`,
+        detail: "Tafamidis is recommended in ATTR cardiomyopathy (wild-type or hereditary) with NYHA I–II symptoms (I).",
+        facts: [{ label: "Type", value: String(am.attributes?.type) }, { label: "NYHA", value: nyha }, { label: "Guideline", value: "ESC heart failure 2021 · I" }],
+        missing: [], action: { type: "add-plan", template: "tafamidis" },
+      }];
+    },
+  },
+  {
+    id: "cmp.arvc-beta-blocker",
+    kind: "clinical",
+    title: "ARVC with ventricular arrhythmia without a beta-blocker",
+    inputs: ["conditions", "studies", "contexts", "meds"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: beta-blocker therapy is recommended in ARVC patients with ventricular ectopy, NSVT and VT (I C). Triggered by NSVT on the latest ambulatory ECG, a VT diagnosis or a recorded VT/VF event.",
+    evaluate(s) {
+      if (!s.conditions.some((c) => c.code === "arvc" && c.status === "active")) return [];
+      if (s.meds.some((m) => (m.status === "active" || m.status === "held") && m.tags.includes("bb")) || planned(s, /beta-blocker/i)) return [];
+      const holter = latestStudy(s, "holter");
+      const why = holter?.attributes?.nsvt === "Yes" ? `NSVT on the Holter of ${fmtDay(holter.performed_at, { year: true })}`
+        : s.conditions.some((c) => c.code === "vt" && c.status === "active") ? "Ventricular tachycardia on the problem list"
+        : ventricularEvents(s)[0]?.label ?? null;
+      if (!why) return [];
+      return [{
+        key: "arvc-bb", signature: why, severity: "yellow",
+        title: "ARVC with ventricular arrhythmia: no beta-blocker",
+        detail: "Beta-blocker therapy is recommended in ARVC with ventricular ectopy, NSVT or VT (I C).",
+        facts: [{ label: "Arrhythmia", value: why }, { label: "Guideline", value: `${SRC} · I C` }],
+        missing: [], action: { type: "add-plan", template: "arvc-bb" },
       }];
     },
   },

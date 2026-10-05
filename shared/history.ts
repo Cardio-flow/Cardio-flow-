@@ -127,7 +127,13 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   ndlvc: CMP_FIELDS,
   arvc: CMP_FIELDS,
   rcm: CMP_FIELDS,
-  amyloid: [{ key: "type", label: "Type", options: ["ATTR wild-type", "ATTR variant", "AL", "Not yet typed"], text: (v) => (v === "Not yet typed" ? "type not yet known" : v) }, ...GENETIC],
+  amyloid: [
+    { key: "type", label: "Type", options: ["ATTR wild-type", "ATTR variant", "AL", "Not yet typed"], text: (v) => (v === "Not yet typed" ? "type not yet known" : v) },
+    // the typing tests (ESC 2021 amyloidosis position statement algorithm; ESC 2023: scintigraphy I B)
+    { key: "monoclonal", label: "Monoclonal protein (free light chains, serum and urine immunofixation)", options: ["Not done", "Absent", "Present"], text: (v) => (v === "Not done" ? null : `monoclonal protein ${v.toLowerCase()}`) },
+    { key: "scintigraphy", label: "Bone-tracer scintigraphy (Perugini grade)", options: ["Not done", "Grade 0", "Grade 1", "Grade 2–3"], text: (v) => (v === "Not done" ? null : `scintigraphy ${v.toLowerCase()}`) },
+    ...GENETIC,
+  ],
   t2dm: DIABETES_FIELDS,
   t1dm: DIABETES_FIELDS,
   "dm-other": DIABETES_FIELDS,

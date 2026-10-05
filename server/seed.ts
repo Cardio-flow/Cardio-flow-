@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 20;
+export const SEED_VERSION = 21;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -582,6 +582,19 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(rm, d(-20), [{ code: "height", value: 162 }, { code: "weight", value: 61 }, { code: "sbp", value: 118 }, { code: "hr", value: 64 }]);
       await K.recordObservations(tx, sys, rm, { effectiveAt: at(d(-20), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
       touched.push(rm);
+    }
+    // v21 (cardiomyopathy slice 4): Saleh, 79, cardiac amyloidosis suspected on echo and CMR, not yet typed
+    if (seeded < 21 && !(await byMrn("100948562"))) {
+      const sl = await K.createPatient(tx, sys, { name: "Saleh Al-Hajri", mrn: "100948562", sex: "Male", birthDate: addDays(T, -(79 * 365 + 200)), allergies: "No known drug allergies", conditions: ["amyloid", "hfpef", "htn"] });
+      const am = ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='amyloid' LIMIT 1`, [sl])).rows[0] as any).logical_id;
+      await K.recordHistory(tx, sys, sl, { effectiveAt: at(d(-30)), answers: [{ item: "smoking", answer: "never" }], update: [{ logicalId: am, attributes: { type: "Not yet typed", monoclonal: "Not done", scintigraphy: "Not done" } }] });
+      await K.startMedication(tx, sys, sl, { code: "furosemide", doseValue: 40, frequency: "OD", route: "PO", indication: "hf", effectiveAt: at(d(-60)) });
+      await K.recordStudy(tx, sys, sl, { kind: "ecg", date: at(d(-30)), findings: { rhythm: "Sinus rhythm", rate: 72, qrs: 112, qrsMorphology: "Normal", qtc: 450 } });
+      await K.recordEcho(tx, sys, sl, { date: at(d(-30), "11:00"), quality: "formal", lvef: 52, findings: ["LV hypertrophy"], measures: { mwt: 17, "la-diam": 47 } });
+      await K.recordStudy(tx, sys, sl, { kind: "cmr", date: at(d(-10)), findings: { lvef: 50, mwt: 17, lge: "Non-ischaemic pattern", lgePattern: ["Diffuse"], impression: "Amyloidosis" } });
+      await obs(sl, d(-30), [{ code: "height", value: 170 }, { code: "weight", value: 72 }, { code: "sbp", value: 112 }, { code: "hr", value: 72 }, { code: "creatinine", value: 118 }]);
+      await K.recordObservations(tx, sys, sl, { effectiveAt: at(d(-10), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+      touched.push(sl);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

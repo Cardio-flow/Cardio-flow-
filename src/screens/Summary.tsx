@@ -872,8 +872,8 @@ function CmpPanel({ c, open }: { c: any; open(o: Open): void }) {
           <div key={d.code} className="cad-drug">
             <small>{d.since ? `Since ${fmtDay(d.since, { year: true })}` : "Problem list"}</small>
             <b>{d.title}{d.form && d.form !== "Unknown" ? ` · ${d.form.toLowerCase()}` : ""}{d.type && d.type !== "Not yet typed" ? ` · ${d.type}` : ""}</b>
-            <em className={!d.genetic || d.genetic === "Not done" ? "stop" : ""}>
-              {d.genetic === "P/LP variant" ? `Pathogenic variant${d.gene ? `: ${d.gene}` : ""}` : d.genetic && d.genetic !== "Not done" ? `Genetic test: ${d.genetic.toLowerCase()}` : "Genetic test not recorded"}
+            <em className={d.code === "amyloid" ? (!d.type || d.type === "Not yet typed" ? "stop" : "") : !d.genetic || d.genetic === "Not done" ? "stop" : ""}>
+              {d.code === "amyloid" ? (d.detail ? d.detail.replace(/^./, (c: string) => c.toUpperCase()) : "Typing not recorded") : d.genetic === "P/LP variant" ? `Pathogenic variant${d.gene ? `: ${d.gene}` : ""}` : d.genetic && d.genetic !== "Not done" ? `Genetic test: ${d.genetic.toLowerCase()}` : "Genetic test not recorded"}
             </em>
           </div>
         ))}

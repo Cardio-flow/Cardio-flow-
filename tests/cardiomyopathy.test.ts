@@ -19,7 +19,7 @@ const at = (day: string) => new Date(`${day}T10:00:00+03:00`).toISOString();
 const tx = <R>(fn: (q: any) => Promise<R>) => db.transaction(fn);
 const byName = async (name: string) => ((await db.query(`SELECT id FROM cf.patient WHERE name=$1`, [name])).rows[0] as any).id as string;
 const rec = async (pid: string, rule: string) =>
-  ((await db.query(`SELECT id, severity, title, action, rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2 ORDER BY title`, [pid, rule])).rows as any[]);
+  ((await db.query(`SELECT id, severity, title, detail, action, rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2 ORDER BY title`, [pid, rule])).rows as any[]);
 before(async () => { db = await createLocalDb(); await boot(db, { seed: true }); });
 after(async () => db.close());
 
@@ -132,7 +132,7 @@ test("obstructive HCM ≥50 mmHg with NYHA III: offered; beta-blocker at maximum
   await tx((q) => reassess(q, pid, "sandbox"));
   const o = (await rec(pid, "cmp.hcm-lvoto"))[0];
   assert.equal(o.title, "Obstructive HCM: LVOT gradient 90 mmHg with NYHA III");
-  assert.equal((await rec(pid, "cmp.hcm-af-oac"))[0].severity, "orange");
+  assert.equal((await rec(pid, "cmp.af-oac"))[0].title, "AF with hypertrophic cardiomyopathy: no anticoagulant");
   const ctx = (await tx((q) => getWizard(q, pid, "hcm-lvoto"))).context;
   assert.deepEqual(ctx.detected.therapy, ["bb"]);
   assert.deepEqual(suggest("hcm-lvoto", "nyha", {}, ctx).map((x) => x.value), ["III-IV"]);
@@ -181,4 +181,49 @@ test("a beta-blocker given for HCM is listed under Cardiomyopathy in the medicat
   const pid = await byName("Reem Al-Otaibi");
   const m = (await tx((q) => summary(q, pid, "sandbox")) as any).medications;
   assert.deepEqual(m.groups.filter((g: any) => g.meds.length).map((g: any) => g.purpose), ["Cardiomyopathy"]);
+});
+
+// ---- slice 4: cardiac amyloidosis, ARVC, RCM ----
+test("Saleh (amyloidosis not typed): typing finding (I B); a monoclonal protein → haematology (orange); typed wild-type ATTR with NYHA II → tafamidis (I); AF with amyloidosis and no anticoagulant → orange (I B)", async () => {
+  const pid = await byName("Saleh Al-Hajri");
+  const t = (await rec(pid, "cmp.amyloid-typing"))[0];
+  assert.equal(t.severity, "yellow");
+  assert.equal(t.title, "Cardiac amyloidosis not typed: monoclonal protein screen and bone-tracer scintigraphy");
+  assert.equal(t.action.template, "amyloid-typing");
+  assert.equal((await rec(pid, "cmp.cmr-baseline")).length, 0, "CMR done");
+  const am = (await loadState(db, pid)).conditions.find((c) => c.code === "amyloid")!;
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: at(T), answers: [], update: [{ logicalId: am.logical_id, attributes: { type: "Not yet typed", monoclonal: "Present", scintigraphy: "Grade 2–3" } }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const h = await rec(pid, "cmp.amyloid-typing");
+  assert.equal(h.length, 1);
+  assert.equal(h[0].severity, "orange");
+  assert.equal(h[0].title, "Cardiac amyloidosis with a monoclonal protein: haematology to exclude AL");
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: at(T), answers: [], update: [{ logicalId: am.logical_id, attributes: { type: "ATTR wild-type", monoclonal: "Absent", scintigraphy: "Grade 2–3" } }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "cmp.amyloid-typing")).length, 0);
+  const tf = (await rec(pid, "cmp.attr-tafamidis"))[0];
+  assert.equal(tf.title, "ATTR wild-type cardiomyopathy, NYHA II: tafamidis");
+  assert.equal((await rec(pid, "cmp.family-screening")).length, 0, "wild-type ATTR is not inherited");
+  const v = (await tx((q) => summary(q, pid, "sandbox")) as any).cmp;
+  assert.match(v.conditions[0].detail, /ATTR wild-type · monoclonal protein absent · scintigraphy grade 2–3/);
+  const af = await tx((q) => K.createPatient(q, doc, { name: "Amy Af " + Date.now(), mrn: "AA" + Date.now(), sex: "Male", birthDate: "1948-01-01", conditions: ["amyloid", "af"] }));
+  await tx((q) => reassess(q, af, "sandbox"));
+  assert.equal((await rec(af, "cmp.af-oac"))[0].title, "AF with cardiac amyloidosis: no anticoagulant");
+});
+
+test("ARVC with NSVT and no beta-blocker → yellow (I C); restrictive cardiomyopathy after cardiac arrest → ICD (I C)", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Arvc " + Date.now(), mrn: "AR" + Date.now(), sex: "Male", birthDate: "1990-01-01", conditions: ["arvc"] }));
+  await tx((q) => K.recordStudy(q, doc, pid, { kind: "holter", date: at(T), findings: { duration: "48 h", rhythm: "Sinus rhythm", nsvt: "Yes" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const b = (await rec(pid, "cmp.arvc-beta-blocker"))[0];
+  assert.equal(b.title, "ARVC with ventricular arrhythmia: no beta-blocker");
+  await tx((q) => K.startMedication(q, doc, pid, { code: "bisoprolol", doseValue: 2.5, frequency: "OD", route: "PO", indication: "arvc", effectiveAt: at(T) }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "cmp.arvc-beta-blocker")).length, 0);
+
+  const r = await tx((q) => K.createPatient(q, doc, { name: "Rcm " + Date.now(), mrn: "RC" + Date.now(), sex: "Female", birthDate: "1980-01-01", conditions: ["rcm", "af"] }));
+  await tx((q) => K.startAdmission(q, doc, r, { startedAt: at(T), location: "CCU", reasons: ["VT / VF"], route: "Emergency department", symptoms: ["Syncope / presyncope"] }));
+  await tx((q) => reassess(q, r, "sandbox"));
+  assert.match((await rec(r, "cmp.icd-secondary"))[0].detail, /Restrictive cardiomyopathy I C/);
+  assert.equal((await rec(r, "cmp.af-oac")).length, 0, "restrictive cardiomyopathy alone: AF anticoagulation follows CHA₂DS₂-VA");
 });
