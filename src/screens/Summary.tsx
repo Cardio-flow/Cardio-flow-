@@ -5,23 +5,25 @@ import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
 import { BARRIER_CATEGORIES, MEDICATION, formatNumber } from "../../shared/catalog";
 import type { Open } from "./Patient";
+import { Fold, TodayBoard, useTriage } from "./Today";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
+  const { hot } = useTriage(s);
+  const F = (k: string, node: React.ReactNode, isHot = hot.has(k)) => <Fold k={k} hot={isHot}>{node}</Fold>;
   return (
     <main className="page">
-      <Glance o={s.overview} />
       <div className="grid-main">
         <div className="stack">
           <Episodes s={s} open={open} done={done} />
-          <Attention s={s} open={open} done={done} />
-          <HfPanel hf={s.hf} open={open} />
-          <CadPanel cad={s.cad} open={open} />
-          <RhythmPanel r={s.rhythm} open={open} />
-          <ValvePanel v={s.valve} open={open} />
-          <CmpPanel c={s.cmp} open={open} />
-          <PhPanel p={s.ph} open={open} />
-          <Targets s={s} open={open} />
-          <Changes changes={s.changes} />
+          <TodayBoard s={s} open={open} done={done} />
+          {F("hf", <HfPanel hf={s.hf} open={open} />)}
+          {F("cad", <CadPanel cad={s.cad} open={open} />)}
+          {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />)}
+          {F("valve", <ValvePanel v={s.valve} open={open} />)}
+          {F("cmp", <CmpPanel c={s.cmp} open={open} />)}
+          {F("ph", <PhPanel p={s.ph} open={open} />)}
+          {F("targets", <Targets s={s} open={open} />, false)}
+          {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
           <ActivePlan s={s} open={open} />
         </div>
         <div className="stack">
@@ -31,83 +33,6 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         </div>
       </div>
     </main>
-  );
-}
-
-// The five questions (blueprint P1.10): why here, what changed, what needs attention,
-// what is unfinished, what comes next. Each answers in one line from the record.
-function Glance({ o }: { o: any }) {
-  if (!o) return null;
-  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  const a = o.attention;
-  const total = a.red + a.orange + a.yellow + a.blue;
-  return (
-    <section className="glance" aria-label="Patient at a glance">
-      <div>
-        <small>Why here</small>
-        <b>{o.why.text}</b>
-        {o.why.sub && <span>{o.why.sub}</span>}
-      </div>
-      <button onClick={() => go("chg")}>
-        <small>What changed</small>
-        <b>{o.changed.since ? `${o.changed.count} change${o.changed.count === 1 ? "" : "s"} since ${o.changed.label?.toLowerCase().replace(/^since /, "") ?? "last review"}` : "No earlier review"}</b>
-        {o.changed.top.length > 0 && <span>{o.changed.top.join(" · ")}</span>}
-      </button>
-      <button onClick={() => go("att")}>
-        <small>Needs attention</small>
-        {total === 0 ? <b>Nothing open</b> : (
-          <span className="counts">
-            {(["red", "orange", "yellow", "blue"] as Sev[]).filter((k) => a[k]).map((k) => <Tag key={k} sev={k}>{a[k]} {({ red: "urgent", orange: "review", yellow: "due", blue: "to consider" } as any)[k]}</Tag>)}
-          </span>
-        )}
-        {a.top && <span>{a.top}</span>}
-      </button>
-      <button onClick={() => go("plan")}>
-        <small>Unfinished</small>
-        <b>{o.unfinished.overdue + o.unfinished.due === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`].filter(Boolean).join(" · ")}</b>
-        {o.unfinished.top.length > 0 && <span>{o.unfinished.top.join(" · ")}</span>}
-      </button>
-      <button onClick={() => go("plan")}>
-        <small>What's next</small>
-        <b>{o.next[0] ? `${o.next[0].title}` : "Nothing booked"}</b>
-        {o.next[0] && <span>{fmtDay(o.next[0].dueDate, { weekday: true })}{o.next[1] ? ` · then ${o.next[1].title}` : ""}</span>}
-      </button>
-    </section>
-  );
-}
-
-function Attention({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
-  const [why, setWhy] = useState<string | null>(null);
-  return (
-    <section className="card pad" aria-labelledby="att" id="att">
-      <div className="card-head">
-        <h2 id="att">Needs attention</h2>
-        <span className="meta">Rules re-run when data arrives and every night</span>
-      </div>
-      {s.attention.length === 0 && <div className="empty">Nothing needs attention. All plan items are on track.</div>}
-      <div className="attention">
-        {s.attention.map((a: any) => (
-          <div key={a.id}>
-            <div className={`alert sev-${a.severity}`}>
-              <div className="ic">
-                <SevIcon sev={a.severity} />
-              </div>
-              <div className="txt">
-                <span className="t">{a.title}</span>
-                <span className="d">{a.detail}</span>
-                {a.also?.length > 0 && <span className="also">Also suggested: {a.also.map((x: any) => x.title).join(" · ")}</span>}
-                {a.rule_status !== "PUBLISHED" && <span className="draft">RULE IN CLINICAL REVIEW · SANDBOX ONLY</span>}
-              </div>
-              <button className="why" aria-expanded={why === a.id} onClick={() => setWhy(why === a.id ? null : a.id)}>
-                Why?
-              </button>
-              <ActionButton a={a} open={open} />
-            </div>
-            {why === a.id && <WhyPanel a={a} patientId={s.header.id} done={done} />}
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 

@@ -3,6 +3,7 @@ import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Ro
 import { useData } from "../api";
 import { Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
+import { triage } from "../../shared/triage";
 import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
 import { QuickLabs } from "../drawers/QuickLabs";
@@ -66,7 +67,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   if (!s) return <main className="page" aria-busy="true" />;
   const h = s.header;
   const ctx = h.openContext;
-  const redCount = s.attention.filter((a: any) => a.severity === "red" || a.severity === "orange").length;
+  const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (
     <>
       <section className="pt-head">
