@@ -5,6 +5,7 @@ import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
 import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
+import { DateField } from "../screens/SuggestLine";
 
 function patientTags(summary: any) {
   return new Set<string>(summary.header.diagnoses.flatMap((d: any) => DIAGNOSIS[d.code]?.tags ?? []));
@@ -24,6 +25,9 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const [route, setRoute] = useState<string>("");
   const [indication, setIndication] = useState<string>("");
   const [monitor, setMonitor] = useState<string>("7");
+  const [checkDay, setCheckDay] = useState<string>(() => addDays(summary.today, 7));
+  const [startDay, setStartDay] = useState<string>(summary.today);
+  const [override, setOverride] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const today = rec?.today ?? summary.today;
@@ -77,17 +81,20 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
         body: {
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
           indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
-          monitoring: renalK && monitor !== "none" ? { dueDate: addDays(today, Number(monitor)), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          effectiveAt: startDay === today ? undefined : new Date(`${startDay}T12:00:00`).toISOString(),
+          monitoring: renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
           bookSchedule: schedule.length > 0 && bookSchedule === "yes",
+          ...(reds ? { override } : {}),
         },
       });
-      onDone(`${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(addDays(today, Number(monitor)), { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
+      onDone(`${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(checkDay, { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
-  const valid = def && freq && route && indication && (dose !== "custom" || Number(custom) > 0);
+  const reds = !!check?.hits.some((h) => h.severity === "red");
+  const valid = def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
   return (
     <Drawer
       wide
@@ -183,6 +190,10 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <Segmented label="Route" options={def.routes.map((r) => ({ value: r, label: r }))} value={route} onChange={setRoute} />
               </div>
             </div>
+            <div className="q">
+              <DateField label="Start date" value={startDay} onChange={setStartDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
+              {startDay !== today && <div className="help">Recorded as started on {fmtDay(startDay, { weekday: true })} (for example, started elsewhere). Checks are booked from today.</div>}
+            </div>
             {check?.start && (
               <div className="infobox" style={{ display: "block" }}>
                 <span><b>{`Starting dose ${check.start.dose} mg once daily · maximum ${check.start.max} mg`}</b>{` — ${check.start.basis} (SmPC 4.2).${!check.start.known ? " Record the result on the HCM diagnosis (History)." : ""}`}</span>
@@ -193,12 +204,10 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
               <div className="q">
                 <div className="label">Monitoring</div>
                 <div className="help">Book a renal function and potassium check. It becomes a task that closes itself when the result arrives.</div>
-                <Segmented
-                  label="Monitoring"
-                  options={[{ value: "7", label: `1 week · ${fmtDay(addDays(today, 7))}` }, { value: "14", label: `2 weeks · ${fmtDay(addDays(today, 14))}` }, { value: "none", label: "Not now" }]}
-                  value={monitor}
-                  onChange={setMonitor}
-                />
+                <div className="row wrap" style={{ gap: 8 }}>
+                  {monitor !== "none" && <DateField label="Check on" value={checkDay} onChange={setCheckDay} today={today} quick={[{ label: "1 wk", days: 7 }, { label: "2 wk", days: 14 }]} />}
+                  <Segmented label="Monitoring" options={[{ value: "7", label: "Book" }, { value: "none", label: "Not now" }]} value={monitor === "none" ? "none" : "7"} onChange={setMonitor} />
+                </div>
               </div>
             )}
             {schedule.length > 0 && (
@@ -212,6 +221,12 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <div className="help">The checks in the first 3 months (or the first periodic check) become tasks that close themselves when the result arrives; later ones are flagged when due.</div>
                 <Segmented label="Book monitoring" options={[{ value: "yes", label: "Book the checks" }, { value: "no", label: "Not now" }]} value={bookSchedule} onChange={setBookSchedule} />
               </div>
+            )}
+            {reds && (
+              <label className="sl-override">
+                <span>Reason to start despite the contraindication (required)</span>
+                <input className="input" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="e.g. specialist advice, benefit outweighs risk, interacting drug stopped" />
+              </label>
             )}
             {error && <div className="error-box">{error}</div>}
           </>
@@ -339,6 +354,8 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
     const d = med ? MEDICATION[med.code] : null;
     return initial === "increase" && d?.monitoring.some((c) => c === "potassium" || c === "creatinine") ? "lab-7" : "none";
   });
+  const [reviewDay, setReviewDay] = useState<string>(() => addDays(summary.today, 7));
+  const [fromDay, setFromDay] = useState<string>(summary.today);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!med || !def) return null;
@@ -357,13 +374,13 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
     try {
       const reviewBody =
         review === "none" ? null
-        : review.startsWith("lab") ? { dueDate: addDays(today, Number(review.split("-")[1])), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] }
-        : { dueDate: addDays(today, Number(review.split("-")[1])), title: `${def!.name} titration review` };
+        : review.startsWith("lab") ? { dueDate: reviewDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] }
+        : { dueDate: reviewDay, title: `${def!.name} titration review` };
       // patient-reported exceptions map onto the same medication events
       const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action === "frequency" ? "continue" : action;
       const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : action === "frequency" ? `Frequency changed: ${med!.frequency ?? "—"} → ${newFreq}${reason ? " · " + reason.toLowerCase() : ""}` : reason;
       const r = await api(`/patients/${patientId}/medications/${medId}/events`, {
-        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody },
+        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody, effectiveAt: fromDay === today ? undefined : new Date(`${fromDay}T12:00:00`).toISOString() },
       });
       onDone(`${def!.name}: ${LABEL[action] ?? action} recorded`, r);
     } catch (e) {
@@ -431,13 +448,19 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
             <Segmented
               label="Follow-up"
               options={[
-                ...(renalK ? [{ value: "lab-7", label: `K/Cr check · ${fmtDay(addDays(today, 7))}` }] : []),
-                { value: "visit-14", label: `Review · ${fmtDay(addDays(today, 14))}` },
+                ...(renalK ? [{ value: "lab-7", label: "K/Cr check" }] : []),
+                { value: "visit-14", label: "Review" },
                 { value: "none", label: "None" },
               ]}
               value={review}
-              onChange={setReview}
+              onChange={(v) => { setReview(v); setReviewDay(addDays(today, v === "visit-14" ? 14 : 7)); }}
             />
+            {review !== "none" && <DateField label="On" value={reviewDay} onChange={setReviewDay} today={today} quick={[{ label: "1 wk", days: 7 }, { label: "2 wk", days: 14 }]} />}
+          </div>
+        )}
+        {action && !exception && action !== "continue" && (
+          <div className="q">
+            <DateField label="Change made on" value={fromDay} onChange={setFromDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
           </div>
         )}
         {error && <div className="error-box">{error}</div>}

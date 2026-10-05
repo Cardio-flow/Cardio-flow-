@@ -358,10 +358,18 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         contextId: uuidS.nullish(),
         monitoring: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
         bookSchedule: z.boolean().optional(),
+        // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
+        override: z.string().trim().min(3).max(300).optional(),
       })
       .parse(req.body);
+    const def = MEDICATION[input.code];
+    if (!def) throw new ApiError(400, "Unknown medicine");
+    if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The start date cannot be in the future. Add a plan item to start it later.");
     await write(res, id, async (tx, a) => {
-      const r = await K.startMedication(tx, a, id, { ...input, effectiveAt: input.effectiveAt ?? nowIso() });
+      const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red");
+      if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title}. Record a reason to start it anyway.`);
+      const reason = reds.length ? [input.reason, `Started despite: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
+      const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
       // the medicine's monitoring schedule (label / guideline)
       if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null);
       if (input.monitoring)
@@ -382,10 +390,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         reason: z.string().max(300).optional(),
         contextId: uuidS.nullish(),
         review: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).optional() }).nullish(),
+        effectiveAt: isoDateTime.optional(),
       })
       .parse(req.body);
+    if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The change date cannot be in the future.");
     await write(res, id, async (tx, a) => {
-      const changed = await K.medicationEvent(tx, a, id, uuidS.parse(req.params.mid), { ...input, effectiveAt: nowIso() });
+      const changed = await K.medicationEvent(tx, a, id, uuidS.parse(req.params.mid), { ...input, effectiveAt: input.effectiveAt ?? nowIso() });
       if (input.review)
         await K.addPlanAction(tx, a, id, {
           category: input.review.codes?.length ? "monitoring" : "follow_up",

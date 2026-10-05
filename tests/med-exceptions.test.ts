@@ -130,3 +130,16 @@ test("a reason category is refused on a non-medicine suggestion; 'other' needs a
   const sg = (await att(pid)).find((x) => x.action?.code === "dapagliflozin");
   await assert.rejects(post(`/patients/${pid}/recommendations/${sg.id}/decline`, { outcome: "declined", reason: "", category: "other" }), /400/);
 });
+
+test("start with a red pre-start hit needs a reason (409 without); a past start date is kept, a future one refused", async () => {
+  const pid = await hfPatient();
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "hr", value: 62 }] }));
+  const body = { code: "ivabradine", doseValue: 5, frequency: "BID", route: "PO", indication: "hf" };
+  await assert.rejects(post(`/patients/${pid}/medications`, body), /^Error: 409 Ivabradine: do not initiate/);
+  await post(`/patients/${pid}/medications`, { ...body, override: "Specialist advice", effectiveAt: at(addDays(T, -3)) });
+  const iv = (await loadState(db, pid)).meds.find((m) => m.code === "ivabradine")!;
+  assert.equal(iv.startedAt!.slice(0, 10), addDays(T, -3));
+  const ev = (await db.query(`SELECT reason FROM cf.medication_event WHERE medication_id=$1`, [iv.id])).rows[0] as any;
+  assert.match(ev.reason, /Started despite: Ivabradine: do not initiate.* — Specialist advice/);
+  await assert.rejects(post(`/patients/${pid}/medications`, { code: "dapagliflozin", doseValue: 10, frequency: "OD", route: "PO", indication: "hf", effectiveAt: at(addDays(T, 3)) }), /^Error: 400 The start date cannot be in the future/);
+});
