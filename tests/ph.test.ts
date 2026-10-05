@@ -174,10 +174,10 @@ test("after PE: quiet before 3 months and without symptoms; CTEPH with no antico
   await tx((q) => K.recordObservations(q, doc, late, { effectiveAt: at(T), items: [{ code: "nyha", text: "I" }] }));
   await tx((q) => reassess(q, late, "sandbox"));
   assert.equal((await rec(late, "ph.after-pe")).length, 0, "NYHA I, no echo");
-  await tx((q) => K.recordObservations(q, doc, late, { effectiveAt: new Date().toISOString(), items: [{ code: "nyha", text: "III" }] }));
+  await tx((q) => K.recordObservations(q, doc, late, { effectiveAt: new Date(`${T}T12:00:00+03:00`).toISOString(), items: [{ code: "nyha", text: "III" }] }));
   await tx((q) => reassess(q, late, "sandbox"));
   assert.equal((await rec(late, "ph.after-pe"))[0].severity, "yellow", "NYHA III without an echo");
-  await tx((q) => K.recordHistory(q, doc, late, { effectiveAt: new Date().toISOString(), add: [{ code: "ph", attributes: { group: "Group 4 · CTEPH / PA obstruction" } }] }));
+  await tx((q) => K.recordHistory(q, doc, late, { effectiveAt: new Date(`${T}T12:00:00+03:00`).toISOString(), add: [{ code: "ph", attributes: { group: "Group 4 · CTEPH / PA obstruction" } }] }));
   await tx((q) => reassess(q, late, "sandbox"));
   assert.equal((await rec(late, "ph.cteph-anticoagulation"))[0].title, "CTEPH without anticoagulation: lifelong therapeutic anticoagulation is recommended");
   assert.equal((await rec(late, "ph.cteph-team"))[0].action.template, "cteph-team");

@@ -43,7 +43,7 @@ export const CMP_RULES: RuleDef[] = [
         title: `${names(cs)}: no cardiac MRI on record`,
         detail: "Contrast-enhanced CMR at the initial evaluation (I B): phenotype, LGE, and the inputs of risk assessment.",
         facts: [{ label: "Diagnosis", value: names(cs) }, { label: "Guideline", value: `${SRC} · I B` }],
-        missing: [], action: { type: "add-plan", template: "cmr" },
+        missing: [], action: { type: "add-plan", template: "cmp-cmr" },
       }];
     },
   },
@@ -55,7 +55,7 @@ export const CMP_RULES: RuleDef[] = [
     defaultParams: {},
     evidence: "2023 ESC cardiomyopathies: genetic testing in patients fulfilling diagnostic criteria for cardiomyopathy when it enables diagnosis, prognostication, therapeutic stratification, reproductive management or cascade evaluation of relatives (I B); genetic counselling for families with an inherited or suspected inherited cardiomyopathy (I B). AL amyloidosis is not inherited and is left out.",
     evaluate(s) {
-      const cs = cmpConditions(s).filter((c) => !(c.code === "amyloid" && c.attributes?.type === "AL") && (!c.attributes?.genetic || c.attributes.genetic === "Not done"));
+      const cs = cmpConditions(s).filter((c) => !(c.code === "amyloid" && c.attributes?.type !== "ATTR variant") && (!c.attributes?.genetic || c.attributes.genetic === "Not done"));
       if (!cs.length || planned(s, /genetic/i)) return [];
       return [{
         key: "genetic", signature: cs.map((c) => c.code).join(","), severity: "yellow",
@@ -86,7 +86,7 @@ export const CMP_RULES: RuleDef[] = [
         title: `${names(cs)}: ${due.join(" and ")} due (every 1–2 years)`,
         detail: "Routine follow-up with ECG and echocardiography every 1–2 years in clinically stable patients (I C).",
         facts: [last(ecg, "ECG"), last(echo, "echo"), { label: "Guideline", value: `${SRC} · I C` }],
-        missing: [], action: { type: "add-plan", template: "cmp-echo" },
+        missing: [], action: { type: "add-plan", template: due.includes("echo") ? "cmp-echo" : "ecg" },
       }];
     },
   },
@@ -239,7 +239,8 @@ export const CMP_RULES: RuleDef[] = [
     defaultParams: {},
     evidence: "2023 ESC cardiomyopathies: genetic counselling for families with an inherited or suspected inherited cardiomyopathy (I B); cascade genetic testing offered to adult at-risk relatives when a P/LP variant is established (I B); without one, initial clinical evaluation of first-degree relatives with ECG and cardiac imaging (I C). Not for AL or wild-type ATTR amyloidosis (not inherited). Offered until the family screening pathway is completed, and again when a P/LP variant is recorded after it.",
     evaluate(s) {
-      const cs = cmpConditions(s).filter((c) => !(c.code === "amyloid" && (c.attributes?.type === "AL" || c.attributes?.type === "ATTR wild-type")));
+      // amyloidosis: only a typed ATTR variant is inherited (untyped, AL and wild-type are left out)
+      const cs = cmpConditions(s).filter((c) => !(c.code === "amyloid" && c.attributes?.type !== "ATTR variant"));
       if (!cs.length) return [];
       const plp = cs.find((c) => c.attributes?.genetic === "P/LP variant");
       const done = s.pathwaysDone["cmp-family"];

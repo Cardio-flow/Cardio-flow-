@@ -53,6 +53,12 @@ test("LDL ladder moves to the next step when therapy changes, and LDL at goal cl
 
 test("HF titration is suggested only when safe: potassium above 5.0 blocks MRA/ARNI uptitration", async () => {
   const id = await byName("Hamad Al-Shammari");
+  // seeded congested today: no uptitration while congested (the congestion pathway comes first)
+  assert.ok(!(await active(id)).some((r) => r.rule_id === "hf.titration"), "held while congested");
+  await db.transaction(async (tx) => {
+    await K.recordObservations(tx, doc, id, { effectiveAt: new Date(`${today()}T12:00:00+03:00`).toISOString(), items: [{ code: "congestion", text: "None" }] });
+    await reassess(tx, id, "sandbox");
+  });
   const before = (await active(id)).filter((r) => r.rule_id === "hf.titration").map((r) => r.title);
   assert.ok(before.some((t) => /Eplerenone/.test(t)) && before.some((t) => /Sacubitril/.test(t)) && before.some((t) => /Bisoprolol/.test(t)));
   await db.transaction(async (tx) => {

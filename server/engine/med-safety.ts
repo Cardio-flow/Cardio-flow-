@@ -475,7 +475,10 @@ export const SAFETY_ROWS: SafetyRow[] = [
 
 export function safetyHits(s: PatientState, kind: SafetyRow["kind"]) {
   const f = facts(s);
-  return SAFETY_ROWS.filter((r) => r.kind === kind).flatMap((r) => r.check(s, f).map((h) => ({ row: r, hit: h })));
+  const all = SAFETY_ROWS.filter((r) => r.kind === kind).flatMap((r) => r.check(s, f).map((h) => ({ row: r, hit: h })));
+  // mavacamten interrupted for LVEF <50%: its dose-adjustment rows are moot until it restarts
+  const interrupted = SAFETY_ROWS.find((r) => r.id === "mavacamten-lvef")!.check(s, f).length > 0;
+  return interrupted ? all.filter(({ row }) => row.id === "mavacamten-lvef" || !row.id.startsWith("mavacamten-")) : all;
 }
 
 // Pre-start check (medicine drawer): the table run with a proposed medicine added to the current list.

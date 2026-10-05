@@ -258,12 +258,18 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "2026 ESC HF guidelines: uptitrate foundational therapy at least every 1–2 weeks to target or maximally tolerated doses (class I).",
     evaluate(s, p) {
       if (hfPhenotype(s) !== "HFrEF") return [];
+      // not while congested (the congestion pathway comes first): the hf.congestion exam criterion
+      const exam = s.resolved("congestion").current;
+      if (exam && ["Moderate", "Severe"].includes(exam.value_text ?? "") && daysBetween(exam.effective_at, s.today) <= 14) return [];
+      const ndhp = live(s).some((m) => m.tags.includes("ndhp-ccb"));
       const out: Finding[] = [];
       for (const m of live(s)) {
         const def = MEDICATION[m.code];
         if (!def?.target || m.doseValue == null || m.doseValue >= def.target) continue;
         const key = m.tags.includes("bb") ? "bb" : m.tags.includes("mra") ? "mra" : m.tags.includes("raas") ? "raas" : null;
         if (!key) continue;
+        // a beta-blocker is not uptitrated on top of diltiazem / verapamil (the label contraindication row comes first)
+        if (key === "bb" && ndhp) continue;
         const last = m.lastChange;
         if (last && daysBetween(last.effective_at, s.today) < Number(p.min_days_since_change)) continue;
         const gate = pillarGate(s, key, "increase");
@@ -275,7 +281,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
           signature: `${m.id}:${m.doseValue}`,
           severity: "blue",
           title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} → ${doseLabel(def, next)}`,
-          detail: `Target ${doseLabel(def, def.target)} · ${Math.round((m.doseValue / def.target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at) : "—"}`,
+          detail: `Target ${doseLabel(def, def.target)} · ${Math.round((m.doseValue / def.target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
           facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, def.target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
             src("ESC HF 2026 · uptitrate every 1–2 weeks to target/maximally tolerated dose · Class I")),
           missing: [],

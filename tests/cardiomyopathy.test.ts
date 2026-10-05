@@ -29,7 +29,7 @@ test("Reem (HCM, family SCD, resting LVOT only): CMR, genetic testing and provok
   assert.equal(cmr.severity, "yellow");
   assert.equal(cmr.title, "Hypertrophic cardiomyopathy: no cardiac MRI on record");
   assert.equal(cmr.rule_status, "PUBLISHED");
-  assert.equal(cmr.action.template, "cmr");
+  assert.equal(cmr.action.template, "cmp-cmr");
   assert.match((await rec(pid, "cmp.genetic-testing"))[0].title, /genetic testing not recorded/);
   assert.equal((await rec(pid, "cmp.hcm-lvot"))[0].title, "HCM: LVOT gradient provoked (Valsalva / standing) not recorded");
   assert.equal((await rec(pid, "cmp.follow-up")).length, 0, "ECG and echo 20 days ago");
@@ -75,7 +75,10 @@ test("DCM: no ECG/echo in 2 years → follow-up due (I C); a VT / VF admission w
   const al = await tx((q) => K.createPatient(q, doc, { name: "Al " + Date.now(), mrn: "AL" + Date.now(), sex: "Male", birthDate: "1950-01-01", conditions: ["amyloid"] }));
   const am = (await loadState(db, al)).conditions.find((c) => c.code === "amyloid")!;
   await tx((q) => reassess(q, al, "sandbox"));
-  assert.equal((await rec(al, "cmp.genetic-testing")).length, 1, "not yet typed: genetic testing asked");
+  assert.equal((await rec(al, "cmp.genetic-testing")).length, 0, "not yet typed: type the amyloid first");
+  await tx((q) => K.recordHistory(q, doc, al, { effectiveAt: at(T), answers: [], update: [{ logicalId: am.logical_id, attributes: { type: "ATTR variant" } }] }));
+  await tx((q) => reassess(q, al, "sandbox"));
+  assert.equal((await rec(al, "cmp.genetic-testing")).length, 1, "ATTR variant: genetic testing");
   await tx((q) => K.recordHistory(q, doc, al, { effectiveAt: at(T), answers: [], update: [{ logicalId: am.logical_id, attributes: { type: "AL" } }] }));
   await tx((q) => reassess(q, al, "sandbox"));
   assert.equal((await rec(al, "cmp.genetic-testing")).length, 0, "AL amyloidosis is not inherited");

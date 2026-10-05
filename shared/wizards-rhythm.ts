@@ -286,7 +286,9 @@ RHYTHM_WIZARDS["af-care"].assess = (a: Answers, ctx: WizardContext): Assessment 
     { label: "LVEF", value: lvef != null ? `${lvef}%` : "Not recorded", tone: lvef == null ? "orange" : undefined },
   ];
   const rec: string[] = [];
-  if (score != null && score >= 2 && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push(`CHA₂DS₂-VA ${score}: oral anticoagulation is recommended (I), a DOAC in preference to warfarin.`);
+  const cmpOac = !!(ctx.dx?.includes("hcm") || ctx.dx?.includes("amyloid"));
+  if (cmpOac && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push("HCM or cardiac amyloidosis with AF: oral anticoagulation is recommended whatever the CHA₂DS₂-VA score (I B).");
+  else if (score != null && score >= 2 && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push(`CHA₂DS₂-VA ${score}: oral anticoagulation is recommended (I), a DOAC in preference to warfarin.`);
   if (score === 1 && !onOac && a.oac !== "apixaban" && a.oac !== "other-doac") rec.push("CHA₂DS₂-VA 1: oral anticoagulation should be considered (IIa).");
   for (const d of af?.doac ?? []) if (d.dose != null && d.dose !== d.right) rec.push(`${d.code[0].toUpperCase() + d.code.slice(1)} ${d.dose} mg: the label dose is ${d.right} mg (${d.why}).`);
   if (ctx.meds.some((m) => m.code === "aspirin") && !(ctx.dx ?? []).some((x) => ["cad", "pad", "ascvd"].includes(x)) && !pick(a, "bleed").includes("stop-asa")) rec.push("Aspirin is not used for stroke prevention in AF (III).");

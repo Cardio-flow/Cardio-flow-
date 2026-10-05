@@ -899,6 +899,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const sc = c.af?.score ?? null;
       const valve = dx(c, "mechanical-valve", "ms-significant");
       if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated: continue, check the dose")];
+      // HCM or cardiac amyloidosis: anticoagulation whatever the score (ESC cardiomyopathies 2023, I B)
+      if (c.dx?.includes("hcm") || c.dx?.includes("amyloid")) return [S(valve ? "other-doac" : "apixaban", "HCM or cardiac amyloidosis with AF: oral anticoagulation whatever the CHA₂DS₂-VA score (ESC cardiomyopathies 2023, I B)")];
       if (sc == null) return [];
       if (sc >= 2) return [S(valve ? "other-doac" : "apixaban", `CHA₂DS₂-VA ${sc}: oral anticoagulation recommended (ESC AF 2024, I); DOAC preferred`)];
       if (sc === 1) return [S(valve ? "other-doac" : "apixaban", "CHA₂DS₂-VA 1: oral anticoagulation should be considered (ESC AF 2024, IIa)")];

@@ -517,7 +517,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "stress", category: "investigation", title: "Stress test", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
   { id: "cmr", category: "investigation", title: "Cardiac MRI", completesOn: { type: "study", kind: "cmr" }, offsets: [28, 56] },
   { id: "device", category: "follow_up", title: "ICD/CRT reassessment after repeat Echo", completesOn: { type: "manual" }, offsets: [90, 180] },
-  { id: "cmr", category: "investigation", title: "Cardiac MRI with contrast (cardiomyopathy)", completesOn: { type: "study", kind: "cmr" }, offsets: [14, 28, 56] },
+  { id: "cmp-cmr", category: "investigation", title: "Cardiac MRI with contrast (cardiomyopathy)", completesOn: { type: "study", kind: "cmr" }, offsets: [14, 28, 56] },
   { id: "genetic-test", category: "referral", title: "Genetic counselling and testing (cardiomyopathy)", completesOn: { type: "manual" }, offsets: [14, 28, 56] },
   { id: "hcm-lvot", category: "investigation", title: "Echo: LVOT gradient at rest and provoked (Valsalva, standing)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "exercise-echo", category: "investigation", title: "Exercise echo (LVOT gradient, HCM)", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },

@@ -38,7 +38,7 @@ export type Finding = {
     | { type: "start-med"; code: string; dose?: number; label: string }
     | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
     | { type: "add-labs"; codes: string[]; label: string }
-    | { type: "med-action"; medicationId: string; action: "stop" | "hold" | "decrease" | "resume"; label: string }
+    | { type: "med-action"; medicationId: string; action?: "stop" | "hold" | "decrease" | "resume"; label: string }
     | { type: "history"; focus: "risk" | "cardiac"; label: string };
   // guideline provenance shown in "Why?"
   source?: string;
@@ -268,7 +268,7 @@ export const RULES: RuleDef[] = [
             detail: "Address the reason, then mark it taken again, change it or stop it so the record matches what the patient takes.",
             facts: [{ label: "Prescribed", value: `${m.name}${m.doseValue != null ? " " + formatNumber(m.doseValue) + " " + (m.doseUnit ?? "") : ""} ${m.frequency ?? ""}`.trim() }, { label: "Reported not taking", value: e.reason || "reason not given", date: e.effective_at }],
             missing: [],
-            action: { type: "med-action" as const, medicationId: m.id, action: "resume" as const, label: "Update medicine" },
+            action: { type: "med-action" as const, medicationId: m.id, label: "Update medicine" },
           };
         });
     },
@@ -290,7 +290,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-05.22";
+export const RULESET = "2026-10-06.1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

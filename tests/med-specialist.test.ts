@@ -48,11 +48,10 @@ test("mavacamten starting dose from CYP2C19 (SmPC 4.2): not tested or poor → 2
   for (const p of ["Intermediate metaboliser", "Normal metaboliser", "Rapid metaboliser", "Ultrarapid metaboliser"]) assert.deepEqual([mavacamtenStart(p).dose, mavacamtenStart(p).max], [5, 15]);
 });
 
-test("Sara (seed; poor metaboliser on 2.5 mg with verapamil, LVEF 47% today): red interrupt and orange verapamil reduction", async () => {
+test("Sara (seed; poor metaboliser on 2.5 mg with verapamil, LVEF 47% today): red interrupt only; the verapamil dose reduction is moot while interrupted", async () => {
   const f = await recs(await byName("Sara Al-Kandari"));
   assert.deepEqual(f.map((x) => [x.severity, x.title]), [
     ["red", "Mavacamten with LVEF 47%: interrupt treatment"],
-    ["orange", "Mavacamten with Verapamil (moderate CYP3A4 inhibitor, CYP2C19 poor or undetermined): reduce the mavacamten dose"],
   ]);
   assert.match(f[0].detail, /\(on 2\.5 mg\)/);
 });

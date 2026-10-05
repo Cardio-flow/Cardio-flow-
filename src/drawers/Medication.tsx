@@ -76,7 +76,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
       const r = await api(`/patients/${patientId}/medications`, {
         body: {
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
-          indication: indication || "unspecified", contextId: contextId ?? null,
+          indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
           monitoring: renalK && monitor !== "none" ? { dueDate: addDays(today, Number(monitor)), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
           bookSchedule: schedule.length > 0 && bookSchedule === "yes",
         },
