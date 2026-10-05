@@ -489,6 +489,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "stress", category: "investigation", title: "Stress test", completesOn: { type: "study", kind: "stress" }, offsets: [14, 28, 56] },
   { id: "cmr", category: "investigation", title: "Cardiac MRI", completesOn: { type: "study", kind: "cmr" }, offsets: [28, 56] },
   { id: "device", category: "follow_up", title: "ICD/CRT reassessment after repeat Echo", completesOn: { type: "manual" }, offsets: [90, 180] },
+  { id: "valve-echo", category: "investigation", title: "Echo (valve surveillance)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "device-first-check", category: "investigation", title: "First device check after implant (in person)", completesOn: { type: "study", kind: "device_check" }, offsets: [14, 42, 84] },
   { id: "wound-check", category: "follow_up", title: "Device wound check", completesOn: { type: "manual" }, offsets: [7, 10] },
   { id: "remote-monitoring", category: "follow_up", title: "Start remote device monitoring", completesOn: { type: "manual" }, offsets: [0, 7, 14] },

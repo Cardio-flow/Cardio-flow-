@@ -5,6 +5,8 @@
 // interventions — each with its date.
 import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { ECHO_VALVES } from "../../shared/studies.js";
+import { addDays, daysBetween, localDay } from "../../shared/clinical.js";
+import { PROSTHESIS_TYPE } from "../../shared/procedures.js";
 import type { PatientState } from "../kernel/state.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
 
@@ -91,6 +93,52 @@ export function valveProfile(s: PatientState) {
     antiplatelet: live.filter((m) => m.tags.includes("antiplatelet")).map(drug),
     inr: latestInr?.value_num != null ? { value: formatNumber(latestInr.value_num, 1), at: latestInr.effective_at } : null,
     events: procs.map((p) => ({ at: p.performed_at, title: p.summary, kind: p.attributes.procedure as string })),
+    surveillance: valveSurveillance(s).map((i) => ({ what: i.what, dueAt: i.dueAt, overdue: i.overdue, reason: i.reason, last: i.last })),
   };
 }
 export type ValveProfile = NonNullable<ReturnType<typeof valveProfile>>;
+
+// Echo surveillance (valve slice 3). Intervals are parameters of `valve.echo-surveillance`, which is in
+// NEEDS_REVIEW: the 2025 guideline's follow-up intervals could not be read in full text, so these are
+// the values from summaries of the ESC/EACTS guidance, held for the clinical owner's confirmation —
+// severe asymptomatic native lesion every 6 months, moderate every 12, mild every 36; a baseline echo
+// 30–90 days after a valve intervention; then a prosthesis or repair every 12 months.
+export const SURVEILLANCE_DEFAULTS = { severeMonths: 6, moderateMonths: 12, mildMonths: 36, baselineFrom: 30, baselineBy: 90, prosthesisMonths: 12 };
+const POSITION: Record<string, string> = { as: "Aortic", ar: "Aortic", mr: "Mitral", "mr-primary": "Mitral", "mr-secondary": "Mitral", ms: "Mitral", tr: "Tricuspid" };
+const typeName = (t: string | null | undefined) => (!t ? "valve" : t === "TAVI" ? "TAVI" : t === "Mechanical" ? "mechanical valve" : t.toLowerCase());
+const monthsLater = (day: string, m: number) => addDays(day, Math.round(m * 30.44));
+export function valveSurveillance(s: PatientState, p: Record<string, any> = SURVEILLANCE_DEFAULTS) {
+  const P = { ...SURVEILLANCE_DEFAULTS, ...p };
+  const echoes = s.studies.filter((x) => x.kind === "echo").map((x) => localDay(x.performed_at)).sort();
+  const lastEcho = echoes[echoes.length - 1] ?? null;
+  const treated = new Set(s.conditions.filter((c) => c.code === "prosthetic-valve" && c.status === "active").map((c) => c.attributes?.position));
+  const procs = s.procedures.filter((x) => x.kind === "valve").sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+  const items: { key: string; what: string; dueAt: string; from?: string; months?: number; reason: string; last: string | null }[] = [];
+  // post-intervention baseline: the latest intervention in each position without an echo since
+  for (const pos of [...new Set(procs.map((x) => x.attributes.position as string))]) {
+    const pr = procs.find((x) => x.attributes.position === pos)!;
+    if (!PROSTHESIS_TYPE(pr.attributes) && pr.attributes.procedure !== "Balloon valvotomy") continue;
+    const day = localDay(pr.performed_at);
+    const after = echoes.filter((e) => e > day);
+    const name = pr.summary.split(" · ")[0];
+    // the baseline window applies to a recent intervention; an older one without an echo since is simply due
+    if (!after.length && daysBetween(day, s.today) <= 365)
+      items.push({ key: `baseline-${pos}`, what: `Baseline echo after ${name}`, from: addDays(day, P.baselineFrom), dueAt: addDays(day, P.baselineBy), reason: `${P.baselineFrom}–${P.baselineBy} days after the intervention`, last: null });
+    else items.push({ key: `prosthesis-${pos}`, what: `Echo: ${pos.toLowerCase()} ${typeName(PROSTHESIS_TYPE(pr.attributes))} follow-up`, dueAt: after.length ? monthsLater(after[after.length - 1], P.prosthesisMonths) : s.today, months: P.prosthesisMonths, reason: `every ${P.prosthesisMonths} months`, last: after[after.length - 1] ?? null });
+  }
+  // listed prostheses without an intervention record
+  for (const c of s.conditions.filter((x) => x.code === "prosthetic-valve" && x.status === "active" && !procs.some((y) => y.attributes.position === x.attributes?.position)))
+    items.push({ key: `prosthesis-${c.attributes?.position}`, what: `Echo: ${String(c.attributes?.position ?? "").toLowerCase()} ${typeName(c.attributes?.type)} follow-up`, dueAt: lastEcho ? monthsLater(lastEcho, P.prosthesisMonths) : s.today, months: P.prosthesisMonths, reason: `every ${P.prosthesisMonths} months`, last: lastEcho });
+  // the worst untreated native lesion (problem list or latest echo grade)
+  const ve = latestValveEcho(s);
+  const grades: { code: string; grade: string }[] = [
+    ...s.conditions.filter((c) => POSITION[c.code] && c.status === "active" && RANK[c.attributes?.severity] >= 1).map((c) => ({ code: c.code, grade: c.attributes.severity as string })),
+    ...(ve ? Object.entries(ve.valves).filter(([, g]) => RANK[g] >= 1).map(([k, g]) => ({ code: k, grade: g })) : []),
+  ].filter((x) => !treated.has(POSITION[x.code]));
+  const worst = grades.sort((a, b) => RANK[b.grade] - RANK[a.grade])[0];
+  if (worst) {
+    const m = worst.grade === "Severe" ? P.severeMonths : worst.grade === "Moderate" ? P.moderateMonths : P.mildMonths;
+    items.push({ key: "native", what: `Echo: ${worst.grade.toLowerCase()} ${({ as: "AS", ar: "AR", mr: "MR", "mr-primary": "primary MR", "mr-secondary": "secondary MR", ms: "MS", tr: "TR" } as Record<string, string>)[worst.code]} surveillance`, dueAt: lastEcho ? monthsLater(lastEcho, m) : s.today, months: m, reason: `${worst.grade.toLowerCase()} lesion: every ${m} months`, last: lastEcho });
+  }
+  return items.map((i) => ({ ...i, overdue: i.dueAt < s.today, due: !!i.from && i.from <= s.today }));
+}

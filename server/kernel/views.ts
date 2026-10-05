@@ -340,6 +340,10 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
   const attention = await recommendations(tx, patientId);
   const changes = whatChanged(s);
+  // the echo-surveillance intervals are shown only where their rule runs (sandbox, or once approved)
+  const surveillanceLive = siteMode === "sandbox" || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);
+  const valve = valveProfile(s);
+  if (valve && !surveillanceLive) valve.surveillance = [];
   return {
     header: header(s),
     today: s.today,
@@ -366,7 +370,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     // coronary profile: events with dates, antithrombotic regimen with planned stops, lipids (CAD patients)
     cad: cadProfile(s),
     rhythm: rhythmProfile(s),
-    valve: valveProfile(s),
+    valve,
     // complications followed as episodes (open, and resolved in the last 30 days)
     episodes: episodesView(s),
     // why a drug class is not given (recorded once, reused by every rule)

@@ -141,3 +141,29 @@ test("severe primary MR, asymptomatic, LVEF >60%, AF + SPAP >50 + TR moderate, l
   assert.equal(d[0].value, "mv-surgery");
   assert.match(d[0].why, /3 of AF.*I B/);
 });
+
+// ---- slice 3: echo surveillance (intervals in review) ----
+test("Latifa (TAVI 40 days ago, no echo since): baseline echo due (in review); an echo clears it and sets yearly follow-up", async () => {
+  const pid = await byName("Latifa Al-Fadhli");
+  const r = (await rec(pid, "valve.echo-surveillance"))[0];
+  assert.match(r.title, /^Baseline echo after TAVI: due by/);
+  assert.equal(await status(pid, "valve.echo-surveillance"), "CLINICAL_REVIEW");
+  assert.equal(r.action.template, "valve-echo");
+  let v = (await sumOf(pid)).valve;
+  assert.ok(v.surveillance.some((x: any) => /Baseline echo/.test(x.what)));
+  await tx(async (q) => { await K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 60, findings: [], valves: { ar: "Mild" }, measures: { "av-mg": 9 } }); await reassess(q, pid, "sandbox"); });
+  assert.equal((await rec(pid, "valve.echo-surveillance")).length, 0);
+  v = (await sumOf(pid)).valve;
+  const next = v.surveillance.find((x: any) => /aortic TAVI follow-up/.test(x.what));
+  assert.ok(next && next.dueAt > addDays(T, 360) && next.dueAt < addDays(T, 370));
+  assert.ok(v.echo.values.some((x: any) => x.code === "av-mg" && x.value === "9"), "post-TAVI gradient shown");
+});
+
+test("moderate AS last imaged 14 months ago → surveillance due; a planned echo quiets it", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Mod AS " + Date.now(), mrn: "MA" + Date.now(), sex: "Male", birthDate: "1955-01-01", conditions: ["htn"] }));
+  await tx(async (q) => { await K.recordEcho(q, doc, pid, { date: at(addDays(T, -425)), quality: "formal", lvef: 60, findings: [], valves: { as: "Moderate" } }); await reassess(q, pid, "sandbox"); });
+  const r = (await rec(pid, "valve.echo-surveillance"))[0];
+  assert.match(r.title, /^Echo: moderate AS surveillance: due since/);
+  await tx(async (q) => { await K.addPlanAction(q, doc, pid, { category: "investigation", title: "Echo (valve surveillance)", dueDate: addDays(T, 7), completesOn: { type: "study", kind: "echo" } }); await reassess(q, pid, "sandbox", ["plan"]); });
+  assert.equal((await rec(pid, "valve.echo-surveillance")).length, 0);
+});

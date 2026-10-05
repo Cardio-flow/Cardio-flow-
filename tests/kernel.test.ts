@@ -195,7 +195,7 @@ test("publication policy: guideline rules published at build, local thresholds s
     assert.equal(r.status, "PUBLISHED", r.rule_id);
   }
   // local numbers chosen by the clinical owner, held for approval in Governance
-  assert.deepEqual(Object.keys(NEEDS_REVIEW).sort(), ["rhythm.device-wound-check", "valve.intervention-trigger"], "every other clinical rule is guideline-based");
+  assert.deepEqual(Object.keys(NEEDS_REVIEW).sort(), ["rhythm.device-wound-check", "valve.echo-surveillance", "valve.intervention-trigger"], "every other clinical rule is guideline-based");
   assert.ok(rows.some((r) => r.rule_id === "rhythm.device-wound-check" && r.status === "CLINICAL_REVIEW"));
   for (const id of ["hf.worsening-renal-function", "hf.post-discharge-review", "safety.inr", "safety.digoxin"])
     assert.ok(rows.some((r) => r.rule_id === id && r.status === "PUBLISHED"), id);

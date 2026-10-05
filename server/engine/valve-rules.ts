@@ -5,7 +5,7 @@ import { DIAGNOSIS } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
-import { latestValveEcho } from "./valve-profile.js";
+import { SURVEILLANCE_DEFAULTS, latestValveEcho, valveSurveillance } from "./valve-profile.js";
 import { localDay } from "../../shared/clinical.js";
 import { formatNumber } from "../../shared/catalog.js";
 
@@ -124,6 +124,29 @@ export const VALVE_RULES: RuleDef[] = [
         });
       }
       return out;
+    },
+  },
+  {
+    id: "valve.echo-surveillance",
+    kind: "clinical",
+    title: "Valve echo surveillance due",
+    inputs: ["studies", "conditions", "procedures", "plan"],
+    defaultParams: SURVEILLANCE_DEFAULTS,
+    evidence: "ESC/EACTS valvular heart disease guidance on follow-up (intervals from summaries; to confirm against the 2025 text): asymptomatic severe native lesion every 6 months, moderate yearly, mild every 2–3 years; a baseline echo after valve intervention, then yearly imaging of the prosthesis or repair. Parameters are editable in Governance.",
+    evaluate(s, p) {
+      if (s.plan.some((x) => x.status === "planned" && x.completes_on?.type === "study" && x.completes_on.kind === "echo")) return [];
+      // severe lesion with an intervention already decided: the procedure, not surveillance
+      const decided = s.plan.some((x) => x.status === "planned" && INTERVENTION_PLANNED.test(x.title) && !/Heart Team/.test(x.title));
+      return valveSurveillance(s, p)
+        .filter((i) => i.overdue || i.due)
+        .filter((i) => !(decided && i.key === "native"))
+        .map((i): Finding => ({
+          key: i.key, signature: `${i.key}:${i.dueAt}`, severity: "yellow",
+          title: i.key.startsWith("baseline") ? `${i.what}: ${i.overdue ? `overdue since ${fmtDay(i.dueAt)}` : `due by ${fmtDay(i.dueAt)}`}` : `${i.what}: due since ${fmtDay(i.dueAt, { year: true })}`,
+          detail: `${i.reason[0].toUpperCase()}${i.reason.slice(1)}${i.last ? `; last echo ${fmtDay(i.last, { year: true })}` : "; no echo recorded"}.`,
+          facts: [{ label: "Last echo", value: i.last ? fmtDay(i.last, { year: true }) : "None" }, { label: "Interval", value: i.reason }],
+          missing: [], action: { type: "add-plan", template: "valve-echo" },
+        }));
     },
   },
 ];

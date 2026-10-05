@@ -130,7 +130,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "add-plan")
     return (
       <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" || act.template === "device-first-check" ? "Book device check" : act.template === "wound-check" ? "Book wound check" : act.template === "remote-monitoring" ? "Plan remote monitoring" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : "Add to plan"}
+        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" || act.template === "device-first-check" ? "Book device check" : act.template === "wound-check" ? "Book wound check" : act.template === "valve-echo" ? "Book echo" : act.template === "remote-monitoring" ? "Plan remote monitoring" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : "Add to plan"}
       </button>
     );
   if (act.type === "tab")
@@ -912,6 +912,20 @@ function ValvePanel({ v, open }: { v: any; open(o: Open): void }) {
           <em />
         </div>
       </div>
+      {v.surveillance?.length > 0 && (
+        <>
+          <div className="tgt-title" style={{ marginTop: 14 }}>Echo follow-up</div>
+          <div className="cad-drugs">
+            {v.surveillance.map((x: any, i: number) => (
+              <div key={i} className="cad-drug">
+                <small>{x.overdue ? "Overdue" : "Next"}</small>
+                <b>{x.what.replace(/^Echo: (.)/, (_m: string, c: string) => c.toUpperCase())}</b>
+                <em className={x.overdue ? "stop" : ""}>{`${x.overdue ? "due since" : "due"} ${fmtDay(x.dueAt, { year: true })} · ${x.reason}`}</em>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       {v.events.length > 0 && (
         <>
           <div className="tgt-title" style={{ marginTop: 14 }}>Valve interventions</div>
