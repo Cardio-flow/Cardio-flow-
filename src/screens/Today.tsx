@@ -32,9 +32,9 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   const row = { why, setWhy, open, done, patientId: s.header.id };
   return (
-    <section className="tb" aria-labelledby="att" id="att">
+    <section className="tb" aria-labelledby="att-h" id="att">
       <div className="tb-head">
-        <h2 id="att">Today</h2>
+        <h2 id="att-h">Today</h2>
         <Brief o={s.overview} />
       </div>
       {total === 0 ? (
