@@ -516,6 +516,13 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await K.recordStudy(tx, sys, bd, { kind: "device_check", date: new Date(Date.now() - 180_000).toISOString(), findings: { setting: "Remote", device: "CRT-D", battery: "OK", longevity: 4.2, leads: "Normal", bivpace: 96, ahre: "None", va: "Sustained VT", therapies: ["ATP", "Shock"], shocks: 2, shockType: "Appropriate (VT/VF)", storm: "No", programming: "No change" } });
         touched.push(bd);
       }
+      // Mariam: dual-chamber pacemaker for complete heart block 8 days ago, remote monitoring not
+      // started — first in-person check, wound check (local 7–10 days) and remote monitoring offered
+      const mh = await byMrn("100266781");
+      if (mh && !(await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1 AND kind='device'`, [mh])).rows[0]) {
+        await K.recordProcedure(tx, sys, mh, { kind: "device", date: at(d(-8), "11:00"), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "AV block", pacing: "Conduction system pacing (His / LBBAP)", remote: "Not enrolled" } });
+        touched.push(mh);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

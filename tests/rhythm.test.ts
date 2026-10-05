@@ -242,3 +242,24 @@ test("electrical storm on a device check → red offer; the pathway suggests mon
   const acts = suggest("icd-shock", "actions", { what: "storm", interrogation: "appropriate-mono" }, ctx).map((x) => x.value);
   for (const v of ["monitor", "amiodarone", "bb", "sedation", "reprogram"]) assert.ok(acts.includes(v), v);
 });
+
+test("after a new implant: first in-person check 2–12 weeks (published), wound check 7–10 days (local, in review), remote monitoring when not enrolled; each clears when done or planned", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Implant " + Date.now(), mrn: "N" + Date.now(), sex: "Male", birthDate: "1955-02-01", conditions: ["av-block"] }));
+  const day = addDays(T, -3);
+  await tx(async (q) => { await K.recordProcedure(q, doc, pid, { kind: "device", date: at(day), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "AV block", pacing: "RV pacing", remote: "Not enrolled" } }); await reassess(q, pid, "sandbox"); });
+  const status = async (rule: string) => ((await db.query(`SELECT rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[])[0]?.rule_status;
+  const first = await rec(pid, "rhythm.device-first-check");
+  assert.equal(first.severity, "yellow");
+  assert.match(first.title, /first in-person device check due/);
+  assert.equal(await status("rhythm.device-first-check"), "PUBLISHED");
+  assert.match((await rec(pid, "rhythm.device-wound-check")).title, /wound check/);
+  assert.equal(await status("rhythm.device-wound-check"), "CLINICAL_REVIEW", "local 7–10 days: approved in Governance");
+  assert.match((await rec(pid, "rhythm.remote-monitoring")).title, /remote monitoring not started/);
+  await tx(async (q) => { await K.addPlanAction(q, doc, pid, { category: "follow_up", title: "Device wound check", dueDate: addDays(day, 8), completesOn: { type: "manual" } }); await reassess(q, pid, "sandbox", ["plan"]); });
+  assert.equal(await rec(pid, "rhythm.device-wound-check"), undefined);
+  await check(pid, T, { setting: "Remote", device: "Pacemaker", battery: "OK", va: "None" });
+  assert.equal(await rec(pid, "rhythm.remote-monitoring"), undefined, "a remote check shows enrolment");
+  assert.ok(await rec(pid, "rhythm.device-first-check"), "a remote check is not the in-person check");
+  await check(pid, T, { setting: "In clinic", device: "Pacemaker", battery: "OK", leads: "Normal", va: "None" }, "10:30");
+  assert.equal(await rec(pid, "rhythm.device-first-check"), undefined);
+});

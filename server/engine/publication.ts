@@ -11,6 +11,8 @@ export const POLICY_NOTE =
 // Empty since 1 Oct 2026 (evening): the last four rules were rebuilt on guideline values
 // (ESC HF creatinine limits, 1–2 week post-discharge review, ESC/EACTS 2025 INR targets,
 // ESC HF digoxin target 0.5–0.9 ng/mL). A future rule with a local number is listed here.
-export const NEEDS_REVIEW: Record<string, string> = {};
+export const NEEDS_REVIEW: Record<string, string> = {
+  "rhythm.device-wound-check": "Wound check 7–10 days after a device implant is local practice (Ahmed, 5 Oct 2026), not a guideline number.",
+};
 
 export const publishedByPolicy = (rule: { id: string; kind: string }) => rule.kind === "clinical" && !(rule.id in NEEDS_REVIEW);

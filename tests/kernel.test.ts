@@ -194,7 +194,9 @@ test("publication policy: guideline rules published at build, local thresholds s
     if (r.rule_id in NEEDS_REVIEW || r.published_by !== "policy:guideline-basis") continue;
     assert.equal(r.status, "PUBLISHED", r.rule_id);
   }
-  assert.deepEqual(Object.keys(NEEDS_REVIEW), [], "every clinical rule is guideline-based");
+  // local numbers chosen by the clinical owner, held for approval in Governance
+  assert.deepEqual(Object.keys(NEEDS_REVIEW), ["rhythm.device-wound-check"], "every other clinical rule is guideline-based");
+  assert.ok(rows.some((r) => r.rule_id === "rhythm.device-wound-check" && r.status === "CLINICAL_REVIEW"));
   for (const id of ["hf.worsening-renal-function", "hf.post-discharge-review", "safety.inr", "safety.digoxin"])
     assert.ok(rows.some((r) => r.rule_id === id && r.status === "PUBLISHED"), id);
   const ev = (await db.query(`SELECT count(*)::int AS n FROM cf.rule_event WHERE actor='policy:guideline-basis'`)).rows[0] as any;

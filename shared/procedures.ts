@@ -27,6 +27,7 @@ export const DEVICE_INDICATIONS = [
   "Sinus node dysfunction", "AV block", "AF with slow ventricular rate", "Pace and ablate", "Primary prevention ICD", "Secondary prevention ICD",
   "CRT for heart failure", "Syncope / arrhythmia monitoring", "Other",
 ] as const;
+export const REMOTE_MONITORING = ["Enrolled", "Not enrolled"] as const;
 export const PACING_SITES = ["RV pacing", "Conduction system pacing (His / LBBAP)", "Biventricular", "No pacing lead"] as const;
 export const ABLATION_TARGETS = [
   "AF (pulmonary vein isolation)", "Atrial flutter (CTI)", "Atypical flutter / atrial tachycardia", "AVNRT", "Accessory pathway", "VT", "PVCs", "AV node (pace and ablate)",
@@ -81,6 +82,7 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
       action: oneOf(DEVICE_ACTIONS, a.action, "Procedure") ?? "New implant",
       indication: oneOf(DEVICE_INDICATIONS, a.indication, "Indication"),
       pacing: oneOf(PACING_SITES, a.pacing, "Pacing"),
+      remote: oneOf(REMOTE_MONITORING, a.remote, "Remote monitoring"),
     };
   }
   if (kind === "ablation") {
@@ -116,7 +118,7 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
     const dev = a.device === "Drug-eluting stent" ? (a.stents ? `DES ×${a.stents}` : "DES") : a.device === "Drug-coated balloon" ? "DCB" : a.device === "Balloon only" ? "balloon only" : "";
     return [`${(a.vessels ?? []).join(", ")}${dev ? ` ${dev}` : ""}`, setting, a.complex?.length ? "complex PCI" : null].filter(Boolean).join(" · ");
   }
-  if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null].filter(Boolean).join(" · ");
+  if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null, a.remote === "Enrolled" ? "remote monitoring" : null].filter(Boolean).join(" · ");
   if (kind === "ablation") return [(a.targets ?? []).join(" + "), a.energy, a.result !== "Acute success" ? a.result?.toLowerCase() : null].filter(Boolean).join(" · ");
   if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");
   return [a.count ? `${a.count} graft${a.count === 1 ? "" : "s"}` : null, (a.grafts ?? []).join(", ") || null, a.setting === "acs" ? "during ACS" : null].filter(Boolean).join(" · ");

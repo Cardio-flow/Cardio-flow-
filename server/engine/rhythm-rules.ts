@@ -3,6 +3,7 @@
 // Source: 2024 ESC/EACTS AF guidelines — AF-CARE for every patient with AF; lenient rate control with
 // a resting heart rate <110 bpm as the initial target (class to confirm against the full text).
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
+import { CIED_TYPE } from "../../shared/procedures.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { cha2ds2va } from "./guidelines.js";
 import { deviceStatus } from "./rhythm-profile.js";
@@ -11,6 +12,14 @@ import type { RuleDef } from "./rules.js";
 const AF_RHYTHM = /fibrillation|flutter|paroxysmal AF/i;
 const plannedCheck = (s: PatientState) => s.plan.some((p) => p.status === "planned" && p.completes_on?.type === "study" && p.completes_on.kind === "device_check");
 const DEVICE_FU = "2023 HRS/EHRA/APHRS/LAHRS remote device clinic consensus";
+// the latest implant, upgrade, generator change or lead revision, with its local day
+const IMPLANT_ACTIONS = ["New implant", "Upgrade", "Generator change", "Lead revision"];
+const lastImplant = (s: PatientState) => {
+  const p = s.procedures.filter((x) => x.kind === "device" && IMPLANT_ACTIONS.includes(x.attributes.action)).sort((a, b) => a.performed_at.localeCompare(b.performed_at)).pop();
+  return p ? { p, day: localDay(p.performed_at), type: CIED_TYPE(p.attributes.type) } : null;
+};
+const checksSince = (s: PatientState, day: string) => s.studies.filter((x) => x.kind === "device_check" && localDay(x.performed_at) >= day);
+const planFor = (s: PatientState, re: RegExp, from: string) => s.plan.some((p) => re.test(p.title) && (p.status === "planned" || (p.due_date ?? "") >= from));
 const hasAf = (s: PatientState) => s.conditions.some((c) => (c.code === "af" || c.code === "flutter") && c.status === "active");
 
 export const RHYTHM_RULES: RuleDef[] = [
@@ -220,6 +229,74 @@ export const RHYTHM_RULES: RuleDef[] = [
         detail: `CHA₂DS₂-VA ${sc.score}. Subclinical AF: a DOAC may be considered with high stroke risk and low bleeding risk. If AF is confirmed on an ECG, start AF-CARE.`,
         facts: [{ label: "Device check", value: d.check.summary, date: d.check.at }, { label: "CHA₂DS₂-VA", value: String(sc.score) }, { label: "Guideline", value: "ESC AF 2024" }],
         missing: [], action: { type: "wizard", wizard: "af-care" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.device-first-check",
+    kind: "clinical",
+    title: "First device check after implant",
+    inputs: ["procedures", "studies", "plan"],
+    defaultParams: {},
+    evidence: "2015 HRS remote monitoring consensus (Slotwiner et al., Heart Rhythm 2015;12:e69): all CIEDs are checked through direct patient contact 2–12 weeks after implantation (I, E).",
+    evaluate(s) {
+      const im = lastImplant(s);
+      if (!im) return [];
+      if (daysBetween(im.day, s.today) > 365) return []; // older implants follow the routine interval
+      if (checksSince(s, im.day).some((x) => x.attributes.setting === "In clinic") || planFor(s, /^First device check|^Device check/, im.day)) return [];
+      const from = addDays(im.day, 14), to = addDays(im.day, 84);
+      const late = s.today > to;
+      return [{
+        key: "first-check", signature: im.p.id, severity: late ? "orange" : "yellow",
+        title: `${im.type} ${String(im.p.attributes.action).toLowerCase()} ${fmtDay(im.day)}: first in-person device check ${late ? "overdue" : `due ${fmtDay(from)} – ${fmtDay(to)}`}`,
+        detail: "Every device is checked in person 2–12 weeks after implantation (HRS 2015, I).",
+        facts: [{ label: "Procedure", value: im.p.summary, date: im.p.performed_at }, { label: "Window", value: `${fmtDay(from, { year: true })} – ${fmtDay(to, { year: true })}` }, { label: "Source", value: "HRS 2015" }],
+        missing: [], action: { type: "add-plan", template: "device-first-check" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.device-wound-check",
+    kind: "clinical",
+    title: "Wound check after device implant",
+    inputs: ["procedures", "studies", "plan"],
+    defaultParams: { fromDay: 7, toDay: 10 },
+    evidence: "Local practice (Ahmed, 5 Oct 2026): wound check 7–10 days after a device implant, upgrade, generator change or lead revision. Not a guideline number: runs on sandbox sites until approved in Governance.",
+    evaluate(s, params) {
+      const im = lastImplant(s);
+      if (!im || im.type === "Loop recorder") return [];
+      const fromDay = Number(params?.fromDay ?? 7), toDay = Number(params?.toDay ?? 10);
+      const days = daysBetween(im.day, s.today);
+      if (days > 30) return [];
+      if (planFor(s, /wound check/i, im.day) || checksSince(s, addDays(im.day, fromDay)).some((x) => x.attributes.setting === "In clinic")) return [];
+      const from = addDays(im.day, fromDay), to = addDays(im.day, toDay);
+      return [{
+        key: "wound", signature: im.p.id, severity: "yellow",
+        title: `${im.type} ${String(im.p.attributes.action).toLowerCase()} ${fmtDay(im.day)}: wound check ${s.today > to ? "overdue" : `${fmtDay(from)} – ${fmtDay(to)}`}`,
+        detail: `Wound check ${fromDay}–${toDay} days after the procedure (local practice).`,
+        facts: [{ label: "Procedure", value: im.p.summary, date: im.p.performed_at }, { label: "Window", value: `${fmtDay(from, { year: true })} – ${fmtDay(to, { year: true })}` }],
+        missing: [], action: { type: "add-plan", template: "wound-check" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.remote-monitoring",
+    kind: "clinical",
+    title: "Remote monitoring not started after implant",
+    inputs: ["procedures", "studies", "plan"],
+    defaultParams: {},
+    evidence: "2023 HRS/EHRA/APHRS/LAHRS consensus: it can be beneficial to start remote monitoring before discharge or within 2 weeks of CIED implantation (IIa, B-NR); for an implantable loop recorder, enrolment before discharge is recommended (I, C-EO). 2015 HRS: all patients with CIEDs should be offered remote monitoring (I, A).",
+    evaluate(s) {
+      const im = lastImplant(s);
+      if (!im || im.p.attributes.remote !== "Not enrolled") return [];
+      if (checksSince(s, im.day).some((x) => x.attributes.setting === "Remote") || planFor(s, /remote (device )?monitoring/i, im.day)) return [];
+      const ilr = im.type === "Loop recorder";
+      return [{
+        key: "remote", signature: im.p.id, severity: "yellow",
+        title: `${im.type} ${fmtDay(im.day)}: remote monitoring not started`,
+        detail: ilr ? "Loop recorder: enrol in remote monitoring before discharge (I)." : "Start remote monitoring before discharge or within 2 weeks of implant (IIa); offer it to every patient with a device (I).",
+        facts: [{ label: "Procedure", value: im.p.summary, date: im.p.performed_at }, { label: "Source", value: "HRS/EHRA 2023 · HRS 2015" }],
+        missing: [], action: { type: "add-plan", template: "remote-monitoring" },
       }];
     },
   },

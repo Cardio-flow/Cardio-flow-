@@ -4,7 +4,7 @@ import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SingleChoice } from "../ui";
 import {
   ABLATION_ENERGY, ABLATION_RESULT, ABLATION_TARGETS, ACCESS, CABG_GRAFTS, COMPLEX_FEATURES, CV_METHOD, CV_PREP, CV_RESULT, CV_RHYTHM,
-  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, procedureSummary, type ProcedureKind,
+  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, procedureSummary, type ProcedureKind,
 } from "../../shared/procedures";
 
 const opts = (l: readonly string[]) => l.map((x) => ({ value: x, label: x }));
@@ -22,7 +22,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
   const details = kind === "pci"
     ? { setting: v.setting, vessels: v.vessels ?? [], device: v.device, stents: v.device === "Drug-eluting stent" && v.stents ? Number(v.stents) : null, complex: v.complex ?? [], access: v.access ?? null }
     : kind === "cabg" ? { grafts: v.grafts ?? [], count: v.count ? Number(v.count) : null, setting: v.cabgSetting ?? "elective" }
-    : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null }
+    : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null, remote: v.remote ?? null }
     : kind === "ablation" ? { targets: v.targets ?? [], energy: v.energy ?? null, result: v.ablResult ?? "Acute success" }
     : { method: v.method ?? null, rhythm: v.cvRhythm ?? "Atrial fibrillation", prep: v.prep ?? null, result: v.cvResult ?? "Sinus rhythm restored" };
   const missing = (kind === "pci" ? [!v.setting && "setting", !(v.vessels ?? []).length && "vessels"]
@@ -119,6 +119,12 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
               <div className="q">
                 <div className="label">Ventricular pacing</div>
                 <SingleChoice label="Ventricular pacing" options={opts(PACING_SITES)} value={v.pacing} onChange={(x) => set("pacing", x)} />
+              </div>
+            )}
+            {v.devAction !== "Extraction" && (
+              <div className="q">
+                <div className="label">Remote monitoring <span className="muted">(optional)</span></div>
+                <SingleChoice label="Remote monitoring" options={opts(REMOTE_MONITORING)} value={v.remote} onChange={(x) => set("remote", x)} />
               </div>
             )}
           </>
