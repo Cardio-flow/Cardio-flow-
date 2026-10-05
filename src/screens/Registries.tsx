@@ -4,10 +4,12 @@ import { Link, Segmented, useToast } from "../ui";
 
 // Each registry as a whole: every eligible patient of the site, how much of the registry form the
 // record already fills, what is still missing, and one CSV with a row per patient. Read-only.
-// Heart Failure Registry (heart failure) and CAD Registry (PCI, angiography or ACS admission).
+// Heart Failure Registry (heart failure), CAD Registry (PCI, angiography or ACS admission) and EP
+// Registry (device procedure or ablation; also offered with the registry's SPSS codes).
 const REGS = [
   { value: "hf", name: "Heart Failure Registry", label: "Heart Failure Registry", who: "patients with heart failure", type: "HF type", file: "heart-failure-registry.csv" },
   { value: "cad", name: "CAD Registry", label: "CAD Registry", who: "patients with a PCI, angiography or ACS admission", type: "Presentation", file: "cad-registry.csv" },
+  { value: "eps", name: "EP Registry", label: "EP Registry", who: "patients with a device procedure or an ablation", type: "Reason for EP lab", file: "ep-registry.csv" },
 ];
 export function Registries() {
   const [reg, setReg] = useState("hf");
@@ -26,10 +28,10 @@ export function Registries() {
   );
   if (!r || r.registry !== def.name) return <main className="page">{head}<p className="muted">Loading…</p></main>;
   const rows = r.patients.filter((p: any) => !q || `${p.name} ${p.mrn}`.toLowerCase().includes(q.toLowerCase()));
-  const download = () => {
+  const download = (coded = false) => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([r.csv], { type: "text/csv" }));
-    a.download = def.file;
+    a.href = URL.createObjectURL(new Blob([coded ? r.csvCoded : r.csv], { type: "text/csv" }));
+    a.download = coded ? def.file.replace(".csv", "-spss-codes.csv") : def.file;
     a.click();
   };
   const copy = async () => {
@@ -51,10 +53,11 @@ export function Registries() {
             </div>
           )}
           <div className="row wrap" style={{ gap: 8 }}>
-            <button className="btn secondary small" onClick={download}>Download registry CSV (all patients)</button>
+            <button className="btn secondary small" onClick={() => download()}>Download registry CSV (all patients)</button>
+            {r.csvCoded && <button className="btn ghost small" onClick={() => download(true)}>CSV with SPSS codes</button>}
             <button className="btn ghost small" onClick={copy}>Copy CSV</button>
           </div>
-          <div className="muted small">Enrolment, the codebook and statistics are built at the end of the build. Registry-only fields ({reg === "hf" ? "doctor, referral source" : "Killip class, door-to-balloon, lesion form, follow-up"} and others) are still entered in the registry.</div>
+          <div className="muted small">Enrolment, the codebook and statistics are built at the end of the build. Registry-only fields ({reg === "hf" ? "doctor, referral source" : reg === "cad" ? "Killip class, door-to-balloon, lesion form, follow-up" : "CRF number, procedure times, sedation, mapping system, lead details, follow-up"} and others) are still entered in the registry.</div>
         </div>
         <input className="input" style={{ maxWidth: 420, marginBottom: 12 }} placeholder="Filter by name or MRN" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter registry patients" />
         <table className="data">

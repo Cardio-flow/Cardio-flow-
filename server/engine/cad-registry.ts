@@ -59,7 +59,7 @@ function activeAt(m: MedState, at: string): { on: boolean; dose: number | null }
   }
   return { on, dose };
 }
-const medsAt = (s: PatientState, at: string) =>
+export const medsAt = (s: PatientState, at: string) =>
   s.meds.map((m) => ({ m, ...activeAt(m, at) })).filter((x) => x.on);
 const intensity = (code: string, dose: number | null) =>
   dose == null ? null : code.startsWith("atorvastatin") ? (dose >= 40 ? "High intensity" : dose >= 10 ? "Moderate intensity" : "Low intensity")
@@ -136,7 +136,7 @@ const within6m = (iso: string, x: Ctx) => day(iso) >= addDays(x.from, -182);
 const events = (x: Ctx) => (((x.adm?.summary as any)?.events as string[] | undefined) ?? []);
 const inHosp = (key: string, label: string, re: RegExp): Field => ({ key, label, get: (x) => (x.discharged ? yn(events(x).some((e) => re.test(e))) : null) });
 const initial = (n: string | undefined) => (n ? n[0].toUpperCase() : null);
-const NAT: Record<string, string> = { Kuwait: "Kuwaiti", Kuwaiti: "Kuwaiti", Bedoon: "Bedoon", Egypt: "Egyptian", Egyptian: "Egyptian", India: "Indian", Indian: "Indian", "Saudi Arabia": "Saudi Arabian", Saudi: "Saudi Arabian" };
+export const NAT: Record<string, string> = { Kuwait: "Kuwaiti", Kuwaiti: "Kuwaiti", Bedoon: "Bedoon", Egypt: "Egyptian", Egyptian: "Egyptian", India: "Indian", Indian: "Indian", "Saudi Arabia": "Saudi Arabian", Saudi: "Saudi Arabian" };
 
 export const CAD_REGISTRY: Section[] = [
   {

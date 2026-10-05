@@ -286,13 +286,14 @@ export function VisitsTab({ id, version, open }: { id: string; version: number; 
 export function RegistriesTab({ id, version }: { id: string; version: number }) {
   const { data: hf } = useData<any>(`/patients/${id}/registries/hf`, [version]);
   const { data: cad } = useData<any>(`/patients/${id}/registries/cad`, [version]);
-  const list = [hf, cad].filter((r) => r && r.applicable !== false);
-  if (!hf || !cad || !list.length) {
+  const { data: eps } = useData<any>(`/patients/${id}/registries/eps`, [version]);
+  const list = [hf, cad, eps].filter((r) => r && r.applicable !== false);
+  if (!hf || !cad || !eps || !list.length) {
     return (
       <main className="page">
         <section className="card pad">
           <div className="card-head"><h2>Registries</h2></div>
-          <p className="reg-intro">{hf && cad ? "Registry projections appear for patients with heart failure (Heart Failure Registry) or with a PCI, angiography or ACS admission (CAD Registry). The EP registry follows with its module." : "Loading…"}</p>
+          <p className="reg-intro">{hf && cad && eps ? "Registry projections appear for patients with heart failure (Heart Failure Registry), a PCI, angiography or ACS admission (CAD Registry), or a device procedure or ablation (EP Registry)." : "Loading…"}</p>
         </section>
       </main>
     );
@@ -309,10 +310,10 @@ function RegistryCard({ r }: { r: any }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(r.csv); toast({ text: "Registry row copied (CSV)" }); } catch { toast({ text: "Copy not available in this browser", err: true }); }
   };
-  const download = () => {
+  const download = (coded = false) => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([r.csv], { type: "text/csv" }));
-    a.download = `${file}-row.csv`;
+    a.href = URL.createObjectURL(new Blob([coded ? r.csvCoded : r.csv], { type: "text/csv" }));
+    a.download = `${file}-row${coded ? "-spss-codes" : ""}.csv`;
     a.click();
   };
   return (
@@ -330,7 +331,8 @@ function RegistryCard({ r }: { r: any }) {
         <div className="muted small">{r.counts.mapped - r.counts.filled} mapped fields not recorded yet · {r.counts.registryOnly} fields are asked in the registry only</div>
         <div className="row wrap" style={{ gap: 8 }}>
           <button className="btn secondary small" onClick={copy}>Copy registry row (CSV)</button>
-          <button className="btn ghost small" onClick={download}>Download CSV</button>
+          <button className="btn ghost small" onClick={() => download()}>Download CSV</button>
+          {r.csvCoded && <button className="btn ghost small" onClick={() => download(true)}>CSV with SPSS codes</button>}
           <label className="row small" style={{ gap: 6, fontWeight: 700 }}>
             <input type="checkbox" checked={showOnly} onChange={(e) => setShowOnly(e.target.checked)} /> Show registry-only fields
           </label>
@@ -348,7 +350,7 @@ function RegistryCard({ r }: { r: any }) {
                 {rows.map((f: any) => (
                   <tr key={f.key} className={f.mapped ? (f.value == null ? "reg-missing" : "") : "reg-only"}>
                     <td data-label="Registry field"><b>{f.label}</b> <span className="muted small">{f.key}</span></td>
-                    <td data-label="Value">{f.mapped ? f.value ?? "Not recorded" : "Asked in the registry"}</td>
+                    <td data-label="Value">{f.mapped ? f.value ?? "Not recorded" : "Asked in the registry"}{f.code != null && f.code !== "" && f.code !== f.value ? <span className="muted small"> · code {f.code}</span> : null}</td>
                     <td data-label="From CardioFlow">{[f.at, f.note].filter(Boolean).join(" · ") || (f.mapped ? "" : "—")}</td>
                   </tr>
                 ))}
