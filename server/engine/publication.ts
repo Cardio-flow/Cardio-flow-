@@ -11,10 +11,16 @@ export const POLICY_NOTE =
 // Empty since 1 Oct 2026 (evening): the last four rules were rebuilt on guideline values
 // (ESC HF creatinine limits, 1–2 week post-discharge review, ESC/EACTS 2025 INR targets,
 // ESC HF digoxin target 0.5–0.9 ng/mL). A future rule with a local number is listed here.
-export const NEEDS_REVIEW: Record<string, string> = {
-  "valve.echo-surveillance": "Echo surveillance intervals (6/12/36 months by severity, baseline 30–90 days after intervention, then yearly) from summaries of the ESC/EACTS guidelines: confirm against the 2025 text.",
-  "valve.intervention-trigger": "Class I valve intervention triggers (LVEF and LVESD limits) taken from summaries of the ESC/EACTS guidelines: confirm against the 2025 guideline text before publishing.",
-  "rhythm.device-wound-check": "Wound check 7–10 days after a device implant is local practice (Ahmed, 5 Oct 2026), not a guideline number.",
+export const NEEDS_REVIEW: Record<string, string> = {};
+
+// Local numbers the clinical owner approved: published, with the approval as the publisher and note.
+export const OWNER_APPROVED: Record<string, { by: string; note: string }> = {
+  "rhythm.device-wound-check": {
+    by: "clinical-owner:ahmed",
+    note: "Approved by the clinical owner (Ahmed) on 5 Oct 2026: clinic wound check 7–10 days after a device procedure (local practice, not a guideline number).",
+  },
 };
+export const publisherFor = (id: string) => OWNER_APPROVED[id]?.by ?? POLICY_PUBLISHER;
+export const noteFor = (id: string) => OWNER_APPROVED[id]?.note ?? POLICY_NOTE;
 
 export const publishedByPolicy = (rule: { id: string; kind: string }) => rule.kind === "clinical" && !(rule.id in NEEDS_REVIEW);

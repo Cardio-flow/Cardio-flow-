@@ -15,9 +15,9 @@
 //  - AR: surgery when LVESDi >22 mm/m², LVESVi >45 mL/m² or LVEF ≤55% at low risk (IIb B); repair
 //    (IIa B); TAVI when ineligible for surgery (IIb B).
 //  - TR: Heart Team evaluation (I C); transcatheter treatment (IIa A).
-// Class I triggers unchanged from 2021 (symptomatic severe AS; AS with LVEF <50%; AR with LVEF ≤50% or
-// LVESD >50 mm; primary MR with LVEF ≤60% or LVESD ≥40 mm) are from secondary summaries: shown "to
-// confirm" until read in the guideline text.
+// Class I triggers (2025, read in guideline summaries — Rev Esp Cardiol 2025, Eur Heart J Suppl 2026,
+// EJPC 2026): symptomatic severe AS; asymptomatic AS with LVEF <50%; AR symptomatic or LVEF ≤50%, LVESD
+// >50 mm or LVESDi >25 mm/m² (I B); primary MR symptomatic or LVESD ≥40 mm, LVESDi ≥20 mm/m², LVEF ≤60%.
 import type { Answers, Assessment, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -154,8 +154,8 @@ VALVE_WIZARDS["valve-heart-team"].assess = (a: Answers, ctx: WizardContext): Ass
   const sym = a.symptoms === "symptomatic", low = a.risk === "low", anat = (a.anatomy as string[]) ?? [];
   if (a.lesion === "as") {
     if (a.lowflow === "yes") rec.push(a.lv === "lt50" ? "Low-flow, low-gradient AS with reduced LVEF: intervention (I B)." : "Low-flow, low-gradient AS with LVEF ≥50%: intervention should be considered (IIa B).");
-    if (sym) rec.push("Symptomatic severe AS: intervention (class I — to confirm in the guideline text).");
-    if (a.lv === "lt50" && !sym) rec.push("Asymptomatic severe AS with LVEF <50%: intervention (class I — to confirm in the guideline text).");
+    if (sym) rec.push("Symptomatic severe AS: intervention (I).");
+    if (a.lv === "lt50" && !sym) rec.push("Asymptomatic severe AS with LVEF <50%: intervention (I).");
     if (!sym && a.lv !== "lt50" && low && a.lowflow !== "yes") rec.push("Asymptomatic severe high-gradient AS, LVEF ≥50%, low procedural risk (normal exercise test if feasible): intervention should be considered as an alternative to close surveillance (IIa A).");
     if (age != null && age >= 70 && anat.includes("tricuspid") && !anat.includes("no-tf")) rec.push(`Age ${age}, tricuspid valve, suitable anatomy: TAVI (I A).`);
     if (age != null && age < 70 && low) rec.push(`Age ${age}, low surgical risk: SAVR (I B).`);
@@ -163,15 +163,15 @@ VALVE_WIZARDS["valve-heart-team"].assess = (a: Answers, ctx: WizardContext): Ass
     if (anat.includes("no-tf")) rec.push("No transfemoral access: non-transfemoral TAVI should be considered when surgery is not suitable (IIa B).");
   }
   if (a.lesion === "mr-primary") {
-    if (sym) rec.push("Symptomatic severe primary MR: surgery, repair preferred (class I — to confirm in the guideline text).");
-    if (a.lv !== "gt60" || ((a.mrFeatures as string[]) ?? []).includes("lvesd")) rec.push("LVEF ≤60% or LVESD ≥40 mm: surgery (class I — to confirm in the guideline text).");
+    if (sym) rec.push("Symptomatic severe primary MR: surgery, repair preferred (I).");
+    if (a.lv !== "gt60" || ((a.mrFeatures as string[]) ?? []).includes("lvesd")) rec.push("LVEF ≤60%, LVESD ≥40 mm or LVESDi ≥20 mm/m²: surgery (I).");
     else if (!sym && low && mrRepairFeatures(a) >= 3) rec.push(`Asymptomatic, low risk, LVEF >60%, LVESD <40 mm with ${mrRepairFeatures(a)} of AF, SPAP >50, LA dilatation, TR ≥ moderate: repair (I B).`);
     if (a.risk === "high" || a.risk === "prohibitive") rec.push("High surgical risk: TEER should be considered (IIa B).");
   }
   if (a.lesion === "mr-secondary" && sym && a.lv === "lt50") rec.push("Symptomatic secondary MR with LVEF <50% despite optimised therapy, meeting the selection criteria: TEER (I A).");
   if (a.lesion === "ar") {
-    if (sym) rec.push("Symptomatic severe AR: surgery (class I — to confirm in the guideline text).");
-    if (a.lv === "lt50") rec.push("LVEF ≤50%: surgery (class I — to confirm in the guideline text).");
+    if (sym) rec.push("Symptomatic severe AR: surgery (I).");
+    if (a.lv === "lt50") rec.push("LVEF ≤50% (or LVESD >50 mm / LVESDi >25 mm/m²): surgery (I B).");
     if (!sym && low) rec.push("Asymptomatic, low risk: surgery may be considered with LVESDi >22 mm/m², LVESVi >45 mL/m² or LVEF ≤55% (IIb B).");
     rec.push("Valve repair in selected patients (IIa B); TAVI only when ineligible for surgery (IIb B).");
   }

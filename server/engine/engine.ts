@@ -3,7 +3,7 @@ import { uuid } from "../kernel/base.js";
 import { activeBarrier, loadState, type PatientState } from "../kernel/state.js";
 import { drugClassOf } from "../../shared/catalog.js";
 import { RULES, type Finding, type RuleDef } from "./rules.js";
-import { NEEDS_REVIEW, POLICY_NOTE, POLICY_PUBLISHER, publishedByPolicy } from "./publication.js";
+import { NEEDS_REVIEW, POLICY_PUBLISHER, noteFor, publishedByPolicy, publisherFor } from "./publication.js";
 
 export type RuleVersion = { rule_id: string; version: number; status: string; params: Record<string, any>; title: string; kind: string };
 
@@ -131,14 +131,14 @@ export async function seedRules(tx: Q) {
     }
     added++;
     const status = rule.kind === "operational" || publishedByPolicy(rule) ? "PUBLISHED" : "CLINICAL_REVIEW";
-    const publisher = rule.kind === "operational" ? "system:v2-build" : status === "PUBLISHED" ? POLICY_PUBLISHER : null;
+    const publisher = rule.kind === "operational" ? "system:v2-build" : status === "PUBLISHED" ? publisherFor(rule.id) : null;
     await tx.query(
       `INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author,published_by,review_note) VALUES($1,1,$2,$3,$4,$5,$6,'system:v2-build',$7,$8)`,
-      [rule.id, rule.kind, rule.title, status, JSON.stringify(rule.defaultParams), rule.evidence, publisher, publisher === POLICY_PUBLISHER ? POLICY_NOTE : null],
+      [rule.id, rule.kind, rule.title, status, JSON.stringify(rule.defaultParams), rule.evidence, publisher, rule.kind === "clinical" && status === "PUBLISHED" ? noteFor(rule.id) : null],
     );
     await event(tx, rule.id, 1, null, status, publisher ?? "system:v2-build",
       rule.kind === "operational" ? "Workflow rule (no clinical threshold) published at build."
-        : status === "PUBLISHED" ? POLICY_NOTE : `Local threshold, awaiting clinical review (sandbox only): ${NEEDS_REVIEW[rule.id]}`);
+        : status === "PUBLISHED" ? noteFor(rule.id) : `Local threshold, awaiting clinical review (sandbox only): ${NEEDS_REVIEW[rule.id]}`);
   }
   return added;
 }
@@ -157,10 +157,10 @@ async function applyPolicy(tx: Q, rule: RuleDef) {
   if (publishedByPolicy(rule) && newest.status === "CLINICAL_REVIEW") {
     await tx.query(`UPDATE cf.rule_version SET status='RETIRED', updated_at=now() WHERE rule_id=$1 AND status='PUBLISHED'`, [rule.id]);
     await tx.query(
-      `UPDATE cf.rule_version SET status='PUBLISHED', published_by=$3, review_note=$4, evidence=$5, params=$6, updated_at=now() WHERE rule_id=$1 AND version=$2`,
-      [rule.id, newest.version, POLICY_PUBLISHER, POLICY_NOTE, rule.evidence, JSON.stringify(rule.defaultParams)],
+      `UPDATE cf.rule_version SET status='PUBLISHED', published_by=$3, review_note=$4, evidence=$5, params=$6, title=$7, updated_at=now() WHERE rule_id=$1 AND version=$2`,
+      [rule.id, newest.version, publisherFor(rule.id), noteFor(rule.id), rule.evidence, JSON.stringify(rule.defaultParams), rule.title],
     );
-    await event(tx, rule.id, newest.version, "CLINICAL_REVIEW", "PUBLISHED", POLICY_PUBLISHER, POLICY_NOTE);
+    await event(tx, rule.id, newest.version, "CLINICAL_REVIEW", "PUBLISHED", publisherFor(rule.id), noteFor(rule.id));
     return 1;
   }
   if (!publishedByPolicy(rule) && newest.status === "PUBLISHED" && newest.published_by === POLICY_PUBLISHER) {
@@ -169,10 +169,10 @@ async function applyPolicy(tx: Q, rule: RuleDef) {
     return 1;
   }
   // a build-authored, policy-published version follows the code: evidence and parameters
-  if (newest.published_by === POLICY_PUBLISHER) {
+  if (newest.published_by === POLICY_PUBLISHER || newest.published_by === publisherFor(rule.id)) {
     const r = await tx.query(
-      `UPDATE cf.rule_version SET evidence=$3, params=$4, updated_at=now() WHERE rule_id=$1 AND version=$2 AND (evidence IS DISTINCT FROM $3 OR params::text IS DISTINCT FROM $4::jsonb::text) RETURNING version`,
-      [rule.id, newest.version, rule.evidence, JSON.stringify(rule.defaultParams)],
+      `UPDATE cf.rule_version SET evidence=$3, params=$4, title=$5, updated_at=now() WHERE rule_id=$1 AND version=$2 AND (evidence IS DISTINCT FROM $3 OR params::text IS DISTINCT FROM $4::jsonb::text OR title IS DISTINCT FROM $5) RETURNING version`,
+      [rule.id, newest.version, rule.evidence, JSON.stringify(rule.defaultParams), rule.title],
     );
     return r.rows.length;
   }

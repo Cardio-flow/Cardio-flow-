@@ -98,28 +98,33 @@ export const VALVE_RULES: RuleDef[] = [
     id: "valve.intervention-trigger",
     kind: "clinical",
     title: "Severe valve disease with a class I intervention trigger",
-    inputs: ["studies", "conditions", "lvef", "lvesd", "nyha", "plan", "procedures"],
-    defaultParams: { asLvef: 50, arLvef: 50, arLvesd: 50, mrLvef: 60, mrLvesd: 40 },
-    evidence: "ESC/EACTS valvular heart disease guidelines (2021, unchanged in 2025 as summarised; to confirm against the 2025 text): intervention in symptomatic severe AS and in asymptomatic severe AS with LVEF <50% (I); surgery in severe AR when symptomatic, or with LVEF ≤50% or LVESD >50 mm (I); surgery in severe primary MR when symptomatic, or with LVEF ≤60% or LVESD ≥40 mm (I).",
+    inputs: ["studies", "conditions", "lvef", "lvesd", "nyha", "height", "weight", "contexts", "plan", "procedures"],
+    defaultParams: { asLvef: 50, arLvef: 50, arLvesd: 50, arLvesdi: 25, mrLvef: 60, mrLvesd: 40, mrLvesdi: 20 },
+    evidence: "2025 ESC/EACTS valvular heart disease guidelines (class I): intervention in symptomatic severe AS and in asymptomatic severe AS with LVEF <50%; surgery in severe AR when symptomatic or with LVEF ≤50%, LVESD >50 mm or LVESDi >25 mm/m² (I B); surgery in severe primary MR when symptomatic or with LVESD ≥40 mm, LVESDi ≥20 mm/m² (new) or LVEF ≤60%. Read in the guideline summaries: Rev Esp Cardiol 2025 (AR), Eur Heart J Suppl 2026 (primary MR), EJPC 2026 comparison review (AS). Symptoms: NYHA ≥II, or dyspnoea, chest pain or syncope at the latest visit; LVESDi from LVESD and the Mosteller body-surface area.",
     evaluate(s, p) {
       if (s.plan.some((x) => x.status === "planned" && INTERVENTION_PLANNED.test(x.title))) return [];
       const ef = s.resolved("lvef").current?.value_num ?? null;
       const lvesd = s.resolved("lvesd").current?.value_num ?? null;
+      const h = s.resolved("height").current?.value_num ?? null, w = s.resolved("weight").current?.value_num ?? null;
+      const bsa = h && w ? Math.sqrt((h * w) / 3600) : null;
+      const lvesdi = lvesd != null && bsa ? Math.round((lvesd / bsa) * 10) / 10 : null;
       const nyha = s.resolved("nyha").current?.value_text as string | undefined;
-      const sym = !!nyha && nyha !== "I";
+      const lastCtx = [...s.contexts].filter((c) => (c.summary as any)?.symptoms?.length).pop();
+      const visitSym = (((lastCtx?.summary as any)?.symptoms as string[] | undefined) ?? []).filter((x) => /Dyspnoea|Orthopnoea|Chest pain|Syncope|exercise tolerance/i.test(x));
+      const sym = nyha && nyha !== "I" ? `NYHA ${nyha}` : visitSym.length ? visitSym[0].toLowerCase() : null;
       const out: Finding[] = [];
       for (const l of severeUntreated(s)) {
-        const why = l.code === "as" ? [sym && `NYHA ${nyha}`, ef != null && ef < Number(p.asLvef) && `LVEF ${ef}%`]
-          : l.code === "ar" ? [sym && `NYHA ${nyha}`, ef != null && ef <= Number(p.arLvef) && `LVEF ${ef}%`, lvesd != null && lvesd > Number(p.arLvesd) && `LVESD ${lvesd} mm`]
-          : l.code === "mr-primary" ? [sym && `NYHA ${nyha}`, ef != null && ef <= Number(p.mrLvef) && `LVEF ${ef}%`, lvesd != null && lvesd >= Number(p.mrLvesd) && `LVESD ${lvesd} mm`]
+        const why = l.code === "as" ? [sym, ef != null && ef < Number(p.asLvef) && `LVEF ${ef}%`]
+          : l.code === "ar" ? [sym, ef != null && ef <= Number(p.arLvef) && `LVEF ${ef}%`, lvesd != null && lvesd > Number(p.arLvesd) && `LVESD ${lvesd} mm`, lvesdi != null && lvesdi > Number(p.arLvesdi) && `LVESDi ${lvesdi} mm/m²`]
+          : l.code === "mr-primary" ? [sym, ef != null && ef <= Number(p.mrLvef) && `LVEF ${ef}%`, lvesd != null && lvesd >= Number(p.mrLvesd) && `LVESD ${lvesd} mm`, lvesdi != null && lvesdi >= Number(p.mrLvesdi) && `LVESDi ${lvesdi} mm/m²`]
           : [];
-        const reasons = why.filter(Boolean) as string[];
+        const reasons = [...new Set(why.filter(Boolean) as string[])];
         if (!reasons.length) continue;
         out.push({
           key: `trig-${l.code}`, signature: `${l.code}:${reasons.join(",")}`, severity: "orange",
           title: `Severe ${LABEL[l.code]} with ${reasons.join(" and ")}: intervention indicated (class I)`,
           detail: "Heart Team: timing and route of intervention.",
-          facts: [{ label: "Severe", value: `${LABEL[l.code]} (${l.from})` }, ...echoFacts(s)],
+          facts: [{ label: "Severe", value: `${LABEL[l.code]} (${l.from})` }, ...echoFacts(s), ...(lvesdi != null ? [{ label: "LVESDi", value: `${lvesdi} mm/m² (BSA ${bsa!.toFixed(2)} m²)` }] : []), { label: "Guideline", value: "ESC/EACTS VHD 2025 · class I" }],
           missing: [], action: { type: "wizard", wizard: "valve-heart-team" },
         });
       }
@@ -132,7 +137,7 @@ export const VALVE_RULES: RuleDef[] = [
     title: "Valve echo surveillance due",
     inputs: ["studies", "conditions", "procedures", "plan"],
     defaultParams: SURVEILLANCE_DEFAULTS,
-    evidence: "ESC/EACTS valvular heart disease guidance on follow-up (intervals from summaries; to confirm against the 2025 text): asymptomatic severe native lesion every 6 months, moderate yearly, mild every 2–3 years; a baseline echo after valve intervention, then yearly imaging of the prosthesis or repair. Parameters are editable in Governance.",
+    evidence: "2025 ESC/EACTS: structured follow-up with regular echocardiography (no intervals stated in the text available); intervals from the 2020 ACC/AHA valvular heart disease guideline — Table 5: severe every 6–12 months, moderate every 1–2 years, mild every 3–5 years; Table 12: baseline TTE 1–3 months after intervention, transcatheter valve then yearly, surgical bioprosthesis at 5 and 10 years then yearly, mechanical valve baseline only. Due at the start of each range, overdue at its end.",
     evaluate(s, p) {
       if (s.plan.some((x) => x.status === "planned" && x.completes_on?.type === "study" && x.completes_on.kind === "echo")) return [];
       // severe lesion with an intervention already decided: the procedure, not surveillance
@@ -142,7 +147,7 @@ export const VALVE_RULES: RuleDef[] = [
         .filter((i) => !(decided && i.key === "native"))
         .map((i): Finding => ({
           key: i.key, signature: `${i.key}:${i.dueAt}`, severity: "yellow",
-          title: i.key.startsWith("baseline") ? `${i.what}: ${i.overdue ? `overdue since ${fmtDay(i.dueAt)}` : `due by ${fmtDay(i.dueAt)}`}` : `${i.what}: due since ${fmtDay(i.dueAt, { year: true })}`,
+          title: `${i.what}: ${i.overdue ? `overdue since ${fmtDay(i.dueAt, { year: true })}` : `due by ${fmtDay(i.dueAt, { year: true })}`}`,
           detail: `${i.reason[0].toUpperCase()}${i.reason.slice(1)}${i.last ? `; last echo ${fmtDay(i.last, { year: true })}` : "; no echo recorded"}.`,
           facts: [{ label: "Last echo", value: i.last ? fmtDay(i.last, { year: true }) : "None" }, { label: "Interval", value: i.reason }],
           missing: [], action: { type: "add-plan", template: "valve-echo" },

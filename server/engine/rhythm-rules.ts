@@ -258,23 +258,26 @@ export const RHYTHM_RULES: RuleDef[] = [
   {
     id: "rhythm.device-wound-check",
     kind: "clinical",
-    title: "Wound check after device implant",
-    inputs: ["procedures", "studies", "plan"],
+    title: "Clinic wound check after a device procedure",
+    inputs: ["procedures", "studies", "plan", "contexts"],
     defaultParams: { fromDay: 7, toDay: 10 },
-    evidence: "Local practice (Ahmed, 5 Oct 2026): wound check 7–10 days after a device implant, upgrade, generator change or lead revision. Not a guideline number: runs on sandbox sites until approved in Governance.",
+    evidence: "Local practice approved by the clinical owner (Ahmed, 5 Oct 2026): a clinic visit for the wound check 7–10 days after a device implant, upgrade, generator change or lead revision. Not for loop recorders or leadless pacemakers (no pocket).",
     evaluate(s, params) {
       const im = lastImplant(s);
-      if (!im || im.type === "Loop recorder") return [];
+      if (!im || im.type === "Loop recorder" || /Leadless/.test(im.p.attributes.type)) return [];
       const fromDay = Number(params?.fromDay ?? 7), toDay = Number(params?.toDay ?? 10);
       const days = daysBetween(im.day, s.today);
       if (days > 30) return [];
-      if (planFor(s, /wound check/i, im.day) || checksSince(s, addDays(im.day, fromDay)).some((x) => x.attributes.setting === "In clinic")) return [];
+      const seen = addDays(im.day, fromDay);
+      // done: a clinic visit (or an in-clinic device check) from day 7; or the clinic wound check is booked
+      if (planFor(s, /wound check/i, im.day) || s.contexts.some((c) => c.kind === "clinic_visit" && localDay(c.started_at) >= seen)
+        || checksSince(s, seen).some((x) => x.attributes.setting === "In clinic")) return [];
       const from = addDays(im.day, fromDay), to = addDays(im.day, toDay);
       return [{
         key: "wound", signature: im.p.id, severity: "yellow",
-        title: `${im.type} ${String(im.p.attributes.action).toLowerCase()} ${fmtDay(im.day)}: wound check ${s.today > to ? "overdue" : `${fmtDay(from)} – ${fmtDay(to)}`}`,
-        detail: `Wound check ${fromDay}–${toDay} days after the procedure (local practice).`,
-        facts: [{ label: "Procedure", value: im.p.summary, date: im.p.performed_at }, { label: "Window", value: `${fmtDay(from, { year: true })} – ${fmtDay(to, { year: true })}` }],
+        title: `${im.type} ${String(im.p.attributes.action).toLowerCase()} ${fmtDay(im.day)}: clinic wound check ${s.today > to ? "overdue" : `${fmtDay(from)} – ${fmtDay(to)}`}`,
+        detail: `Clinic visit for the wound check ${fromDay}–${toDay} days after the procedure.`,
+        facts: [{ label: "Procedure", value: im.p.summary, date: im.p.performed_at }, { label: "Window", value: `${fmtDay(from, { year: true })} – ${fmtDay(to, { year: true })}` }, { label: "Source", value: "Local practice · approved 5 Oct 2026" }],
         missing: [], action: { type: "add-plan", template: "wound-check" },
       }];
     },

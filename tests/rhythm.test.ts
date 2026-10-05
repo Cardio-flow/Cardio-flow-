@@ -243,7 +243,7 @@ test("electrical storm on a device check → red offer; the pathway suggests mon
   for (const v of ["monitor", "amiodarone", "bb", "sedation", "reprogram"]) assert.ok(acts.includes(v), v);
 });
 
-test("after a new implant: first in-person check 2–12 weeks (published), wound check 7–10 days (local, in review), remote monitoring when not enrolled; each clears when done or planned", async () => {
+test("after a new implant: first in-person check 2–12 weeks, clinic wound check 7–10 days (owner-approved), remote monitoring when not enrolled; each clears when done or planned", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Implant " + Date.now(), mrn: "N" + Date.now(), sex: "Male", birthDate: "1955-02-01", conditions: ["av-block"] }));
   const day = addDays(T, -3);
   await tx(async (q) => { await K.recordProcedure(q, doc, pid, { kind: "device", date: at(day), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "AV block", pacing: "RV pacing", remote: "Not enrolled" } }); await reassess(q, pid, "sandbox"); });
@@ -252,8 +252,8 @@ test("after a new implant: first in-person check 2–12 weeks (published), wound
   assert.equal(first.severity, "yellow");
   assert.match(first.title, /first in-person device check due/);
   assert.equal(await status("rhythm.device-first-check"), "PUBLISHED");
-  assert.match((await rec(pid, "rhythm.device-wound-check")).title, /wound check/);
-  assert.equal(await status("rhythm.device-wound-check"), "CLINICAL_REVIEW", "local 7–10 days: approved in Governance");
+  assert.match((await rec(pid, "rhythm.device-wound-check")).title, /clinic wound check/);
+  assert.equal(await status("rhythm.device-wound-check"), "PUBLISHED", "local 7–10 days, approved by the clinical owner");
   assert.match((await rec(pid, "rhythm.remote-monitoring")).title, /remote monitoring not started/);
   await tx(async (q) => { await K.addPlanAction(q, doc, pid, { category: "follow_up", title: "Device wound check", dueDate: addDays(day, 8), completesOn: { type: "manual" } }); await reassess(q, pid, "sandbox", ["plan"]); });
   assert.equal(await rec(pid, "rhythm.device-wound-check"), undefined);
@@ -262,4 +262,15 @@ test("after a new implant: first in-person check 2–12 weeks (published), wound
   assert.ok(await rec(pid, "rhythm.device-first-check"), "a remote check is not the in-person check");
   await check(pid, T, { setting: "In clinic", device: "Pacemaker", battery: "OK", leads: "Normal", va: "None" }, "10:30");
   assert.equal(await rec(pid, "rhythm.device-first-check"), undefined);
+});
+
+test("the clinic wound check clears with a clinic visit from day 7, and does not apply to a leadless pacemaker", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Wound " + Date.now(), mrn: "W" + Date.now(), sex: "Male", birthDate: "1950-05-01", conditions: ["av-block"] }));
+  await tx(async (q) => { await K.recordProcedure(q, doc, pid, { kind: "device", date: at(addDays(T, -8)), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "AV block" } }); await reassess(q, pid, "sandbox"); });
+  assert.ok(await rec(pid, "rhythm.device-wound-check"));
+  await tx(async (q) => { await K.startVisit(q, doc, pid, { reasons: ["Device"], symptoms: ["No symptoms"], service: "Cardiology clinic", startedAt: new Date().toISOString() } as any); await reassess(q, pid, "sandbox", ["contexts"]); });
+  assert.equal(await rec(pid, "rhythm.device-wound-check"), undefined, "seen in the clinic");
+  const p2 = await tx((q) => K.createPatient(q, doc, { name: "Leadless " + Date.now(), mrn: "LL" + Date.now(), sex: "Male", birthDate: "1945-05-01", conditions: ["av-block"] }));
+  await tx(async (q) => { await K.recordProcedure(q, doc, p2, { kind: "device", date: at(addDays(T, -8)), details: { type: "Leadless pacemaker", action: "New implant", indication: "AV block" } }); await reassess(q, p2, "sandbox"); });
+  assert.equal(await rec(p2, "rhythm.device-wound-check"), undefined, "no pocket");
 });

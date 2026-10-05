@@ -99,7 +99,7 @@ const run = (pid: string, wizard: string, answers: any, recommendationId?: strin
   tx(async (q) => { const r = await completeWizard(q, doc, pid, wizard, { answers, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
 const status = async (pid: string, rule: string) => ((await db.query(`SELECT rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[])[0]?.rule_status;
 
-test("Mariam (81, severe AS, NYHA II): Heart Team finding (published) and class I trigger (in review); the pathway suggests TAVI; deciding clears both", async () => {
+test("Mariam (81, severe AS, NYHA II): Heart Team finding and class I trigger; the pathway suggests TAVI; deciding clears both", async () => {
   const pid = await byName("Mariam Hussain");
   const ht = (await rec(pid, "valve.severe-heart-team"))[0];
   assert.equal(ht.severity, "orange");
@@ -107,7 +107,7 @@ test("Mariam (81, severe AS, NYHA II): Heart Team finding (published) and class 
   assert.equal(await status(pid, "valve.severe-heart-team"), "PUBLISHED");
   const tr = (await rec(pid, "valve.intervention-trigger"))[0];
   assert.match(tr.title, /Severe aortic stenosis with NYHA II: intervention indicated \(class I\)/);
-  assert.equal(await status(pid, "valve.intervention-trigger"), "CLINICAL_REVIEW");
+  assert.equal(await status(pid, "valve.intervention-trigger"), "PUBLISHED");
   const ctx = (await tx((q) => getWizard(q, pid, "valve-heart-team"))).context;
   assert.deepEqual(suggest("valve-heart-team", "lesion", {}, ctx).map((x) => x.value), ["as"]);
   assert.deepEqual(suggest("valve-heart-team", "symptoms", {}, ctx).map((x) => x.value), ["symptomatic"]);
@@ -118,7 +118,7 @@ test("Mariam (81, severe AS, NYHA II): Heart Team finding (published) and class 
   assert.match(d[0].why, /I A/);
   const done = await run(pid, "valve-heart-team", { ...answers, decision: "tavi", workup: ["ct", "meeting"], review: "none" }, ht.id);
   assert.ok(done.assessment!.recommendations.some((x: string) => /TAVI \(I A\)/.test(x)));
-  assert.ok(done.assessment!.recommendations.some((x: string) => /Symptomatic severe AS: intervention \(class I — to confirm/.test(x)));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /Symptomatic severe AS: intervention \(I\)/.test(x)));
   const s = await loadState(db, pid);
   assert.ok(s.plan.some((p) => p.title === "TAVI (Heart Team decision)" && p.status === "planned"));
   assert.equal((await rec(pid, "valve.severe-heart-team")).length, 0);
@@ -143,11 +143,11 @@ test("severe primary MR, asymptomatic, LVEF >60%, AF + SPAP >50 + TR moderate, l
 });
 
 // ---- slice 3: echo surveillance (intervals in review) ----
-test("Latifa (TAVI 40 days ago, no echo since): baseline echo due (in review); an echo clears it and sets yearly follow-up", async () => {
+test("Latifa (TAVI 40 days ago, no echo since): baseline echo due; an echo clears it and sets yearly follow-up", async () => {
   const pid = await byName("Latifa Al-Fadhli");
   const r = (await rec(pid, "valve.echo-surveillance"))[0];
   assert.match(r.title, /^Baseline echo after TAVI: due by/);
-  assert.equal(await status(pid, "valve.echo-surveillance"), "CLINICAL_REVIEW");
+  assert.equal(await status(pid, "valve.echo-surveillance"), "PUBLISHED");
   assert.equal(r.action.template, "valve-echo");
   let v = (await sumOf(pid)).valve;
   assert.ok(v.surveillance.some((x: any) => /Baseline echo/.test(x.what)));
@@ -159,11 +159,31 @@ test("Latifa (TAVI 40 days ago, no echo since): baseline echo due (in review); a
   assert.ok(v.echo.values.some((x: any) => x.code === "av-mg" && x.value === "9"), "post-TAVI gradient shown");
 });
 
-test("moderate AS last imaged 14 months ago → surveillance due; a planned echo quiets it", async () => {
+test("moderate AS last imaged 14 months ago → surveillance due (every 1–2 years, ACC/AHA 2020); a planned echo quiets it", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Mod AS " + Date.now(), mrn: "MA" + Date.now(), sex: "Male", birthDate: "1955-01-01", conditions: ["htn"] }));
   await tx(async (q) => { await K.recordEcho(q, doc, pid, { date: at(addDays(T, -425)), quality: "formal", lvef: 60, findings: [], valves: { as: "Moderate" } }); await reassess(q, pid, "sandbox"); });
   const r = (await rec(pid, "valve.echo-surveillance"))[0];
-  assert.match(r.title, /^Echo: moderate AS surveillance: due since/);
+  assert.match(r.title, /^Echo: moderate AS surveillance: due by/);
   await tx(async (q) => { await K.addPlanAction(q, doc, pid, { category: "investigation", title: "Echo (valve surveillance)", dueDate: addDays(T, 7), completesOn: { type: "study", kind: "echo" } }); await reassess(q, pid, "sandbox", ["plan"]); });
   assert.equal((await rec(pid, "valve.echo-surveillance")).length, 0);
+});
+
+test("severe AR with LVESD 46 mm in a small patient: LVESDi above 25 mm/m² triggers surgery (class I); mechanical valve gets the baseline echo only, a surgical bioprosthesis is imaged at 5 years", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Ari " + Date.now(), mrn: "AI" + Date.now(), sex: "Female", birthDate: "1970-01-01", conditions: [] }));
+  await tx(async (q) => {
+    await K.recordObservations(q, doc, pid, { effectiveAt: at(T), items: [{ code: "height", value: 150 }, { code: "weight", value: 50 }] });
+    await K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 58, findings: [], valves: { ar: "Severe" }, measures: { lvesd: 46 } });
+    await reassess(q, pid, "sandbox");
+  });
+  const r = (await rec(pid, "valve.intervention-trigger"))[0];
+  assert.match(r.title, /Severe aortic regurgitation with LVESDi 31\.9 mm\/m²: intervention indicated \(class I\)/);
+  const m = await tx((q) => K.createPatient(q, doc, { name: "Mech " + Date.now(), mrn: "MV" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, m, { kind: "valve", date: at(addDays(T, -400)), details: { position: "Aortic", procedure: "Surgical replacement", prosthesis: "Mechanical", design: "Bileaflet / current tilting-disc" } }));
+  await tx((q) => K.recordEcho(q, doc, m, { date: at(addDays(T, -330)), quality: "formal", lvef: 60, findings: [] }));
+  assert.equal((await sumOf(m)).valve.surveillance.length, 0, "mechanical valve: baseline only");
+  const b = await tx((q) => K.createPatient(q, doc, { name: "Bio " + Date.now(), mrn: "BV" + Date.now(), sex: "Male", birthDate: "1950-01-01", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, b, { kind: "valve", date: at(addDays(T, -800)), details: { position: "Aortic", procedure: "Surgical replacement", prosthesis: "Bioprosthetic" } }));
+  await tx((q) => K.recordEcho(q, doc, b, { date: at(addDays(T, -740)), quality: "formal", lvef: 60, findings: [] }));
+  const sv = (await sumOf(b)).valve.surveillance[0];
+  assert.match(sv.reason, /at 5 years/);
 });
