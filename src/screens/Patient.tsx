@@ -33,7 +33,7 @@ export type Open =
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
   | { kind: "dx" }
-  | { kind: "procedure"; group?: "coronary" | "rhythm" }
+  | { kind: "procedure"; group?: "coronary" | "rhythm" | "valve" }
   | { kind: "history"; focus?: "risk" | "cardiac" }
   | { kind: "identity"; identity: any }
   | { kind: "status" }

@@ -4,16 +4,16 @@ import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SingleChoice } from "../ui";
 import {
   ABLATION_ENERGY, ABLATION_RESULT, ABLATION_TARGETS, ACCESS, CABG_GRAFTS, COMPLEX_FEATURES, CV_METHOD, CV_PREP, CV_RESULT, CV_RHYTHM,
-  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, procedureSummary, type ProcedureKind,
+  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, VALVE_POSITIONS, VALVE_PROCEDURES, VALVE_PROSTHESES, VALVE_ACCESS, MECH_DESIGNS, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, procedureSummary, type ProcedureKind,
 } from "../../shared/procedures";
 
 const opts = (l: readonly string[]) => l.map((x) => ({ value: x, label: x }));
 
 // Record a procedure with its exact date: PCI or CABG (antithrombotic durations count from here), or a
 // device implant, ablation or cardioversion (rhythm & devices).
-export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm"; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve"; onClose(): void; onDone(m?: string, r?: any): void }) {
   const { data: health } = useData<any>("/health");
-  const [kind, setKind] = useState<ProcedureKind>(group === "rhythm" ? "device" : "pci");
+  const [kind, setKind] = useState<ProcedureKind>(group === "rhythm" ? "device" : group === "valve" ? "valve" : "pci");
   const [date, setDate] = useState("");
   const [v, setV] = useState<Record<string, any>>({ device: "Drug-eluting stent", complex: [] });
   const [busy, setBusy] = useState(false);
@@ -24,11 +24,13 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     : kind === "cabg" ? { grafts: v.grafts ?? [], count: v.count ? Number(v.count) : null, setting: v.cabgSetting ?? "elective" }
     : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null, remote: v.remote ?? null }
     : kind === "ablation" ? { targets: v.targets ?? [], energy: v.energy ?? null, result: v.ablResult ?? "Acute success" }
+    : kind === "valve" ? { position: v.position ?? null, procedure: v.vproc ?? null, prosthesis: v.prosthesis ?? null, design: v.design ?? null, access: v.vaccess ?? null }
     : { method: v.method ?? null, rhythm: v.cvRhythm ?? "Atrial fibrillation", prep: v.prep ?? null, result: v.cvResult ?? "Sinus rhythm restored" };
   const missing = (kind === "pci" ? [!v.setting && "setting", !(v.vessels ?? []).length && "vessels"]
     : kind === "cabg" ? [!(v.grafts ?? []).length && "grafts"]
     : kind === "device" ? [!v.devType && "device"]
     : kind === "ablation" ? [!(v.targets ?? []).length && "target"]
+    : kind === "valve" ? [!v.position && "valve", !v.vproc && "procedure", v.vproc === "Surgical replacement" && !v.prosthesis && "prosthesis"]
     : [!v.method && "method"]).filter(Boolean);
   const preview = missing.length ? "" : procedureSummary(kind, details);
 
@@ -46,8 +48,8 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
   }
   return (
     <Drawer
-      title={group === "rhythm" ? "Record device, ablation or cardioversion" : "Record PCI or CABG"}
-      subtitle={group === "rhythm" ? "Dated so device follow-up and anticoagulation around cardioversion and ablation can be timed" : "The exact date and setting time DAPT and anticoagulant combinations"}
+      title={group === "rhythm" ? "Record device, ablation or cardioversion" : group === "valve" ? "Record valve intervention" : "Record PCI or CABG"}
+      subtitle={group === "rhythm" ? "Dated so device follow-up and anticoagulation around cardioversion and ablation can be timed" : group === "valve" ? "The prosthesis or repair joins the problem list; antithrombotic therapy and follow-up are timed from this date" : "The exact date and setting time DAPT and anticoagulant combinations"}
       icon={<HeartPulse size={22} />}
       wide
       onClose={onClose}
@@ -63,7 +65,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     >
       <div className="drawer-body">
         <div className="row wrap" style={{ gap: 18, alignItems: "flex-end" }}>
-          <Segmented label="Procedure" options={(group === "rhythm" ? (["device", "ablation", "cardioversion"] as ProcedureKind[]) : (["pci", "cabg"] as ProcedureKind[])).map((k) => ({ value: k, label: PROCEDURE_LABEL[k] }))} value={kind} onChange={(x) => setKind(x as ProcedureKind)} />
+          {group !== "valve" && <Segmented label="Procedure" options={(group === "rhythm" ? (["device", "ablation", "cardioversion"] as ProcedureKind[]) : (["pci", "cabg"] as ProcedureKind[])).map((k) => ({ value: k, label: PROCEDURE_LABEL[k] }))} value={kind} onChange={(x) => setKind(x as ProcedureKind)} />}
           <label className="field">
             <span>Date</span>
             <input type="date" className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
@@ -100,6 +102,36 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
               <div className="label">Access</div>
               <Segmented label="Access" options={ACCESS.map((x) => ({ value: x, label: x }))} value={v.access} onChange={(x) => set("access", x)} />
             </div>
+          </>
+        ) : kind === "valve" ? (
+          <>
+            <div className="q">
+              <div className="label">Valve</div>
+              <Segmented label="Valve" options={opts(VALVE_POSITIONS)} value={v.position} onChange={(x) => { set("position", x); if (x !== "Aortic" && v.vproc === "TAVI") set("vproc", undefined); }} />
+            </div>
+            <div className="q">
+              <div className="label">Procedure</div>
+              <SingleChoice label="Procedure" options={opts(VALVE_PROCEDURES.filter((p) => p !== "TAVI" || v.position === "Aortic" || !v.position))} value={v.vproc} onChange={(x) => set("vproc", x)} />
+            </div>
+            {v.vproc === "Surgical replacement" && (
+              <div className="q">
+                <div className="label">Prosthesis</div>
+                <Segmented label="Prosthesis" options={opts(VALVE_PROSTHESES)} value={v.prosthesis} onChange={(x) => set("prosthesis", x)} />
+              </div>
+            )}
+            {v.vproc === "Surgical replacement" && v.prosthesis === "Mechanical" && (
+              <div className="q">
+                <div className="label">Mechanical valve design</div>
+                <div className="help">Sets the INR target with the position and the patient's risk factors (ESC/EACTS 2025).</div>
+                <SingleChoice label="Valve design" options={opts(MECH_DESIGNS)} value={v.design} onChange={(x) => set("design", x)} />
+              </div>
+            )}
+            {(v.vproc === "TAVI" || v.vproc === "Valve-in-valve") && (
+              <div className="q">
+                <div className="label">Access</div>
+                <Segmented label="Access" options={opts(VALVE_ACCESS)} value={v.vaccess} onChange={(x) => set("vaccess", x)} />
+              </div>
+            )}
           </>
         ) : kind === "device" ? (
           <>

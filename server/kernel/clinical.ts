@@ -5,8 +5,8 @@ import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, cla
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
-import { STUDY, cleanStudy, studySummary } from "../../shared/studies.js";
-import { CIED_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
+import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, studySummary, valveFindings } from "../../shared/studies.js";
+import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
 export type Changed = string[];
@@ -301,17 +301,30 @@ export async function recordEcho(
   tx: Q,
   actor: Actor,
   patientId: string,
-  input: { date: string; quality: "formal" | "limited" | "bedside"; lvef: number; findings: string[]; conclusion?: string; contextId?: string | null },
+  input: {
+    date: string; quality: "formal" | "limited" | "bedside"; lvef: number; findings: string[]; conclusion?: string; contextId?: string | null;
+    // valve module: grades per valve, MR mechanism, and measured values (observations linked to the study)
+    valves?: Partial<Record<string, string>>; mrType?: string | null; measures?: Partial<Record<string, number>>;
+  },
 ) {
   await patientInSite(tx, actor, patientId);
   const id = uuid();
+  const valves = Object.fromEntries(Object.entries(input.valves ?? {}).filter(([k, v]) => ECHO_VALVES.some((x) => x.key === k) && (VALVE_GRADES as readonly string[]).includes(String(v)))) as Record<string, string>;
+  const mrType = valves.mr && valves.mr !== "None" && input.mrType && (MR_TYPES as readonly string[]).includes(input.mrType) ? input.mrType : null;
+  const numbers = ECHO_NUMBERS.filter((n) => input.measures?.[n.code] != null).map((n) => {
+    const v = Number(input.measures![n.code]);
+    if (!(v >= n.min && v <= n.max)) throw new ApiError(400, `${n.label}: ${n.min}–${n.max} ${n.unit}`);
+    return { code: n.code, value: v };
+  });
+  const findings = [...new Set([...input.findings, ...valveFindings(valves, mrType)])];
+  const attributes = Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {};
   await tx.query(
-    `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8)`,
-    [id, patientId, input.date, input.quality, input.findings, input.conclusion ?? "", input.contextId ?? null, actor.id],
+    `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8,$9)`,
+    [id, patientId, input.date, input.quality, findings, input.conclusion ?? "", input.contextId ?? null, actor.id, JSON.stringify(attributes)],
   );
   await recordObservations(tx, actor, patientId, {
     effectiveAt: input.date,
-    items: [{ code: "lvef", value: input.lvef }],
+    items: [{ code: "lvef", value: input.lvef }, ...numbers],
     quality: input.quality,
     studyId: id,
     contextId: input.contextId,
@@ -324,13 +337,13 @@ export async function recordEcho(
     kind: "echo",
     category: "investigation",
     title: `Echo · LVEF ${Math.round(input.lvef)}%`,
-    detail: [input.quality === "formal" ? "Formal TTE" : input.quality === "limited" ? "Limited study" : "Bedside study", ...input.findings].join(" · "),
+    detail: [input.quality === "formal" ? "Formal TTE" : input.quality === "limited" ? "Limited study" : "Bedside study", ...findings].join(" · "),
     refType: "study",
     refId: id,
     contextId: input.contextId,
   });
   const completed = await completeMatching(tx, actor, patientId, { type: "study", kind: "echo", at: input.date, ref: id });
-  return { id, changed: ["lvef", ...(completed.length ? ["plan"] : [])] as Changed, completed };
+  return { id, changed: ["lvef", "studies", ...numbers.map((n) => n.code), ...(completed.length ? ["plan"] : [])] as Changed, completed };
 }
 
 // Any non-Echo study, from its template. Numeric findings that rules read become
@@ -433,6 +446,23 @@ export async function recordProcedure(
     if (!cur[0]) await addCondition(tx, actor, patientId, { code: "cied", onset: day, contextId: input.contextId, attributes: { type } });
     else if (listed !== type && !(type === "Loop recorder" && listed && listed !== "Loop recorder"))
       await updateCondition(tx, actor, patientId, cur[0].logical_id, { onset: day, attributes: { type } });
+  }
+  else if (input.kind === "valve") {
+    // the prosthesis or repair goes on the problem list with its position and type (INR, endocarditis
+    // and antithrombotic rules read it); a redo or valve-in-valve replaces the listed one in that position
+    const type = PROSTHESIS_TYPE(attributes);
+    if (type) {
+      const condAttrs = { position: attributes.position, type, ...(type === "Mechanical" ? { design: attributes.design ?? "Unknown" } : {}) };
+      const cur = ((await tx.query(
+        `SELECT * FROM (SELECT DISTINCT ON (logical_id) logical_id, status, onset, attributes FROM cf.condition WHERE patient_id=$1 AND code='prosthetic-valve' ORDER BY logical_id, version DESC) c WHERE status='active'`,
+        [patientId],
+      )).rows as any[]).find((c) => (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {}).position === attributes.position);
+      if (cur) {
+        const prev = typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes ?? {};
+        // the same prosthesis already listed without a date (or this year) is completed, keeping its INR target
+        await updateCondition(tx, actor, patientId, cur.logical_id, { onset: day, attributes: { ...(prev.type === type ? prev : {}), ...condAttrs } });
+      } else await addCondition(tx, actor, patientId, { code: "prosthetic-valve", onset: day, contextId: input.contextId, attributes: condAttrs });
+    }
   }
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.date, kind: input.kind, category: "procedure",

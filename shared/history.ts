@@ -131,7 +131,7 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   tr: [{ key: "severity", label: "Severity", options: ["Mild", "Moderate", "Severe", "Unknown"] }],
   "prosthetic-valve": [
     { key: "position", label: "Position", options: ["Aortic", "Mitral", "Tricuspid", "Pulmonary"] },
-    { key: "type", label: "Type", options: ["Mechanical", "Bioprosthetic (surgical)", "TAVI", "Repair / ring"] },
+    { key: "type", label: "Type", options: ["Mechanical", "Bioprosthetic (surgical)", "TAVI", "Transcatheter valve", "Repair / ring", "Edge-to-edge repair (clip)"] },
     // mechanical valves only (ESC/EACTS 2025: INR target by valve type and position, and patient risk factors)
     { key: "design", label: "Mechanical valve design", options: MECHANICAL_DESIGNS, text: (v) => (v === "Unknown" ? null : v), when: { key: "type", equals: "Mechanical" } },
     { key: "inrTarget", label: "INR target (set by clinician)", options: INR_TARGETS, text: (v) => `INR target ${v}`, when: { key: "type", equals: "Mechanical" } },

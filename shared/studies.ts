@@ -208,3 +208,29 @@ export function studySummary(kind: string, a: Record<string, any>): string {
   }
   return "";
 }
+
+// Echo valve assessment (valve module, slice 1): a grade per valve and the measured values the
+// valve rules read. Grades are the echocardiographer's own; CardioFlow does not grade from numbers.
+export const ECHO_VALVES = [
+  { key: "as", label: "Aortic stenosis", short: "AS", dx: "as" },
+  { key: "ar", label: "Aortic regurgitation", short: "AR", dx: "ar" },
+  { key: "mr", label: "Mitral regurgitation", short: "MR", dx: "mr" },
+  { key: "ms", label: "Mitral stenosis", short: "MS", dx: "ms" },
+  { key: "tr", label: "Tricuspid regurgitation", short: "TR", dx: "tr" },
+] as const;
+export const VALVE_GRADES = ["None", "Mild", "Moderate", "Severe"] as const;
+export const MR_TYPES = ["Primary", "Secondary"] as const;
+export const ECHO_NUMBERS = [
+  { code: "av-vmax", label: "AV peak velocity", unit: "m/s", min: 0.5, max: 8, step: 0.1 },
+  { code: "av-mg", label: "AV mean gradient", unit: "mmHg", min: 0, max: 200, step: 1 },
+  { code: "ava", label: "AVA", unit: "cm²", min: 0.1, max: 6, step: 0.01 },
+  { code: "mva", label: "MVA", unit: "cm²", min: 0.2, max: 8, step: 0.1 },
+  { code: "lvesd", label: "LVESD", unit: "mm", min: 10, max: 120, step: 1 },
+  { code: "lvedd", label: "LVEDD", unit: "mm", min: 20, max: 130, step: 1 },
+  { code: "spap", label: "SPAP", unit: "mmHg", min: 5, max: 200, step: 1 },
+] as const;
+// "Severe AS", "Moderate secondary MR": the text the echo adds to its findings
+export function valveFindings(valves: Record<string, string>, mrType?: string | null) {
+  return ECHO_VALVES.filter((v) => valves[v.key] && valves[v.key] !== "None" && valves[v.key] !== "Mild")
+    .map((v) => `${valves[v.key]} ${v.key === "mr" && mrType ? `${mrType.toLowerCase()} ` : ""}${v.short}`);
+}

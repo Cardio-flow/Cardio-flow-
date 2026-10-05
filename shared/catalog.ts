@@ -81,6 +81,14 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "mets", display: "Exercise capacity", short: "METs", unit: "METs", category: "Stress", decimals: 1 },
   { code: "cac", display: "Coronary calcium score", short: "CAC", unit: "Agatston", category: "CT", decimals: 0 },
   { code: "rvef", display: "RVEF", short: "RVEF", unit: "%", category: "CMR", decimals: 0 },
+  // valve module (Echo): measured values the valve rules read
+  { code: "av-vmax", display: "Aortic valve peak velocity", short: "AV Vmax", unit: "m/s", category: "Echo", decimals: 1, max: 8 },
+  { code: "av-mg", display: "Aortic valve mean gradient", short: "AV MG", unit: "mmHg", category: "Echo", decimals: 0, max: 200 },
+  { code: "ava", display: "Aortic valve area", short: "AVA", unit: "cm²", category: "Echo", decimals: 2, max: 6 },
+  { code: "mva", display: "Mitral valve area", short: "MVA", unit: "cm²", category: "Echo", decimals: 1, max: 8 },
+  { code: "lvesd", display: "LV end-systolic diameter", short: "LVESD", unit: "mm", category: "Echo", decimals: 0, max: 120 },
+  { code: "lvedd", display: "LV end-diastolic diameter", short: "LVEDD", unit: "mm", category: "Echo", decimals: 0, max: 130 },
+  { code: "spap", display: "Systolic pulmonary artery pressure", short: "SPAP", unit: "mmHg", category: "Echo", decimals: 0, max: 200 },
 ];
 
 export const MEASURES: Record<string, LabDef> = Object.fromEntries(

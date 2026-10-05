@@ -244,6 +244,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         quality: z.enum(["formal", "limited", "bedside"]),
         lvef: z.number().min(5).max(85),
         findings: z.array(z.string().max(80)).max(20).default([]),
+        valves: z.record(z.enum(["as", "ar", "mr", "ms", "tr"]), z.enum(["None", "Mild", "Moderate", "Severe"])).optional(),
+        mrType: z.enum(["Primary", "Secondary"]).nullish(),
+        measures: z.record(z.enum(["av-vmax", "av-mg", "ava", "mva", "lvesd", "lvedd", "spap"]), z.number().min(0).max(200)).optional(),
         conclusion: z.string().max(2000).optional(),
         contextId: uuidS.nullish(),
       })
@@ -254,7 +257,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion"]),
+        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),

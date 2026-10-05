@@ -39,8 +39,26 @@ export const CV_RHYTHM = ["Atrial fibrillation", "Atrial flutter", "Other"] as c
 export const CV_PREP = ["Anticoagulated ≥3 weeks", "TOE-guided", "AF onset <24 h", "Emergency (haemodynamic instability)"] as const;
 export const CV_RESULT = ["Sinus rhythm restored", "Unsuccessful", "Early recurrence"] as const;
 
-export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion" };
+// Valve module (5 Oct 2026): valve interventions, surgical and transcatheter, in the same table.
+export const VALVE_POSITIONS = ["Aortic", "Mitral", "Tricuspid", "Pulmonary"] as const;
+export const VALVE_PROCEDURES = [
+  "TAVI", "Surgical replacement", "Surgical repair", "Transcatheter edge-to-edge repair (TEER)", "Balloon valvotomy", "Transcatheter valve replacement", "Valve-in-valve",
+] as const;
+export const VALVE_PROSTHESES = ["Mechanical", "Bioprosthetic"] as const;
+export const VALVE_ACCESS = ["Transfemoral", "Other access"] as const;
+export const MECH_DESIGNS = ["Bileaflet / current tilting-disc", "Older tilting-disc", "Caged-ball", "Unknown"] as const;
+// the prosthesis a valve procedure leaves (problem-list vocabulary), or null for a valvotomy
+export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
+  a.procedure === "TAVI" ? "TAVI"
+  : a.procedure === "Surgical replacement" ? (a.prosthesis === "Mechanical" ? "Mechanical" : "Bioprosthetic (surgical)")
+  : a.procedure === "Surgical repair" ? "Repair / ring"
+  : a.procedure === "Transcatheter edge-to-edge repair (TEER)" ? "Edge-to-edge repair (clip)"
+  : a.procedure === "Transcatheter valve replacement" || a.procedure === "Valve-in-valve" ? (a.position === "Aortic" ? "TAVI" : "Transcatheter valve")
+  : null;
+
+export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention" };
+export const VALVE_KINDS: ProcedureKind[] = ["valve"];
 export const CORONARY_KINDS: ProcedureKind[] = ["pci", "cabg"];
 export const RHYTHM_KINDS: ProcedureKind[] = ["device", "ablation", "cardioversion"];
 // the problem-list device type for a device record
@@ -90,6 +108,20 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
     if (!targets.length) throw new Error("Choose what was ablated");
     return { targets, energy: oneOf(ABLATION_ENERGY, a.energy, "Energy"), result: oneOf(ABLATION_RESULT, a.result, "Result") ?? "Acute success" };
   }
+  if (kind === "valve") {
+    const position = oneOf(VALVE_POSITIONS, a.position, "Valve");
+    if (!position) throw new Error("Choose the valve");
+    const procedure = oneOf(VALVE_PROCEDURES, a.procedure, "Procedure");
+    if (!procedure) throw new Error("Choose the procedure");
+    if (procedure === "TAVI" && position !== "Aortic") throw new Error("TAVI is an aortic procedure");
+    const prosthesis = procedure === "Surgical replacement" ? oneOf(VALVE_PROSTHESES, a.prosthesis, "Prosthesis") : null;
+    if (procedure === "Surgical replacement" && !prosthesis) throw new Error("Mechanical or bioprosthetic?");
+    return {
+      position, procedure, prosthesis,
+      design: prosthesis === "Mechanical" ? oneOf(MECH_DESIGNS, a.design, "Valve design") ?? "Unknown" : null,
+      access: procedure === "TAVI" || procedure === "Valve-in-valve" ? oneOf(VALVE_ACCESS, a.access, "Access") : null,
+    };
+  }
   if (kind === "cardioversion") {
     const method = oneOf(CV_METHOD, a.method, "Method");
     if (!method) throw new Error("Electrical or pharmacological?");
@@ -120,6 +152,14 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
   }
   if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null, a.remote === "Enrolled" ? "remote monitoring" : null].filter(Boolean).join(" · ");
   if (kind === "ablation") return [(a.targets ?? []).join(" + "), a.energy, a.result !== "Acute success" ? a.result?.toLowerCase() : null].filter(Boolean).join(" · ");
+  if (kind === "valve") {
+    const what: Record<string, string> = {
+      TAVI: "TAVI", "Surgical replacement": `${a.position} valve replacement (${String(a.prosthesis ?? "").toLowerCase()})`, "Surgical repair": `${a.position} valve repair`,
+      "Transcatheter edge-to-edge repair (TEER)": `${a.position} TEER`, "Balloon valvotomy": `${a.position} balloon valvotomy`,
+      "Transcatheter valve replacement": `${a.position} transcatheter valve replacement`, "Valve-in-valve": `${a.position} valve-in-valve`,
+    };
+    return [what[a.procedure] ?? a.procedure, a.design && a.design !== "Unknown" ? a.design : null, a.access ? a.access.toLowerCase() : null].filter(Boolean).join(" · ");
+  }
   if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");
   return [a.count ? `${a.count} graft${a.count === 1 ? "" : "s"}` : null, (a.grafts ?? []).join(", ") || null, a.setting === "acs" ? "during ACS" : null].filter(Boolean).join(" · ");
 }

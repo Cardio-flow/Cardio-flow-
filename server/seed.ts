@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 17;
+export const SEED_VERSION = 18;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -522,6 +522,36 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       if (mh && !(await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1 AND kind='device'`, [mh])).rows[0]) {
         await K.recordProcedure(tx, sys, mh, { kind: "device", date: at(d(-8), "11:00"), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "AV block", pacing: "Conduction system pacing (His / LBBAP)", remote: "Not enrolled" } });
         touched.push(mh);
+      }
+    }
+    // Seed v18: valve module — Mariam's echo grades her severe AS with numbers and a moderate primary
+    // MR not on her list; Abdullah's mechanical mitral valve gets its operation record; Latifa had a
+    // transfemoral TAVI 40 days ago and is on aspirin + clopidogrel
+    if (seeded < 18) {
+      const mh = await byMrn("100266781");
+      if (mh && !(await tx.query(`SELECT 1 FROM cf.study WHERE patient_id=$1 AND kind='echo' AND attributes ? 'valves'`, [mh])).rows[0]) {
+        await K.recordEcho(tx, sys, mh, {
+          date: at(d(-2), "11:00"), quality: "formal", lvef: 58, findings: ["Calcified aortic valve", "LV hypertrophy"],
+          valves: { as: "Severe", ar: "Mild", mr: "Moderate", tr: "Mild" }, mrType: "Primary",
+          measures: { "av-vmax": 4.6, "av-mg": 52, ava: 0.7, lvesd: 32, lvedd: 47, spap: 44 },
+        });
+        touched.push(mh);
+      }
+      const ab = await byMrn("100318842");
+      if (ab && !(await tx.query(`SELECT 1 FROM cf.procedure WHERE patient_id=$1 AND kind='valve'`, [ab])).rows[0]) {
+        await K.recordProcedure(tx, sys, ab, { kind: "valve", date: new Date("2014-06-15T10:00:00+03:00").toISOString(), details: { position: "Mitral", procedure: "Surgical replacement", prosthesis: "Mechanical", design: "Bileaflet / current tilting-disc" } });
+        touched.push(ab);
+      }
+      if (!(await byMrn("100752236"))) {
+        const lf = await K.createPatient(tx, sys, { name: "Latifa Al-Fadhli", mrn: "100752236", sex: "Female", birthDate: addDays(T, -(79 * 365 + 140)), allergies: "No known drug allergies", conditions: ["as", "htn", "ckd-3a"] });
+        const asId = ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='as' LIMIT 1`, [lf])).rows[0] as any).logical_id;
+        await K.recordHistory(tx, sys, lf, { effectiveAt: at(d(-60)), answers: [{ item: "smoking", answer: "never" }], update: [{ logicalId: asId, attributes: { severity: "Severe" } }] });
+        await K.recordEcho(tx, sys, lf, { date: at(d(-70)), quality: "formal", lvef: 55, findings: ["Calcified aortic valve"], valves: { as: "Severe", mr: "Mild" }, measures: { "av-vmax": 4.3, "av-mg": 48, ava: 0.8 } });
+        await K.recordProcedure(tx, sys, lf, { kind: "valve", date: at(d(-40)), details: { position: "Aortic", procedure: "TAVI", access: "Transfemoral" } });
+        for (const [code, dose] of [["aspirin", 100], ["clopidogrel", 75], ["amlodipine", 5], ["atorvastatin", 20]] as const)
+          await K.startMedication(tx, sys, lf, { code, doseValue: dose, frequency: "OD", route: "PO", indication: code === "amlodipine" ? "htn" : "cad", effectiveAt: at(d(code === "clopidogrel" ? -40 : -300)) });
+        await obs(lf, d(-30), [{ code: "height", value: 154 }, { code: "weight", value: 66 }, { code: "sbp", value: 134 }, { code: "hr", value: 72 }, { code: "creatinine", value: 98 }, { code: "haemoglobin", value: 11.9 }]);
+        touched.push(lf);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

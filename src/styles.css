@@ -847,3 +847,12 @@ tr.reg-only td { color: var(--ink-4); }
 .dev-check.warn > div:last-child b { color: var(--orange-ink); }
 @media (max-width: 900px) { .dev-check { grid-template-columns: 1fr; } }
 .dev-check b { color: var(--navy); font-size: 14.5px; }
+/* Valve module: echo valve grades and measurements */
+.echo-valves { display: flex; flex-direction: column; gap: 8px; }
+.echo-valve { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.echo-valve > span { min-width: 170px; font-weight: 700; font-size: 13.5px; }
+.echo-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.echo-nums .input.num { width: 100%; }
+.input.bad { border-color: var(--orange-ink); }
+.echo-valve .seg { flex-wrap: nowrap; }
+.echo-valve .seg button { padding-left: 10px; padding-right: 10px; }

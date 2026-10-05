@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Activity } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented } from "../ui";
+import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, VALVE_GRADES } from "../../shared/studies";
 
+// valve lesions are graded in the Valves section below; these are the other findings
 const FINDINGS = [
-  "Dilated LV", "LV size normalised", "Regional wall motion abnormality", "LV thrombus", "RV dysfunction", "Moderate secondary MR", "Severe secondary MR",
-  "Mild secondary MR", "Severe calcific AS", "Moderate AS", "Moderate AR", "Severe TR", "Raised PASP", "Dilated IVC", "Pericardial effusion", "Limited windows",
+  "Dilated LV", "LV size normalised", "Regional wall motion abnormality", "LV thrombus", "LV hypertrophy", "RV dysfunction", "Calcified aortic valve", "Bicuspid aortic valve",
+  "Rheumatic mitral valve", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "Pericardial effusion", "Limited windows",
 ];
 
 export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
@@ -15,15 +17,23 @@ export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: 
   const [lvef, setLvef] = useState("");
   const [findings, setFindings] = useState<string[]>([]);
   const [conclusion, setConclusion] = useState("");
+  const [valves, setValves] = useState<Record<string, string>>({});
+  const [mrType, setMrType] = useState<string | undefined>();
+  const [nums, setNums] = useState<Record<string, string>>({});
+  const badNum = ECHO_NUMBERS.filter((n) => nums[n.code] && !(Number(nums[n.code]) >= n.min && Number(nums[n.code]) <= n.max));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ef = Number(lvef);
-  const valid = ef >= 5 && ef <= 85;
+  const valid = ef >= 5 && ef <= 85 && !badNum.length;
   async function save() {
     setBusy(true);
     try {
       const at = date ? new Date(`${date}T10:00:00+03:00`).toISOString() : new Date().toISOString();
-      const r = await api(`/patients/${patientId}/echo`, { body: { date: at, quality, lvef: ef, findings, conclusion, contextId: contextId ?? null } });
+      const r = await api(`/patients/${patientId}/echo`, { body: {
+        date: at, quality, lvef: ef, findings, conclusion, contextId: contextId ?? null,
+        valves, mrType: valves.mr && valves.mr !== "None" ? mrType ?? null : null,
+        measures: Object.fromEntries(Object.entries(nums).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
+      } });
       onDone(`Echo recorded · LVEF ${ef}%`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -65,7 +75,33 @@ export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: 
           <div className="infobox">A limited or bedside study is kept in the record but does not replace a recent formal study as the current LVEF. You can override that in Investigations.</div>
         )}
         <div className="q">
-          <div className="label" style={{ fontSize: 15 }}>Key findings</div>
+          <div className="label" style={{ fontSize: 15 }}>Valves <span className="muted">(grade as reported)</span></div>
+          <div className="echo-valves">
+            {ECHO_VALVES.map((v) => (
+              <div key={v.key} className="echo-valve">
+                <span>{v.label}</span>
+                <Segmented label={v.label} options={VALVE_GRADES.map((g) => ({ value: g, label: g }))} value={valves[v.key]} onChange={(g) => setValves({ ...valves, [v.key]: g })} />
+                {v.key === "mr" && valves.mr && valves.mr !== "None" && (
+                  <Segmented label="MR mechanism" options={MR_TYPES.map((g) => ({ value: g, label: g }))} value={mrType} onChange={setMrType} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="q">
+          <div className="label" style={{ fontSize: 15 }}>Measurements <span className="muted">(optional)</span></div>
+          <div className="echo-nums">
+            {ECHO_NUMBERS.map((n) => (
+              <label key={n.code} className="field">
+                <span>{n.label} <span className="muted">{n.unit}</span></span>
+                <input className={`input num${badNum.includes(n) ? " bad" : ""}`} inputMode="decimal" value={nums[n.code] ?? ""} onChange={(e) => setNums({ ...nums, [n.code]: e.target.value })} aria-label={`${n.label} ${n.unit}`} />
+              </label>
+            ))}
+          </div>
+          {badNum.length > 0 && <div className="error-box">{badNum.map((n) => `${n.label}: ${n.min}–${n.max} ${n.unit}`).join(" · ")}</div>}
+        </div>
+        <div className="q">
+          <div className="label" style={{ fontSize: 15 }}>Other findings</div>
           <MultiChoice options={FINDINGS.map((f) => ({ value: f, label: f }))} value={findings} onChange={setFindings} />
         </div>
         <label className="field">

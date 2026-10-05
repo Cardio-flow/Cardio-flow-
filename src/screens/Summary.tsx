@@ -17,6 +17,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <HfPanel hf={s.hf} open={open} />
           <CadPanel cad={s.cad} open={open} />
           <RhythmPanel r={s.rhythm} open={open} />
+          <ValvePanel v={s.valve} open={open} />
           <Targets s={s} open={open} />
           <Changes changes={s.changes} />
           <ActivePlan s={s} open={open} />
@@ -839,6 +840,86 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
               <li key={i} className={`k-${e.kind}`}>
                 <span className="cad-k">{RH_KIND[e.kind] ?? e.title}</span>
                 <span className="cad-t"><b>{e.title}</b>{e.detail ? <small>{e.detail}</small> : null}</span>
+                <span className="cad-d">{fmtDay(e.at, { year: true })}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
+
+// Valve module, slice 1: native lesions (problem list and latest echo), prostheses and repairs,
+// echo measurements, antithrombotic therapy and INR, and valve interventions.
+function ValvePanel({ v, open }: { v: any; open(o: Open): void }) {
+  if (!v) return null;
+  const when = (iso: string | null) => (!iso ? "date not recorded" : iso.length === 4 ? iso : fmtDay(iso, { year: true }));
+  const drugs = (l: any[]) => (l.length ? l.map((d) => `${d.name} ${d.dose}${d.held ? " (on hold)" : ""}`).join(" + ") : null);
+  return (
+    <section className="card pad cad-panel" aria-labelledby="vlp">
+      <div className="card-head">
+        <h2 id="vlp">Valve disease</h2>
+        <span className="meta">
+          <button className="btn ghost small" onClick={() => open({ kind: "echo" } as Open)}>+ Echo</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "valve" })}>+ Valve intervention</button>
+        </span>
+      </div>
+      {v.lesions.length > 0 && (
+        <div className="cad-drugs" style={{ marginBottom: 10 }}>
+          {v.lesions.map((l: any) => {
+            const differs = l.echo && l.severity && l.echo.grade !== l.severity;
+            return (
+              <div key={l.code} className="cad-drug">
+                <small>{l.treated ? "Treated" : l.listed ? "Problem list" : "Echo only — not listed"}</small>
+                <b>{l.title}{l.severity ? ` · ${l.severity.toLowerCase()}` : l.listed ? " · severity not recorded" : ""}</b>
+                <em className={!l.treated && (differs || !l.listed) ? "stop" : ""}>{l.treated ? l.treated.replace(/ · (\d{4}-\d{2}-\d{2})$/, (_m: string, d: string) => ` · ${fmtDay(d, { year: true })}`) : l.echo ? `Echo ${fmtDay(l.echo.at, { year: true })}: ${l.echo.grade.toLowerCase()}` : "Not graded on a recent echo"}</em>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {v.prostheses.length > 0 && (
+        <>
+          <div className="tgt-title">Prostheses &amp; repairs</div>
+          <div className="cad-drugs" style={{ marginBottom: 10 }}>
+            {v.prostheses.map((p: any, i: number) => (
+              <div key={i} className="cad-drug">
+                <small>{p.position ?? "Position not recorded"}</small>
+                <b>{p.type}{p.design ? ` · ${p.design}` : ""}</b>
+                <em>{[p.procedure, `since ${when(p.since)}`, p.inrTarget ? `INR target ${p.inrTarget}` : null].filter(Boolean).join(" · ")}</em>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="hf-tiles">
+        {v.echo.values.map((x: any) => (
+          <div key={x.code} className="hf-tile">
+            <small>{x.label}</small>
+            <b>{x.value} {x.unit}</b>
+            <em>{fmtDay(x.at, { year: true })}</em>
+          </div>
+        ))}
+        <div className={`hf-tile${v.anticoagulant.length ? "" : " none"}`}>
+          <small>Anticoagulation</small>
+          <b>{drugs(v.anticoagulant) ?? "None"}</b>
+          <em>{v.inr ? `INR ${v.inr.value} · ${fmtDay(v.inr.at)}` : v.anticoagulant.length ? "" : "—"}</em>
+        </div>
+        <div className={`hf-tile${v.antiplatelet.length ? "" : " none"}`}>
+          <small>Antiplatelet</small>
+          <b>{drugs(v.antiplatelet) ?? "None"}</b>
+          <em />
+        </div>
+      </div>
+      {v.events.length > 0 && (
+        <>
+          <div className="tgt-title" style={{ marginTop: 14 }}>Valve interventions</div>
+          <ol className="cad-events">
+            {v.events.map((e: any, i: number) => (
+              <li key={i} className="k-valve">
+                <span className="cad-k">Valve</span>
+                <span className="cad-t"><b>{e.title}</b></span>
                 <span className="cad-d">{fmtDay(e.at, { year: true })}</span>
               </li>
             ))}
