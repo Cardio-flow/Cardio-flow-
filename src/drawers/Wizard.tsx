@@ -254,6 +254,9 @@ export function WizardDrawer({
                 ) : (
                   <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} rec={recVals} />
                 ))}
+                {q.type === "date" && (
+                  <input type="date" className="input" style={{ maxWidth: 220 }} aria-label={q.label} min={ctx.today} value={(answers[q.id] as string) ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                )}
                 {q.type === "dose" && (() => {
                   const { med, options } = doseChoices(ctx, q);
                   if (!med) return <div className="infobox">No active medication of this type is recorded.</div>;

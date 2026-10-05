@@ -9,7 +9,7 @@
 //    scores are not used to withhold OAC — modifiable bleeding risk factors are managed; antiplatelet
 //    therapy is not used for stroke prevention (III).
 //  - Rate control: beta-blocker, digoxin, diltiazem or verapamil when LVEF >40%; beta-blocker and/or
-//    digoxin when LVEF ≤40%; lenient target, resting heart rate <110 bpm (IIa).
+//    digoxin when LVEF ≤40%; lenient target, resting heart rate <110 bpm (class to confirm).
 //  - Rhythm control: cardioversion after ≥3 weeks of OAC or TOE, early without TOE only if onset
 //    <24 h; OAC for ≥4 weeks after cardioversion and long term by CHA₂DS₂-VA; catheter ablation as a
 //    first-line option in paroxysmal AF (I A) and after antiarrhythmic drug failure; ablation in
@@ -21,7 +21,7 @@
 //    6 months then at least yearly.
 // CardioFlow never doses acute drugs: rate-control and antiarrhythmic choices become plan items;
 // only apixaban is started from here, at the label dose computed from age, weight and creatinine.
-import { addDays } from "./clinical.js";
+import { addDays, localDay } from "./clinical.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -39,7 +39,87 @@ export function apixabanDose(ctx: WizardContext): { dose: number; why: string } 
   return { dose: n >= 2 ? 2.5 : 5, why: `${n} of 3 reduction criteria (age ${age}, weight ${wt} kg, creatinine ${cr} µmol/L)` };
 }
 
+// Anticoagulation around cardioversion and AF ablation (rhythm module, slice 3). Sources: 2024 ESC/EACTS
+// AF guidelines (confirmed in the task force's own summary, Rienstra et al., Europace 2024): early
+// cardioversion without ≥3 weeks of effective anticoagulation or TOE only with a known AF duration
+// <24 h; ≥3 weeks of therapeutic anticoagulation (DOAC adherence, or INR >2 on a VKA) before a
+// scheduled cardioversion; long-term anticoagulation follows stroke risk, not the rhythm achieved.
+// As recalled from the guideline (to confirm against the full text): anticoagulation for ≥4 weeks
+// after cardioversion; uninterrupted anticoagulation through AF ablation and for ≥2 months after it.
+const PERI_REVIEW = [
+  { value: "none", label: "No extra visit" },
+  { value: "clinic-28", label: "Clinic · 4 weeks" },
+  { value: "clinic-90", label: "Clinic · 3 months" },
+];
+
 export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
+  "peri-af-procedure": {
+    id: "peri-af-procedure", title: "Anticoagulation around cardioversion or AF ablation", tone: "blue", group: "Rhythm & devices", episode: false,
+    source: "ESC/EACTS AF 2024",
+    note: "Dates the anticoagulation before and after the procedure: 3 weeks before a scheduled cardioversion (or TOE), 4 weeks after it; uninterrupted through ablation and 2 months after. Long-term anticoagulation then follows CHA₂DS₂-VA, not the rhythm.",
+    facts: ["creatinine", "weight", "haemoglobin", "inr"],
+    steps: [
+      {
+        id: "proc", title: "The procedure",
+        questions: [
+          {
+            id: "proc", label: "Procedure", type: "single", required: true,
+            options: [{ value: "cardioversion", label: "Cardioversion" }, { value: "ablation", label: "AF catheter ablation" }],
+          },
+          { id: "when", label: "Planned date (earliest)", type: "date", required: true },
+          {
+            id: "onset", label: "AF duration", type: "single", showIf: { question: "proc", includes: "cardioversion" },
+            options: [
+              { value: "lt24", label: "Known onset <24 h", hint: "Early cardioversion without TOE is possible" },
+              { value: "ge24", label: "≥24 h or unknown", hint: "≥3 weeks of anticoagulation or TOE first" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "oac", title: "Anticoagulation before",
+        questions: [
+          {
+            id: "oacNow", label: "Anticoagulation now", type: "single", required: true,
+            options: [
+              { value: "3w", label: "Therapeutic for ≥3 weeks", hint: "DOAC taken every day, or INR >2 throughout", requires: ["oac"] },
+              { value: "short", label: "Started less than 3 weeks ago", requires: ["oac"] },
+              { value: "none", label: "Not anticoagulated", unless: ["oac"] },
+            ],
+          },
+          {
+            id: "start", label: "Start", type: "single", showIf: { question: "oacNow", includes: "none" },
+            options: [
+              { value: "apixaban", label: "Apixaban at the label dose", hint: "Dose from age, weight and creatinine" },
+              { value: "other", label: "Another anticoagulant (dose by renal function)" },
+            ],
+          },
+          {
+            id: "prep", label: "Before the cardioversion", type: "single", showIf: { question: "proc", includes: "cardioversion" },
+            options: [
+              { value: "wait", label: "After ≥3 weeks of effective anticoagulation" },
+              { value: "toe", label: "TOE-guided cardioversion" },
+              { value: "early", label: "Early cardioversion (onset <24 h)" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "after", title: "After",
+        questions: [
+          {
+            id: "post", label: "After the procedure", type: "multi", required: true,
+            options: [
+              { value: "oac", label: "Continue anticoagulation (4 weeks after cardioversion · 2 months after ablation), then by CHA₂DS₂-VA" },
+              { value: "ecg", label: "12-lead ECG at 1 week" },
+              { value: "holter", label: "Ambulatory ECG at 3 months (recurrence)" },
+            ],
+          },
+          { id: "review", label: "Review", type: "single", options: PERI_REVIEW, required: true },
+        ],
+      },
+    ],
+  },
   "af-care": {
     id: "af-care", title: "Atrial fibrillation: AF-CARE", tone: "blue", group: "Rhythm & devices", episode: false,
     source: "ESC/EACTS AF 2024",
@@ -181,7 +261,7 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
     bb: ["medication", "Rate control: start or up-titrate a beta-blocker (resting HR <110)"],
     ccb: ["medication", "Rate control: diltiazem or verapamil (LVEF >40%)"],
     digoxin: ["medication", "Rate control: add digoxin"],
-    cardioversion: ["procedure", "Cardioversion (after ≥3 weeks of OAC or TOE-guided)"],
+    cardioversion: ["procedure", "Cardioversion (after ≥3 weeks of effective anticoagulation)"],
     ablation: ["referral", "Referral for AF catheter ablation"],
     aad: ["medication", "Antiarrhythmic drug choice (by structural heart disease)"],
   };
@@ -210,7 +290,7 @@ RHYTHM_WIZARDS["af-care"].assess = (a: Answers, ctx: WizardContext): Assessment 
   if (score === 1 && !onOac && a.oac !== "apixaban" && a.oac !== "other-doac") rec.push("CHA₂DS₂-VA 1: oral anticoagulation should be considered (IIa).");
   for (const d of af?.doac ?? []) if (d.dose != null && d.dose !== d.right) rec.push(`${d.code[0].toUpperCase() + d.code.slice(1)} ${d.dose} mg: the label dose is ${d.right} mg (${d.why}).`);
   if (ctx.meds.some((m) => m.code === "aspirin") && !(ctx.dx ?? []).some((x) => ["cad", "pad", "ascvd"].includes(x)) && !pick(a, "bleed").includes("stop-asa")) rec.push("Aspirin is not used for stroke prevention in AF (III).");
-  if (hr != null && hr >= 110 && !pick(a, "rate").length) rec.push(`Heart rate ${hr} bpm: lenient rate control targets a resting rate <110 bpm (IIa).`);
+  if (hr != null && hr >= 110 && !pick(a, "rate").length) rec.push(`Heart rate ${hr} bpm: lenient rate control targets a resting rate <110 bpm.`);
   if (lvef != null && lvef <= 40 && pick(a, "rate").includes("ccb")) rec.push("LVEF ≤40%: diltiazem and verapamil are avoided; beta-blocker and/or digoxin.");
   if (lvef == null && !pick(a, "tests").includes("echo")) rec.push("No LVEF recorded: echocardiography guides rate and rhythm choices.");
   if (a.pattern === "paroxysmal" && !pick(a, "rhythm").includes("ablation")) rec.push("Paroxysmal AF: catheter ablation is a first-line rhythm-control option (I A) within shared decision-making.");
@@ -218,4 +298,40 @@ RHYTHM_WIZARDS["af-care"].assess = (a: Answers, ctx: WizardContext): Assessment 
   if (pick(a, "rhythm").includes("aad") && (ctx.dx ?? []).some((x) => ["cad", "hf", "ascvd"].includes(x))) rec.push("Structural or ischaemic heart disease: no flecainide or propafenone; amiodarone (or dronedarone if no HFrEF).");
   rec.push("Reassess AF-CARE at 6 months, then at least yearly.");
   return { heading: "AF-CARE: risk and recommendations", rows, recommendations: rec };
+};
+
+// The procedure dated after the anticoagulation it needs; anticoagulation dated after it.
+RHYTHM_WIZARDS["peri-af-procedure"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const out: OutcomeItem[] = [];
+  const t = ctx.today;
+  const plan = (category: string, title: string, due: string, completesOn: Record<string, unknown> = { type: "manual" }, link: { id?: string | null; ref?: string } = {}): OutcomeItem =>
+    ({ kind: "plan", category, title, dueDate: due, completesOn, label: "", medicationId: link.id ?? null, medicationRef: link.ref });
+  const oac = ctx.meds.find((m) => m.tags.includes("oac"));
+  let link: { id?: string | null; ref?: string } = oac ? { id: oac.id } : {};
+  let oacFrom: string | null = oac?.startedAt ? localDay(oac.startedAt) : null;
+  if (a.oacNow === "none" && a.start === "apixaban") {
+    const d = apixabanDose(ctx);
+    if (d) {
+      out.push({ kind: "start", code: "apixaban", doseValue: d.dose, frequency: "BID", indication: "af", label: `Apixaban ${d.dose} mg twice daily: start (${d.why})` });
+      link = { ref: "code:apixaban" }; oacFrom = t;
+    } else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose", t));
+  } else if (a.oacNow === "none" && a.start === "other") { out.push(plan("medication", "Start an anticoagulant at the label dose (renal function, age, weight)", t)); oacFrom = t; }
+  if (a.oacNow === "3w") oacFrom = null; // already covered
+  const when = String(a.when ?? t);
+  const later = (x: string, y: string) => (x > y ? x : y);
+  if (a.proc === "cardioversion") {
+    const needs3w = a.prep === "wait" && a.oacNow !== "3w";
+    const day = needs3w ? later(when, addDays(oacFrom ?? t, 21)) : when;
+    if (a.prep === "toe") out.push(plan("investigation", "TOE before cardioversion (exclude LA appendage thrombus)", day));
+    out.push(plan("procedure", `Cardioversion${needs3w ? " (after 3 weeks of effective anticoagulation)" : a.prep === "toe" ? " (TOE-guided)" : a.prep === "early" ? " (onset <24 h)" : ""}`, day));
+    if (((a.post as string[]) ?? []).includes("oac")) out.push(plan("medication", "Anticoagulation for at least 4 weeks after cardioversion, then by CHA₂DS₂-VA", addDays(day, 28), { type: "manual" }, link));
+    if (((a.post as string[]) ?? []).includes("ecg")) out.push(plan("investigation", "12-lead ECG after cardioversion", addDays(day, 7), { type: "study", kind: "ecg" }));
+    if (((a.post as string[]) ?? []).includes("holter")) out.push(plan("investigation", "Ambulatory ECG after cardioversion (recurrence)", addDays(day, 90), { type: "study", kind: "holter" }));
+  } else {
+    out.push(plan("procedure", "AF catheter ablation (anticoagulation uninterrupted)", when));
+    if (((a.post as string[]) ?? []).includes("oac")) out.push(plan("medication", "Anticoagulation for at least 2 months after AF ablation, then by CHA₂DS₂-VA", addDays(when, 60), { type: "manual" }, link));
+    if (((a.post as string[]) ?? []).includes("ecg")) out.push(plan("investigation", "12-lead ECG after ablation", addDays(when, 7), { type: "study", kind: "ecg" }));
+    if (((a.post as string[]) ?? []).includes("holter")) out.push(plan("investigation", "Ambulatory ECG 3 months after ablation (recurrence)", addDays(when, 90), { type: "study", kind: "holter" }));
+  }
+  return out;
 };

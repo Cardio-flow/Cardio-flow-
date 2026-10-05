@@ -155,6 +155,12 @@ export async function completeWizard(
     for (const v of Array.isArray(chosen) ? chosen : chosen != null ? [String(chosen)] : [])
       if (!allowed.has(String(v))) throw new ApiError(400, `"${q.options!.find((o) => o.value === v)?.label ?? v}" does not apply to this patient's medicines`);
   }
+  // a date answer is a planned day: a calendar date, today or later
+  for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.type === "date")) {
+    const v = input.answers[q.id];
+    if (v == null || v === "") continue;
+    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || v < ctx.today) throw new ApiError(400, `${q.label}: choose today or a later date`);
+  }
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   const decisionId = uuid();
   const at = nowIso();

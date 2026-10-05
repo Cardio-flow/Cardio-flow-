@@ -108,3 +108,51 @@ test("aspirin alone for AF without vascular disease: AF-CARE suggests stopping i
   assert.ok(s.plan.some((p) => p.title === "Referral for AF catheter ablation"));
   assert.equal(s.conditions.find((c) => c.code === "af")!.attributes.pattern, "Paroxysmal");
 });
+
+// ---- slice 3: anticoagulation around cardioversion and ablation ----
+test("Fatma (apixaban for 2 days): a cardioversion is dated 3 weeks after the apixaban start, with 4 weeks of anticoagulation after it", async () => {
+  const pid = await byName("Fatma Al-Ajmi");
+  const ctx = (await tx((q) => getWizard(q, pid, "peri-af-procedure"))).context;
+  assert.deepEqual(suggest("peri-af-procedure", "oacNow", {}, ctx).map((x) => x.value), ["short"]);
+  assert.deepEqual(suggest("peri-af-procedure", "prep", { onset: "ge24", oacNow: "short" }, ctx).map((x) => x.value), ["wait"]);
+  await assert.rejects(run(pid, "peri-af-procedure", { proc: "cardioversion", when: addDays(T, -1), onset: "ge24", oacNow: "short", prep: "wait", post: ["oac"], review: "none" }), /later date/);
+  await run(pid, "peri-af-procedure", { proc: "cardioversion", when: addDays(T, 3), onset: "ge24", oacNow: "short", prep: "wait", post: ["oac", "ecg"], review: "none" });
+  const s = await loadState(db, pid);
+  const apx = s.meds.find((m) => m.code === "apixaban" && m.status === "active")!;
+  const from = new Date(apx.startedAt!).toISOString().slice(0, 10);
+  const cv = s.plan.find((p) => p.title === "Cardioversion (after 3 weeks of effective anticoagulation)")!;
+  assert.ok(cv.due_date! >= addDays(from, 20) && cv.due_date! <= addDays(from, 22));
+  const after = s.plan.find((p) => /^Anticoagulation for at least 4 weeks after cardioversion/.test(p.title))!;
+  assert.equal(after.due_date, addDays(cv.due_date!, 28));
+  assert.equal(after.medication_id, apx.id);
+  assert.equal(await rec(pid, "rhythm.cardioversion-before-3w"), undefined);
+});
+
+test("AF ablation: dated with uninterrupted anticoagulation and 2 months after; no anticoagulant after an ablation or a cardioversion is flagged", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Abl " + Date.now(), mrn: "B" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["af", "htn"] }));
+  await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", effectiveAt: at(addDays(T, -100)) }); await reassess(q, pid, "sandbox"); });
+  await run(pid, "peri-af-procedure", { proc: "ablation", when: addDays(T, 10), oacNow: "3w", post: ["oac", "holter"], review: "none" });
+  let s = await loadState(db, pid);
+  assert.equal(s.plan.find((p) => p.title === "AF catheter ablation (anticoagulation uninterrupted)")!.due_date, addDays(T, 10));
+  assert.equal(s.plan.find((p) => /^Anticoagulation for at least 2 months after AF ablation/.test(p.title))!.due_date, addDays(T, 70));
+  assert.equal(s.plan.find((p) => /^Ambulatory ECG 3 months after ablation/.test(p.title))!.due_date, addDays(T, 100));
+
+  const p2 = await tx((q) => K.createPatient(q, doc, { name: "Cv " + Date.now(), mrn: "C2" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["af"] }));
+  await tx(async (q) => { await K.recordProcedure(q, doc, p2, { kind: "cardioversion", date: at(addDays(T, -5)), details: { method: "Electrical", prep: "AF onset <24 h", result: "Sinus rhythm restored" } }); await reassess(q, p2, "sandbox"); });
+  assert.match((await rec(p2, "rhythm.post-cardioversion-oac")).title, /^Cardioversion 5 days ago with no anticoagulant/);
+  await tx(async (q) => { await K.recordProcedure(q, doc, p2, { kind: "ablation", date: at(addDays(T, -3)), details: { targets: ["AF (pulmonary vein isolation)"], energy: "Pulsed field" } }); await reassess(q, p2, "sandbox"); });
+  assert.ok(await rec(p2, "rhythm.post-ablation-oac"));
+  await tx(async (q) => { await K.startMedication(q, doc, p2, { code: "edoxaban", doseValue: 60, frequency: "OD", route: "PO", indication: "af", effectiveAt: at(T) }); await reassess(q, p2, "sandbox"); });
+  assert.equal(await rec(p2, "rhythm.post-cardioversion-oac"), undefined);
+  assert.equal(await rec(p2, "rhythm.post-ablation-oac"), undefined);
+});
+
+test("a cardioversion planned with no anticoagulant is flagged until anticoagulation covers 3 weeks", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Cv3 " + Date.now(), mrn: "C3" + Date.now(), sex: "Female", birthDate: "1962-01-01", conditions: ["af"] }));
+  await run(pid, "af-care", { pattern: "persistent", comorb: ["none"], oac: "declined", bleed: ["none"], rate: ["none"], rhythm: ["cardioversion"], tests: ["none"], review: "none" });
+  const r = await rec(pid, "rhythm.cardioversion-before-3w");
+  assert.ok(r && r.severity === "yellow");
+  assert.match(r.title, /no anticoagulant$/);
+  await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", effectiveAt: at(T) }); await reassess(q, pid, "sandbox"); });
+  assert.equal(await rec(pid, "rhythm.cardioversion-before-3w"), undefined, "apixaban today: 21 days before the planned date");
+});

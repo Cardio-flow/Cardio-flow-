@@ -37,7 +37,7 @@ test("every pathway is well formed: plan categories, required questions, recheck
   assert.ok(Object.keys(WIZARDS).length >= 15);
   for (const w of Object.values(WIZARDS)) {
     for (const q of w.steps.flatMap((s) => s.questions)) {
-      if (q.type !== "dose") assert.ok(q.options?.length, `${w.id}.${q.id} has options`);
+      if (q.type !== "dose" && q.type !== "date") assert.ok(q.options?.length, `${w.id}.${q.id} has options`);
       for (const o of q.options ?? []) for (const p of o.effects?.plan ?? []) assert.ok(cats.includes(p.category), `${w.id}.${o.value} category ${p.category}`);
     }
     for (const c of [...(w.recheck?.codes ?? []), ...(w.facts ?? []), ...(w.trend ? [w.trend] : [])]) assert.ok(MEASURES[c], `${w.id}: ${c} is in the catalogue`);

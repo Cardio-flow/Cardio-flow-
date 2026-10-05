@@ -542,6 +542,24 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     ],
   },
 
+  "peri-af-procedure": {
+    oacNow: (_a, c) => {
+      const m = c.meds.find((x) => x.tags.includes("oac"));
+      if (!m) return [S("none", "No anticoagulant on the medication list")];
+      const days = m.startedAt ? Math.round((Date.parse(c.today) - Date.parse(localDay(m.startedAt))) / 86400000) : null;
+      return [days != null && days < 21 ? S("short", `${m.name} started ${days} day${days === 1 ? "" : "s"} ago`) : S("3w", `${m.name}${days != null ? ` for ${days} days` : ""}: confirm no missed doses (or INR >2 throughout)`)];
+    },
+    start: (_a, c) => [dx(c, "mechanical-valve", "ms-significant") ? S("other", "Mechanical valve or significant MS: warfarin, not a DOAC") : S("apixaban", "A DOAC in preference to warfarin (ESC AF 2024)")],
+    prep: (a) => [
+      a.onset === "lt24" ? S("early", "Known onset <24 h: early cardioversion without TOE is possible (ESC AF 2024)")
+      : a.oacNow === "3w" ? S("wait", "≥3 weeks of effective anticoagulation: cardioversion can go ahead")
+      : S("wait", "AF ≥24 h or unknown: ≥3 weeks of effective anticoagulation first, or TOE-guided (ESC AF 2024)"),
+    ],
+    post: (a) => [
+      S("oac", a.proc === "ablation" ? "Anticoagulation for ≥2 months after ablation, then by CHA₂DS₂-VA — not by the rhythm" : "Anticoagulation for ≥4 weeks after cardioversion, then by CHA₂DS₂-VA — not by the rhythm"),
+      S("ecg", "ECG to document the rhythm after the procedure"),
+    ],
+  },
   "af-care": {
     pattern: (_a, c) => {
       const p = c.af?.pattern;
@@ -582,7 +600,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const lvef = val(c, "lvef");
       if (hr == null || hr < 110 || a.pattern === "paroxysmal") return [];
       return [
-        !on(c, "bb") ? S("bb", `Rate ${hr}: beta-blocker for rate control (any LVEF) — lenient target <110 (ESC AF 2024, IIa)`)
+        !on(c, "bb") ? S("bb", `Rate ${hr}: beta-blocker for rate control (any LVEF) — lenient target <110 (ESC AF 2024)`)
         : lvef != null && lvef > 40 && !on(c, "ndhp-ccb") ? S("ccb", `Rate ${hr} on a beta-blocker, LVEF ${lvef}%: add or switch to diltiazem/verapamil`)
         : !on(c, "digoxin") ? S("digoxin", `Rate ${hr} on a beta-blocker${lvef != null && lvef <= 40 ? `, LVEF ${lvef}%` : ""}: add digoxin`) : null,
       ];
