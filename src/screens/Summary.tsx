@@ -132,7 +132,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "add-plan")
     return (
       <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" || act.template === "device-first-check" ? "Book device check" : act.template === "wound-check" ? "Book wound check" : act.template === "valve-echo" ? "Book echo" : act.template === "remote-monitoring" ? "Plan remote monitoring" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : "Add to plan"}
+        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" || act.template === "device-first-check" ? "Book device check" : act.template === "wound-check" ? "Book wound check" : act.template === "valve-echo" ? "Book echo" : act.template === "remote-monitoring" ? "Plan remote monitoring" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : act.template?.startsWith("mon-") || act.template === "lipids" ? "Book check" : act.template === "echo" ? "Book echo" : "Add to plan"}
       </button>
     );
   if (act.type === "tab")

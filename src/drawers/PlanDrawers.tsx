@@ -32,7 +32,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
       const t = PLAN_TEMPLATES.find((x) => x.id === id)!;
       const v = dates[id];
       const due = v?.includes("-") ? v : addDays(today, Number(v ?? t.offsets[0]));
-      return { category: t.category, title: t.title, dueDate: due, completesOn: t.completesOn, medicationId: t.id === "renal-k" ? medicationId ?? null : null };
+      return { category: t.category, title: t.title, dueDate: due, completesOn: t.completesOn, medicationId: t.id === "renal-k" || t.id.startsWith("mon-") || t.id === "lipids" ? medicationId ?? null : null };
     }),
     ...(custom.title.trim() ? [{ category: custom.category, title: custom.title.trim(), dueDate: custom.date || null, completesOn: { type: "manual" } }] : []),
   ];

@@ -17,7 +17,7 @@ const now = () => new Date().toISOString();
 const tx = <R>(fn: (q: any) => Promise<R>) => db.transaction(fn);
 const byName = async (name: string) => ((await db.query(`SELECT id FROM cf.patient WHERE name=$1`, [name])).rows[0] as any).id as string;
 const recs = async (pid: string) =>
-  ((await db.query(`SELECT rule_id, severity, title, detail, rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id LIKE 'med.%' ORDER BY title`, [pid])).rows as any[]);
+  ((await db.query(`SELECT rule_id, severity, title, detail, rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id IN ('med.interaction','med.contraindication','med.oac-antiplatelet') ORDER BY title`, [pid])).rows as any[]);
 before(async () => { db = await createLocalDb(); await boot(db, { seed: true }); });
 after(async () => db.close());
 

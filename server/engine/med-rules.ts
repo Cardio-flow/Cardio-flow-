@@ -7,6 +7,96 @@ import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 import { safetyHits, type SafetyRow } from "./med-safety.js";
 import { daptIndication } from "./valve-rules.js";
+import { DIAGNOSIS } from "../../shared/catalog.js";
+import { cockcroftGault, daysBetween } from "../../shared/clinical.js";
+import { monitoringFor, targetCodes, type MonCheck, type MonContext } from "../../shared/drug-monitoring.js";
+import { loadState, type MedState } from "../kernel/state.js";
+import { bookingsAtStart } from "../../shared/drug-monitoring.js";
+import { addPlanAction } from "../kernel/clinical.js";
+import { today, type Actor } from "../kernel/base.js";
+import type { Q } from "../db/db.js";
+
+// booked when a medicine is started from the drawer: every check point in the first 3 months, or the first
+// periodic check(s); later points are chased by med.monitoring
+export async function bookMonitoringAtStart(tx: Q, actor: Actor, patientId: string, medicationId: string, contextId: string | null) {
+  const s = await loadState(tx, patientId);
+  const m = s.meds.find((x) => x.id === medicationId);
+  if (!m) return 0;
+  const all = bookingsAtStart(m.code, m.tags, monContext(s, m));
+  const chosen = all.filter((b) => b.days <= 91);
+  const items = chosen.length ? chosen : all.filter((x) => x.days === all[0].days);
+  for (const b of items)
+    await addPlanAction(tx, actor, patientId, {
+      category: "monitoring", title: `${b.check.what} (${m.name} monitoring)`, reason: `${m.name}: ${b.check.schedule} (${b.check.source})`,
+      dueDate: addDays(today(), b.days), completesOn: "study" in b.check.target ? { type: "study", kind: b.check.target.study } : { type: "lab", codes: b.check.target.lab },
+      contextId, medicationId,
+    } as any);
+  return items.length;
+}
+
+// ---------- medicine monitoring (slice 2) ----------
+const LAB_LABEL: Record<string, string> = { alt: "ALT", tsh: "TSH", haemoglobin: "haemoglobin", creatinine: "creatinine", potassium: "potassium", "ldl-c": "LDL-C" };
+const TEMPLATE = (k: MonCheck) => {
+  if ("study" in k.target) return k.target.study;
+  const c = k.target.lab.join(",");
+  return c === "haemoglobin,creatinine,alt" ? "mon-doac" : c.includes("potassium") ? "renal-k" : c === "ldl-c" ? "lipids" : c === "alt" ? "mon-lft" : c === "tsh" ? "mon-tsh" : c === "haemoglobin" ? "mon-hb" : "mon-renal";
+};
+export function monContext(s: PatientState, m: MedState): MonContext {
+  const recent = (code: string, days: number) => {
+    const o = s.resolved(code).current;
+    return o?.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
+  };
+  const cr = recent("creatinine", 180), wt = recent("weight", 365);
+  const conds = s.conditions.filter((c) => c.status === "active");
+  const since = addDays(s.today, -365);
+  const start = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart")?.effective_at ?? m.startedAt ?? s.today;
+  const change = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart" || e.kind === "increase")?.effective_at ?? start;
+  return {
+    age: s.patient.age, crcl: cr != null && wt != null ? cockcroftGault(cr, s.patient.age, wt, s.patient.sex) : null,
+    egfr: recent("egfr", 365), lvef: recent("lvef", 3650),
+    hf: conds.some((c) => DIAGNOSIS[c.code]?.tags.includes("hf")),
+    acs: conds.some((c) => (c.code === "acs-stemi" || c.code === "acs-nstemi") && (!c.onset || localDay(c.onset) >= since)) || /acs/i.test(m.indication),
+    daysOnDrug: daysBetween(localDay(start), s.today), daysSinceChange: daysBetween(localDay(change), s.today),
+  };
+}
+// the latest result time for each code (labs) or the latest study of the kind
+const latestOf = (s: PatientState, k: MonCheck): Record<string, string | null> =>
+  "study" in k.target
+    ? { [k.target.study]: s.studies.filter((x) => x.kind === (k.target as { study: string }).study).map((x) => x.performed_at).sort().pop() ?? null }
+    : Object.fromEntries(k.target.lab.map((c) => [c, s.observations.filter((o) => o.code === c && o.status !== "entered_in_error").map((o) => o.effective_at).sort().pop() ?? null]));
+const plannedFor = (s: PatientState, k: MonCheck) =>
+  s.plan.some((p) => p.status === "planned" && ("study" in k.target ? p.completes_on?.type === "study" && p.completes_on.kind === k.target.study : p.completes_on?.type === "lab" && (p.completes_on.codes ?? []).some((c) => targetCodes(k.target).includes(c))));
+const plusDays = (iso: string, d: number) => new Date(new Date(iso).getTime() + d * 86400000).toISOString();
+
+// the due item for one medicine and one check, or null
+export function monitoringDue(s: PatientState, m: MedState, k: MonCheck) {
+  const c = monContext(s, m);
+  if (k.when && !k.when(c)) return null;
+  const startEv = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart");
+  const changeEv = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart" || e.kind === "increase");
+  const anchor = (k.on === "start" ? startEv : changeEv ?? startEv)?.effective_at ?? m.startedAt;
+  if (!anchor) return null;
+  const latest = latestOf(s, k);
+  const codes = Object.keys(latest);
+  // post-change checks: the latest point that has come due needs a result after the previous point
+  const passed = (k.after ?? []).filter((d) => localDay(plusDays(anchor, d)) <= s.today);
+  if (k.after?.length && passed.length < k.after.length && !passed.length) return null; // first check not yet due
+  if (passed.length) {
+    const i = passed.length - 1, prev = i > 0 ? passed[i - 1] : 0;
+    const boundary = prev ? plusDays(anchor, prev) : anchor;
+    const missing = codes.filter((x) => !latest[x] || latest[x]! <= boundary);
+    if (missing.length) return { missing, dueDay: localDay(plusDays(anchor, passed[i])), why: `${passed[i] < 14 ? `${passed[i]} days` : passed[i] < 60 ? `${Math.round(passed[i] / 7)} weeks` : `${Math.round(passed[i] / 30)} months`} after ${k.on === "start" ? "starting" : "the last start or dose increase"}`, last: null as string | null };
+    if (passed.length < k.after!.length) return null;
+  }
+  // periodic checks: a result within the interval (the start counts as the baseline)
+  const every = k.every?.(c);
+  if (!every) return null;
+  const startAt = startEv?.effective_at ?? m.startedAt ?? anchor;
+  const due = codes.filter((x) => daysBetween(localDay(latest[x] && latest[x]! > startAt ? latest[x]! : startAt), s.today) > every);
+  if (!due.length) return null;
+  const ref = due.map((x) => (latest[x] && latest[x]! > startAt ? latest[x]! : startAt)).sort()[0];
+  return { missing: due, dueDay: localDay(plusDays(ref, every)), why: `every ${every >= 360 ? "year" : every % 30 === 0 || every < 40 ? `${Math.round(every / 30)} month${every >= 60 ? "s" : ""}` : `${Math.round(every / 30.4)} months`}`, last: latest[due[0]] && latest[due[0]]! > startAt ? latest[due[0]] : null };
+}
 
 const tableRule = (id: string, kind: SafetyRow["kind"], title: string, evidence: string): RuleDef => ({
   id, kind: "clinical", title, inputs: ["meds", "conditions", "creatinine", "egfr", "weight", "lvef", "hr", "nyha"], defaultParams: {}, evidence,
@@ -63,6 +153,47 @@ export const MED_RULES: RuleDef[] = [
         ],
         missing: [], action: { type: "tab", tab: "medications" },
       } as Finding];
+    },
+  },
+  {
+    id: "med.monitoring",
+    kind: "clinical",
+    title: "Medicine monitoring due",
+    inputs: ["meds", "observations", "studies", "plan", "conditions"],
+    defaultParams: {},
+    evidence: "Medicine monitoring schedules (shared/drug-monitoring.ts), each from the product label (UK/EU SmPC section) or a guideline / ESC practical guide: amiodarone transaminases and TSH every 6 months; dronedarone liver tests (1 week, 1 month, monthly to 6 months, months 9 and 12) and creatinine at 7 days; sotalol ECG/QTc 3 days after a start or dose change; DOAC haemoglobin, renal and liver function yearly, every 4 months at ≥75, every CrCl/10 months with CrCl ≤60 (EHRA 2021); metformin eGFR yearly, 6-monthly with eGFR <60 (label; KDIGO 2022); eplerenone potassium at 1 week and 1 month; spironolactone (HF) potassium and creatinine at 1 week, monthly for 3 months, quarterly for a year, then 6-monthly; finerenone potassium and eGFR at 4 weeks; ticagrelor renal function 1 month after starting in ACS; LDL-C 4–6 weeks after starting or intensifying lipid-lowering therapy (ESC/EAS 2025); bosentan transaminases monthly, haemoglobin monthly for 4 months then quarterly; macitentan and ambrisentan transaminases monthly, ambrisentan haemoglobin at 1 and 3 months; mavacamten echo at 4 and 8 weeks, then every 6 months (LVEF ≥55%) or 3 months (50–<55%). Due when the check point has passed with no result since the previous point and nothing booked. Quiet where another rule already covers it: the first potassium/creatinine check after a RAAS/MRA change within 30 days (ops.monitoring-after-change), amiodarone with no TSH ever (event.amiodarone-thyroid), LDL-C within 90 days of an ACS (ACS bundle).",
+    evaluate(s) {
+      const out: Finding[] = [];
+      for (const m of s.meds.filter((x) => x.status === "active")) {
+        for (const k of monitoringFor(m.code, m.tags)) {
+          if (plannedFor(s, k)) continue;
+          const change = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart" || e.kind === "increase");
+          const labs = targetCodes(k.target);
+          // left to ops.monitoring-after-change: the first K/Cr check within 30 days of a RAAS/MRA change
+          if ((m.tags.includes("raas") || m.tags.includes("mra")) && labs.some((x) => x === "potassium" || x === "creatinine") && change && daysBetween(localDay(change.effective_at), s.today) <= 30
+            && !s.observations.some((o) => (o.code === "potassium" || o.code === "creatinine") && o.effective_at > change.effective_at && o.status !== "entered_in_error")) continue;
+          if (k.id === "amiodarone-tsh" && !s.resolved("tsh").current) continue;
+          // LDL-C after a lipid-therapy change: the ACS bundle owns lipids for 90 days after an ACS, and with no LDL-C in
+          // the last 12 months the lipid rule (lipids.ldl-goal) already asks for a lipid profile
+          if (k.id === "lipids-after-change" && (s.conditions.some((c) => (c.code === "acs-stemi" || c.code === "acs-nstemi") && c.onset && daysBetween(localDay(c.onset), s.today) <= 90)
+            || !s.observations.some((o) => o.code === "ldl-c" && o.status !== "entered_in_error" && daysBetween(localDay(o.effective_at), s.today) <= 365))) continue;
+          const d = monitoringDue(s, m, k);
+          if (!d) continue;
+          const what = "study" in k.target ? k.what : d.missing.length === labs.length ? k.what : d.missing.map((x) => LAB_LABEL[x] ?? x).join(", ");
+          out.push({
+            key: `${k.id}:${m.id}`, signature: `${d.dueDay}:${d.missing.join(",")}`, severity: "yellow",
+            title: `${what[0].toUpperCase()}${what.slice(1)} due on ${m.name}`,
+            detail: `${d.last ? `Last ${fmtDay(d.last, { year: true })}. ` : "No result since the medicine was started or changed. "}Schedule: ${k.schedule} (${k.source}).`,
+            facts: [
+              { label: "Medicine", value: m.name },
+              { label: "Due", value: `${fmtDay(d.dueDay, { year: true })} · ${d.why}` },
+              { label: "Source", value: k.source },
+            ],
+            missing: [], action: { type: "add-plan", template: TEMPLATE(k), medicationId: m.id },
+          } as Finding);
+        }
+      }
+      return out;
     },
   },
 ];

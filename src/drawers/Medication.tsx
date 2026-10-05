@@ -4,6 +4,7 @@ import { api, useData } from "../api";
 import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
 import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
+import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
 
 function patientTags(summary: any) {
   return new Set<string>(summary.header.diagnoses.flatMap((d: any) => DIAGNOSIS[d.code]?.tags ?? []));
@@ -57,7 +58,11 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
     : [];
   const autoIndication = def && def.indications.filter((t) => tags.has(t)).length === 1;
   const doseValue = dose === "custom" ? Number(custom) : Number(dose);
-  const renalK = def?.monitoring.some((c) => c === "potassium" || c === "creatinine");
+  // the medicine's own monitoring schedule (label / guideline); when it covers potassium or creatinine it replaces the generic renal/K booking
+  const schedule = def ? monitoringFor(def.code, def.tags) : [];
+  const scheduleRenal = schedule.some((k) => targetCodes(k.target).some((c) => c === "potassium" || c === "creatinine"));
+  const renalK = !scheduleRenal && def?.monitoring.some((c) => c === "potassium" || c === "creatinine");
+  const [bookSchedule, setBookSchedule] = useState("yes");
   async function save() {
     if (!def) return;
     setBusy(true);
@@ -68,9 +73,10 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
           indication: indication || "unspecified", contextId: contextId ?? null,
           monitoring: renalK && monitor !== "none" ? { dueDate: addDays(today, Number(monitor)), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          bookSchedule: schedule.length > 0 && bookSchedule === "yes",
         },
       });
-      onDone(`${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(addDays(today, Number(monitor)), { weekday: true })}` : ""}`, r);
+      onDone(`${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(addDays(today, Number(monitor)), { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -183,6 +189,18 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                   value={monitor}
                   onChange={setMonitor}
                 />
+              </div>
+            )}
+            {schedule.length > 0 && (
+              <div className="q">
+                <div className="label">Monitoring schedule</div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {schedule.map((k) => (
+                    <div key={k.id} className="small"><b>{k.what}</b>: {k.schedule} <span style={{ color: "var(--ink-3)" }}>· {k.source}</span></div>
+                  ))}
+                </div>
+                <div className="help">The checks in the first 3 months (or the first periodic check) become tasks that close themselves when the result arrives; later ones are flagged when due.</div>
+                <Segmented label="Book monitoring" options={[{ value: "yes", label: "Book the checks" }, { value: "no", label: "Not now" }]} value={bookSchedule} onChange={setBookSchedule} />
               </div>
             )}
             {error && <div className="error-box">{error}</div>}

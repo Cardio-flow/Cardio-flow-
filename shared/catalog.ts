@@ -529,6 +529,12 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "myo-cmr", category: "investigation", title: "Cardiac MRI (myocarditis)", completesOn: { type: "study", kind: "cmr" }, offsets: [0, 14, 28] },
   { id: "myo-bb", category: "medication", title: "Myocarditis: beta-blocker for at least 6 months", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
   { id: "pah-risk", category: "follow_up", title: "PAH: risk assessment (functional class, 6-minute walk, NT-proBNP)", completesOn: { type: "visit" }, offsets: [0, 14, 28] },
+  // medicine monitoring (shared/drug-monitoring.ts): the check a due finding books
+  { id: "mon-lft", category: "monitoring", title: "Liver function check (medicine monitoring)", completesOn: { type: "lab", codes: ["alt"] }, offsets: [0, 7, 14] },
+  { id: "mon-tsh", category: "monitoring", title: "TSH check (medicine monitoring)", completesOn: { type: "lab", codes: ["tsh"] }, offsets: [0, 7, 14] },
+  { id: "mon-hb", category: "monitoring", title: "Haemoglobin check (medicine monitoring)", completesOn: { type: "lab", codes: ["haemoglobin"] }, offsets: [0, 7, 14] },
+  { id: "mon-renal", category: "monitoring", title: "Renal function check (medicine monitoring)", completesOn: { type: "lab", codes: ["creatinine"] }, offsets: [0, 7, 14] },
+  { id: "mon-doac", category: "monitoring", title: "Haemoglobin, renal and liver function (anticoagulant follow-up)", completesOn: { type: "lab", codes: ["haemoglobin", "creatinine", "alt"] }, offsets: [0, 7, 14] },
   { id: "cteph-workup", category: "investigation", title: "CTEPH / CTEPD work-up after pulmonary embolism: echo, NT-proBNP and V/Q scan", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "cteph-team", category: "referral", title: "CTEPH team review: multimodality management (PEA, BPA, riociguat)", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "ph-referral", category: "referral", title: "PH centre referral: right heart catheterisation (pulmonary hypertension work-up)", completesOn: { type: "manual" }, offsets: [7, 14, 28] },

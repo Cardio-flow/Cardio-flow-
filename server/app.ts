@@ -6,6 +6,7 @@ import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/bas
 import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
 import { preStartCheck } from "./engine/med-safety.js";
+import { bookMonitoringAtStart } from "./engine/med-rules.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -349,10 +350,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         effectiveAt: isoDateTime.optional(),
         contextId: uuidS.nullish(),
         monitoring: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
+        bookSchedule: z.boolean().optional(),
       })
       .parse(req.body);
     await write(res, id, async (tx, a) => {
       const r = await K.startMedication(tx, a, id, { ...input, effectiveAt: input.effectiveAt ?? nowIso() });
+      // the medicine's monitoring schedule (label / guideline)
+      if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null);
       if (input.monitoring)
         await K.addPlanAction(tx, a, id, {
           category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
