@@ -535,6 +535,10 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
           valves: { as: "Severe", ar: "Mild", mr: "Moderate", tr: "Mild" }, mrType: "Primary",
           measures: { "av-vmax": 4.6, "av-mg": 52, ava: 0.7, lvesd: 32, lvedd: 47, spap: 44 },
         });
+        await K.recordObservations(tx, sys, mh, { effectiveAt: at(d(-2), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+        // the Heart Team discussed her case: the decision is still to be recorded
+        const htm = (await tx.query(`SELECT id, version FROM cf.plan_action WHERE patient_id=$1 AND title='Heart Team discussion' AND status='planned'`, [mh])).rows[0] as any;
+        if (htm) await K.updatePlanAction(tx, sys, mh, htm.id, { action: "complete", outcome: "Discussed at the Heart Team meeting", version: htm.version });
         touched.push(mh);
       }
       const ab = await byMrn("100318842");

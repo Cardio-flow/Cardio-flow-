@@ -10,6 +10,7 @@ import { recentRaasStart } from "./rules.js";
 import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
 import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
 import { deviceStatus } from "./rhythm-profile.js";
+import { latestValveEcho } from "./valve-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -106,7 +107,15 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   } : null;
   const ds = deviceStatus(s);
   const device = ds ? { type: ds.type, checkAt: ds.check ? localDay(ds.check.at) : null, check: ds.check?.a ?? null } : null;
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device };
+  const ve = latestValveEcho(s);
+  const valve = {
+    nyha: (s.resolved("nyha").current?.value_text as string | undefined) ?? null,
+    lesions: s.conditions.filter((c) => ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr"].includes(c.code) && c.status === "active").map((c) => ({ code: c.code, severity: (c.attributes?.severity as string | undefined) ?? null })),
+    echo: ve?.valves ?? {}, mrType: ve?.mrType ?? null,
+    treated: s.conditions.filter((c) => c.code === "prosthetic-valve" && c.status === "active").map((c) => String(c.attributes?.position ?? "")),
+    bicuspid: s.studies.some((x) => x.kind === "echo" && x.findings.includes("Bicuspid aortic valve")),
+  };
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

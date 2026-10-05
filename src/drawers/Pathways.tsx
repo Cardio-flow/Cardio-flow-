@@ -2,7 +2,7 @@ import { Route } from "lucide-react";
 import { Drawer } from "../ui";
 import { WIZARDS } from "../../shared/wizards";
 
-const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Diabetes"] as const;
+const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Valve disease", "Diabetes"] as const;
 
 // Every complication pathway, opened on demand (alerts open the same wizards automatically).
 export function Pathways({ onClose, onPick }: { onClose(): void; onPick(wizard: string): void }) {

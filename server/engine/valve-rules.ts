@@ -6,6 +6,34 @@ import { fmtDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 import { latestValveEcho } from "./valve-profile.js";
+import { localDay } from "../../shared/clinical.js";
+import { formatNumber } from "../../shared/catalog.js";
+
+const POS: Record<string, string> = { as: "Aortic", ar: "Aortic", "mr-primary": "Mitral", "mr-secondary": "Mitral", ms: "Mitral", tr: "Tricuspid" };
+const LABEL: Record<string, string> = { as: "aortic stenosis", ar: "aortic regurgitation", "mr-primary": "primary mitral regurgitation", "mr-secondary": "secondary mitral regurgitation", ms: "mitral stenosis", tr: "tricuspid regurgitation" };
+const INTERVENTION_PLANNED = /Heart Team|TAVI|valve replacement|valve repair|aortic regurgitation|TEER|commissurotomy|Tricuspid intervention/i;
+// severe native lesions not yet treated (problem list or the latest echo), with where the grade comes from
+export function severeUntreated(s: PatientState) {
+  const treated = new Set(s.conditions.filter((c) => c.code === "prosthetic-valve" && c.status === "active").map((c) => c.attributes?.position));
+  const e = latestValveEcho(s);
+  const out: { code: string; from: string; at: string | null }[] = [];
+  for (const c of s.conditions.filter((x) => POS[x.code] && x.status === "active" && x.attributes?.severity === "Severe"))
+    if (!treated.has(POS[c.code])) out.push({ code: c.code, from: "problem list", at: c.onset ?? c.recorded_at });
+  if (e) for (const [k, g] of Object.entries(e.valves)) {
+    if (g !== "Severe") continue;
+    const code = k === "mr" ? (e.mrType === "Secondary" ? "mr-secondary" : "mr-primary") : k;
+    if (treated.has(POS[code])) continue;
+    const have = out.find((o) => o.code === code);
+    if (have) { have.from = "problem list and echo"; have.at = e.at; } else out.push({ code, from: "echo", at: e.at });
+  }
+  return out;
+}
+const echoFacts = (s: PatientState) => {
+  const f = (code: string, label: string, unit: string, d = 0) => { const o = s.resolved(code).current; return o?.value_num != null ? { label, value: `${formatNumber(o.value_num, d)} ${unit}`, date: o.effective_at } : null; };
+  const nyha = s.resolved("nyha").current;
+  return [f("lvef", "LVEF", "%"), f("av-vmax", "AV Vmax", "m/s", 1), f("av-mg", "AV mean gradient", "mmHg"), f("ava", "AVA", "cm²", 2), f("lvesd", "LVESD", "mm"), f("spap", "SPAP", "mmHg"),
+    nyha?.value_text ? { label: "NYHA", value: String(nyha.value_text), date: nyha.effective_at } : null, { label: "Age", value: String(s.patient.age) }].filter(Boolean) as Finding["facts"];
+};
 
 const RANK: Record<string, number> = { None: 0, Mild: 1, Moderate: 2, Severe: 3, Unknown: 0 };
 const NAME: Record<string, string> = { as: "aortic stenosis", ar: "aortic regurgitation", mr: "mitral regurgitation", ms: "mitral stenosis", tr: "tricuspid regurgitation" };
@@ -39,6 +67,60 @@ export const VALVE_RULES: RuleDef[] = [
           detail: `Update the problem list (${DIAGNOSIS[codes[0]]?.display ?? NAME[valve]}, severity ${grade.toLowerCase()}) so the valve rules can follow it.`,
           facts: [{ label: "Echo", value: `${grade} ${valve.toUpperCase()}`, date: e.at }, { label: "Problem list", value: c ? `${c.display} · ${c.attributes?.severity ?? "severity not recorded"}` : "Not listed" }],
           missing: [], action: { type: "history", focus: "cardiac", label: "Update history" },
+        });
+      }
+      return out;
+    },
+  },
+  {
+    id: "valve.severe-heart-team",
+    kind: "clinical",
+    title: "Severe valve disease without a Heart Team decision",
+    inputs: ["studies", "conditions", "pathways", "plan", "procedures"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS valvular heart disease guidelines: the decision on intervention, its timing and mode is taken by the Heart Team, including lifetime management (I C); TR: Heart Team evaluation (I C).",
+    evaluate(s) {
+      const done = s.pathwaysDone["valve-heart-team"];
+      const lastEcho = latestValveEcho(s)?.at ?? null;
+      if (s.plan.some((p) => p.status === "planned" && INTERVENTION_PLANNED.test(p.title))) return [];
+      return severeUntreated(s)
+        .filter((l) => !done || localDay(done) < localDay(lastEcho && l.from !== "problem list" ? lastEcho : l.at ?? done))
+        .map((l): Finding => ({
+          key: `ht-${l.code}`, signature: `${l.code}:${lastEcho ?? l.at}`, severity: "orange",
+          title: `Severe ${LABEL[l.code]}: Heart Team decision ${done ? "since the latest echo " : ""}not recorded`,
+          detail: "Symptoms, LV function, age, surgical risk and anatomy: intervention and its route, or surveillance.",
+          facts: [{ label: "Severe", value: `${LABEL[l.code]} (${l.from})`, date: l.at ?? undefined }, ...echoFacts(s), { label: "Guideline", value: "ESC/EACTS VHD 2025 · I C" }],
+          missing: [], action: { type: "wizard", wizard: "valve-heart-team" },
+        }));
+    },
+  },
+  {
+    id: "valve.intervention-trigger",
+    kind: "clinical",
+    title: "Severe valve disease with a class I intervention trigger",
+    inputs: ["studies", "conditions", "lvef", "lvesd", "nyha", "plan", "procedures"],
+    defaultParams: { asLvef: 50, arLvef: 50, arLvesd: 50, mrLvef: 60, mrLvesd: 40 },
+    evidence: "ESC/EACTS valvular heart disease guidelines (2021, unchanged in 2025 as summarised; to confirm against the 2025 text): intervention in symptomatic severe AS and in asymptomatic severe AS with LVEF <50% (I); surgery in severe AR when symptomatic, or with LVEF ≤50% or LVESD >50 mm (I); surgery in severe primary MR when symptomatic, or with LVEF ≤60% or LVESD ≥40 mm (I).",
+    evaluate(s, p) {
+      if (s.plan.some((x) => x.status === "planned" && INTERVENTION_PLANNED.test(x.title))) return [];
+      const ef = s.resolved("lvef").current?.value_num ?? null;
+      const lvesd = s.resolved("lvesd").current?.value_num ?? null;
+      const nyha = s.resolved("nyha").current?.value_text as string | undefined;
+      const sym = !!nyha && nyha !== "I";
+      const out: Finding[] = [];
+      for (const l of severeUntreated(s)) {
+        const why = l.code === "as" ? [sym && `NYHA ${nyha}`, ef != null && ef < Number(p.asLvef) && `LVEF ${ef}%`]
+          : l.code === "ar" ? [sym && `NYHA ${nyha}`, ef != null && ef <= Number(p.arLvef) && `LVEF ${ef}%`, lvesd != null && lvesd > Number(p.arLvesd) && `LVESD ${lvesd} mm`]
+          : l.code === "mr-primary" ? [sym && `NYHA ${nyha}`, ef != null && ef <= Number(p.mrLvef) && `LVEF ${ef}%`, lvesd != null && lvesd >= Number(p.mrLvesd) && `LVESD ${lvesd} mm`]
+          : [];
+        const reasons = why.filter(Boolean) as string[];
+        if (!reasons.length) continue;
+        out.push({
+          key: `trig-${l.code}`, signature: `${l.code}:${reasons.join(",")}`, severity: "orange",
+          title: `Severe ${LABEL[l.code]} with ${reasons.join(" and ")}: intervention indicated (class I)`,
+          detail: "Heart Team: timing and route of intervention.",
+          facts: [{ label: "Severe", value: `${LABEL[l.code]} (${l.from})` }, ...echoFacts(s)],
+          missing: [], action: { type: "wizard", wizard: "valve-heart-team" },
         });
       }
       return out;

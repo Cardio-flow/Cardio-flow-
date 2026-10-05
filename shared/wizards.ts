@@ -9,6 +9,7 @@ import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
+import { VALVE_WIZARDS } from "./wizards-valve.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -45,7 +46,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
@@ -85,6 +86,8 @@ export type WizardContext = {
   dx?: string[];
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
   af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
+  // valve module: latest NYHA class, listed lesions with severity, latest echo grades, treated positions
+  valve?: { nyha: string | null; lesions: { code: string; severity: string | null }[]; echo: Record<string, string>; mrType: string | null; treated: string[]; bicuspid: boolean } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
@@ -529,6 +532,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...INFLAMMATORY_WIZARDS,
   ...CORONARY_WIZARDS,
   ...RHYTHM_WIZARDS,
+  ...VALVE_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.

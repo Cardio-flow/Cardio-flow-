@@ -12,6 +12,7 @@ export const POLICY_NOTE =
 // (ESC HF creatinine limits, 1–2 week post-discharge review, ESC/EACTS 2025 INR targets,
 // ESC HF digoxin target 0.5–0.9 ng/mL). A future rule with a local number is listed here.
 export const NEEDS_REVIEW: Record<string, string> = {
+  "valve.intervention-trigger": "Class I valve intervention triggers (LVEF and LVESD limits) taken from summaries of the ESC/EACTS guidelines: confirm against the 2025 guideline text before publishing.",
   "rhythm.device-wound-check": "Wound check 7–10 days after a device implant is local practice (Ahmed, 5 Oct 2026), not a guideline number.",
 };
 

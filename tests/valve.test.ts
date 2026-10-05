@@ -91,3 +91,53 @@ test("a severe lesion listed with a lower severity is flagged orange; listing it
   await tx(async (q) => { await K.updateCondition(q, doc, pid, c.logical_id, { attributes: { severity: "Severe" } }); await reassess(q, pid, "sandbox", ["conditions"]); });
   assert.equal((await rec(pid, "valve.echo-lesion-unlisted")).length, 0);
 });
+
+// ---- slice 2: Heart Team decision and intervention triggers ----
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
+const run = (pid: string, wizard: string, answers: any, recommendationId?: string) =>
+  tx(async (q) => { const r = await completeWizard(q, doc, pid, wizard, { answers, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
+const status = async (pid: string, rule: string) => ((await db.query(`SELECT rule_status FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[])[0]?.rule_status;
+
+test("Mariam (81, severe AS, NYHA II): Heart Team finding (published) and class I trigger (in review); the pathway suggests TAVI; deciding clears both", async () => {
+  const pid = await byName("Mariam Hussain");
+  const ht = (await rec(pid, "valve.severe-heart-team"))[0];
+  assert.equal(ht.severity, "orange");
+  assert.match(ht.title, /^Severe aortic stenosis: Heart Team decision/);
+  assert.equal(await status(pid, "valve.severe-heart-team"), "PUBLISHED");
+  const tr = (await rec(pid, "valve.intervention-trigger"))[0];
+  assert.match(tr.title, /Severe aortic stenosis with NYHA II: intervention indicated \(class I\)/);
+  assert.equal(await status(pid, "valve.intervention-trigger"), "CLINICAL_REVIEW");
+  const ctx = (await tx((q) => getWizard(q, pid, "valve-heart-team"))).context;
+  assert.deepEqual(suggest("valve-heart-team", "lesion", {}, ctx).map((x) => x.value), ["as"]);
+  assert.deepEqual(suggest("valve-heart-team", "symptoms", {}, ctx).map((x) => x.value), ["symptomatic"]);
+  assert.deepEqual(suggest("valve-heart-team", "lv", {}, ctx).map((x) => x.value), ["50-60"]);
+  const answers = { lesion: "as", symptoms: "symptomatic", lv: "50-60", lowflow: "no", risk: "intermediate", anatomy: ["tricuspid", "tf"], factors: ["none"] };
+  const d = suggest("valve-heart-team", "decision", answers, ctx);
+  assert.equal(d[0].value, "tavi");
+  assert.match(d[0].why, /I A/);
+  const done = await run(pid, "valve-heart-team", { ...answers, decision: "tavi", workup: ["ct", "meeting"], review: "none" }, ht.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /TAVI \(I A\)/.test(x)));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /Symptomatic severe AS: intervention \(class I — to confirm/.test(x)));
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "TAVI (Heart Team decision)" && p.status === "planned"));
+  assert.equal((await rec(pid, "valve.severe-heart-team")).length, 0);
+  assert.equal((await rec(pid, "valve.intervention-trigger")).length, 0);
+});
+
+test("severe primary MR, asymptomatic, LVEF >60%, AF + SPAP >50 + TR moderate, low risk: features suggested and repair suggested (I B)", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Mr " + Date.now(), mrn: "MR" + Date.now(), sex: "Female", birthDate: "1966-01-01", conditions: ["af"] }));
+  await tx(async (q) => {
+    await K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 66, findings: [], valves: { mr: "Severe", tr: "Moderate" }, mrType: "Primary", measures: { lvesd: 36, spap: 55 } });
+    await K.recordObservations(q, doc, pid, { effectiveAt: at(T), items: [{ code: "nyha", text: "I" }], silentEvent: true });
+    await reassess(q, pid, "sandbox");
+  });
+  assert.match((await rec(pid, "valve.severe-heart-team"))[0].title, /^Severe primary mitral regurgitation: Heart Team/);
+  assert.equal((await rec(pid, "valve.intervention-trigger")).length, 0, "no class I trigger: LVEF 66%, LVESD 36 mm, NYHA I");
+  const ctx = (await tx((q) => getWizard(q, pid, "valve-heart-team"))).context;
+  assert.deepEqual(suggest("valve-heart-team", "lesion", {}, ctx).map((x) => x.value), ["mr-primary"]);
+  assert.deepEqual(suggest("valve-heart-team", "mrFeatures", {}, ctx).map((x) => x.value).filter(Boolean).sort(), ["af", "spap", "tr"]);
+  const d = suggest("valve-heart-team", "decision", { lesion: "mr-primary", symptoms: "asymptomatic", lv: "gt60", risk: "low", mrFeatures: ["af", "spap", "tr"], factors: ["none"] }, ctx);
+  assert.equal(d[0].value, "mv-surgery");
+  assert.match(d[0].why, /3 of AF.*I B/);
+});

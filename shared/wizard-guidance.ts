@@ -17,6 +17,7 @@ import type { Answers, WizardContext } from "./wizards.js";
 import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
+import { LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -543,6 +544,60 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     ],
   },
 
+  // ESC/EACTS VHD 2025 (recommendations confirmed from the guideline's tables of new/revised items)
+  "valve-heart-team": {
+    lesion: (_a, c) => {
+      const pos = (code: string) => (code === "as" || code === "ar" ? "Aortic" : code === "tr" ? "Tricuspid" : "Mitral");
+      const v = c.valve;
+      if (!v) return [];
+      const fromList = v.lesions.filter((l) => l.severity === "Severe" && !v.treated.includes(pos(l.code))).map((l) => S(l.code, `${LESION_LABEL[l.code].replace(/^Severe /, "Severe ")} on the problem list`));
+      const echoCode = (k: string) => (k === "mr" ? (v.mrType === "Secondary" ? "mr-secondary" : "mr-primary") : k);
+      const fromEcho = Object.entries(v.echo).filter(([k, g]) => g === "Severe" && !v.treated.includes(pos(echoCode(k)))).map(([k]) => S(echoCode(k), "Severe on the latest echo"));
+      const seen = new Set<string>();
+      return [...fromList, ...fromEcho].filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+    },
+    symptoms: (_a, c) => {
+      const n = c.valve?.nyha;
+      return [n ? (n === "I" ? S("asymptomatic", "NYHA I recorded") : S("symptomatic", `NYHA ${n} recorded`)) : null];
+    },
+    lv: (_a, c) => {
+      const ef = val(c, "lvef");
+      return [ef == null ? null : S(ef < 50 ? "lt50" : ef <= 60 ? "50-60" : "gt60", `LVEF ${ef}%`)];
+    },
+    mrFeatures: (_a, c) => {
+      const spap = val(c, "spap"), lvesd = val(c, "lvesd");
+      const out = [
+        dx(c, "af") && S("af", "AF on the problem list"),
+        spap != null && spap > 50 && S("spap", `SPAP ${spap} mmHg`),
+        ["Moderate", "Severe"].includes(c.valve?.echo?.tr ?? "") && S("tr", `TR ${c.valve!.echo.tr.toLowerCase()} on the latest echo`),
+        lvesd != null && lvesd >= 40 && S("lvesd", `LVESD ${lvesd} mm`),
+      ];
+      return out.some(Boolean) ? out : [S("none", "None of these in the record")];
+    },
+    anatomy: (_a, c) => [c.valve?.bicuspid ? S("bicuspid", "Bicuspid aortic valve on echo") : null],
+    decision: (a, c) => {
+      const age = c.profile?.age ?? null, anat = (a.anatomy as string[]) ?? [], sym = a.symptoms === "symptomatic", low = a.risk === "low";
+      const limited = ((a.factors as string[]) ?? []).includes("comorbid");
+      if (limited) return [S("medical", "Limited life expectancy: intervention unlikely to help")];
+      if (a.lesion === "as") return [
+        age != null && age >= 70 && anat.includes("tricuspid") && !anat.includes("no-tf") && S("tavi", `Age ${age}, tricuspid valve, transfemoral access: TAVI (ESC/EACTS 2025, I A)`),
+        age != null && age < 70 && low && S("savr", `Age ${age}, low surgical risk: SAVR (ESC/EACTS 2025, I B)`),
+        !sym && a.lv !== "lt50" && !low && a.lowflow !== "yes" && S("surveillance", "Asymptomatic, LVEF ≥50%, not low risk: close surveillance"),
+      ];
+      if (a.lesion === "mr-primary") return [
+        !sym && low && a.lv === "gt60" && mrRepairFeatures(a) >= 3 && S("mv-surgery", `${mrRepairFeatures(a)} of AF, SPAP >50, LA dilatation, TR ≥ moderate: repair (ESC/EACTS 2025, I B)`),
+        (a.risk === "high" || a.risk === "prohibitive") && S("teer", "High surgical risk: TEER (ESC/EACTS 2025, IIa B)"),
+      ];
+      if (a.lesion === "mr-secondary") return [sym && a.lv === "lt50" && S("teer", "Symptomatic, LVEF <50% despite optimised therapy: TEER if the selection criteria are met (ESC/EACTS 2025, I A)")];
+      if (a.lesion === "tr") return [S("tr-intervention", "Severe TR: Heart Team evaluation (I C); transcatheter treatment when surgery is not suitable (IIa A)")];
+      return [];
+    },
+    workup: (a) => [
+      (a.decision === "tavi" || a.decision === "savr") && S("ct", "Cardiac CT for annulus, access and coronary heights"),
+      ["tavi", "savr", "mv-surgery", "teer", "ar-surgery"].includes(String(a.decision)) && S("meeting", "Heart Team decision (ESC/EACTS 2025, I C)"),
+      a.symptoms === "equivocal" && S("exercise", "Symptoms unclear: exercise testing"),
+    ],
+  },
   // ESC VA 2022 (task-force summary, Europace 2023) and the 2023 HRS/EHRA/APHRS/LAHRS consensus
   "icd-shock": {
     what: (_a, c) => {
