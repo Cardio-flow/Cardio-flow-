@@ -187,3 +187,118 @@ test("severe AR with LVESD 46 mm in a small patient: LVESDi above 25 mm/m² trig
   const sv = (await sumOf(b)).valve.surveillance[0];
   assert.match(sv.reason, /at 5 years/);
 });
+
+// ---- slice 4: antithrombotic therapy after valve intervention ----
+test("Latifa (TAVI 40 days ago, aspirin + clopidogrel, no PCI/ACS): DAPT finding (orange, III B); the pathway is prefilled, stops clopidogrel and dates the 12-month aspirin review", async () => {
+  const pid = await byName("Latifa Al-Fadhli");
+  const f = (await rec(pid, "valve.tavi-antithrombotic"))[0];
+  assert.equal(f.severity, "orange");
+  assert.match(f.title, /DAPT after TAVI without a clear indication \(aspirin \+ clopidogrel\)/);
+  assert.equal(f.action.wizard, "valve-antithrombotic");
+  assert.equal(await status(pid, "valve.tavi-antithrombotic"), "PUBLISHED");
+  const w = await tx((q) => getWizard(q, pid, "valve-antithrombotic"));
+  assert.deepEqual(w.context.detected.intervention, ["tavi"]);
+  assert.deepEqual(suggest("valve-antithrombotic", "indications", {}, w.context).map((x) => x.value), ["none"]);
+  assert.deepEqual(suggest("valve-antithrombotic", "tavi", { indications: ["none"] }, w.context).map((x) => x.value), ["asa"]);
+  const answers = { intervention: "tavi", indications: ["none"], bleeding: "usual", tavi: "asa", care: ["endocarditis"], review: "none" };
+  const done = await run(pid, "valve-antithrombotic", answers, f.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /12 months \(I A\)/.test(x)));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /III B/.test(x)));
+  const s = await loadState(db, pid);
+  assert.equal(s.meds.find((m) => m.code === "clopidogrel")!.status, "stopped");
+  assert.equal(s.meds.find((m) => m.code === "aspirin")!.status, "active");
+  const review = s.plan.find((p) => p.title === "Review aspirin 12 months after TAVI")!;
+  assert.equal(String(review.due_date).slice(0, 10), addDays(addDays(T, -40), 365));
+  assert.ok(review.medication_id, "linked to the aspirin");
+  assert.ok(s.plan.some((p) => /Endocarditis prevention advice/.test(p.title)));
+  assert.equal((await rec(pid, "valve.tavi-antithrombotic")).length, 0);
+});
+
+test("TAVI with no antithrombotic → aspirin (yellow, I A), and the pathway starts aspirin 100 mg; with AF it points to anticoagulation (I B); OAC without an indication → yellow (III A)", async () => {
+  const mk = async (tag: string, conditions: string[]) => {
+    const pid = await tx((q) => K.createPatient(q, doc, { name: `Tavi ${tag} ${Date.now()}`, mrn: `TV${tag}${Date.now()}`, sex: "Male", birthDate: "1944-02-02", conditions }));
+    await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -5)), details: { position: "Aortic", procedure: "TAVI", access: "Transfemoral" } }));
+    return pid;
+  };
+  const a = await mk("A", ["htn"]);
+  await tx((q) => reassess(q, a, "sandbox"));
+  const none = (await rec(a, "valve.tavi-antithrombotic"))[0];
+  assert.equal(none.severity, "yellow");
+  assert.match(none.title, /with no antiplatelet or anticoagulant/);
+  await run(a, "valve-antithrombotic", { intervention: "tavi", indications: ["none"], bleeding: "usual", tavi: "asa", care: ["none"], review: "none" }, none.id);
+  const sa = await loadState(db, a);
+  const asa = sa.meds.find((m) => m.code === "aspirin")!;
+  assert.equal(asa.status, "active");
+  assert.equal(asa.doseValue, 100);
+  assert.equal((await rec(a, "valve.tavi-antithrombotic")).length, 0);
+
+  const b = await mk("B", ["af", "htn"]);
+  await tx((q) => reassess(q, b, "sandbox"));
+  assert.match((await rec(b, "valve.tavi-antithrombotic"))[0].title, /no antiplatelet or anticoagulant/);
+  const ctx = (await tx((q) => getWizard(q, b, "valve-antithrombotic"))).context;
+  assert.ok(suggest("valve-antithrombotic", "indications", {}, ctx).some((x) => x.value === "af"));
+  assert.deepEqual(suggest("valve-antithrombotic", "tavi", { indications: ["af"] }, ctx).map((x) => x.value), ["oac"]);
+
+  const c = await mk("C", ["htn"]);
+  await tx((q) => K.startMedication(q, doc, c, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "valve", effectiveAt: at(addDays(T, -4)) }));
+  await tx((q) => reassess(q, c, "sandbox"));
+  const o = (await rec(c, "valve.tavi-antithrombotic"))[0];
+  assert.equal(o.severity, "yellow");
+  assert.match(o.title, /Apixaban after TAVI with no anticoagulation indication recorded/);
+});
+
+test("TAVI with a PCI in the last year: aspirin + clopidogrel is not flagged", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Tavi Pci " + Date.now(), mrn: "TP" + Date.now(), sex: "Male", birthDate: "1946-03-03", conditions: ["cad-ccs"] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "pci", date: at(addDays(T, -60)), details: { setting: "elective", vessels: ["LAD"], stents: 1 } }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -20)), details: { position: "Aortic", procedure: "TAVI", access: "Transfemoral" } }));
+  for (const code of ["aspirin", "clopidogrel"] as const)
+    await tx((q) => K.startMedication(q, doc, pid, { code, doseValue: code === "aspirin" ? 100 : 75, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(addDays(T, -60)) }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "valve.tavi-antithrombotic")).length, 0);
+});
+
+test("surgical mitral repair 3 weeks ago with no anticoagulant → yellow (IIa B); the pathway plans the anticoagulant and dates its stop at 3 months; the finding ends after 3 months", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Mv Repair " + Date.now(), mrn: "MR" + Date.now(), sex: "Female", birthDate: "1965-05-05", conditions: ["mr-primary"] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -21)), details: { position: "Mitral", procedure: "Surgical repair" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const f = (await rec(pid, "valve.repair-oac"))[0];
+  assert.equal(f.severity, "yellow");
+  assert.match(f.title, /no anticoagulant in the first 3 months/);
+  assert.equal(await status(pid, "valve.repair-oac"), "PUBLISHED");
+  const ctx = (await tx((q) => getWizard(q, pid, "valve-antithrombotic"))).context;
+  assert.deepEqual(ctx.detected.intervention, ["repair"]);
+  assert.deepEqual(suggest("valve-antithrombotic", "repair", { indications: ["none"], bleeding: "usual" }, ctx).map((x) => x.value), ["oac"]);
+  assert.deepEqual(suggest("valve-antithrombotic", "repair", { indications: ["none"], bleeding: "high" }, ctx).map((x) => x.value), ["asa"]);
+  await run(pid, "valve-antithrombotic", { intervention: "repair", indications: ["none"], bleeding: "usual", repair: "oac", care: ["none"], review: "none" }, f.id);
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => /^Start an anticoagulant \(first 3 months after valve repair/.test(p.title)));
+  const stop = s.plan.find((p) => p.title === "Stop anticoagulation 3 months after valve repair (no other indication)")!;
+  assert.equal(String(stop.due_date).slice(0, 10), addDays(addDays(T, -21), 91));
+  const old = await tx((q) => K.createPatient(q, doc, { name: "Mv Old " + Date.now(), mrn: "MO" + Date.now(), sex: "Female", birthDate: "1965-05-05", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, old, { kind: "valve", date: at(addDays(T, -120)), details: { position: "Mitral", procedure: "Surgical repair" } }));
+  await tx((q) => reassess(q, old, "sandbox"));
+  assert.equal((await rec(old, "valve.repair-oac")).length, 0);
+});
+
+test("mechanical valve: no anticoagulant → red (I A); aspirin + clopidogrel without PCI/ACS → orange (III A); the pathway suggests warfarin and education and plans the INR target", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Mhv " + Date.now(), mrn: "MH" + Date.now(), sex: "Male", birthDate: "1975-07-07", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -400)), details: { position: "Aortic", procedure: "Surgical replacement", prosthesis: "Mechanical", design: "Bileaflet / current tilting-disc" } }));
+  for (const code of ["aspirin", "clopidogrel"] as const)
+    await tx((q) => K.startMedication(q, doc, pid, { code, doseValue: code === "aspirin" ? 100 : 75, frequency: "OD", route: "PO", indication: "valve", effectiveAt: at(addDays(T, -30)) }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const fs = await rec(pid, "valve.mechanical-antithrombotic");
+  const red = fs.find((x) => x.severity === "red")!;
+  assert.match(red.title, /Mechanical valve with no anticoagulant/);
+  assert.ok(fs.some((x) => x.severity === "orange" && /dual antiplatelet/.test(x.title)));
+  const ctx = (await tx((q) => getWizard(q, pid, "valve-antithrombotic"))).context;
+  assert.deepEqual(ctx.detected.intervention, ["mech"]);
+  assert.equal(ctx.valve!.inrTarget, "2.5 (2.0–3.0)");
+  assert.deepEqual(suggest("valve-antithrombotic", "mech", { indications: ["none"] }, ctx).map((x) => x.value), ["vka"]);
+  const done = await run(pid, "valve-antithrombotic", { intervention: "mech", indications: ["none"], bleeding: "usual", mech: ["vka"], care: ["education"], review: "none" });
+  assert.ok(done.assessment!.recommendations.some((x: string) => /III A/.test(x)));
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "Start warfarin for the mechanical valve · INR target 2.5 (2.0–3.0)"));
+  assert.ok(s.plan.some((p) => p.title === "Anticoagulation education (INR target 2.5 (2.0–3.0))"));
+  assert.equal(s.meds.find((m) => m.code === "clopidogrel")!.status, "stopped");
+  assert.equal(s.meds.find((m) => m.code === "aspirin")!.status, "active", "aspirin is the clinician's call (symptomatic atherosclerosis)");
+});

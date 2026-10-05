@@ -17,7 +17,7 @@ import type { Answers, WizardContext } from "./wizards.js";
 import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
-import { LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
+import { interventionFor, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -597,6 +597,35 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ["tavi", "savr", "mv-surgery", "teer", "ar-surgery"].includes(String(a.decision)) && S("meeting", "Heart Team decision (ESC/EACTS 2025, I C)"),
       a.symptoms === "equivocal" && S("exercise", "Symptoms unclear: exercise testing"),
     ],
+  },
+  "valve-antithrombotic": {
+    intervention: (_a, c) => {
+      const v = (c.valve?.interventions ?? [])[0];
+      const k = v ? interventionFor(v.type, v.procedure, v.position) : null;
+      return [k && v ? S(k, `${v.name} · ${v.day}`) : null];
+    },
+    indications: (_a, c) => {
+      const out = [
+        dx(c, "af") && S("af", "AF / flutter on the problem list"),
+        c.valve?.daptIndication && S("pci", c.valve.daptIndication),
+        dx(c, "cad", "pad", "stroke-tia", "ascvd") && S("athero", "Atherosclerotic disease on the problem list"),
+      ];
+      return out.some(Boolean) ? out : [S("none", "No other indication in the record")];
+    },
+    tavi: (a) => {
+      const ind = (a.indications as string[]) ?? [];
+      return [ind.includes("af") || ind.includes("vte") ? S("oac", "Another indication for anticoagulation (I B)") : ind.includes("pci") ? S("dapt", "Recent PCI / ACS") : S("asa", "No indication for anticoagulation (I A)")];
+    },
+    bio: (a) => {
+      const ind = (a.indications as string[]) ?? [];
+      return [ind.includes("af") || ind.includes("vte") ? S("oac", "Clear indication for anticoagulation (I B)") : S("asa", "No indication for anticoagulation (IIb C)")];
+    },
+    repair: (a) => {
+      const ind = (a.indications as string[]) ?? [];
+      return [a.bleeding === "high" && !ind.includes("af") && !ind.includes("vte") ? S("asa", "High bleeding risk, no OAC indication (IIb B)") : S("oac", "First 3 months after repair (IIa B)")];
+    },
+    mech: (a, c) => [S("vka", "Lifelong VKA (I A)"), ((a.indications as string[]) ?? []).includes("athero") ? S("asa", "Symptomatic atherosclerosis (IIa B)") : null, on(c, "doac") ? S("switch", "DOAC with a mechanical valve (III A)") : null],
+    care: (a) => [a.intervention === "mech" ? S("education", "Patient education (I A)") : null, S("endocarditis", "Prosthetic material")],
   },
   // ESC VA 2022 (task-force summary, Europace 2023) and the 2023 HRS/EHRA/APHRS/LAHRS consensus
   "icd-shock": {

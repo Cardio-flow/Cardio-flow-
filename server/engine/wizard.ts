@@ -11,6 +11,9 @@ import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
 import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
 import { deviceStatus } from "./rhythm-profile.js";
 import { latestValveEcho } from "./valve-profile.js";
+import { daptIndication, oacIndication, valveInterventions } from "./valve-rules.js";
+import { mechanicalInrTarget } from "./acute-rules.js";
+import { interventionFor } from "../../shared/wizards-valve.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -114,7 +117,15 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     echo: ve?.valves ?? {}, mrType: ve?.mrType ?? null,
     treated: s.conditions.filter((c) => c.code === "prosthetic-valve" && c.status === "active").map((c) => String(c.attributes?.position ?? "")),
     bicuspid: s.studies.some((x) => x.kind === "echo" && x.findings.includes("Bicuspid aortic valve")),
+    interventions: valveInterventions(s).map((v) => ({ position: v.position, procedure: v.procedure, type: v.type ?? "", name: v.name, day: v.day })),
+    daptIndication: daptIndication(s), oacIndication: oacIndication(s),
+    inrTarget: (() => { const r = s.tags.has("mechanical-valve") ? mechanicalInrTarget(s) : null; return r ? `${formatNumber(r.target, 1)} (${formatNumber(r.low, 1)}–${formatNumber(r.high, 1)})` : null; })(),
   };
+  if (wizardId === "valve-antithrombotic") {
+    const kind = valve.interventions.map((v) => interventionFor(v.type, v.procedure, v.position)).find(Boolean);
+    if (kind && !base.detected.intervention) base.detected.intervention = [kind];
+    if (valve.daptIndication) (base.detected.indications ??= []).push("pci");
+  }
   return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve };
 }
 

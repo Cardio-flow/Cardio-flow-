@@ -8,6 +8,8 @@ import type { Finding, RuleDef } from "./rules.js";
 import { SURVEILLANCE_DEFAULTS, latestValveEcho, valveSurveillance } from "./valve-profile.js";
 import { localDay } from "../../shared/clinical.js";
 import { formatNumber } from "../../shared/catalog.js";
+import { addDays, daysBetween } from "../../shared/clinical.js";
+import { PROSTHESIS_TYPE } from "../../shared/procedures.js";
 
 const POS: Record<string, string> = { as: "Aortic", ar: "Aortic", "mr-primary": "Mitral", "mr-secondary": "Mitral", ms: "Mitral", tr: "Tricuspid" };
 const LABEL: Record<string, string> = { as: "aortic stenosis", ar: "aortic regurgitation", "mr-primary": "primary mitral regurgitation", "mr-secondary": "secondary mitral regurgitation", ms: "mitral stenosis", tr: "tricuspid regurgitation" };
@@ -28,6 +30,26 @@ export function severeUntreated(s: PatientState) {
   }
   return out;
 }
+// valve slice 4: the latest intervention in each position, and the antithrombotic context
+export function valveInterventions(s: PatientState) {
+  const procs = s.procedures.filter((p) => p.kind === "valve").sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+  const seen = new Set<string>();
+  return procs.filter((p) => (seen.has(p.attributes.position) ? false : (seen.add(p.attributes.position), true)))
+    .map((p) => ({ p, day: localDay(p.performed_at), position: p.attributes.position as string, type: PROSTHESIS_TYPE(p.attributes), procedure: p.attributes.procedure as string, name: p.summary.split(" · ")[0] }));
+}
+const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
+// a clear indication for DAPT: PCI or an ACS within 12 months
+export const daptIndication = (s: PatientState) => {
+  const since = addDays(s.today, -365);
+  const pci = s.procedures.find((p) => p.kind === "pci" && localDay(p.performed_at) >= since);
+  if (pci) return `PCI ${fmtDay(pci.performed_at, { year: true })}`;
+  const acs = s.conditions.find((c) => (c.code === "acs-stemi" || c.code === "acs-nstemi") && c.onset && localDay(c.onset) >= since);
+  return acs ? `${acs.display} ${fmtDay(acs.onset!, { year: true })}` : null;
+};
+// a baseline indication for anticoagulation recorded in CardioFlow
+export const oacIndication = (s: PatientState) =>
+  s.tags.has("af") ? "AF / flutter" : s.tags.has("mechanical-valve") ? "mechanical valve" : null;
+
 const echoFacts = (s: PatientState) => {
   const f = (code: string, label: string, unit: string, d = 0) => { const o = s.resolved(code).current; return o?.value_num != null ? { label, value: `${formatNumber(o.value_num, d)} ${unit}`, date: o.effective_at } : null; };
   const nyha = s.resolved("nyha").current;
@@ -152,6 +174,106 @@ export const VALVE_RULES: RuleDef[] = [
           facts: [{ label: "Last echo", value: i.last ? fmtDay(i.last, { year: true }) : "None" }, { label: "Interval", value: i.reason }],
           missing: [], action: { type: "add-plan", template: "valve-echo" },
         }));
+    },
+  },
+  // ---- slice 4: antithrombotic therapy after valve intervention (2025 ESC/EACTS, read verbatim) ----
+  {
+    id: "valve.tavi-antithrombotic",
+    kind: "clinical",
+    title: "Antithrombotic therapy after TAVI",
+    inputs: ["procedures", "meds", "conditions", "studies"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS VHD: low-dose ASA (75–100 mg/day) for 12 months after TAVI in patients without indication for OAC (I A); DAPT not recommended after TAVI unless there is a clear indication (III B); routine OAC not recommended after TAVI without a baseline indication (III A); OAC recommended for TAVI patients with other indications for OAC (I B).",
+    evaluate(s) {
+      const tavi = valveInterventions(s).find((v) => v.position === "Aortic" && v.type === "TAVI");
+      if (!tavi) return [];
+      const meds = live(s);
+      const oac = meds.filter((m) => m.tags.includes("oac"));
+      const ap = meds.filter((m) => m.tags.includes("antiplatelet"));
+      const p2y12 = ap.filter((m) => m.tags.includes("p2y12"));
+      const asa = ap.find((m) => m.code === "aspirin");
+      const indication = oacIndication(s), dapt = daptIndication(s);
+      const days = daysBetween(tavi.day, s.today);
+      const base = [{ label: "TAVI", value: tavi.p.summary, date: tavi.p.performed_at }, { label: "Guideline", value: "ESC/EACTS VHD 2025" }];
+      const out: Finding[] = [];
+      if (asa && p2y12.length && !oac.length && !dapt)
+        out.push({
+          key: "tavi-dapt", signature: `${tavi.p.id}:${p2y12.map((m) => m.id).join(",")}`, severity: "orange",
+          title: `DAPT after TAVI without a clear indication (aspirin + ${p2y12.map((m) => m.name.toLowerCase()).join(", ")})`,
+          detail: "Aspirin 75–100 mg alone for 12 months (I A); DAPT only with a clear indication such as recent PCI or ACS (III B).",
+          facts: [...base, { label: "On", value: ap.map((m) => m.name).join(" + ") }, { label: "Recent PCI / ACS", value: "None recorded" }],
+          missing: [], action: { type: "wizard", wizard: "valve-antithrombotic" },
+        });
+      if (oac.length && !indication)
+        out.push({
+          key: "tavi-oac", signature: `${tavi.p.id}:${oac.map((m) => m.id).join(",")}`, severity: "yellow",
+          title: `${oac[0].name} after TAVI with no anticoagulation indication recorded`,
+          detail: "Routine anticoagulation after TAVI is not recommended without a baseline indication (III A). Record the indication (e.g. venous thromboembolism) or review.",
+          facts: [...base, { label: "Anticoagulant", value: oac.map((m) => m.name).join(" + ") }, { label: "Indication", value: "None recorded" }],
+          missing: [], action: { type: "wizard", wizard: "valve-antithrombotic" },
+        });
+      if (!oac.length && !ap.length && days <= 365)
+        out.push({
+          key: "tavi-none", signature: tavi.p.id, severity: "yellow",
+          title: `TAVI ${fmtDay(tavi.day)} with no antiplatelet or anticoagulant`,
+          detail: indication ? `${indication}: anticoagulation is recommended after TAVI (I B).` : "Low-dose aspirin 75–100 mg for 12 months after TAVI (I A).",
+          facts: base, missing: [], action: { type: "wizard", wizard: "valve-antithrombotic" },
+        });
+      return out;
+    },
+  },
+  {
+    id: "valve.repair-oac",
+    kind: "clinical",
+    title: "Anticoagulation in the first 3 months after mitral or tricuspid repair",
+    inputs: ["procedures", "meds"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS VHD: OAC, with either VKAs or DOACs, should be considered during the first 3 months after surgical MV or TV repair (IIa B); low-dose ASA in preference to OAC may be considered without a clear indication for OAC and at high bleeding risk (IIb B).",
+    evaluate(s) {
+      const rep = valveInterventions(s).find((v) => (v.position === "Mitral" || v.position === "Tricuspid") && v.procedure === "Surgical repair" && daysBetween(v.day, s.today) <= 91);
+      if (!rep) return [];
+      const meds = live(s);
+      if (meds.some((m) => m.tags.includes("oac")) || meds.some((m) => m.code === "aspirin")) return [];
+      return [{
+        key: "repair-oac", signature: rep.p.id, severity: "yellow",
+        title: `${rep.name} ${fmtDay(rep.day)}: no anticoagulant in the first 3 months`,
+        detail: "VKA or DOAC for the first 3 months (IIa B); low-dose aspirin instead at high bleeding risk without another OAC indication (IIb B).",
+        facts: [{ label: "Repair", value: rep.p.summary, date: rep.p.performed_at }, { label: "Until", value: fmtDay(addDays(rep.day, 91), { year: true }) }, { label: "Guideline", value: "ESC/EACTS VHD 2025 · IIa B" }],
+        missing: [], action: { type: "wizard", wizard: "valve-antithrombotic" },
+      }];
+    },
+  },
+  {
+    id: "valve.mechanical-antithrombotic",
+    kind: "clinical",
+    title: "Mechanical valve: VKA, no DAPT",
+    inputs: ["conditions", "meds"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS VHD: lifelong OAC with a VKA for all patients with a mechanical valve (I A); DOACs and/or DAPT are not recommended (III A) — DOACs are covered by valve.doac-contraindicated.",
+    evaluate(s) {
+      if (!s.tags.has("mechanical-valve")) return [];
+      const meds = live(s);
+      const out: Finding[] = [];
+      const vka = meds.find((m) => m.tags.includes("vka"));
+      const doac = meds.some((m) => m.tags.includes("oac") && !m.tags.includes("vka"));
+      if (!vka && !doac)
+        out.push({
+          key: "mhv-no-vka", signature: "none", severity: "red",
+          title: "Mechanical valve with no anticoagulant on the medication list",
+          detail: "Lifelong VKA is recommended for every mechanical valve (I A). Confirm and restart warfarin with the INR target.",
+          facts: [{ label: "Valve", value: s.conditions.filter((c) => c.code === "prosthetic-valve" && c.attributes?.type === "Mechanical").map((c) => `${c.attributes?.position ?? ""} mechanical`).join(", ") }, { label: "Guideline", value: "ESC/EACTS VHD 2025 · I A" }],
+          missing: [], action: { type: "tab", tab: "medications" },
+        });
+      const p2y12 = meds.filter((m) => m.tags.includes("p2y12"));
+      if (meds.some((m) => m.code === "aspirin") && p2y12.length && !daptIndication(s))
+        out.push({
+          key: "mhv-dapt", signature: p2y12.map((m) => m.id).join(","), severity: "orange",
+          title: "Mechanical valve on dual antiplatelet therapy without a recent PCI or ACS",
+          detail: "DAPT is not recommended to prevent valve thrombosis (III A); aspirin may be added to the VKA only with symptomatic atherosclerotic disease (IIa B).",
+          facts: [{ label: "On", value: meds.filter((m) => m.tags.includes("antiplatelet")).map((m) => m.name).join(" + ") }, { label: "Guideline", value: "ESC/EACTS VHD 2025 · III A" }],
+          missing: [], action: { type: "tab", tab: "medications" },
+        });
+      return out;
     },
   },
 ];
