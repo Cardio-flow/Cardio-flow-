@@ -650,6 +650,32 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ];
     },
   },
+  myocarditis: {
+    form: (_a, c) => {
+      const ef = val(c, "lvef");
+      return [ef != null && ef < 50 ? S("complicated", `LVEF ${ef}%`) : null];
+    },
+    cad: (_a, c) => [dx(c, "cad", "ascvd") ? S("moderate-high", "Coronary disease on the problem list") : null],
+    tests: (a) => [
+      S("admit", "Hospital admission for all with myocarditis"),
+      S("bloods", "Recommended in all"),
+      S("echo", "Recommended in all"),
+      S("cmr", "Diagnosis (I B)"),
+      a.cad === "moderate-high" ? S("coronary", "Moderate-to-high likelihood of coronary disease") : null,
+      a.form === "fulminant" ? S("emb", "Acute heart failure or cardiogenic shock") : null,
+    ],
+    actions: (a, c) => {
+      const ef = val(c, "lvef");
+      return [
+        S("symptoms", a.pericarditis === "yes" ? "With colchicine for the pericarditis" : "Symptom relief"),
+        S("bb", "At least 6 months, whatever the LV function (IIa C)"),
+        (ef != null && ef < 50) || a.form !== "uncomplicated" ? S("hf", "LV dysfunction / heart failure") : null,
+        S("exercise", "1 month at first, then individualised"),
+        S("cmr6", "Within 6 months (I B)"),
+        a.form === "uncomplicated" ? S("followup", "Uncomplicated: 6, 12 and 24 months") : null,
+      ];
+    },
+  },
   "prosthetic-valve": {
     prosthesis: (_a, c) => {
       const kinds = [...new Set((c.valve?.prostheses ?? []).map((p) => prosthesisKind(p.type)).filter(Boolean))] as string[];

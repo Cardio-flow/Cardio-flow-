@@ -72,7 +72,7 @@ export const HISTORY_ITEMS: HistoryItem[] = [
   },
   { key: "coronary", section: "cardiac", label: "Coronary disease", short: "Coronary disease", conditions: ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"] },
   { key: "heart-failure", section: "cardiac", label: "Heart failure / cardiomyopathy", short: "Heart failure", conditions: ["hfref", "hfmref", "hfpef", "hfimpef"] },
-  { key: "cardiomyopathy", section: "cardiac", label: "Cardiomyopathy (HCM, DCM, NDLVC, ARVC, restrictive, amyloid)", short: "Cardiomyopathy", conditions: ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"] },
+  { key: "cardiomyopathy", section: "cardiac", label: "Cardiomyopathy or myocarditis (HCM, DCM, NDLVC, ARVC, restrictive, amyloid)", short: "Cardiomyopathy", conditions: ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid", "myocarditis"] },
   { key: "valve", section: "cardiac", label: "Valve disease or prosthesis", short: "Valve disease", conditions: ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr", "prosthetic-valve"] },
   { key: "rhythm", section: "cardiac", label: "Arrhythmia or conduction disease", short: "Arrhythmia", conditions: ["af", "flutter", "svt", "vt", "av-block"] },
   { key: "device", section: "cardiac", label: "Cardiac device", short: "Device", conditions: ["cied"] },
@@ -124,6 +124,7 @@ const CMP_FIELDS: AttrField[] = GENETIC;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   hcm: [{ key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) }, ...GENETIC],
   dcm: CMP_FIELDS,
+  myocarditis: [{ key: "form", label: "Presentation", options: ["Uncomplicated", "Complicated", "Fulminant"], text: (v) => v.toLowerCase() }],
   ndlvc: CMP_FIELDS,
   arvc: CMP_FIELDS,
   rcm: CMP_FIELDS,

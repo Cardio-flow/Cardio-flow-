@@ -254,5 +254,118 @@ CMP_WIZARDS["cmp-family"].assess = (a: Answers, _ctx: WizardContext): Assessment
   return { heading: "Cardiomyopathy: family screening", rows, recommendations: rec };
 };
 
+// Myocarditis (cardiomyopathy module, slice 5; opens an episode). 2025 ESC Guidelines for the
+// management of myocarditis and pericarditis (Schulz-Menger et al., Eur Heart J 2025), as reported with
+// class and level in guideline summaries (Rev Esp Cardiol 2025 "Insights"; cardiac-imaging.org):
+//  - CMR in suspected myocarditis for diagnosis (I B) and for follow-up within 6 months (I B);
+//  - hospital admission for patients with myocarditis, for monitoring, investigation and treatment;
+//  - coronary CT or invasive angiography only with a moderate-to-high likelihood of coronary disease;
+//  - endomyocardial biopsy (with molecular / viral PCR before immunosuppression) strongly recommended in
+//    acute heart failure or cardiogenic shock; considered with malignant arrhythmia, conduction disease,
+//    LVEF <40%, extensive LGE, a suspected specific aetiology or no response to therapy;
+//  - symptoms: paracetamol, aspirin or an NSAID, colchicine if pericarditis is present;
+//  - beta-blocker for at least 6 months whatever the LV function (IIa C); HF therapy per HF guidelines;
+//    neurohormonal therapy may be withdrawn after 6 months once function has recovered (IIa C);
+//  - immunosuppression not as initial therapy: fulminant non-infectious myocarditis (IIa C), refractory
+//    ventricular dysfunction (IIb C) or an autoimmune aetiology;
+//  - physical activity restricted for 1 month initially, then individualised;
+//  - wearable defibrillator for selected high-risk patients in the 3–6-month recovery period;
+//  - follow-up of uncomplicated cases at 6, 12 and 24 months.
+// CardioFlow plans these steps; it never doses NSAIDs, colchicine or immunosuppression here.
+const MYO_FORM: Record<string, string> = { uncomplicated: "Uncomplicated", complicated: "Complicated", fulminant: "Fulminant" };
+CMP_WIZARDS["myocarditis"] = {
+  id: "myocarditis", title: "Myocarditis", tone: "orange", group: "Inflammatory & infective heart disease",
+  source: "ESC 2025 myocarditis and pericarditis",
+  note: "Admit and monitor; CMR confirms the diagnosis; biopsy for heart failure or shock. Beta-blocker for at least 6 months, exercise restriction, and CMR again within 6 months.",
+  facts: ["hs-troponin", "nt-probnp", "crp", "lvef", "hr", "sbp"],
+  steps: [
+    {
+      id: "presentation", title: "Presentation",
+      questions: [
+        {
+          id: "form", label: "Presentation", type: "single", required: true,
+          options: [
+            { value: "uncomplicated", label: "Uncomplicated", hint: "Chest pain, preserved LV function, no arrhythmia" },
+            { value: "complicated", label: "Complicated", hint: "LV dysfunction, heart failure, ventricular arrhythmia or conduction disease" },
+            { value: "fulminant", label: "Fulminant", hint: "Cardiogenic shock / acute heart failure needing support" },
+          ],
+        },
+        { id: "pericarditis", label: "Pericarditis features too", type: "single", required: true, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] },
+        { id: "cad", label: "Likelihood of coronary disease", type: "single", required: true, options: [{ value: "low", label: "Low" }, { value: "moderate-high", label: "Moderate to high" }] },
+      ],
+    },
+    {
+      id: "workup", title: "Work-up",
+      questions: [
+        {
+          id: "tests", label: "Work-up", type: "multi", required: true,
+          options: [
+            { value: "none", label: "All done" },
+            { value: "admit", label: "Admit with rhythm monitoring", effects: { plan: [{ category: "follow_up", title: "Myocarditis: admission with rhythm monitoring", days: 0, completesOn: manual }] } },
+            { value: "bloods", label: "Troponin, NT-proBNP, inflammatory markers", effects: { plan: [{ category: "monitoring", title: "Myocarditis: troponin, NT-proBNP and inflammatory markers", days: 0, completesOn: { type: "lab", codes: ["hs-troponin", "nt-probnp", "crp"] } }] } },
+            { value: "echo", label: "ECG and echo", effects: { plan: [{ category: "investigation", title: "Myocarditis: ECG and echo", days: 0, completesOn: { type: "study", kind: "echo" } }] } },
+            { value: "cmr", label: "Cardiac MRI", effects: { plan: [{ category: "investigation", title: "Cardiac MRI (myocarditis)", days: 3, completesOn: { type: "study", kind: "cmr" } }] } },
+            { value: "coronary", label: "Coronary CT or angiography", effects: { plan: [{ category: "investigation", title: "Coronary CT or angiography (exclude coronary disease)", days: 1, completesOn: manual }] } },
+            { value: "emb", label: "Endomyocardial biopsy with viral PCR", effects: { plan: [{ category: "procedure", title: "Endomyocardial biopsy with histology, immunohistochemistry and viral PCR", days: 1, completesOn: manual }] } },
+          ],
+        },
+      ],
+    },
+    {
+      id: "plan", title: "Treatment & follow-up",
+      questions: [
+        {
+          id: "actions", label: "Plan", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Nothing more" },
+            { value: "symptoms", label: "Symptom relief", hint: "Paracetamol, aspirin or NSAID; colchicine if pericarditis", effects: { plan: [{ category: "medication", title: "Myocarditis: symptom relief (paracetamol, aspirin or NSAID; colchicine if pericarditis)", days: 0, completesOn: manual }] } },
+            { value: "bb", label: "Beta-blocker for at least 6 months", effects: { plan: [{ category: "medication", title: "Myocarditis: beta-blocker for at least 6 months", days: 0, completesOn: manual }] } },
+            { value: "hf", label: "Heart failure therapy (HF guideline)", effects: { plan: [{ category: "medication", title: "Myocarditis with LV dysfunction: heart failure therapy per HF guideline", days: 0, completesOn: manual }] } },
+            { value: "immuno", label: "Immunosuppression: specialist decision after biopsy", effects: { plan: [{ category: "referral", title: "Myocarditis: immunosuppression decision (biopsy-proven, non-infectious) with the specialist team", days: 1, completesOn: manual }] } },
+            { value: "wcd", label: "Wearable defibrillator (selected high risk)", effects: { plan: [{ category: "referral", title: "Wearable cardioverter-defibrillator for the recovery period (3–6 months)", days: 0, completesOn: manual }] } },
+            { value: "exercise", label: "Exercise restriction", effects: { plan: [{ category: "education", title: "Myocarditis: no strenuous exercise or competitive sport for at least 1 month, then individual reassessment", days: 0, completesOn: manual }] } },
+            { value: "cmr6", label: "Follow-up CMR within 6 months", effects: { plan: [{ category: "investigation", title: "Follow-up cardiac MRI (myocarditis, within 6 months)", days: 180, completesOn: { type: "study", kind: "cmr" } }] } },
+            { value: "followup", label: "Follow-up at 6, 12 and 24 months", effects: { plan: [
+              { category: "follow_up", title: "Myocarditis follow-up · 6 months", days: 182, completesOn: { type: "visit" } },
+              { category: "follow_up", title: "Myocarditis follow-up · 12 months", days: 365, completesOn: { type: "visit" } },
+              { category: "follow_up", title: "Myocarditis follow-up · 24 months", days: 730, completesOn: { type: "visit" } },
+            ] } },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};
+CMP_WIZARDS["myocarditis"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const form = MYO_FORM[String(a.form)];
+  if (!form) return [];
+  const listed = (ctx.dx ?? []).includes("myocarditis");
+  return [{ kind: "condition", code: "myocarditis", attributes: { form }, label: `Myocarditis · ${form.toLowerCase()}: ${listed ? "update the problem list" : "add to the problem list"}` }];
+};
+CMP_WIZARDS["myocarditis"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const ef = ctx.values?.lvef?.value ?? null;
+  const tests = ((a.tests as string[]) ?? []);
+  const acts = ((a.actions as string[]) ?? []);
+  const rows: Assessment["rows"] = [
+    { label: "Presentation", value: MYO_FORM[String(a.form)] ?? "Not given", tone: a.form === "fulminant" || a.form === "complicated" ? "orange" : undefined },
+    { label: "LVEF", value: ef != null ? `${ef}%` : "Not recorded", tone: ef != null && ef < 40 ? "orange" : undefined },
+    { label: "Pericarditis features", value: a.pericarditis === "yes" ? "Yes" : "No" },
+  ];
+  const rec: string[] = ["Hospital admission for monitoring, investigation and treatment."];
+  rec.push("CMR for the diagnosis (I B), and again within 6 months to tell healed from ongoing inflammation and guide return to exercise (I B).");
+  if (a.cad === "moderate-high") rec.push("Moderate-to-high likelihood of coronary disease: coronary CT or invasive angiography.");
+  if (a.form === "fulminant") rec.push("Acute heart failure or cardiogenic shock: endomyocardial biopsy (with viral PCR) is recommended; immunosuppression may be considered in biopsy-proven non-infectious fulminant myocarditis (IIa C).");
+  else if (a.form === "complicated" || (ef != null && ef < 40)) rec.push("Biopsy should be considered with malignant arrhythmia, conduction disease, LVEF <40%, extensive LGE, a suspected specific cause or no response to therapy; immunosuppression for refractory ventricular dysfunction (IIb C).");
+  rec.push("Immunosuppression is not initial therapy; viral PCR on the biopsy is needed before starting it.");
+  rec.push(a.pericarditis === "yes" ? "Symptoms: paracetamol, aspirin or an NSAID, with colchicine for the pericarditis." : "Symptoms: paracetamol, aspirin or an NSAID.");
+  rec.push("Beta-blocker for at least 6 months, whatever the LV function (IIa C); heart failure therapy if the LV is impaired, which may be withdrawn after 6 months once function has recovered (IIa C).");
+  rec.push("Restrict physical activity for 1 month at first, then decide individually on symptoms, inflammation and arrhythmias.");
+  if (a.form !== "uncomplicated") rec.push("Selected high-risk patients: wearable defibrillator during the 3–6-month recovery period.");
+  rec.push("Follow-up at 6, 12 and 24 months in uncomplicated cases.");
+  if (!tests.includes("cmr") && !acts.includes("cmr6")) rec.push("No CMR planned in this pathway.");
+  return { heading: "Myocarditis: assessment", rows, recommendations: rec };
+};
+
 // kept for the shared outcome builder (plan items come from the option effects)
 export const noOutcome = (): OutcomeItem[] => [];

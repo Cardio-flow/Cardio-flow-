@@ -329,4 +329,47 @@ export const CMP_RULES: RuleDef[] = [
       }];
     },
   },
+  // ---- slice 5: myocarditis ----
+  {
+    id: "cmp.myocarditis-cmr",
+    kind: "clinical",
+    title: "Myocarditis: CMR for diagnosis and within 6 months",
+    inputs: ["conditions", "studies", "plan"],
+    defaultParams: {},
+    evidence: "2025 ESC myocarditis and pericarditis: CMR in suspected myocarditis for diagnosis (I B) and for follow-up within 6 months to identify a healed versus ongoing process, for risk stratification, therapy and return to exercise (I B). Runs for 12 months from the diagnosis; counts CMRs since the onset.",
+    evaluate(s) {
+      const m = s.conditions.find((c) => c.code === "myocarditis" && c.status === "active");
+      if (!m?.onset || daysBetween(localDay(m.onset), s.today) > 365 || planned(s, /cardiac MRI|\bCMR\b/i)) return [];
+      const since = s.studies.filter((x) => x.kind === "cmr" && localDay(x.performed_at) >= localDay(m.onset!));
+      if (since.length >= 2) return [];
+      const first = since.length === 0;
+      return [{
+        key: first ? "myo-cmr-dx" : "myo-cmr-fu", signature: `${m.onset}:${since.length}`, severity: "yellow",
+        title: first ? "Myocarditis: no cardiac MRI since the onset" : "Myocarditis: follow-up cardiac MRI within 6 months not planned",
+        detail: first ? "CMR for the diagnosis: oedema, necrosis / fibrosis (I B)." : "CMR within 6 months tells a healed from an ongoing process and guides risk and return to exercise (I B).",
+        facts: [{ label: "Onset", value: fmtDay(m.onset, { year: true }) }, { label: "CMR since onset", value: first ? "None" : fmtDay(since[0].performed_at, { year: true }) }, { label: "Guideline", value: "ESC myocarditis and pericarditis 2025 · I B" }],
+        missing: [], action: { type: "add-plan", template: "myo-cmr" },
+      }];
+    },
+  },
+  {
+    id: "cmp.myocarditis-bb",
+    kind: "clinical",
+    title: "Myocarditis in the last 6 months without a beta-blocker",
+    inputs: ["conditions", "meds", "plan"],
+    defaultParams: {},
+    evidence: "2025 ESC myocarditis and pericarditis: beta-blockers should be considered for at least 6 months in patients with myocarditis, regardless of ventricular function (IIa C). Runs for 6 months from the onset.",
+    evaluate(s) {
+      const m = s.conditions.find((c) => c.code === "myocarditis" && c.status === "active");
+      if (!m?.onset || daysBetween(localDay(m.onset), s.today) > 182) return [];
+      if (s.meds.some((x) => (x.status === "active" || x.status === "held") && x.tags.includes("bb")) || planned(s, /beta-blocker/i)) return [];
+      return [{
+        key: "myo-bb", signature: m.onset, severity: "yellow",
+        title: "Myocarditis: no beta-blocker (at least 6 months)",
+        detail: "A beta-blocker should be considered for at least 6 months, whatever the LV function (IIa C).",
+        facts: [{ label: "Onset", value: fmtDay(m.onset, { year: true }) }, { label: "Guideline", value: "ESC myocarditis and pericarditis 2025 · IIa C" }],
+        missing: [], action: { type: "add-plan", template: "myo-bb" },
+      }];
+    },
+  },
 ];

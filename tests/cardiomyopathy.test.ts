@@ -227,3 +227,31 @@ test("ARVC with NSVT and no beta-blocker → yellow (I C); restrictive cardiomyo
   assert.match((await rec(r, "cmp.icd-secondary"))[0].detail, /Restrictive cardiomyopathy I C/);
   assert.equal((await rec(r, "cmp.af-oac")).length, 0, "restrictive cardiomyopathy alone: AF anticoagulation follows CHA₂DS₂-VA");
 });
+
+// ---- slice 5: myocarditis ----
+test("Omar (admitted with myocarditis): pathway offered; suggestions; the pathway lists myocarditis and plans CMR, beta-blocker, exercise restriction and follow-up; then the CMR and beta-blocker rules follow", async () => {
+  const pid = await byName("Omar Al-Saleh");
+  const o = (await rec(pid, "event.myocarditis"))[0];
+  assert.match(o.title, /^Admission for myocarditis .* → myocarditis pathway$/);
+  const ctx = (await tx((q) => getWizard(q, pid, "myocarditis"))).context;
+  assert.deepEqual(suggest("myocarditis", "tests", { form: "complicated", cad: "low" }, ctx).map((x) => x.value), ["admit", "bloods", "echo", "cmr"]);
+  assert.deepEqual(suggest("myocarditis", "tests", { form: "fulminant", cad: "moderate-high" }, ctx).map((x) => x.value), ["admit", "bloods", "echo", "cmr", "coronary", "emb"]);
+  const a = { form: "uncomplicated", pericarditis: "no", cad: "low", tests: ["none"] };
+  assert.deepEqual(suggest("myocarditis", "actions", a, ctx).map((x) => x.value), ["symptoms", "bb", "exercise", "cmr6", "followup"]);
+  const done = await run(pid, "myocarditis", { ...a, actions: ["exercise", "followup"], review: "none" }, o.id);
+  const r = done.assessment!.recommendations.join(" ");
+  assert.match(r, /\(I B\)/);
+  assert.match(r, /at least 6 months, whatever the LV function \(IIa C\)/);
+  let s = await loadState(db, pid);
+  const m = s.conditions.find((c) => c.code === "myocarditis")!;
+  assert.equal(m.attributes.form, "Uncomplicated");
+  assert.ok(s.plan.some((p) => p.title === "Myocarditis follow-up · 24 months"));
+  assert.ok(s.episodes.some((e) => e.wizard === "myocarditis" && e.status === "open"));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "cmp.myocarditis-cmr"))[0].title, "Myocarditis: no cardiac MRI since the onset");
+  assert.equal((await rec(pid, "cmp.myocarditis-bb"))[0].title, "Myocarditis: no beta-blocker (at least 6 months)");
+  assert.equal((await rec(pid, "cmp.genetic-testing")).length, 0, "myocarditis is not an inherited cardiomyopathy");
+  await tx((q) => K.recordStudy(q, doc, pid, { kind: "cmr", date: at(T), findings: { lvef: 53, lge: "Non-ischaemic pattern", lgePattern: ["Epicardial"], oedema: "Yes", impression: "Myocarditis" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "cmp.myocarditis-cmr"))[0].title, "Myocarditis: follow-up cardiac MRI within 6 months not planned");
+});

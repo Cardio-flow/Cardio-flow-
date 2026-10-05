@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 21;
+export const SEED_VERSION = 22;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -595,6 +595,16 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(sl, d(-30), [{ code: "height", value: 170 }, { code: "weight", value: 72 }, { code: "sbp", value: 112 }, { code: "hr", value: 72 }, { code: "creatinine", value: 118 }]);
       await K.recordObservations(tx, sys, sl, { effectiveAt: at(d(-10), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
       touched.push(sl);
+    }
+    // v22 (cardiomyopathy slice 5): Omar, 24, admitted 2 days ago with chest pain and raised troponin after a
+    // viral illness; the myocarditis pathway is offered
+    if (seeded < 22 && !(await byMrn("100963174"))) {
+      const om = await K.createPatient(tx, sys, { name: "Omar Al-Saleh", mrn: "100963174", sex: "Male", birthDate: addDays(T, -(24 * 365 + 30)), allergies: "No known drug allergies", conditions: [] });
+      await K.startAdmission(tx, sys, om, { startedAt: at(d(-2), "22:00"), location: "CCU", reasons: ["Myocarditis"], route: "Emergency department", symptoms: ["Chest pain", "Palpitations"] });
+      await K.recordStudy(tx, sys, om, { kind: "ecg", date: at(d(-2), "22:10"), findings: { rhythm: "Sinus rhythm", rate: 104, qrs: 92, qrsMorphology: "Normal", qtc: 430 } });
+      await obs(om, d(-2), [{ code: "hs-troponin", value: 860 }, { code: "crp", value: 38 }, { code: "nt-probnp", value: 420 }, { code: "sbp", value: 118 }, { code: "hr", value: 104 }, { code: "height", value: 178 }, { code: "weight", value: 74 }]);
+      await K.recordEcho(tx, sys, om, { date: at(d(-1), "10:00"), quality: "formal", lvef: 52, findings: ["Regional wall motion abnormality"] });
+      touched.push(om);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

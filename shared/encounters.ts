@@ -2,7 +2,7 @@
 
 export const ADMISSION_REASONS = [
   "Acute decompensated HF", "STEMI", "NSTE-ACS", "Chest pain (ACS to exclude)", "AF / flutter", "VT / VF", "ICD shock", "Bradycardia / AV block",
-  "Syncope", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
+  "Syncope", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Myocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
 ];
 // reasons that make an admission HF-related unless the clinician says otherwise
 export const HF_REASONS = ["Acute decompensated HF"];

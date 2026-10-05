@@ -58,7 +58,7 @@ function trigger(s: PatientState, wizard: string, reason: RegExp, indication: Re
   return open[0] ?? null;
 }
 
-const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia", "prosthetic-valve": "prosthetic valve" };
+const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia", "prosthetic-valve": "prosthetic valve", myocarditis: "myocarditis" };
 const offer = (wizard: string, t: Trigger, detail: string, severity: Finding["severity"] = "orange"): Finding => ({
   key: wizard,
   signature: t.ref,
@@ -81,6 +81,18 @@ export const EPISODE_RULES: RuleDef[] = [
     evaluate(s) {
       const t = trigger(s, "chest-infection", /chest infection|pneumonia/i, /^chest infection/i);
       return t ? [offer("chest-infection", t, "Severity and site of care, tests, guideline antibiotic choice, cardiac drug interactions and sick-day holds, then follow-up.")] : [];
+    },
+  },
+  {
+    id: "event.myocarditis",
+    kind: "clinical",
+    title: "Myocarditis recorded → myocarditis pathway",
+    inputs: ["contexts", "meds", "episodes"],
+    defaultParams: {},
+    evidence: "2025 ESC myocarditis and pericarditis guidelines: hospital admission, CMR for diagnosis (I B), biopsy in heart failure or shock, beta-blocker for at least 6 months (IIa C), exercise restriction, CMR within 6 months (I B).",
+    evaluate(s) {
+      const t = trigger(s, "myocarditis", /myocarditis/i, /myocarditis/i);
+      return t ? [offer("myocarditis", t, "Admission and monitoring, CMR, biopsy if heart failure or shock, beta-blocker, exercise restriction and follow-up CMR.")] : [];
     },
   },
   {
