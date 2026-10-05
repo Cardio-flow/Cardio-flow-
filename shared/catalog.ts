@@ -93,7 +93,7 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "mwt", display: "Maximal LV wall thickness", short: "MWT", unit: "mm", category: "Echo", decimals: 0, max: 60 },
   { code: "la-diam", display: "Left atrial diameter", short: "LA", unit: "mm", category: "Echo", decimals: 0, max: 90 },
   { code: "lvot-rest", display: "LVOT gradient at rest", short: "LVOT rest", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
-  { code: "lvot-provoked", display: "LVOT gradient, provoked (Valsalva / standing / exercise)", short: "LVOT provoked", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
+  { code: "lvot-provoked", display: "LVOT gradient, provoked (Valsalva / standing)", short: "LVOT provoked", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
   { code: "lge-extent", display: "LGE extent (% of LV mass)", short: "LGE %", unit: "%", category: "CMR", decimals: 0, max: 100 },
 ];
 

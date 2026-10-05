@@ -577,6 +577,7 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await K.recordHistory(tx, sys, rm, { effectiveAt: at(d(-20)), answers: [{ item: "fhx-scd", answer: "yes" }, { item: "smoking", answer: "never" }] });
       await K.startMedication(tx, sys, rm, { code: "bisoprolol", doseValue: 2.5, frequency: "OD", route: "PO", indication: "hcm", effectiveAt: at(d(-20)) });
       await K.recordStudy(tx, sys, rm, { kind: "ecg", date: at(d(-20)), findings: { rhythm: "Sinus rhythm", rate: 64, qrs: 98, qrsMorphology: "Normal", qtc: 438 } });
+      await K.recordStudy(tx, sys, rm, { kind: "holter", date: at(d(-18)), findings: { duration: "48 h", rhythm: "Sinus rhythm", minHr: 48, maxHr: 132, nsvt: "No", symptoms: "No symptoms reported" } });
       await K.recordEcho(tx, sys, rm, { date: at(d(-20), "11:00"), quality: "formal", lvef: 68, findings: ["Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)"], measures: { mwt: 24, "la-diam": 46, "lvot-rest": 30 } });
       await obs(rm, d(-20), [{ code: "height", value: 162 }, { code: "weight", value: 61 }, { code: "sbp", value: 118 }, { code: "hr", value: 64 }]);
       await K.recordObservations(tx, sys, rm, { effectiveAt: at(d(-20), "11:30"), items: [{ code: "nyha", text: "II" }], silentEvent: true });

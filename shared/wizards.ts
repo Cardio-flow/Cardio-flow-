@@ -10,6 +10,7 @@ import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
+import { CMP_WIZARDS } from "./wizards-cmp.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -46,7 +47,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
@@ -95,6 +96,8 @@ export type WizardContext = {
     // slice 5: listed prostheses and the findings of the latest echo
     prostheses?: { position: string; type: string }[]; echoFindings?: string[];
   } | null;
+  // cardiomyopathy module: latest echo findings, NSVT on the latest ambulatory ECG, FHx answer
+  cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
@@ -540,6 +543,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...CORONARY_WIZARDS,
   ...RHYTHM_WIZARDS,
   ...VALVE_WIZARDS,
+  ...CMP_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.

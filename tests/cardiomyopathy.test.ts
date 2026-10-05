@@ -80,3 +80,65 @@ test("DCM: no ECG/echo in 2 years → follow-up due (I C); a VT / VF admission w
   await tx((q) => reassess(q, al, "sandbox"));
   assert.equal((await rec(al, "cmp.genetic-testing")).length, 0, "AL amyloidosis is not inherited");
 });
+
+// ---- slice 2: HCM sudden death risk, LVOT obstruction, AF ----
+import { hcmRiskScd } from "../shared/cmp.js";
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
+const run = (pid: string, wizard: string, answers: any, recommendationId?: string) =>
+  tx((q) => completeWizard(q, doc, pid, wizard, { answers, recommendationId } as any));
+
+test("HCM Risk-SCD: the published equation (worked example), bands, missing inputs, under 16", () => {
+  // MWT 24, LA 46, LVOT 30, FHx yes, no NSVT, no syncope, age 34 → PI 3.3025 → 1 − 0.998^e^PI = 5.3%
+  const r = hcmRiskScd({ age: 34, mwt: 24, la: 46, lvot: 30, fhx: true, nsvt: false, syncope: false });
+  assert.equal(r.risk, 5.3);
+  assert.equal(r.band, "intermediate");
+  assert.equal(hcmRiskScd({ age: 20, mwt: 30, la: 50, lvot: 80, fhx: true, nsvt: true, syncope: true }).band, "high");
+  assert.equal(hcmRiskScd({ age: 60, mwt: 16, la: 38, lvot: 5, fhx: false, nsvt: false, syncope: false }).band, "low");
+  assert.deepEqual(hcmRiskScd({ age: 40, mwt: 20, la: null, lvot: 10, fhx: false, nsvt: null, syncope: false }).missing, ["LA diameter", "NSVT on ambulatory ECG"]);
+  assert.equal(hcmRiskScd({ age: 14, mwt: 20, la: 40, lvot: 10, fhx: false, nsvt: false, syncope: false }).risk, null);
+});
+
+test("HCM SCD pathway on a fresh HCM patient: estimate offered (orange at 4–6%), pathway computes the risk, suggests the ICD options by band and plans the reassessment", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Hcm Scd " + Date.now(), mrn: "HS" + Date.now(), sex: "Female", birthDate: addDays(T, -(34 * 365 + 90)), conditions: ["hcm"] }));
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: at(T), answers: [{ item: "fhx-scd", answer: "yes" }] }));
+  await tx((q) => K.recordStudy(q, doc, pid, { kind: "holter", date: at(T), findings: { duration: "48 h", rhythm: "Sinus rhythm", nsvt: "No" } }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 66, findings: [], measures: { mwt: 24, "la-diam": 46, "lvot-rest": 30 } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const f = (await rec(pid, "cmp.hcm-scd-risk"))[0];
+  assert.equal(f.severity, "orange");
+  assert.equal(f.title, "HCM: estimated 5-year sudden death risk 5.3% (no syncope assumed): confirm and decide on an ICD");
+  assert.equal(f.rule_status, "PUBLISHED");
+  const w = await tx((q) => getWizard(q, pid, "hcm-scd"));
+  assert.deepEqual(w.context.detected.nsvt, ["no"]);
+  const a = { fhx: "yes", nsvt: "no", syncope: "no" };
+  assert.deepEqual(suggest("hcm-scd", "decision", a, w.context).map((x) => x.value), ["icd", "discuss"]);
+  assert.match(suggest("hcm-scd", "decision", a, w.context)[0].why, /IIb B/);
+  const done = await run(pid, "hcm-scd", { ...a, decision: "discuss", tests: ["cmr"], review: "none" }, f.id);
+  assert.ok(done.assessment!.rows.some((r: any) => r.value === "5.3% (HCM Risk-SCD)"));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /4 to <6%: an ICD may be considered \(IIb B\)/.test(x)));
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "HCM: ICD discussion (shared decision-making)"));
+  assert.equal((await rec(pid, "cmp.hcm-scd-risk")).length, 0);
+  // syncope raises it above 6%: the pathway suggests the ICD alone (IIa B)
+  assert.deepEqual(suggest("hcm-scd", "decision", { ...a, syncope: "yes" }, w.context).map((x) => x.value), ["icd"]);
+});
+
+test("obstructive HCM ≥50 mmHg with NYHA III: offered; beta-blocker at maximum dose → mavacamten and septal reduction suggested; AF with HCM and no anticoagulant → orange", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Hocm " + Date.now(), mrn: "HO" + Date.now(), sex: "Male", birthDate: "1968-01-01", conditions: ["hcm", "af"] }));
+  await tx((q) => K.startMedication(q, doc, pid, { code: "bisoprolol", doseValue: 10, frequency: "OD", route: "PO", indication: "hcm", effectiveAt: at(addDays(T, -90)) }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 70, findings: ["Systolic anterior motion (SAM)"], measures: { mwt: 21, "la-diam": 48, "lvot-rest": 64, "lvot-provoked": 90 } }));
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(T), items: [{ code: "nyha", text: "III" }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const o = (await rec(pid, "cmp.hcm-lvoto"))[0];
+  assert.equal(o.title, "Obstructive HCM: LVOT gradient 90 mmHg with NYHA III");
+  assert.equal((await rec(pid, "cmp.hcm-af-oac"))[0].severity, "orange");
+  const ctx = (await tx((q) => getWizard(q, pid, "hcm-lvoto"))).context;
+  assert.deepEqual(ctx.detected.therapy, ["bb"]);
+  assert.deepEqual(suggest("hcm-lvoto", "nyha", {}, ctx).map((x) => x.value), ["III-IV"]);
+  assert.deepEqual(suggest("hcm-lvoto", "actions", { nyha: "III-IV", therapy: ["bb", "bb-max"] }, ctx).map((x) => x.value), ["myosin", "srt"]);
+  const done = await run(pid, "hcm-lvoto", { nyha: "III-IV", therapy: ["bb", "bb-max"], actions: ["srt"], review: "clinic-28" }, o.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /septal reduction therapy \(I B\)/.test(x)));
+  assert.ok((await loadState(db, pid)).plan.some((p) => /^Septal reduction therapy/.test(p.title)));
+  assert.equal((await rec(pid, "cmp.hcm-lvoto")).length, 0);
+});

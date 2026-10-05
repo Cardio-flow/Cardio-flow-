@@ -19,6 +19,8 @@ import { latestStudy, type PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 import { cmpConditions, ventricularEvents } from "./cmp-profile.js";
 import { deviceStatus } from "./rhythm-profile.js";
+import { hcmRiskScd, RISK_BAND_TEXT } from "../../shared/cmp.js";
+import { historyCode } from "../../shared/history.js";
 
 const SRC = "ESC cardiomyopathies 2023";
 const planned = (s: PatientState, re: RegExp) => s.plan.some((p) => p.status === "planned" && re.test(p.title));
@@ -143,6 +145,82 @@ export const CMP_RULES: RuleDef[] = [
         detail: `ICD after cardiac arrest due to VT/VF or haemodynamically compromising sustained VT (${cls}). Confirm the event and its haemodynamic effect.`,
         facts: [{ label: "Event", value: ev.label }, { label: "Device", value: dev?.type ?? "None" }, { label: "Guideline", value: SRC }],
         missing: [], action: { type: "add-plan", template: "icd-referral" },
+      }];
+    },
+  },
+  // ---- slice 2: HCM sudden death risk, LVOT obstruction, AF ----
+  {
+    id: "cmp.hcm-scd-risk",
+    kind: "clinical",
+    title: "HCM: 5-year sudden death risk (HCM Risk-SCD)",
+    inputs: ["conditions", "mwt", "la-diam", "lvot-rest", "lvot-provoked", "studies", "pathways", "plan"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: HCM Risk-SCD to estimate the 5-year risk of sudden death from 16 years (I B), assessed at first evaluation and re-evaluated at 1–2-year intervals or when the clinical status changes (I B); ICD should be considered at ≥6% (IIa B), may be considered at ≥4% to <6% (IIb B). Due when no HCM SCD pathway was completed in the last 2 years (the outer limit). The number shown uses the record (family history from the history item, NSVT from the latest ambulatory ECG, syncope not recorded → treated as unknown) and is confirmed in the pathway.",
+    evaluate(s) {
+      if (!s.conditions.some((c) => c.code === "hcm" && c.status === "active") || s.patient.age < 16) return [];
+      const dev = deviceStatus(s);
+      if (dev?.type === "ICD" || dev?.type === "CRT-D") return [];
+      const done = s.pathwaysDone["hcm-scd"];
+      if ((done && daysBetween(localDay(done), s.today) <= 730) || planned(s, /sudden death risk|ICD/i)) return [];
+      const lvr = s.resolved("lvot-rest").current?.value_num ?? null, lvp = s.resolved("lvot-provoked").current?.value_num ?? null;
+      const fhx = s.resolved(historyCode("fhx-scd")).current?.value_text ?? null;
+      const holter = latestStudy(s, "holter");
+      const x = hcmRiskScd({
+        age: s.patient.age, mwt: s.resolved("mwt").current?.value_num ?? null, la: s.resolved("la-diam").current?.value_num ?? null,
+        lvot: lvr == null && lvp == null ? null : Math.max(lvr ?? 0, lvp ?? 0),
+        fhx: fhx === "no" ? false : fhx === "yes" ? true : null, nsvt: holter?.attributes?.nsvt === "Yes" ? true : holter?.attributes?.nsvt === "No" ? false : null, syncope: false,
+      });
+      const high = x.band === "high" || x.band === "intermediate";
+      return [{
+        key: "hcm-scd", signature: `${done ?? "never"}:${x.risk ?? "-"}`, severity: high ? "orange" : "yellow",
+        title: x.risk != null ? `HCM: estimated 5-year sudden death risk ${x.risk}% (no syncope assumed): confirm and decide on an ICD` : `HCM: 5-year sudden death risk ${done ? "not reassessed in 2 years" : "not assessed"}`,
+        detail: x.risk != null ? `HCM Risk-SCD ${RISK_BAND_TEXT[x.band!]}. Family history and syncope are confirmed in the pathway.` : "HCM Risk-SCD at the first evaluation and every 1–2 years (I B).",
+        facts: [{ label: "Last assessment", value: done ? fmtDay(done, { year: true }) : "None" }, { label: "Guideline", value: `${SRC} · I B` }],
+        missing: x.missing.filter((m) => m !== "unexplained syncope"), action: { type: "wizard", wizard: "hcm-scd" },
+      }];
+    },
+  },
+  {
+    id: "cmp.hcm-lvoto",
+    kind: "clinical",
+    title: "Symptomatic obstructive HCM (gradient ≥50 mmHg)",
+    inputs: ["conditions", "lvot-rest", "lvot-provoked", "nyha", "pathways", "studies"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: LVOTO therapy — non-vasodilating beta-blocker titrated to the maximum tolerated dose first line (I B); verapamil or diltiazem if a beta-blocker cannot be taken (I B); disopyramide added (I B); mavacamten (IIa A); septal reduction for a resting or maximal provoked gradient ≥50 mmHg with NYHA III–IV despite maximum tolerated therapy (I B). 50 mmHg is the guideline's threshold. Offered once per echo while symptoms (NYHA ≥II) are recorded.",
+    evaluate(s) {
+      if (!s.conditions.some((c) => c.code === "hcm" && c.status === "active")) return [];
+      const r = s.resolved("lvot-rest").current, p = s.resolved("lvot-provoked").current;
+      const max = Math.max(r?.value_num ?? 0, p?.value_num ?? 0);
+      const nyha = s.resolved("nyha").current?.value_text ?? null;
+      if (max < 50 || !nyha || nyha === "I") return [];
+      const at = [r?.effective_at, p?.effective_at].filter(Boolean).sort().pop()!;
+      const done = s.pathwaysDone["hcm-lvoto"];
+      if (done && done >= at) return [];
+      return [{
+        key: "hcm-lvoto", signature: `${at}:${nyha}`, severity: "orange",
+        title: `Obstructive HCM: LVOT gradient ${max} mmHg with NYHA ${nyha}`,
+        detail: nyha === "III" || nyha === "IV" ? "Maximum tolerated medical therapy, then septal reduction therapy if NYHA III–IV persists (I B)." : "Beta-blocker to the maximum tolerated dose first (I B); disopyramide or mavacamten if symptoms persist.",
+        facts: [{ label: "LVOT rest", value: r?.value_num != null ? `${r.value_num} mmHg` : "Not recorded" }, { label: "LVOT provoked", value: p?.value_num != null ? `${p.value_num} mmHg` : "Not recorded" }, { label: "NYHA", value: nyha }, { label: "Guideline", value: SRC }],
+        missing: [], action: { type: "wizard", wizard: "hcm-lvoto" },
+      }];
+    },
+  },
+  {
+    id: "cmp.hcm-af-oac",
+    kind: "clinical",
+    title: "AF with HCM without anticoagulation",
+    inputs: ["conditions", "meds"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: oral anticoagulation to reduce the risk of stroke and thrombo-embolic events is recommended in all patients with HCM and AF (class I), whatever the CHA₂DS₂-VA score.",
+    evaluate(s) {
+      if (!s.conditions.some((c) => c.code === "hcm" && c.status === "active") || !s.tags.has("af")) return [];
+      if (s.meds.some((m) => (m.status === "active" || m.status === "held") && m.tags.includes("oac"))) return [];
+      return [{
+        key: "hcm-af", signature: "af", severity: "orange",
+        title: "AF with hypertrophic cardiomyopathy: no anticoagulant",
+        detail: "Oral anticoagulation is recommended in all patients with HCM and AF, whatever the CHA₂DS₂-VA score (I).",
+        facts: [{ label: "Diagnoses", value: "HCM · atrial fibrillation / flutter" }, { label: "Guideline", value: `${SRC} · I` }],
+        missing: [], action: { type: "wizard", wizard: "af-care" },
       }];
     },
   },

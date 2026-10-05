@@ -18,6 +18,7 @@ import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
 import { daysBetween } from "./clinical.js";
+import { riskFor, riskModifiers } from "./wizards-cmp.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
@@ -598,6 +599,40 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ["tavi", "savr", "mv-surgery", "teer", "ar-surgery"].includes(String(a.decision)) && S("meeting", "Heart Team decision (ESC/EACTS 2025, I C)"),
       a.symptoms === "equivocal" && S("exercise", "Symptoms unclear: exercise testing"),
     ],
+  },
+  "hcm-scd": {
+    fhx: (_a, c) => [c.cmp?.fhx === "no" ? S("no", "No family history of sudden death or cardiomyopathy recorded") : null],
+    nsvt: (_a, c) => [c.cmp?.nsvt === "Yes" ? S("yes", "NSVT on the latest ambulatory ECG") : c.cmp?.nsvt === "No" ? S("no", "No NSVT on the latest ambulatory ECG") : S("not-done", "No ambulatory ECG recorded")],
+    decision: (a, c) => {
+      const r = riskFor(a, c);
+      if (!r.band) return [];
+      const mods = riskModifiers(c).filter((m) => /LGE|LVEF/.test(m));
+      return r.band === "high" ? [S("icd", `HCM Risk-SCD ${r.risk}% (≥6%): IIa B`)]
+        : r.band === "intermediate" ? [S("icd", `HCM Risk-SCD ${r.risk}% (4 to <6%): IIb B`), S("discuss", `HCM Risk-SCD ${r.risk}%: individual decision`)]
+        : mods.length ? [S("discuss", `HCM Risk-SCD ${r.risk}% with ${mods.join(", ")}: IIb B`)] : [S("no-icd", `HCM Risk-SCD ${r.risk}% (<4%)`)];
+    },
+    tests: (a, c) => [
+      a.nsvt === "not-done" ? S("holter", "NSVT input missing") : null,
+      c.values?.["lge-extent"] == null ? S("cmr", "LGE extent not recorded") : null,
+      c.values?.["lvot-provoked"] == null ? S("echo", "Provoked LVOT gradient not recorded") : null,
+    ],
+  },
+  "hcm-lvoto": {
+    nyha: (_a, c) => {
+      const n = c.valve?.nyha;
+      return [n === "I" ? S("I", "NYHA I recorded") : n === "II" ? S("II", "NYHA II recorded") : n === "III" || n === "IV" ? S("III-IV", `NYHA ${n} recorded`) : null];
+    },
+    actions: (a) => {
+      const t = (a.therapy as string[]) ?? [];
+      const onBb = t.includes("bb") || t.includes("bb-max");
+      return [
+        !onBb && !t.includes("bb-intolerant") ? S("bb", "First line (I B)") : null,
+        t.includes("bb") && !t.includes("bb-max") ? S("bb", "To the maximum tolerated dose (I B)") : null,
+        t.includes("bb-intolerant") && !t.includes("ccb") ? S("ccb", "Beta-blocker not possible (I B)") : null,
+        (t.includes("bb-max") || t.includes("ccb")) && !t.includes("myosin") ? S("myosin", "Persistent symptoms (IIa A)") : null,
+        (a.nyha === "III-IV" || a.nyha === "syncope") && (t.includes("bb-max") || t.includes("myosin")) ? S("srt", "NYHA III–IV / exertional syncope despite maximum tolerated therapy (I B)") : null,
+      ];
+    },
   },
   "prosthetic-valve": {
     prosthesis: (_a, c) => {

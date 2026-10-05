@@ -11,6 +11,7 @@ import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
 import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
 import { deviceStatus } from "./rhythm-profile.js";
 import { latestValveEcho } from "./valve-profile.js";
+import { historyCode } from "../../shared/history.js";
 import { daptIndication, oacIndication, valveInterventions } from "./valve-rules.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
@@ -123,12 +124,17 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     echoFindings: latestStudy(s, "echo")?.findings ?? [],
     inrTarget: (() => { const r = s.tags.has("mechanical-valve") ? mechanicalInrTarget(s) : null; return r ? `${formatNumber(r.target, 1)} (${formatNumber(r.low, 1)}–${formatNumber(r.high, 1)})` : null; })(),
   };
+  const holter = latestStudy(s, "holter");
+  const fhxAns = s.resolved(historyCode("fhx-scd")).current?.value_text ?? null;
+  const cmpCond = s.conditions.find((c) => ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"].includes(c.code) && c.attributes?.genetic === "P/LP variant");
+  const cmp = { echoFindings: latestStudy(s, "echo")?.findings ?? [], nsvt: (holter?.attributes?.nsvt as string | undefined) ?? null, fhx: fhxAns, pgene: (cmpCond?.attributes?.gene as string | undefined) ?? null };
+  if (wizardId === "hcm-scd" && cmp.nsvt) base.detected.nsvt = [cmp.nsvt === "Yes" ? "yes" : "no"];
   if (wizardId === "valve-antithrombotic") {
     const kind = valve.interventions.map((v) => interventionFor(v.type, v.procedure, v.position)).find(Boolean);
     if (kind && !base.detected.intervention) base.detected.intervention = [kind];
     if (valve.daptIndication) (base.detected.indications ??= []).push("pci");
   }
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve };
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve, cmp };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
