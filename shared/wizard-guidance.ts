@@ -14,8 +14,9 @@
 // hyponatraemia guideline 2014; ESC 2024 hypertension; IDF-DAR 2021; ESC 2022 non-cardiac surgery;
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
-import { localDay } from "./clinical.js";
+import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
+import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -542,6 +543,55 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     ],
   },
 
+  // ESC VA 2022 (task-force summary, Europace 2023) and the 2023 HRS/EHRA/APHRS/LAHRS consensus
+  "icd-shock": {
+    what: (_a, c) => {
+      const k = c.device?.check;
+      if (!k) return [];
+      if (k.storm === "Yes") return [S("storm", `Device check ${fmtDay(c.device!.checkAt!)}: ≥3 VA episodes within 24 h`)];
+      const n = Number(k.shocks);
+      if (n >= 2) return [S("multiple", `Device check ${fmtDay(c.device!.checkAt!)}: ${n} shocks`)];
+      if (n === 1 || (k.therapies ?? []).includes("Shock")) return [S("single", `Device check ${fmtDay(c.device!.checkAt!)}: shock delivered`)];
+      if ((k.therapies ?? []).includes("ATP")) return [S("atp", `Device check ${fmtDay(c.device!.checkAt!)}: ATP only`)];
+      return [];
+    },
+    interrogation: (_a, c) => {
+      const k = c.device?.check;
+      if (!k?.shockType) return [];
+      const vf = k.va === "VF";
+      return [k.shockType === "Appropriate (VT/VF)" ? S(vf ? "appropriate-poly" : "appropriate-mono", `Device check ${fmtDay(c.device!.checkAt!)}: appropriate shock for ${vf ? "VF" : "VT"}`)
+        : k.shockType === "Inappropriate" ? S(k.leads === "Abnormal" ? "inappropriate-lead" : "inappropriate-svt", `Device check ${fmtDay(c.device!.checkAt!)}: inappropriate shock${k.leads === "Abnormal" ? " with a lead problem" : k.ahre === "Yes" ? " with atrial episodes" : ""}`) : null];
+    },
+    triggers: (_a, c) => {
+      const k = val(c, "potassium"), mg = val(c, "magnesium"), tsh = val(c, "tsh");
+      return [
+        k != null && k < 3.5 && S("electrolytes", `Potassium ${k} mmol/L (below the reference range)`),
+        mg != null && mg < 0.7 && S("electrolytes", `Magnesium ${mg} mmol/L (below the reference range)`),
+        tsh != null && (tsh < 0.4 || tsh > 4) && S("thyroid", `TSH ${tsh} mIU/L outside the reference range${onCode(c, "amiodarone") ? " on amiodarone" : ""}`),
+      ];
+    },
+    actions: (a, c) => {
+      const storm = a.what === "storm";
+      return [
+        a.interrogation === "pending" && S("interrogate", "Appropriate or not decides the management"),
+        storm && S("monitor", "Electrical storm: monitored bed"),
+        storm && S("amiodarone", "Electrical storm: amiodarone (ESC VA 2022, I)"),
+        storm && S("bb", "Electrical storm: non-selective beta-blocker (ESC VA 2022, I)"),
+        storm && S("sedation", "Electrical storm: mild–moderate sedation (ESC VA 2022, I)"),
+        storm && S("reprogram", "Electrical storm: interrogate and reprogram the ICD"),
+        a.interrogation === "appropriate-mono" && ihd(c) && onAmiodarone(c) && S("ablation", "IHD, recurrent monomorphic VT despite amiodarone: catheter ablation rather than escalating antiarrhythmics (ESC VA 2022, I)"),
+        a.interrogation === "appropriate-mono" && ihd(c) && !onAmiodarone(c) && onBbOrSotalol(c) && S("ablation", "IHD, recurrent monomorphic VT on a beta-blocker or sotalol: catheter ablation should be considered (ESC VA 2022, IIa)"),
+        String(a.interrogation ?? "").startsWith("appropriate") && !on(c, "bb", "bb-other") && S("bb", "No beta-blocker on the list after appropriate ICD therapy"),
+        a.interrogation === "inappropriate-svt" && S("svt", "Inappropriate shock for AF / SVT: control the rate or rhythm"),
+        a.interrogation === "inappropriate-svt" && S("reprogram", "Inappropriate shock: reprogram detection to avoid further shocks"),
+        a.interrogation === "inappropriate-lead" && S("lead", "Oversensing / lead fault: device-team review and lead revision"),
+        list(a, "triggers").includes("electrolytes") && S("bloods", "Low potassium or magnesium: recheck after correction"),
+        list(a, "triggers").includes("ischaemia") && S("troponin", "Suspected ischaemia: hs-troponin"),
+        (list(a, "triggers").includes("ischaemia") || a.interrogation === "appropriate-poly") && S("ischaemia", "Polymorphic VT / VF or ischaemia: evaluate for ischaemia"),
+        S("remote", "ICDs on remote monitoring alert the clinic for every shock (HRS/EHRA/APHRS/LAHRS 2023, I)"),
+      ];
+    },
+  },
   "peri-af-procedure": {
     oacNow: (_a, c) => {
       const m = c.meds.find((x) => x.tags.includes("oac"));

@@ -117,7 +117,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
           diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan",
-          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics", "acs-discharge": "Open bundle", "chest-pain-cad": "Open pathway", "af-care": "AF-CARE plan", "peri-af-procedure": "Plan anticoagulation" } as Record<string, string>)[act.wizard] ?? "Review"}
+          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics", "acs-discharge": "Open bundle", "chest-pain-cad": "Open pathway", "af-care": "AF-CARE plan", "peri-af-procedure": "Plan anticoagulation", "icd-shock": "Open pathway" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")
@@ -129,7 +129,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "add-plan")
     return (
       <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : "Add to plan"}
+        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" ? "Book device check" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : "Add to plan"}
       </button>
     );
   if (act.type === "tab")
@@ -766,6 +766,9 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
       <div className="card-head">
         <h2 id="rhp">Rhythm &amp; devices</h2>
         <span className="meta">
+          {r.device && (
+            <button className="btn ghost small" onClick={() => open({ kind: "study", studyKind: "device_check", initial: r.device.type ? { device: r.device.type } : {} })}>+ Device check</button>
+          )}
           <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "rhythm" })}>+ Device / ablation / DCCV</button>
         </span>
       </div>
@@ -803,6 +806,20 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
       {r.devices.length > 0 && (
         <>
           <div className="tgt-title" style={{ marginTop: 14 }}>Devices</div>
+          {r.device && (
+            <div className={`dev-check${r.device.overdue || (r.device.check && r.device.check.battery !== "OK") ? " warn" : ""}`}>
+              <div>
+                <small>Last device check</small>
+                <b>{r.device.check ? fmtDay(r.device.check.at, { year: true }) : "None recorded"}</b>
+                <em>{r.device.check ? r.device.check.summary : r.device.implantAt ? `Implanted ${fmtDay(r.device.implantAt, { year: true })}` : ""}</em>
+              </div>
+              <div>
+                <small>Next check</small>
+                <b>{r.device.dueAt ? `${r.device.overdue ? "Overdue · " : ""}${fmtDay(r.device.dueAt, { year: true })}` : r.device.type === "Loop recorder" ? "Alert-based" : "—"}</b>
+                <em>{r.device.intervalMonths ? `at least every ${r.device.intervalMonths} months (HRS/EHRA 2023)` : r.device.type === "Loop recorder" ? "Remote alerts; no routine visit" : "Device date not recorded"}</em>
+              </div>
+            </div>
+          )}
           <div className="cad-drugs">
             {r.devices.map((d: any, i: number) => (
               <div key={i} className="cad-drug">

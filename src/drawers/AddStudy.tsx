@@ -5,11 +5,11 @@ import { Drawer, MultiChoice, SingleChoice } from "../ui";
 import { STUDIES, STUDY, fieldActive, studySummary, type StudyField } from "../../shared/studies";
 
 // One drawer for every study kind: choose the kind, then fill its short template.
-export function AddStudy({ patientId, kind: initialKind, contextId, onClose, onDone }: { patientId: string; kind?: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function AddStudy({ patientId, kind: initialKind, initial, contextId, onClose, onDone }: { patientId: string; kind?: string; initial?: Record<string, any>; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
   const { data: health } = useData<any>("/health");
   const [kind, setKind] = useState(initialKind ?? "");
   const [date, setDate] = useState("");
-  const [values, setValues] = useState<Record<string, any>>({});
+  const [values, setValues] = useState<Record<string, any>>(initial ?? {});
   const [conclusion, setConclusion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

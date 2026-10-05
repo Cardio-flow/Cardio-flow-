@@ -85,6 +85,8 @@ export type WizardContext = {
   dx?: string[];
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
   af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
+  // the current cardiac device and its latest check (rhythm module, slice 4)
+  device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
   planned?: string[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found

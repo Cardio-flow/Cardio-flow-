@@ -21,7 +21,7 @@
 //    6 months then at least yearly.
 // CardioFlow never doses acute drugs: rate-control and antiarrhythmic choices become plan items;
 // only apixaban is started from here, at the label dose computed from age, weight and creatinine.
-import { addDays, localDay } from "./clinical.js";
+import { addDays, fmtDay, localDay } from "./clinical.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -335,3 +335,154 @@ RHYTHM_WIZARDS["peri-af-procedure"].outcome = (a: Answers, ctx: WizardContext): 
   }
   return out;
 };
+
+// ICD shock or ventricular arrhythmia (rhythm module, slice 4; opens an episode). Sources, as found in
+// the 2022 ESC VA guideline task-force summary (Könemann et al., Europace 2023;25:euad091) and the 2023
+// HRS/EHRA/APHRS/LAHRS remote device clinic consensus (Ferrick et al.):
+//  - electrical storm = ≥3 separate sustained VA within 24 h, each needing termination; with structural
+//    heart disease and monomorphic VT: amiodarone and a non-selective beta-blocker with mild–moderate
+//    sedation (each I); for recurrent storm, catheter ablation in an experienced centre is preferred
+//    over deep sedation, autonomic modulation or mechanical support.
+//  - IHD with recurrent sustained monomorphic VT despite chronic amiodarone: catheter ablation rather
+//    than escalating antiarrhythmics (I); despite a beta-blocker or sotalol (IIa); early ablation after a
+//    first VT episode in an ICD candidate (IIb).
+//  - ICDs on remote monitoring alert the clinic for every shock (I).
+// The work-up of triggers (electrolytes, ischaemia, HF, thyroid, QT-prolonging drugs) is listed without
+// a class. CardioFlow never doses antiarrhythmics or sedation: they are plan items for the treating team.
+const ICD_REVIEW = [
+  { value: "none", label: "No extra visit" },
+  { value: "phone-3", label: "Phone call · 3 days" },
+  { value: "clinic-14", label: "Clinic · 2 weeks" },
+  { value: "clinic-28", label: "Clinic · 4 weeks" },
+];
+const manual = { type: "manual" };
+RHYTHM_WIZARDS["icd-shock"] = {
+  id: "icd-shock", title: "ICD shock or ventricular arrhythmia", tone: "orange", group: "Rhythm & devices",
+  source: "ESC VA 2022 · HRS/EHRA/APHRS/LAHRS 2023",
+  note: "Was the shock appropriate? Find and correct the trigger, then prevent the next one. Electrical storm (≥3 sustained VA within 24 h, each needing termination) is an emergency. CardioFlow never doses antiarrhythmics or sedation: they become plan items for the treating team.",
+  facts: ["potassium", "magnesium", "lvef", "hs-troponin", "egfr", "tsh", "qtc"], trend: "potassium",
+  steps: [
+    {
+      id: "event", title: "The event",
+      questions: [
+        {
+          id: "what", label: "What happened", type: "single", required: true,
+          options: [
+            { value: "single", label: "One shock" },
+            { value: "multiple", label: "Two shocks or more, not a storm" },
+            { value: "storm", label: "Electrical storm", hint: "≥3 sustained VA within 24 h, each needing termination" },
+            { value: "atp", label: "ATP only, no shock" },
+            { value: "vt", label: "Sustained VT / VF without ICD therapy" },
+          ],
+        },
+        {
+          id: "state", label: "Patient now", type: "single", required: true,
+          options: [
+            { value: "stable", label: "Stable, in a supraventricular rhythm" },
+            { value: "recurrent", label: "Recurrent or ongoing VT" },
+            { value: "unstable", label: "Haemodynamically unstable", hint: "Immediate cardioversion / defibrillation (ALS) first" },
+          ],
+        },
+        {
+          id: "interrogation", label: "Device interrogation", type: "single", required: true,
+          options: [
+            { value: "appropriate-mono", label: "Appropriate: monomorphic VT" },
+            { value: "appropriate-poly", label: "Appropriate: polymorphic VT / VF" },
+            { value: "inappropriate-svt", label: "Inappropriate: AF / SVT / sinus tachycardia" },
+            { value: "inappropriate-lead", label: "Inappropriate: oversensing / noise / lead fault" },
+            { value: "pending", label: "Not interrogated yet" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "triggers", title: "Triggers",
+      questions: [
+        {
+          id: "triggers", label: "Triggers found", type: "multi", required: true,
+          options: [
+            { value: "none", label: "None found" },
+            { value: "electrolytes", label: "Low potassium or magnesium" },
+            { value: "ischaemia", label: "Acute ischaemia" },
+            { value: "hf", label: "Heart failure decompensation" },
+            { value: "thyroid", label: "Thyroid dysfunction" },
+            { value: "qt", label: "QT-prolonging drug" },
+            { value: "infection", label: "Infection / fever" },
+            { value: "adherence", label: "Missed beta-blocker or antiarrhythmic" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "management", title: "Management",
+      questions: [
+        {
+          id: "actions", label: "What will you do?", type: "multi", required: true,
+          options: [
+            { value: "interrogate", label: "Interrogate the device", effects: { plan: [{ category: "investigation", title: "Device check (interrogation after ICD therapy)", days: 0, completesOn: { type: "study", kind: "device_check" } }] } },
+            { value: "ecg", label: "12-lead ECG", effects: { plan: [{ category: "investigation", title: "12-lead ECG", days: 0, completesOn: { type: "study", kind: "ecg" } }] } },
+            { value: "bloods", label: "Potassium, magnesium, renal function", effects: { plan: [{ category: "monitoring", title: "Potassium, magnesium and renal function", days: 0, completesOn: { type: "lab", codes: ["potassium", "magnesium"] } }] } },
+            { value: "troponin", label: "hs-troponin (ischaemia suspected)", effects: { plan: [{ category: "monitoring", title: "hs-troponin", days: 0, completesOn: { type: "lab", codes: ["hs-troponin"] } }] } },
+            { value: "monitor", label: "Admit to a monitored bed", effects: { plan: [{ category: "procedure", title: "Admit to a monitored bed (ventricular arrhythmia)", days: 0, completesOn: manual }] } },
+            { value: "sedation", label: "Mild–moderate sedation", effects: { plan: [{ category: "medication", title: "Mild–moderate sedation for electrical storm (treating team)", days: 0, completesOn: manual }] } },
+            { value: "bb", label: "Beta-blocker: start or optimise (non-selective in storm)", effects: { plan: [{ category: "medication", title: "Beta-blocker after ventricular arrhythmia: start or optimise (non-selective in storm)", days: 0, completesOn: manual }] } },
+            { value: "amiodarone", label: "Amiodarone (dose by the treating team)", effects: { plan: [{ category: "medication", title: "Amiodarone for ventricular arrhythmia (dose by the treating team)", days: 0, completesOn: manual }] } },
+            { value: "ablation", label: "Refer for VT catheter ablation", effects: { plan: [{ category: "referral", title: "VT catheter ablation referral", days: 7, completesOn: manual }] } },
+            { value: "reprogram", label: "Reprogram detection / ATP", effects: { plan: [{ category: "procedure", title: "ICD reprogramming (detection zones, ATP)", days: 0, completesOn: manual }] } },
+            { value: "svt", label: "Treat AF / SVT (rate or rhythm control)", effects: { plan: [{ category: "medication", title: "Rate or rhythm control of the AF / SVT that caused the shock", days: 0, completesOn: manual }] } },
+            { value: "lead", label: "Lead revision referral", effects: { plan: [{ category: "referral", title: "Device lead review (EP)", days: 0, completesOn: manual }] } },
+            { value: "ischaemia", label: "Ischaemia evaluation / coronary angiography", effects: { plan: [{ category: "investigation", title: "Ischaemia evaluation after ventricular arrhythmia", days: 7, completesOn: manual }] } },
+            { value: "echo", label: "Echo: LV function", effects: { plan: [{ category: "investigation", title: "Echo after ventricular arrhythmia", days: 7, completesOn: { type: "study", kind: "echo" } }] } },
+            { value: "remote", label: "Remote monitoring with shock alerts", effects: { plan: [{ category: "follow_up", title: "Remote monitoring: alerts on for every shock", days: 7, completesOn: manual }] } },
+            { value: "driving", label: "Driving advice (national rules)", effects: { plan: [{ category: "education", title: "Driving advice after ICD therapy (national rules)", days: 0, completesOn: manual }] } },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: ICD_REVIEW, required: true },
+      ],
+    },
+  ],
+};
+
+export const vaGroup = (a: Answers) =>
+  a.state === "unstable" ? "unstable" : a.what === "storm" ? "storm" : String(a.interrogation ?? "").startsWith("appropriate") || a.what === "vt" ? "appropriate" : String(a.interrogation ?? "").startsWith("inappropriate") ? "inappropriate" : "pending";
+const onDrug = (ctx: WizardContext, test: (m: WizardContext["meds"][number]) => boolean) => ctx.meds.some(test);
+export const onAmiodarone = (ctx: WizardContext) => onDrug(ctx, (m) => m.code === "amiodarone");
+export const onBbOrSotalol = (ctx: WizardContext) => onDrug(ctx, (m) => m.code === "sotalol" || m.tags.includes("bb") || m.tags.includes("bb-other"));
+export const ihd = (ctx: WizardContext) => (ctx.dx ?? []).some((x) => ["cad", "ascvd", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"].includes(x));
+
+RHYTHM_WIZARDS["icd-shock"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const g = vaGroup(a);
+  const k = ctx.values?.potassium, mg = ctx.values?.magnesium, ef = ctx.values?.lvef;
+  const dev = ctx.device;
+  const label: Record<string, string> = { single: "One shock", multiple: "Two shocks or more", storm: "Electrical storm", atp: "ATP only", vt: "Sustained VT / VF" };
+  const rows: Assessment["rows"] = [
+    { label: "Event", value: label[String(a.what)] ?? "Not given", tone: a.what === "storm" || a.state === "unstable" ? "orange" : undefined },
+    { label: "Interrogation", value: { "appropriate-mono": "Appropriate · monomorphic VT", "appropriate-poly": "Appropriate · polymorphic VT / VF", "inappropriate-svt": "Inappropriate · AF / SVT", "inappropriate-lead": "Inappropriate · oversensing / lead", pending: "Not interrogated yet" }[String(a.interrogation)] ?? "Not given", tone: a.interrogation === "pending" ? "orange" : undefined },
+  ];
+  if (dev?.type) rows.push({ label: "Device", value: [dev.type, dev.checkAt ? `last check ${fmtDay(dev.checkAt, { year: true })}` : null].filter(Boolean).join(" · ") });
+  if (ef) rows.push({ label: "LVEF", value: `${ef.value}% (${fmtDay(ef.at, { year: true })})` });
+  rows.push({ label: "Potassium / magnesium", value: [k ? `K ${k.value} (${fmtDay(k.at)})` : "K not recorded", mg ? `Mg ${mg.value} (${fmtDay(mg.at)})` : "Mg not recorded"].join(" · "), tone: (k && k.value < 3.5) || (mg && mg.value < 0.7) ? "orange" : undefined });
+  const drugs = ctx.meds.filter((m) => m.code === "amiodarone" || m.code === "sotalol" || m.tags.includes("bb") || m.tags.includes("bb-other")).map((m) => m.name);
+  rows.push({ label: "Beta-blocker / antiarrhythmic", value: drugs.join(" + ") || "None" });
+  const rec: string[] = [];
+  if (g === "unstable") rec.push("Haemodynamically unstable VT/VF: immediate cardioversion or defibrillation (ALS), then this pathway.");
+  if (a.what === "storm") {
+    rec.push("Electrical storm with structural heart disease and monomorphic VT: amiodarone and a non-selective beta-blocker, with mild–moderate sedation (each class I, ESC VA 2022). Admit to a monitored bed; interrogate and reprogram the ICD.");
+    rec.push("Recurrent storm: catheter ablation in an experienced centre is preferred over deep sedation, autonomic modulation or mechanical support.");
+  }
+  if (a.interrogation === "appropriate-mono" && ihd(ctx)) {
+    if (onAmiodarone(ctx)) rec.push("Ischaemic heart disease, recurrent monomorphic VT despite amiodarone: catheter ablation rather than escalating antiarrhythmics (I).");
+    else if (onBbOrSotalol(ctx)) rec.push("Ischaemic heart disease, recurrent monomorphic VT on a beta-blocker or sotalol: catheter ablation should be considered (IIa).");
+    else rec.push("Ischaemic heart disease, first monomorphic VT: early catheter ablation may be considered (IIb).");
+  }
+  if (a.interrogation === "appropriate-poly") rec.push("Polymorphic VT / VF: look for acute ischaemia, electrolyte disturbance, QT prolongation and drugs.");
+  if (a.interrogation === "inappropriate-svt") rec.push("Inappropriate shock for AF / SVT: control the rate or rhythm and reprogram detection to avoid further shocks.");
+  if (a.interrogation === "inappropriate-lead") rec.push("Oversensing or lead fault: urgent device-team review; reprogram and revise the lead.");
+  if (a.interrogation === "pending") rec.push("Interrogate the device: whether the shock was appropriate decides the management.");
+  if (pickT(a).length) rec.push(`Correct the triggers found: ${pickT(a).join(", ")}.`);
+  else rec.push("Look for triggers: potassium and magnesium, ischaemia, heart failure, thyroid function, QT-prolonging drugs.");
+  rec.push("ICDs on remote monitoring should alert the clinic for every shock (I, HRS/EHRA/APHRS/LAHRS 2023). Driving advice follows the national rules.");
+  return { heading: "ICD shock / ventricular arrhythmia: assessment", rows, recommendations: rec };
+};
+const TRIG: Record<string, string> = { electrolytes: "low potassium or magnesium", ischaemia: "ischaemia", hf: "heart failure", thyroid: "thyroid dysfunction", qt: "QT-prolonging drug", infection: "infection", adherence: "missed doses" };
+const pickT = (a: Answers) => ((a.triggers as string[]) ?? []).filter((v) => v !== "none").map((v) => TRIG[v] ?? v);

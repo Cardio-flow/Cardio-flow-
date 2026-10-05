@@ -1,6 +1,6 @@
 import type { Q } from "../db/db.js";
 import { MEASURES, formatNumber } from "../../shared/catalog.js";
-import { daysBetween } from "../../shared/clinical.js";
+import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
@@ -9,6 +9,7 @@ import { latestStudy, loadState, series, type PatientState } from "../kernel/sta
 import { recentRaasStart } from "./rules.js";
 import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
 import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
+import { deviceStatus } from "./rhythm-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -103,7 +104,9 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     ecgRhythm: (ecg?.attributes?.rhythm as string | undefined) ?? null, ecgRate: (ecg?.attributes?.rate as number | undefined) ?? null,
     doac: doacDoseCheck(s).map((c) => ({ code: c.med.code, dose: c.med.doseValue, right: c.right, why: c.why })),
   } : null;
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af };
+  const ds = deviceStatus(s);
+  const device = ds ? { type: ds.type, checkAt: ds.check ? localDay(ds.check.at) : null, check: ds.check?.a ?? null } : null;
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 16;
+export const SEED_VERSION = 17;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -493,6 +493,28 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       if (h && !(await tx.query(`SELECT 1 FROM cf.study WHERE patient_id=$1 AND kind='ecg' AND attributes->>'rhythm'='Atrial fibrillation'`, [h])).rows[0]) {
         await K.recordStudy(tx, sys, h, { kind: "ecg", date: new Date(Date.now() - 120_000).toISOString(), findings: { rhythm: "Atrial fibrillation", rate: 118, qrs: 104, qrsMorphology: "Normal", qtc: 452 } });
         touched.push(h);
+      }
+    }
+    // Seed v17: device follow-up — Abdullah's pacemaker was last checked 14 months ago (check overdue);
+    // Bader (ischaemic cardiomyopathy, CRT-D, on amiodarone) has a remote check today with two
+    // appropriate shocks for monomorphic VT and a low potassium: the ICD shock pathway is offered
+    if (seeded < 17) {
+      const ab = await byMrn("100318842");
+      if (ab && !(await tx.query(`SELECT 1 FROM cf.study WHERE patient_id=$1 AND kind='device_check'`, [ab])).rows[0]) {
+        await K.recordStudy(tx, sys, ab, { kind: "device_check", date: at(d(-425), "10:00"), findings: { setting: "In clinic", device: "Pacemaker", battery: "OK", longevity: 9.5, leads: "Normal", vpace: 94, va: "None", programming: "No change" } });
+        touched.push(ab);
+      }
+      if (!(await byMrn("100745120"))) {
+        const bd = await K.createPatient(tx, sys, { name: "Bader Al-Mutairi", mrn: "100745120", sex: "Male", birthDate: addDays(T, -(61 * 365 + 210)), allergies: "No known drug allergies", conditions: ["prior-mi", "htn", "dyslipidaemia"] });
+        await K.recordHistory(tx, sys, bd, { effectiveAt: at(d(-1300)), add: [{ code: "hfref", onsetYear: 2022, attributes: { aetiology: ["Ischaemic"] } }] });
+        for (const [code, dose, freq, ind] of [["sacubitril-valsartan", 49, "BID", "hf"], ["bisoprolol", 5, "OD", "hf"], ["eplerenone", 25, "OD", "hf"], ["empagliflozin", 10, "OD", "hf"], ["furosemide", 40, "OD", "hf"], ["aspirin", 100, "OD", "cad"], ["atorvastatin", 80, "OD", "cad"], ["amiodarone", 200, "OD", "VT"]] as const)
+          await K.startMedication(tx, sys, bd, { code, doseValue: dose, frequency: freq, route: "PO", indication: ind, effectiveAt: at(d(code === "amiodarone" ? -240 : -700)) });
+        await K.recordProcedure(tx, sys, bd, { kind: "device", date: at(d(-900), "10:00"), details: { type: "CRT-D", action: "New implant", indication: "CRT for heart failure", pacing: "Biventricular" } });
+        await K.recordEcho(tx, sys, bd, { date: at(d(-60)), quality: "formal", lvef: 30, findings: ["Dilated LV", "Inferior and lateral akinesia"] });
+        await K.recordStudy(tx, sys, bd, { kind: "device_check", date: at(d(-120), "10:00"), findings: { setting: "In clinic", device: "CRT-D", battery: "OK", longevity: 4.5, leads: "Normal", bivpace: 97, ahre: "None", va: "Sustained VT", therapies: ["ATP"], shocks: 0, programming: "No change" } });
+        await obs(bd, d(-1), [{ code: "potassium", value: 3.3 }, { code: "creatinine", value: 112 }, { code: "sbp", value: 104 }, { code: "hr", value: 70 }, { code: "weight", value: 82 }, { code: "tsh", value: 2.1 }]);
+        await K.recordStudy(tx, sys, bd, { kind: "device_check", date: new Date(Date.now() - 180_000).toISOString(), findings: { setting: "Remote", device: "CRT-D", battery: "OK", longevity: 4.2, leads: "Normal", bivpace: 96, ahre: "None", va: "Sustained VT", therapies: ["ATP", "Shock"], shocks: 2, shockType: "Appropriate (VT/VF)", storm: "No", programming: "No change" } });
+        touched.push(bd);
       }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);

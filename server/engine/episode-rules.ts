@@ -8,7 +8,8 @@
 import { MEASURES } from "../../shared/catalog.js";
 import { flagFor, fmtDay } from "../../shared/clinical.js";
 import { WIZARDS } from "../../shared/wizards.js";
-import type { PatientState } from "../kernel/state.js";
+import { checkHasShock } from "../../shared/studies.js";
+import { latestStudy, type PatientState } from "../kernel/state.js";
 import { cadEvents } from "./cad-profile.js";
 import type { Finding, RuleDef } from "./rules.js";
 
@@ -35,7 +36,7 @@ function trigger(s: PatientState, wizard: string, reason: RegExp, indication: Re
   return open[0] ?? null;
 }
 
-const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding" };
+const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia" };
 const offer = (wizard: string, t: Trigger, detail: string, severity: Finding["severity"] = "orange"): Finding => ({
   key: wizard,
   signature: t.ref,
@@ -153,6 +154,29 @@ export const EPISODE_RULES: RuleDef[] = [
         facts: [{ label: "TSH", value: `${tsh.value_num} mIU/L`, date: tsh.effective_at, tone: "orange" }, { label: "Reference", value: `${MEASURES.tsh.ref!.low}–${MEASURES.tsh.ref!.high} mIU/L` }, { label: "Guideline", value: "ETA 2018" }],
         missing: [], action: { type: "wizard", wizard: "amiodarone-thyroid" },
       }];
+    },
+  },
+  {
+    id: "event.icd-shock",
+    kind: "clinical",
+    title: "ICD shock or ventricular arrhythmia → ICD shock / VA pathway",
+    inputs: ["contexts", "episodes", "studies"],
+    defaultParams: {},
+    evidence: "2022 ESC VA guidelines: electrical storm = ≥3 sustained VA within 24 h, each needing termination — amiodarone, non-selective beta-blocker and mild–moderate sedation (I), catheter ablation for recurrent storm; ablation preferred over escalating antiarrhythmics for recurrent monomorphic VT in IHD despite amiodarone (I). 2023 HRS/EHRA/APHRS/LAHRS consensus: every ICD shock alerts the clinic (I).",
+    evaluate(s) {
+      const ck = latestStudy(s, "device_check");
+      const a = (ck?.attributes ?? {}) as Record<string, any>;
+      const found: Trigger[] = [];
+      if (ck && (checkHasShock(a) || a.va === "Sustained VT" || a.va === "VF") && !handled(s, "icd-shock", ck.performed_at))
+        found.push({ at: ck.performed_at, label: `Device check ${fmtDay(ck.performed_at)}: ${a.storm === "Yes" ? "electrical storm" : checkHasShock(a) ? (Number(a.shocks) > 1 ? `${a.shocks} shocks` : "ICD shock") : String(a.va).toLowerCase()}`, ref: ck.id });
+      const c = trigger(s, "icd-shock", /ICD shock|VT \/ VF|ventricular (tachycardia|arrhythmia)/i, null);
+      if (c) found.push(c);
+      const t = found.sort((x, y) => y.at.localeCompare(x.at))[0];
+      if (!t) return [];
+      const storm = t.ref === ck?.id && a.storm === "Yes";
+      return [offer("icd-shock", t, storm
+        ? "Electrical storm: monitored bed, amiodarone, non-selective beta-blocker and sedation (ESC VA 2022, I); ablation for recurrent storm. Find the trigger."
+        : "Appropriate or inappropriate? Find and correct the trigger, then prevent recurrence: reprogramming, drugs, ablation.", storm ? "red" : "orange")];
     },
   },
 ];

@@ -1,7 +1,7 @@
 // Admission, discharge, clinic-visit and patient-status vocabulary. Descriptive lists only.
 
 export const ADMISSION_REASONS = [
-  "Acute decompensated HF", "STEMI", "NSTE-ACS", "Chest pain (ACS to exclude)", "AF / flutter", "VT / VF", "Bradycardia / AV block",
+  "Acute decompensated HF", "STEMI", "NSTE-ACS", "Chest pain (ACS to exclude)", "AF / flutter", "VT / VF", "ICD shock", "Bradycardia / AV block",
   "Syncope", "Valve disease", "Endocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
 ];
 // reasons that make an admission HF-related unless the clinician says otherwise

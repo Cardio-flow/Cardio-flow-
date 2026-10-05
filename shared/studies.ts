@@ -86,8 +86,34 @@ export const STUDIES: StudyDef[] = [
       { key: "outcome", label: "Outcome", type: "choice", required: true, options: ["Medical therapy", "PCI performed", "Referred for CABG", "Heart team discussion"] },
     ],
   },
+  {
+    // Rhythm & devices, slice 4: a device interrogation, in clinic or remote. What the device and the
+    // clinician report — no lead or pacing thresholds are set here.
+    kind: "device_check", label: "Device check (interrogation)", short: "Device check", help: "In clinic or remote: battery, leads, pacing, arrhythmias and therapies delivered.",
+    fields: [
+      { key: "setting", label: "Check", type: "choice", required: true, options: ["In clinic", "Remote"] },
+      { key: "device", label: "Device", type: "choice", required: true, options: ["Pacemaker", "ICD", "CRT-P", "CRT-D", "Loop recorder"] },
+      { key: "battery", label: "Battery", type: "choice", required: true, options: ["OK", "Elective replacement (ERI)", "End of service (EOS)"] },
+      { key: "longevity", label: "Estimated longevity", type: "number", unit: "years", min: 0, max: 20, decimals: 1, when: { field: "battery", in: ["OK"] } },
+      { key: "leads", label: "Lead function", type: "choice", options: ["Normal", "Abnormal"], when: { field: "device", notIn: ["Loop recorder"] } },
+      { key: "leadIssue", label: "Lead problem", type: "multi", options: ["Rising threshold", "Poor sensing", "Impedance out of range", "Noise / oversensing", "Dislodgement"], when: { field: "leads", in: ["Abnormal"] } },
+      { key: "apace", label: "Atrial pacing", type: "number", unit: "%", min: 0, max: 100, when: { field: "device", notIn: ["Loop recorder"] } },
+      { key: "vpace", label: "Ventricular pacing", type: "number", unit: "%", min: 0, max: 100, when: { field: "device", in: ["Pacemaker", "ICD"] } },
+      { key: "bivpace", label: "Biventricular pacing", type: "number", unit: "%", min: 0, max: 100, when: { field: "device", in: ["CRT-P", "CRT-D"] } },
+      { key: "ahre", label: "Atrial high-rate episodes / AF", type: "choice", options: ["None", "Yes"] },
+      { key: "ahreLongest", label: "Longest atrial episode", type: "choice", options: ["<6 min", "6 min–24 h", "≥24 h"], when: { field: "ahre", in: ["Yes"] } },
+      { key: "va", label: "Ventricular arrhythmia", type: "choice", options: ["None", "NSVT", "Sustained VT", "VF"] },
+      { key: "therapies", label: "Therapies delivered", type: "multi", options: ["None", "ATP", "Shock"], when: { field: "device", in: ["ICD", "CRT-D"] } },
+      { key: "shocks", label: "Shocks since the last check", type: "number", unit: "", min: 0, max: 100, when: { field: "device", in: ["ICD", "CRT-D"] } },
+      { key: "shockType", label: "Shocks were", type: "choice", options: ["Appropriate (VT/VF)", "Inappropriate", "Both", "Uncertain"], when: { field: "device", in: ["ICD", "CRT-D"] } },
+      { key: "storm", label: "≥3 sustained VA within 24 h, each terminated (electrical storm)", type: "choice", options: ["No", "Yes"], when: { field: "device", in: ["ICD", "CRT-D"] } },
+      { key: "programming", label: "Programming", type: "choice", options: ["No change", "Reprogrammed"] },
+    ],
+  },
 ];
 export const STUDY: Record<string, StudyDef> = Object.fromEntries(STUDIES.map((s) => [s.kind, s]));
+// a shock recorded on a device check (as a therapy, a count or an electrical storm)
+export const checkHasShock = (a: Record<string, any>) => (a.therapies ?? []).includes("Shock") || Number(a.shocks) > 0 || a.storm === "Yes";
 export const STUDY_LABEL: Record<string, string> = { echo: "Echo", ...Object.fromEntries(STUDIES.map((s) => [s.kind, s.short])) };
 
 export function fieldActive(f: StudyField, values: Record<string, unknown>) {
@@ -164,6 +190,20 @@ export function studySummary(kind: string, a: Record<string, any>): string {
     case "cath": {
       const obs = obstructiveCad("cath", a);
       return [obs ?? "No obstructive coronary disease", a.outcome].filter(Boolean).join(" · ");
+    }
+    case "device_check": {
+      const shocks = Number(a.shocks) > 0 ? `${a.shocks} shock${Number(a.shocks) === 1 ? "" : "s"}` : (a.therapies ?? []).includes("Shock") ? "shock" : null;
+      return [
+        `${a.device ?? "Device"} ${a.setting === "Remote" ? "remote check" : "check"}`,
+        a.battery === "OK" ? (a.longevity != null ? `battery ${a.longevity} y` : "battery OK") : a.battery,
+        a.leads === "Abnormal" ? `lead problem${a.leadIssue?.length ? `: ${a.leadIssue.join(", ").toLowerCase()}` : ""}` : null,
+        a.vpace != null ? `V-pacing ${a.vpace}%` : null, a.bivpace != null ? `BiV ${a.bivpace}%` : null,
+        a.ahre === "Yes" ? `AHRE${a.ahreLongest ? ` (longest ${a.ahreLongest})` : ""}` : null,
+        a.va && a.va !== "None" ? a.va : null,
+        a.storm === "Yes" ? "electrical storm" : null,
+        shocks ? `${shocks}${a.shockType ? ` · ${String(a.shockType).replace(/ \(.*\)$/, "").toLowerCase()}` : ""}` : (a.therapies ?? []).includes("ATP") ? "ATP" : null,
+        a.programming === "Reprogrammed" ? "reprogrammed" : null,
+      ].filter(Boolean).join(" · ");
     }
   }
   return "";

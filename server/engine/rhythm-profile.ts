@@ -4,8 +4,8 @@
 // conduction disease, cardiac devices, ablations and cardioversions — each with its date.
 import { DIAGNOSIS, MEDICATION, doseLabel } from "../../shared/catalog.js";
 import { attributesText } from "../../shared/history.js";
-import { daysBetween } from "../../shared/clinical.js";
-import { PROCEDURE_LABEL, RHYTHM_KINDS } from "../../shared/procedures.js";
+import { addDays, daysBetween, localDay } from "../../shared/clinical.js";
+import { CIED_TYPE, PROCEDURE_LABEL, RHYTHM_KINDS } from "../../shared/procedures.js";
 import { latestStudy, type MedState, type PatientState } from "../kernel/state.js";
 import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
 
@@ -19,12 +19,43 @@ const drugView = (s: PatientState, m: MedState) => ({
   since: m.startedAt, days: m.startedAt ? daysBetween(m.startedAt, s.today) : null,
 });
 
+// The current cardiac device and its follow-up (slice 4). Interval to the next check from the 2023
+// HRS/EHRA/APHRS/LAHRS remote device clinic consensus (I, C-EO): at least every 3–12 months for a
+// pacemaker and every 3–6 months for an ICD (CRT-P as a pacemaker, CRT-D as an ICD), every 1–3 months
+// as the battery approaches elective replacement. The outer limit of each range is used; a loop
+// recorder is followed by alerts, so no scheduled check is due.
+export const CHECK_MONTHS: Record<string, number | null> = { Pacemaker: 12, "CRT-P": 12, ICD: 6, "CRT-D": 6, "Loop recorder": null };
+export function deviceStatus(s: PatientState) {
+  const procs = s.procedures.filter((p) => p.kind === "device").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
+  const lastProc = procs[procs.length - 1] ?? null;
+  const cied = s.conditions.find((c) => c.code === "cied" && c.status === "active");
+  if (lastProc?.attributes.action === "Extraction" && !cied) return null;
+  if (!lastProc && !cied) return null;
+  const type: string | null = lastProc && lastProc.attributes.action !== "Extraction" ? CIED_TYPE(lastProc.attributes.type) : ((cied?.attributes?.type as string | undefined) ?? null);
+  const implant = [...procs].reverse().find((p) => ["New implant", "Upgrade", "Generator change"].includes(p.attributes.action)) ?? null;
+  const implantAt = implant ? localDay(implant.performed_at) : cied?.onset ? localDay(cied.onset) : null;
+  const checks = s.studies.filter((x) => x.kind === "device_check").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
+  const check = checks[checks.length - 1] ?? null;
+  const checkAt = check ? localDay(check.performed_at) : null;
+  // a generator change after the last check resets the battery
+  const batteryLow = !!check && check.attributes.battery !== "OK" && !(implant && implant.performed_at >= check.performed_at);
+  const months = type ? CHECK_MONTHS[type] ?? null : null;
+  const since = [checkAt, implantAt].filter(Boolean).sort().pop() ?? null;
+  const intervalMonths = months == null ? null : batteryLow ? 3 : months;
+  const dueAt = since && intervalMonths ? addDays(since, Math.round(intervalMonths * 30.44)) : null;
+  return {
+    type, implantAt, implantId: implant?.id ?? null, procs,
+    check: check ? { id: check.id, at: check.performed_at, a: check.attributes as Record<string, any>, summary: check.findings[0] ?? "" } : null,
+    checks: checks.length, batteryLow, intervalMonths, dueAt, since,
+  };
+}
+
 export function rhythmProfile(s: PatientState) {
   const conds = s.conditions.filter((c) => ARRHYTHMIA.includes(c.code));
   const procs = s.procedures.filter((p) => (RHYTHM_KINDS as string[]).includes(p.kind));
   const rhythmDrugs = live(s).filter((m) => RHYTHM_DRUGS.includes(m.code));
   const ecgAf = [latestStudy(s, "ecg"), latestStudy(s, "holter")].some((st) => st && /fibrillation|flutter|paroxysmal AF/i.test(String(st.attributes.rhythm ?? "")));
-  if (!conds.length && !procs.length && !rhythmDrugs.length && !ecgAf) return null;
+  if (!conds.length && !procs.length && !rhythmDrugs.length && !ecgAf && !s.studies.some((x) => x.kind === "device_check")) return null;
 
   const afc = s.conditions.find((c) => c.code === "af") ?? s.conditions.find((c) => c.code === "flutter") ?? null;
   const oacs = live(s).filter((m) => m.tags.includes("oac"));
@@ -37,7 +68,12 @@ export function rhythmProfile(s: PatientState) {
   const cied = s.conditions.find((c) => c.code === "cied");
   const av = s.conditions.find((c) => c.code === "av-block");
 
+  const dev = deviceStatus(s);
   return {
+    device: dev ? {
+      type: dev.type, implantAt: dev.implantAt, dueAt: dev.dueAt, intervalMonths: dev.intervalMonths, overdue: !!dev.dueAt && dev.dueAt < s.today,
+      check: dev.check ? { at: dev.check.at, summary: dev.check.summary, battery: dev.check.a.battery, longevity: dev.check.a.longevity ?? null, setting: dev.check.a.setting } : null,
+    } : null,
     af: !afc && ecgAf
       ? { title: "AF on ECG / Holter — not on the problem list", pattern: null, since: null }
       : afc

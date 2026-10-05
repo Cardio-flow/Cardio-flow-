@@ -156,3 +156,89 @@ test("a cardioversion planned with no anticoagulant is flagged until anticoagula
   await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", effectiveAt: at(T) }); await reassess(q, pid, "sandbox"); });
   assert.equal(await rec(pid, "rhythm.cardioversion-before-3w"), undefined, "apixaban today: 21 days before the planned date");
 });
+
+// ---- slice 4: device follow-up, ICD shock / VA ----
+const check = (pid: string, day: string, findings: Record<string, unknown>, time = "10:00") =>
+  tx(async (q) => { await K.recordStudy(q, doc, pid, { kind: "device_check", date: new Date(`${day}T${time}:00+03:00`).toISOString(), findings }); await reassess(q, pid, "sandbox"); });
+
+test("device check template: validated, summarised; a shock is recognised", async () => {
+  const { cleanStudy, studySummary, checkHasShock } = await import("../shared/studies.js");
+  assert.throws(() => cleanStudy("device_check", { setting: "Remote", device: "ICD" }), /Battery is required/);
+  const a = cleanStudy("device_check", { setting: "Remote", device: "ICD", battery: "OK", longevity: 6, vpace: 1, va: "Sustained VT", therapies: ["ATP", "Shock"], shocks: 1, shockType: "Appropriate (VT/VF)", storm: "No", bivpace: 98 });
+  assert.equal(a.bivpace, undefined, "BiV pacing only for CRT");
+  assert.equal(studySummary("device_check", a), "ICD remote check · battery 6 y · V-pacing 1% · Sustained VT · 1 shock · appropriate");
+  assert.ok(checkHasShock(a));
+});
+
+test("Abdullah: pacemaker last checked 14 months ago → device check overdue (yellow); a check today clears it and sets the next one 12 months on", async () => {
+  const pid = await byName("Abdullah Al-Enezi");
+  const r = await rec(pid, "rhythm.device-check-due");
+  assert.ok(r && r.severity === "yellow");
+  assert.match(r.title, /^Pacemaker: device check overdue since/);
+  assert.equal(r.action.template, "device-check");
+  let dev: any = (await sumOf("Abdullah Al-Enezi")).rhythm.device;
+  assert.equal(dev.intervalMonths, 12);
+  assert.ok(dev.overdue);
+  await check(pid, T, { setting: "In clinic", device: "Pacemaker", battery: "OK", longevity: 8.4, leads: "Normal", vpace: 95, va: "None" });
+  assert.equal(await rec(pid, "rhythm.device-check-due"), undefined);
+  dev = (await sumOf("Abdullah Al-Enezi")).rhythm.device;
+  assert.equal(dev.overdue, false);
+  assert.ok(dev.dueAt > addDays(T, 360) && dev.dueAt < addDays(T, 370));
+});
+
+test("battery at ERI, a lead problem and atrial high-rate episodes each raise their finding; a generator change clears the battery one", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Ppm " + Date.now(), mrn: "P" + Date.now(), sex: "Female", birthDate: "1948-03-01", conditions: ["htn", "t2dm"] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "device", date: at(addDays(T, -3000)), details: { type: "Pacemaker (dual chamber)", action: "New implant", indication: "Sinus node dysfunction", pacing: "RV pacing" } }));
+  await check(pid, T, { setting: "In clinic", device: "Pacemaker", battery: "Elective replacement (ERI)", leads: "Abnormal", leadIssue: ["Noise / oversensing"], apace: 60, vpace: 12, ahre: "Yes", ahreLongest: "≥24 h", va: "None" });
+  assert.equal((await rec(pid, "rhythm.device-battery")).severity, "orange");
+  assert.match((await rec(pid, "rhythm.device-lead")).title, /lead problem/);
+  const af = await rec(pid, "rhythm.device-af");
+  assert.equal(af.severity, "yellow");
+  assert.match(af.title, /longest ≥24 h/);
+  assert.equal((await sumOf(((await db.query(`SELECT name FROM cf.patient WHERE id=$1`, [pid])).rows[0] as any).name)).rhythm.device.intervalMonths, 3, "near replacement: every 1–3 months");
+  await tx(async (q) => { await K.recordProcedure(q, doc, pid, { kind: "device", date: at(T), details: { type: "Pacemaker (dual chamber)", action: "Generator change", indication: "Sinus node dysfunction" } }); await reassess(q, pid, "sandbox"); });
+  assert.equal(await rec(pid, "rhythm.device-battery"), undefined);
+  assert.ok(await rec(pid, "rhythm.device-lead"), "a generator change does not fix the lead");
+  await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", effectiveAt: at(T) }); await reassess(q, pid, "sandbox"); });
+  assert.equal(await rec(pid, "rhythm.device-af"), undefined, "anticoagulated");
+  await check(pid, T, { setting: "Remote", device: "Pacemaker", battery: "End of service (EOS)", va: "None" }, "10:30");
+  assert.equal((await rec(pid, "rhythm.device-battery")).severity, "red");
+});
+
+test("Bader: two appropriate shocks for VT on today's remote check → ICD shock pathway offered; suggestions from the check, potassium and amiodarone; completing opens an episode with an ablation referral", async () => {
+  const pid = await byName("Bader Al-Mutairi");
+  const r = await rec(pid, "event.icd-shock");
+  assert.ok(r && r.severity === "orange");
+  assert.match(r.title, /2 shocks → ICD shock \/ ventricular arrhythmia pathway/);
+  const ctx = (await tx((q) => getWizard(q, pid, "icd-shock"))).context;
+  assert.equal(ctx.device!.type, "CRT-D");
+  assert.deepEqual(suggest("icd-shock", "what", {}, ctx).map((x) => x.value), ["multiple"]);
+  assert.deepEqual(suggest("icd-shock", "interrogation", {}, ctx).map((x) => x.value), ["appropriate-mono"]);
+  assert.deepEqual(suggest("icd-shock", "triggers", {}, ctx).map((x) => x.value), ["electrolytes"]);
+  const acts = suggest("icd-shock", "actions", { what: "multiple", interrogation: "appropriate-mono", triggers: ["electrolytes"] }, ctx);
+  assert.ok(acts.some((x) => x.value === "ablation" && /despite amiodarone.*\(ESC VA 2022, I\)/.test(x.why)));
+  assert.ok(acts.some((x) => x.value === "bloods") && acts.some((x) => x.value === "remote"));
+  assert.ok(!acts.some((x) => x.value === "sedation"), "not a storm");
+  const done = await run(pid, "icd-shock", { what: "multiple", state: "stable", interrogation: "appropriate-mono", triggers: ["electrolytes"], actions: ["bloods", "ablation", "remote"], review: "clinic-14" }, r.id);
+  assert.ok(done.episodeId);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /despite amiodarone: catheter ablation rather than escalating antiarrhythmics \(I\)/.test(x)));
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "VT catheter ablation referral" && p.status === "planned"));
+  assert.ok(s.episodes.some((e) => e.wizard === "icd-shock" && e.status === "open"));
+  assert.equal(await rec(pid, "event.icd-shock"), undefined, "handled by the open episode");
+  assert.equal(await rec(pid, "rhythm.device-check-due"), undefined, "checked today; CRT-D next in 6 months");
+  assert.equal((await sumOf("Bader Al-Mutairi")).rhythm.device.intervalMonths, 6);
+});
+
+test("electrical storm on a device check → red offer; the pathway suggests monitoring, amiodarone, non-selective beta-blocker and sedation", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Icd " + Date.now(), mrn: "I" + Date.now(), sex: "Male", birthDate: "1960-06-01", conditions: ["hfref"] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "device", date: at(addDays(T, -400)), details: { type: "ICD (transvenous)", action: "New implant", indication: "Secondary prevention ICD" } }));
+  await check(pid, T, { setting: "Remote", device: "ICD", battery: "OK", va: "Sustained VT", therapies: ["Shock"], shocks: 4, shockType: "Appropriate (VT/VF)", storm: "Yes" });
+  const r = await rec(pid, "event.icd-shock");
+  assert.equal(r.severity, "red");
+  assert.match(r.title, /electrical storm/);
+  const ctx = (await tx((q) => getWizard(q, pid, "icd-shock"))).context;
+  assert.deepEqual(suggest("icd-shock", "what", {}, ctx).map((x) => x.value), ["storm"]);
+  const acts = suggest("icd-shock", "actions", { what: "storm", interrogation: "appropriate-mono" }, ctx).map((x) => x.value);
+  for (const v of ["monitor", "amiodarone", "bb", "sedation", "reprogram"]) assert.ok(acts.includes(v), v);
+});

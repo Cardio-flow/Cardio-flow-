@@ -839,3 +839,11 @@ tr.reg-only td { color: var(--ink-4); }
 .tag-held { color: var(--orange-ink); font-size: 11px; font-weight: 800; }
 .hf-tile.warn b { color: var(--orange-ink); }
 .cad-regimen { margin-left: 8px; padding: 2px 9px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font-size: 11.5px; font-weight: 800; letter-spacing: .02em; text-transform: none; color: var(--navy); }
+/* Rhythm & devices, slice 4: last device check and the next one due */
+.dev-check { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.dev-check > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; background: var(--surface); }
+.dev-check small { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-4); }
+.dev-check em { font-style: normal; font-size: 12.5px; color: var(--ink-3); }
+.dev-check.warn > div:last-child b { color: var(--orange-ink); }
+@media (max-width: 900px) { .dev-check { grid-template-columns: 1fr; } }
+.dev-check b { color: var(--navy); font-size: 14.5px; }

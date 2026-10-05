@@ -5,9 +5,12 @@
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { cha2ds2va } from "./guidelines.js";
+import { deviceStatus } from "./rhythm-profile.js";
 import type { RuleDef } from "./rules.js";
 
 const AF_RHYTHM = /fibrillation|flutter|paroxysmal AF/i;
+const plannedCheck = (s: PatientState) => s.plan.some((p) => p.status === "planned" && p.completes_on?.type === "study" && p.completes_on.kind === "device_check");
+const DEVICE_FU = "2023 HRS/EHRA/APHRS/LAHRS remote device clinic consensus";
 const hasAf = (s: PatientState) => s.conditions.some((c) => (c.code === "af" || c.code === "flutter") && c.status === "active");
 
 export const RHYTHM_RULES: RuleDef[] = [
@@ -135,6 +138,88 @@ export const RHYTHM_RULES: RuleDef[] = [
         detail: "Move the date to ≥3 weeks of effective anticoagulation, or plan a TOE-guided cardioversion.",
         facts: [{ label: "Planned", value: cv.title, date: cv.due_date! }, { label: "Earliest after 3 weeks", value: from ? fmtDay(addDays(from, 21), { year: true }) : "start anticoagulation first" }, { label: "Guideline", value: "ESC AF 2024" }],
         missing: [], action: { type: "wizard", wizard: "peri-af-procedure" },
+      }];
+    },
+  },
+  // ---- slice 4: device follow-up ----
+  {
+    id: "rhythm.device-check-due",
+    kind: "clinical",
+    title: "Device check overdue",
+    inputs: ["studies", "procedures", "conditions", "plan"],
+    defaultParams: {},
+    evidence: `${DEVICE_FU} (I, C-EO): remote transmissions at least every 3–12 months for pacemakers and every 3–6 months for ICDs (CRT-P as a pacemaker, CRT-D as an ICD); every 1–3 months as the device approaches elective replacement. Due at the outer limit of the range; loop recorders are followed by alerts.`,
+    evaluate(s) {
+      const d = deviceStatus(s);
+      if (!d?.dueAt || d.dueAt >= s.today || plannedCheck(s)) return [];
+      const last = d.check ? `last check ${fmtDay(d.check.at, { year: true })}` : `no check since ${d.implantAt === d.since ? "the implant" : "it was recorded"} ${fmtDay(d.since!, { year: true })}`;
+      return [{
+        key: "device-check", signature: `${d.check?.id ?? d.since}:${d.intervalMonths}`, severity: "yellow",
+        title: `${d.type}: device check overdue since ${fmtDay(d.dueAt, { year: true })}`,
+        detail: `${last[0].toUpperCase()}${last.slice(1)}. ${d.batteryLow ? "Battery near replacement: check every 1–3 months." : `${d.type === "ICD" || d.type === "CRT-D" ? "ICD / CRT-D: at least every 3–6 months" : "Pacemaker / CRT-P: at least every 3–12 months"} (remote or in clinic).`}`,
+        facts: [{ label: "Device", value: d.type ?? "Cardiac device", date: d.implantAt ?? undefined }, { label: "Last check", value: d.check ? d.check.summary : "None recorded", date: d.check?.at }, { label: "Source", value: "HRS/EHRA 2023" }],
+        missing: [], action: { type: "add-plan", template: "device-check" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.device-battery",
+    kind: "clinical",
+    title: "Device battery at elective replacement or end of service",
+    inputs: ["studies", "procedures", "plan"],
+    defaultParams: {},
+    evidence: "The device's own battery indicator (ERI / EOS) as recorded at interrogation; generator replacement is planned at ERI. 2023 HRS/EHRA/APHRS/LAHRS consensus: checks every 1–3 months as the device approaches elective replacement.",
+    evaluate(s) {
+      const d = deviceStatus(s);
+      if (!d?.check || !d.batteryLow || s.plan.some((p) => p.status === "planned" && /generator change/i.test(p.title))) return [];
+      const eos = /EOS/.test(d.check.a.battery);
+      return [{
+        key: "battery", signature: d.check.id, severity: eos ? "red" : "orange",
+        title: `${d.type} battery ${eos ? "at end of service" : "at elective replacement"} (${fmtDay(d.check.at)})`,
+        detail: eos ? "The device may stop delivering therapy: generator change now." : "Plan the generator change; check every 1–3 months until it is done.",
+        facts: [{ label: "Device check", value: d.check.summary, date: d.check.at, tone: eos ? "red" : "orange" }, { label: "Implanted", value: d.implantAt ? fmtDay(d.implantAt, { year: true }) : "Date not recorded" }],
+        missing: [], action: { type: "add-plan", template: "generator-change" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.device-lead",
+    kind: "clinical",
+    title: "Lead problem on device check",
+    inputs: ["studies", "procedures", "plan"],
+    defaultParams: {},
+    evidence: "Lead malfunction as reported at interrogation (the clinician's own entry; no threshold set here): review by the device team, reprogramming or lead revision.",
+    evaluate(s) {
+      const d = deviceStatus(s);
+      if (!d?.check || d.check.a.leads !== "Abnormal") return [];
+      const after = d.procs.some((p) => localDay(p.performed_at) >= localDay(d.check!.at) && ["Lead revision", "Extraction", "New implant", "Upgrade"].includes(p.attributes.action));
+      if (after || s.plan.some((p) => p.status === "planned" && /lead review|lead revision/i.test(p.title))) return [];
+      return [{
+        key: "lead", signature: d.check.id, severity: "orange",
+        title: `${d.type}: lead problem on the check of ${fmtDay(d.check.at)}`,
+        detail: `${(d.check.a.leadIssue ?? []).join(", ") || "Abnormal lead function"}: device team review (reprogramming or lead revision).`,
+        facts: [{ label: "Device check", value: d.check.summary, date: d.check.at, tone: "orange" }],
+        missing: [], action: { type: "add-plan", template: "lead-review" },
+      }];
+    },
+  },
+  {
+    id: "rhythm.device-af",
+    kind: "clinical",
+    title: "Device-detected atrial high-rate episodes",
+    inputs: ["studies", "conditions", "meds"],
+    defaultParams: {},
+    evidence: "2024 ESC AF (task force summary, Europace 2024;26:euae298): a DOAC may be considered in device-detected subclinical AF with high stroke risk and low bleeding risk; progression to clinical AF is 6–9% a year; no duration threshold is established.",
+    evaluate(s) {
+      const d = deviceStatus(s);
+      if (!d?.check || d.check.a.ahre !== "Yes" || hasAf(s) || s.meds.some((m) => m.status === "active" && m.tags.includes("oac"))) return [];
+      const sc = cha2ds2va(s);
+      return [{
+        key: "device-af", signature: d.check.id, severity: "yellow",
+        title: `Device-detected atrial episodes${d.check.a.ahreLongest ? ` (longest ${d.check.a.ahreLongest})` : ""}: no AF on the problem list`,
+        detail: `CHA₂DS₂-VA ${sc.score}. Subclinical AF: a DOAC may be considered with high stroke risk and low bleeding risk. If AF is confirmed on an ECG, start AF-CARE.`,
+        facts: [{ label: "Device check", value: d.check.summary, date: d.check.at }, { label: "CHA₂DS₂-VA", value: String(sc.score) }, { label: "Guideline", value: "ESC AF 2024" }],
+        missing: [], action: { type: "wizard", wizard: "af-care" },
       }];
     },
   },

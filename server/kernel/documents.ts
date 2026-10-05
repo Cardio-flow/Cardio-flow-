@@ -190,8 +190,9 @@ const EN_LAB: Record<string, string> = { creatinine: "kidney function", egfr: "k
 const AR_STUDY: Record<string, string> = {
   echo: "إيكو (موجات صوتية) على القلب", ecg: "تخطيط القلب الكهربائي", holter: "جهاز هولتر لتسجيل نبض القلب", stress: "اختبار الجهد",
   cmr: "رنين مغناطيسي على القلب", ccta: "أشعة مقطعية على شرايين القلب", cath: "قسطرة القلب",
+  device_check: "فحص جهاز القلب (منظم ضربات القلب / مزيل الرجفان)",
 };
-const EN_STUDY: Record<string, string> = { echo: "Echo (heart ultrasound)", ecg: "ECG", holter: "Holter (24-hour heart monitor)", stress: "Exercise stress test", cmr: "Heart MRI", ccta: "CT of the heart arteries", cath: "Cardiac catheterisation" };
+const EN_STUDY: Record<string, string> = { echo: "Echo (heart ultrasound)", ecg: "ECG", holter: "Holter (24-hour heart monitor)", stress: "Exercise stress test", cmr: "Heart MRI", ccta: "CT of the heart arteries", cath: "Cardiac catheterisation", device_check: "Pacemaker / defibrillator check" };
 // known template titles; anything else keeps its English title
 const AR_TITLE: Record<string, string> = {
   "Phone follow-up": "مكالمة متابعة هاتفية", "Advanced HF centre consultation": "تحويل إلى مركز متخصص في فشل القلب المتقدم", "EP referral for ICD/CRT": "تحويل إلى عيادة كهرباء القلب لتقييم جهاز منظم/مزيل الرجفان", "Heart Team discussion (mitral TEER)": "مناقشة الحالة مع فريق القلب (إصلاح الصمام الميترالي بالقسطرة)", "Cardiac rehabilitation referral": "تحويل إلى برنامج التأهيل القلبي",
