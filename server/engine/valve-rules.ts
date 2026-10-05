@@ -5,6 +5,7 @@ import { DIAGNOSIS } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
+import { hfPhenotype } from "./guidelines.js";
 import { SURVEILLANCE_DEFAULTS, latestValveEcho, valveSurveillance } from "./valve-profile.js";
 import { localDay } from "../../shared/clinical.js";
 import { formatNumber } from "../../shared/catalog.js";
@@ -106,7 +107,10 @@ export const VALVE_RULES: RuleDef[] = [
       const done = s.pathwaysDone["valve-heart-team"];
       const lastEcho = latestValveEcho(s)?.at ?? null;
       if (s.plan.some((p) => p.status === "planned" && INTERVENTION_PLANNED.test(p.title))) return [];
+      // severe secondary MR in HFrEF: re-graded after optimised therapy and CRT; hf.secondary-mr asks for the Heart Team then
+      const hfref = hfPhenotype(s) === "HFrEF";
       return severeUntreated(s)
+        .filter((l) => !(hfref && l.code === "mr-secondary"))
         .filter((l) => !done || localDay(done) < localDay(lastEcho && l.from !== "problem list" ? lastEcho : l.at ?? done))
         .map((l): Finding => ({
           key: `ht-${l.code}`, signature: `${l.code}:${lastEcho ?? l.at}`, severity: "orange",
@@ -263,7 +267,7 @@ export const VALVE_RULES: RuleDef[] = [
           title: "Mechanical valve with no anticoagulant on the medication list",
           detail: "Lifelong VKA is recommended for every mechanical valve (I A). Confirm and restart warfarin with the INR target.",
           facts: [{ label: "Valve", value: s.conditions.filter((c) => c.code === "prosthetic-valve" && c.attributes?.type === "Mechanical").map((c) => `${c.attributes?.position ?? ""} mechanical`).join(", ") }, { label: "Guideline", value: "ESC/EACTS VHD 2025 · I A" }],
-          missing: [], action: { type: "tab", tab: "medications" },
+          missing: [], action: { type: "start-med", code: "warfarin", label: "Start warfarin" },
         });
       const p2y12 = meds.filter((m) => m.tags.includes("p2y12"));
       if (meds.some((m) => m.code === "aspirin") && p2y12.length && !daptIndication(s))

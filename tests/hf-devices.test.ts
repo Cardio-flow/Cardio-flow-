@@ -58,7 +58,7 @@ test("ICD/CRT: <3 months of optimal therapy → reassess date; LVEF before the 3
   const ready = await hfrefOnFmt(120, { aetiology: ["Ischaemic"] });
   r = await rec(ready, "hf.device-assessment");
   assert.equal(r.severity, "orange");
-  assert.equal(r.title, "LVEF 30% despite ≥3 months of optimal therapy, NYHA II: CRT-D candidate");
+  assert.equal(r.title, "LVEF 30% despite ≥3 months of all four pillars (some below target), NYHA II: CRT-D candidate");
   assert.match(r.detail, /ischaemic aetiology \(ESC 2021: I A\)/);
   assert.match(r.detail, /LBBB, QRS ≥150 ms: CRT class I/);
   assert.ok(r.facts.some((f: any) => f.label === "Below target dose" && /Bisoprolol 50%/.test(f.value)));

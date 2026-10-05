@@ -138,9 +138,17 @@ const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[]
   ];
 };
 // Safety gates before suggesting a start or an increase. Returns the blocking reason or missing data.
+const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood pressure/.test(m) ? "sbp" : /^eGFR/.test(m) ? "creatinine" : /^Heart rate/.test(m) ? "hr" : "creatinine");
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; missing: string[] } {
   const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
   const missing: string[] = [];
+  // creatinine rising beyond the acceptable 50% (ESC HF practical guidance, as in hf.worsening-renal-function): no RAAS/MRA start or increase
+  if (key === "raas" || key === "mra") {
+    const cr = s.resolved("creatinine");
+    const c = cr.current, prev = cr.history.find((o) => c && o.id !== c.id && o.effective_at < c.effective_at);
+    if (c?.value_num != null && prev?.value_num != null && daysBetween(c.effective_at, s.today) <= 14 && c.value_num > prev.value_num * 1.5)
+      return { block: `creatinine up ${Math.round((c.value_num / prev.value_num - 1) * 100)}%`, missing };
+  }
   if (key === "raas") {
     if (k == null) missing.push("Potassium (last 60 days)");
     if (sbp == null) missing.push("Blood pressure (last 60 days)");
@@ -223,14 +231,17 @@ export const GUIDELINE_RULES: RuleDef[] = [
         const def = MEDICATION[p.start.code];
         out.push({
           key: "fmt-" + p.key,
-          signature: `${p.key}:${phen}:${ef?.id ?? "noef"}`,
+          signature: `${p.key}:${phen}:${ef?.id ?? "noef"}${gate.missing.length ? ":check" : ""}`,
           severity: "orange",
           title: `${phen}: ${p.label} not started`,
           detail: `Foundational therapy${ef ? ` · LVEF ${formatNumber(ef.value_num!, 0)}%` : ""} · suggested start: ${def.name} ${doseLabel(def, p.start.dose)}`,
           facts: facts(ef && { label: "LVEF", value: `${formatNumber(ef.value_num!, 0)}% (${ef.quality})`, date: ef.effective_at }, fact(s, "potassium", 60), fact(s, "egfr", 60), fact(s, "sbp", 60), fact(s, "hr", 60),
             src(phen === "HFrEF" ? "ESC HF 2026 · foundational medical therapy for HFrEF (LVEF <50%) · Class I" : "ESC HF 2026 · SGLT2i and MRA in HFpEF · Class I")),
           missing: gate.missing,
-          action: { type: "start-med", code: p.start.code, dose: p.start.dose, label: `Start ${def.name}` },
+          // the values that make the start safe come first: record them, then the suggestion offers the start
+          action: gate.missing.length
+            ? { type: "add-labs", codes: [...new Set(gate.missing.map(checkCode))], label: `Check ${gate.missing.map((m) => m.split(" (")[0].replace("Blood pressure", "BP").replace("Potassium", "K").replace("Heart rate", "HR")).join(" and ")} first` }
+            : { type: "start-med", code: p.start.code, dose: p.start.dose, label: `Start ${def.name}` },
         });
       }
       // ARNI in place of ACEi/ARB
@@ -516,7 +527,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
             src(mech ? "ESC/EACTS VHD 2025 · DOAC in mechanical valve · Class III" : "ESC AF 2024 · VKA in moderate–severe MS"),
           ),
           missing: [],
-          action: { type: "tab" as const, tab: "medications" },
+          action: { type: "med-action" as const, medicationId: m.id, action: "stop", label: `Stop ${m.name}` },
         }));
     },
   },

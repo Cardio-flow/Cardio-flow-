@@ -111,7 +111,8 @@ const tableRule = (id: string, kind: SafetyRow["kind"], title: string, evidence:
         { label: "Medicines", value: hit.meds.map((m) => m.name).join(", ") },
         { label: "Source", value: row.source },
       ],
-      missing: [], action: { type: "tab", tab: "medications" },
+      // open the medicine to act on (the first named: the one the row's advice is about)
+      missing: [], action: { type: "med-action", medicationId: hit.meds[0].id, label: `Review ${hit.meds[0].name}` },
     }) as Finding);
   },
 });
@@ -151,7 +152,7 @@ export const MED_RULES: RuleDef[] = [
           { label: "Antiplatelet", value: ap.map((m) => `${m.name}${m.startedAt ? ` since ${fmtDay(m.startedAt, { year: true })}` : ""}`).join(", ") },
           { label: "Guideline", value: "ESC AF 2024 · III B" },
         ],
-        missing: [], action: { type: "tab", tab: "medications" },
+        missing: [], action: { type: "med-action", medicationId: ap[0].id, label: `Review ${ap[0].name}` },
       } as Finding];
     },
   },

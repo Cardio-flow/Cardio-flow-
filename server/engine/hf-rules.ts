@@ -261,7 +261,7 @@ HF_RULES.push(
       if (!wantIcd && !wantCrt) return [];
       return [{
         key: "device", signature: `candidate${dev}:${ef.id}:${ecg?.id ?? "no-ecg"}:${cls ?? "no-nyha"}:${aet ?? "unk"}`, severity: "orange",
-        title: `${efTxt} despite ≥3 months of optimal therapy${cls ? `, NYHA ${cls}` : ""}: ${what} candidate`,
+        title: `${efTxt} despite ≥3 months of ${below.length ? "all four pillars (some below target)" : "optimal therapy"}${cls ? `, NYHA ${cls}` : ""}: ${what} candidate`,
         detail: [
           wantIcd ? `ICD for primary prevention: ${aet === "ischaemic" ? "ischaemic aetiology (ESC 2021: I A)" : aet === "non-ischaemic" ? "non-ischaemic aetiology (ESC 2021: IIa A)" : "record the aetiology (ischaemic I A, non-ischaemic IIa A)"}.` : null,
           recentMi ? `MI within ${p.post_mi_days} days: ICD not indicated yet.` : null,
