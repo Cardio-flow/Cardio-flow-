@@ -9,6 +9,7 @@
 //     observation `hx.<key>`, so the status has a history (e.g. current → ex-smoker).
 // No thresholds live here. Option lists are descriptive categories only.
 
+import { CYP2C19_PHENOTYPES } from "./mavacamten.js";
 export type Answer = "no" | "unknown" | "not-assessed" | "na";
 export const ANSWER_LABEL: Record<string, string> = { yes: "Yes", no: "No", unknown: "Unknown", "not-assessed": "Not assessed", na: "Not applicable" };
 
@@ -124,7 +125,12 @@ const GENETIC: AttrField[] = [
 ];
 const CMP_FIELDS: AttrField[] = GENETIC;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
-  hcm: [{ key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) }, ...GENETIC],
+  hcm: [
+    { key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) },
+    ...GENETIC,
+    // the CYP2C19 genotype result sets the mavacamten dose (SmPC Camzyos 4.2; shared/mavacamten.ts)
+    { key: "cyp2c19", label: "CYP2C19 phenotype (genotype result, for mavacamten)", options: CYP2C19_PHENOTYPES, text: (v) => (v === "Not tested" ? null : `CYP2C19 ${v.toLowerCase()}`) },
+  ],
   dcm: CMP_FIELDS,
   ph: [
     { key: "group", label: "Clinical group (ESC/ERS 2022)", options: ["Group 1 · PAH", "Group 2 · left heart disease", "Group 3 · lung disease / hypoxia", "Group 4 · CTEPH / PA obstruction", "Group 5 · unclear / multifactorial", "Not yet classified"], text: (v) => (v === "Not yet classified" ? "group not yet known" : v) },

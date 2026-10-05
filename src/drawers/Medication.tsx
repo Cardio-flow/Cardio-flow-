@@ -63,6 +63,11 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const scheduleRenal = schedule.some((k) => targetCodes(k.target).some((c) => c === "potassium" || c === "creatinine"));
   const renalK = !scheduleRenal && def?.monitoring.some((c) => c === "potassium" || c === "creatinine");
   const [bookSchedule, setBookSchedule] = useState("yes");
+  // pre-start check (contraindications, interactions, start limits) and, for mavacamten, the starting dose from CYP2C19
+  const { data: check } = useData<{ hits: SafetyHit[]; start: { dose: number; max: number; known: boolean; basis: string; why: string } | null }>(def ? `/patients/${patientId}/medication-check/${def.code}` : null, [def?.code]);
+  useEffect(() => {
+    if (check?.start && !preset) setDose(String(check.start.dose));
+  }, [check?.start?.dose]);
   async function save() {
     if (!def) return;
     setBusy(true);
@@ -178,7 +183,12 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <Segmented label="Route" options={def.routes.map((r) => ({ value: r, label: r }))} value={route} onChange={setRoute} />
               </div>
             </div>
-            <PreStart def={def} rec={rec} summary={summary} patientId={patientId} />
+            {check?.start && (
+              <div className="infobox" style={{ display: "block" }}>
+                <span><b>{`Starting dose ${check.start.dose} mg once daily · maximum ${check.start.max} mg`}</b>{` — ${check.start.basis} (SmPC 4.2).${!check.start.known ? " Record the result on the HCM diagnosis (History)." : ""}`}</span>
+              </div>
+            )}
+            <PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} />
             {renalK && (
               <div className="q">
                 <div className="label">Monitoring</div>
@@ -240,9 +250,8 @@ function SafetyCheck({ hits }: { hits: SafetyHit[] | null }) {
   );
 }
 
-function PreStart({ def, rec, summary, patientId }: { def: MedicationDef; rec: any; summary: any; patientId: string }) {
-  const { data: check } = useData<{ hits: SafetyHit[] }>(`/patients/${patientId}/medication-check/${def.code}`, [def.code]);
-  const contraindicated = check?.hits.some((h) => h.severity === "red");
+function PreStart({ def, rec, summary, hits }: { def: MedicationDef; rec: any; summary: any; hits: SafetyHit[] | null }) {
+  const contraindicated = hits?.some((h) => h.severity === "red");
   const items = def.monitoring.map((code) => {
     const r = rec?.results.find((x: any) => x.code === code) ?? rec?.vitals.find((x: any) => x.code === code);
     const m = MEASURES[code];
@@ -254,7 +263,7 @@ function PreStart({ def, rec, summary, patientId }: { def: MedicationDef; rec: a
   return (
     <div className="q">
       <div className="label">Pre-start check</div>
-      <SafetyCheck hits={check?.hits ?? null} />
+      <SafetyCheck hits={hits} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
         {items.map((i) => (
           <div key={i.code} className="fact" style={{ background: i.missing ? "var(--orange-soft)" : i.flag ? "var(--red-soft)" : undefined }}>

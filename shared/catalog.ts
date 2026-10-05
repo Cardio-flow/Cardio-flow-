@@ -241,7 +241,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("metoprolol-succinate", "Metoprolol succinate", "Beta blocker", "Heart failure", ["bb"], ["hf", "cad", "af"], "mg", [12.5, 25, 50, 100, 200], ["OD"], ["hr", "sbp"], { target: 200 }),
   m("spironolactone", "Spironolactone", "Steroidal MRA", "Heart failure", ["mra", "potassium-sparing"], ["hf", "htn"], "mg", [12.5, 25, 50], ["OD"], ["potassium", "creatinine", "egfr"], { target: 50 }),
   m("eplerenone", "Eplerenone", "Steroidal MRA", "Heart failure", ["mra", "potassium-sparing"], ["hf", "cad"], "mg", [25, 50], ["OD"], ["potassium", "creatinine", "egfr"], { target: 50 }),
-  m("finerenone", "Finerenone", "Nonsteroidal MRA", "Heart failure", ["mra", "potassium-sparing"], ["ckd", "dm", "hf"], "mg", [10, 20], ["OD"], ["potassium", "egfr"], { target: 40 }),
+  m("finerenone", "Finerenone", "Nonsteroidal MRA", "Heart failure", ["mra", "potassium-sparing"], ["ckd", "dm", "hf"], "mg", [10, 20, 40], ["OD"], ["potassium", "egfr"], { target: 40 }),
   m("dapagliflozin", "Dapagliflozin", "SGLT2 inhibitor", "Heart failure", ["sglt2"], ["hf", "ckd", "dm"], "mg", [10], ["OD"], ["egfr"], { target: 10 }),
   m("empagliflozin", "Empagliflozin", "SGLT2 inhibitor", "Heart failure", ["sglt2"], ["hf", "ckd", "dm"], "mg", [10], ["OD"], ["egfr"], { target: 10 }),
   m("furosemide", "Furosemide", "Loop diuretic", "Heart failure", ["loop"], ["hf"], "mg", [20, 40, 80], ["OD", "BID"], ["creatinine", "potassium", "sodium", "weight"], { routes: ["PO", "IV"] }),

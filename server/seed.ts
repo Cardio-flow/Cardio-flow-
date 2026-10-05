@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 27;
+export const SEED_VERSION = 28;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -664,6 +664,30 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(yq, d(-1), [{ code: "sbp", value: 118 }, { code: "hr", value: 78 }, { code: "creatinine", value: 110 }, { code: "potassium", value: 4.6 }, { code: "haemoglobin", value: 13.4 }, { code: "height", value: 171 }, { code: "weight", value: 80 }]);
       await K.recordObservations(tx, sys, yq, { effectiveAt: at(d(-1), "11:00"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
       touched.push(yq);
+    }
+    // v28 (medicine slice 3): Reem's CYP2C19 genotype is back (normal metaboliser → mavacamten would start at 5 mg);
+    // Sara, 52, obstructive HCM, CYP2C19 poor metaboliser, on mavacamten 2.5 mg for 10 weeks with verapamil: today's
+    // echo LVEF 47% → interrupt mavacamten (label), and verapamil with a poor metaboliser → reduce/pause
+    if (seeded < 28) {
+      const reem = await byMrn("100927318");
+      if (reem) {
+        const h = ((await tx.query(`SELECT logical_id, attributes FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 AND code='hcm' ORDER BY logical_id, version DESC) c WHERE status='active' LIMIT 1`, [reem])).rows[0] as any);
+        if (h) await K.recordHistory(tx, sys, reem, { effectiveAt: at(d(-1)), update: [{ logicalId: h.logical_id, attributes: { ...(h.attributes ?? {}), form: "Obstructive", cyp2c19: "Normal metaboliser" } }] });
+        touched.push(reem);
+      }
+      if (!(await byMrn("101034568"))) {
+        const sa = await K.createPatient(tx, sys, { name: "Sara Al-Kandari", mrn: "101034568", sex: "Female", birthDate: addDays(T, -(52 * 365 + 210)), allergies: "No known drug allergies", conditions: ["hcm"] });
+        const h = ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='hcm' LIMIT 1`, [sa])).rows[0] as any).logical_id;
+        await K.recordHistory(tx, sys, sa, { effectiveAt: at(d(-90)), answers: [{ item: "smoking", answer: "never" }], update: [{ logicalId: h, attributes: { form: "Obstructive", genetic: "Not done", cyp2c19: "Poor metaboliser" } }] });
+        await K.recordEcho(tx, sys, sa, { date: at(d(-75), "10:00"), quality: "formal", lvef: 66, findings: ["Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)"], measures: { mwt: 21, "la-diam": 44, "lvot-rest": 55, "lvot-provoked": 82 } });
+        await K.startMedication(tx, sys, sa, { code: "verapamil", doseValue: 240, frequency: "OD", route: "PO", indication: "hcm", effectiveAt: at(d(-300)) });
+        await K.startMedication(tx, sys, sa, { code: "mavacamten", doseValue: 2.5, frequency: "OD", route: "PO", indication: "Obstructive hypertrophic cardiomyopathy", effectiveAt: at(d(-70)) });
+        await K.recordEcho(tx, sys, sa, { date: at(d(-42), "10:00"), quality: "formal", lvef: 60, findings: ["Asymmetric septal hypertrophy"], measures: { "lvot-provoked": 41 } });
+        await K.recordEcho(tx, sys, sa, { date: at(d(0), "09:30"), quality: "formal", lvef: 47, findings: ["Asymmetric septal hypertrophy"], measures: { "lvot-provoked": 18 } });
+        await obs(sa, d(-1), [{ code: "sbp", value: 112 }, { code: "hr", value: 64 }, { code: "creatinine", value: 70 }, { code: "alt", value: 22 }, { code: "height", value: 160 }, { code: "weight", value: 66 }]);
+        await K.recordObservations(tx, sys, sa, { effectiveAt: at(d(0), "10:00"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+        touched.push(sa);
+      }
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

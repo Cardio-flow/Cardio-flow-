@@ -9,15 +9,17 @@
 // names a state without a number ("heart failure", "renal impairment") the record's own diagnosis is used,
 // or the guideline definition: LVEF ≤40% = reduced ejection fraction (ESC HF), eGFR <60 = CKD (KDIGO), eGFR
 // <30 = severe renal impairment (KDIGO G4–G5).
-import { DIAGNOSIS, formatNumber } from "../../shared/catalog.js";
-import { cockcroftGault, daysBetween, localDay } from "../../shared/clinical.js";
+import { DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
+import { poorOrUnknown } from "../../shared/mavacamten.js";
+import { cockcroftGault, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import type { MedState, PatientState } from "../kernel/state.js";
 
 export type Severity = "red" | "orange" | "yellow";
 export type SafetyHit = { meds: MedState[]; reason: string; severity?: Severity };
 export type SafetyRow = {
   id: string;
-  kind: "interaction" | "condition";
+  // prestart: checked only for a proposed medicine in the drawer (the label's "do not initiate" values)
+  kind: "interaction" | "condition" | "prestart";
   severity: Severity;
   title: (h: SafetyHit) => string;
   detail: string;
@@ -56,8 +58,20 @@ export function facts(s: PatientState) {
     recentMi: conds.find((c) => ["prior-mi", "acs-stemi", "acs-nstemi"].includes(c.code) && c.onset && daysBetween(String(c.onset).slice(0, 10), s.today) <= 91) ?? null,
     severeValve: conds.filter((c) => ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr"].includes(c.code) && c.attributes?.severity === "Severe").map((c) => DIAGNOSIS[c.code].display),
     tags,
+    // CYP2C19 result on the HCM diagnosis (mavacamten dosing and interactions)
+    cyp2c19: (conds.find((c) => c.code === "hcm")?.attributes?.cyp2c19 as string | undefined) ?? null,
+    // ALT upper limit of normal: the laboratory reference range in the catalogue
+    altUln: MEASURES.alt.ref?.high ?? null,
+    // latest values for start limits (within 60 days, as the HF start gates), heart rate within 30 days
+    k60: recent("potassium", 60), alt60: recent("alt", 60),
+    // results recorded after a medicine was started, newest first
+    after: (code: string, since: string | null) => s.observations.filter((o) => o.code === code && o.status !== "entered_in_error" && o.value_num != null && (!since || o.effective_at > since)).sort((a, b) => b.effective_at.localeCompare(a.effective_at)),
+    before: (code: string, at: string | null) => (at ? s.observations.filter((o) => o.code === code && o.status !== "entered_in_error" && o.value_num != null && o.effective_at <= at).sort((a, b) => b.effective_at.localeCompare(a.effective_at))[0] ?? null : null),
+    lvefAfter: (since: string | null) => s.observations.filter((o) => o.code === "lvef" && o.status !== "entered_in_error" && o.value_num != null && (!since || o.effective_at > since)).sort((a, b) => b.effective_at.localeCompare(a.effective_at)),
   };
 }
+const startOf = (m: MedState) => [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart")?.effective_at ?? m.startedAt ?? null;
+const omeprazoleDaily = (m: MedState) => (m.doseValue ?? 0) * (({ OD: 1, BID: 2, TID: 3 } as Record<string, number>)[m.frequency ?? "OD"] ?? 1);
 
 const has = (m: MedState, x: string[]) => x.includes(m.code) || m.tags.some((t) => x.includes(t));
 const pick = (f: Facts, x: string[]) => f.meds.filter((m) => has(m, x));
@@ -221,6 +235,138 @@ export const SAFETY_ROWS: SafetyRow[] = [
       }));
     },
   },
+
+  // ---------- mavacamten: interactions by CYP2C19 phenotype (SmPC Camzyos 4.3, 4.5 Table 2) ----------
+  {
+    id: "mavacamten-3a4-pm", kind: "interaction", severity: "red",
+    title: withPartner("strong CYP3A4 inhibitor, CYP2C19 poor or undetermined"),
+    detail: "Mavacamten is contraindicated with strong CYP3A4 inhibitors (e.g. clarithromycin) in CYP2C19 poor metabolisers and when the phenotype is undetermined.",
+    source: "SmPC mavacamten (Camzyos) 4.3",
+    check: (_s, f) => (poorOrUnknown(f.cyp2c19) ? pair(["mavacamten"], STRONG_3A4, f.cyp2c19 && f.cyp2c19 !== "Not tested" ? "CYP2C19 poor metaboliser" : "CYP2C19 phenotype not determined")(_s, f) : []),
+  },
+  {
+    id: "mavacamten-3a4", kind: "interaction", severity: "yellow",
+    title: withPartner("strong CYP3A4 inhibitor", "monitor LVEF"),
+    detail: "With a strong CYP3A4 inhibitor in CYP2C19 intermediate, normal, rapid or ultra-rapid metabolisers: no dose adjustment; monitor LVEF 4 weeks later.",
+    source: "SmPC mavacamten (Camzyos) 4.5, Table 2",
+    check: (_s, f) => (!poorOrUnknown(f.cyp2c19) ? pair(["mavacamten"], STRONG_3A4, `CYP2C19 ${f.cyp2c19!.toLowerCase()}`)(_s, f) : []),
+  },
+  {
+    id: "mavacamten-mod-3a4-pm", kind: "interaction", severity: "orange",
+    title: withPartner("moderate CYP3A4 inhibitor, CYP2C19 poor or undetermined", "reduce the mavacamten dose"),
+    detail: "Verapamil and diltiazem are moderate CYP3A4 inhibitors. In CYP2C19 poor metabolisers (and until the phenotype is known) on 5 mg mavacamten, reduce to 2.5 mg; on 2.5 mg, pause treatment for 4 weeks.",
+    source: "SmPC mavacamten (Camzyos) 4.5, Table 2; ivabradine 4.3 (verapamil and diltiazem: moderate CYP3A4 inhibitors)",
+    check: (_s, f) => (poorOrUnknown(f.cyp2c19) ? pair(["mavacamten"], ["ndhp-ccb"], f.cyp2c19 && f.cyp2c19 !== "Not tested" ? "CYP2C19 poor metaboliser" : "CYP2C19 phenotype not determined")(_s, f) : []),
+  },
+  {
+    id: "mavacamten-ppi", kind: "interaction", severity: "yellow",
+    title: withPartner("CYP2C19 inhibitor", "check the mavacamten dose"),
+    detail: "Omeprazole and esomeprazole inhibit CYP2C19; intermittent use is not recommended.",
+    source: "SmPC mavacamten (Camzyos) 4.5, Table 2",
+    check: (_s, f) => {
+      // poor metabolisers (and undetermined phenotype, dosed as poor): no dose adjustment with a CYP2C19 inhibitor
+      if (poorOrUnknown(f.cyp2c19)) return [];
+      const mav = pick(f, ["mavacamten"]);
+      if (!mav.length) return [];
+      return pick(f, ["omeprazole", "esomeprazole"]).map((p) => {
+        const moderate = p.code === "omeprazole" && omeprazoleDaily(p) >= 40;
+        return {
+          meds: [...mav, p],
+          severity: (moderate ? "orange" : "yellow") as Severity,
+          reason: moderate
+            ? `Omeprazole ${omeprazoleDaily(p)} mg a day is a moderate CYP2C19 inhibitor: no change to a 5 mg starting dose, but when it is started or increased during mavacamten, reduce mavacamten by one dose level (pause if on 2.5 mg)`
+            : `${p.name} is a weak CYP2C19 inhibitor (omeprazole 20 mg a day, esomeprazole): monitor LVEF 4 weeks later and adjust the mavacamten dose on clinical assessment`,
+        };
+      });
+    },
+  },
+  // ---------- on treatment: the label's limits ----------
+  {
+    id: "mavacamten-lvef", kind: "condition", severity: "red",
+    title: (h) => `Mavacamten with LVEF ${h.reason.match(/\d+/)?.[0]}%: interrupt treatment`,
+    detail: "If at any visit LVEF is <50%, interrupt mavacamten for 4 weeks and until LVEF returns to ≥50%, then restart at the next lower dose; permanently discontinue if LVEF is <50% twice on 2.5 mg.",
+    source: "SmPC mavacamten (Camzyos) 4.2",
+    check: (_s, f) => pick(f, ["mavacamten"]).flatMap((m) => {
+      const v = f.lvefAfter(startOf(m))[0];
+      return v && v.value_num! < 50 ? [{ meds: [m], reason: `LVEF ${formatNumber(v.value_num!, 0)}% on ${fmtDay(v.effective_at, { year: true })}${m.doseValue === 2.5 ? " (on 2.5 mg)" : ""}` }] : [];
+    }),
+  },
+  {
+    id: "alt-limit", kind: "condition", severity: "orange",
+    title: (h) => `${h.meds[0].name}: ALT above 3 × the upper limit of normal`,
+    detail: "Transaminases above three times the upper limit of normal on treatment.",
+    source: "SmPC amiodarone 4.4 (reduce or discontinue); dronedarone (Multaq) 4.4 (re-measure within 48–72 h, withdraw if confirmed); bosentan (Tracleer) 4.4 (table by × ULN)",
+    check: (_s, f) => {
+      if (f.altUln == null) return [];
+      const uln = f.altUln, out: SafetyHit[] = [];
+      for (const m of pick(f, ["amiodarone", "dronedarone", "bosentan"])) {
+        const [last, prev] = f.after("alt", startOf(m));
+        if (!last || last.value_num! <= 3 * uln) continue;
+        const x = last.value_num! / uln, v = `${formatNumber(last.value_num!, 0)} U/L (${formatNumber(x, 1)} × ULN ${formatNumber(uln, 0)})`;
+        if (m.code === "amiodarone") out.push({ meds: [m], reason: `ALT ${v}. Reduce the amiodarone dose or discontinue (label)` });
+        if (m.code === "dronedarone") {
+          const confirmed = prev && prev.value_num! >= 3 * uln;
+          out.push({ meds: [m], severity: confirmed ? "red" : "orange", reason: `ALT ${v}. ${confirmed ? "Confirmed on two measurements: withdraw dronedarone (label)" : "Re-measure within 48–72 hours; if confirmed ≥3 × ULN, withdraw dronedarone (label)"}` });
+        }
+        if (m.code === "bosentan") out.push({
+          meds: [m], severity: x > 5 ? "red" : "orange",
+          reason: `ALT ${v}. ${x > 8 ? "Above 8 × ULN: stop bosentan; do not reintroduce (label)" : x > 5 ? "Above 5 × ULN: confirm with a second test; if confirmed stop bosentan and monitor aminotransferases at least every 2 weeks (label)" : "3–5 × ULN: confirm with a second test; if confirmed decide on continuing (possibly at a reduced dose) or stopping (label)"}`,
+        });
+      }
+      return out;
+    },
+  },
+  {
+    id: "dronedarone-creatinine", kind: "condition", severity: "yellow",
+    title: () => "Dronedarone: creatinine still rising",
+    detail: "An increase in creatinine is expected after starting dronedarone; re-measure after a further 7 days and use the stable value as the new baseline. If creatinine continues to rise, consider further investigation and discontinuing treatment.",
+    source: "SmPC dronedarone (Multaq) 4.4",
+    check: (_s, f) => pick(f, ["dronedarone"]).flatMap((m) => {
+      const base = f.before("creatinine", startOf(m));
+      const [last, prev] = f.after("creatinine", startOf(m));
+      return base && last && prev && last.value_num! > prev.value_num! && prev.value_num! > base.value_num!
+        ? [{ meds: [m], reason: `Creatinine ${formatNumber(base.value_num!, 0)} before, then ${formatNumber(prev.value_num!, 0)} and ${formatNumber(last.value_num!, 0)} µmol/L` }] : [];
+    }),
+  },
+  // ---------- before starting: the label's "do not initiate" values (drawer only) ----------
+  {
+    id: "start-mavacamten-lvef", kind: "prestart", severity: "red",
+    title: () => "Mavacamten: do not initiate with LVEF below 55%",
+    detail: "If LVEF is <55%, treatment should not be initiated.",
+    source: "SmPC mavacamten (Camzyos) 4.2",
+    check: (_s, f) => (f.lvef != null && f.lvef < 55 ? pick(f, ["mavacamten"]).map((m) => ({ meds: [m], reason: `Latest LVEF ${f.lvef}%` })) : []),
+  },
+  {
+    id: "start-ivabradine-hr", kind: "prestart", severity: "red",
+    title: () => "Ivabradine: do not initiate with resting heart rate below 70/min",
+    detail: "Resting heart rate below 70 beats per minute before treatment is a contraindication (heart failure also needs ≥75/min).",
+    source: "SmPC ivabradine (Procoralan) 4.3/4.4",
+    check: (_s, f) => (f.hr != null && f.hr < 70 ? pick(f, ["ivabradine"]).map((m) => ({ meds: [m], reason: `Heart rate ${ROUND(f.hr!)}/min` })) : []),
+  },
+  {
+    id: "start-potassium", kind: "prestart", severity: "orange",
+    title: (h) => `${h.meds[0].name}: potassium too high to start`,
+    detail: "The label's potassium limit for starting.",
+    source: "SmPC eplerenone (Inspra) 4.3 (>5.0 contraindicated); sacubitril/valsartan (Entresto) 4.4 (>5.4); finerenone (Kerendia) 4.2 (≤4.8 in CKD with T2D, ≤5.0 in heart failure)",
+    check: (_s, f) => {
+      if (f.k60 == null) return [];
+      const k = f.k60, out: SafetyHit[] = [];
+      for (const m of pick(f, ["eplerenone"])) if (k > 5.0) out.push({ meds: [m], severity: "red", reason: `Potassium ${k} mmol/L (contraindicated above 5.0 at initiation)` });
+      for (const m of pick(f, ["arni"])) if (k > 5.4) out.push({ meds: [m], reason: `Potassium ${k} mmol/L (not to be started above 5.4)` });
+      for (const m of pick(f, ["finerenone"])) {
+        const lim = f.tags.has("hf") ? 5.0 : 4.8;
+        if (k > lim) out.push({ meds: [m], reason: `Potassium ${k} mmol/L (can be started at ≤${formatNumber(lim, 1)} ${f.tags.has("hf") ? "in heart failure" : "in CKD with type 2 diabetes"})` });
+      }
+      return out;
+    },
+  },
+  {
+    id: "start-era-alt", kind: "prestart", severity: "red",
+    title: (h) => `${h.meds[0].name}: do not initiate with ALT above 3 × ULN`,
+    detail: "Baseline aminotransferases above 3 × the upper limit of normal are a contraindication.",
+    source: "SmPC ambrisentan (Volibris) 4.3; macitentan (Opsumit) 4.3",
+    check: (_s, f) => (f.alt60 != null && f.altUln != null && f.alt60 > 3 * f.altUln ? pick(f, ["ambrisentan", "macitentan"]).map((m) => ({ meds: [m], reason: `ALT ${ROUND(f.alt60!)} U/L (ULN ${ROUND(f.altUln!)})` })) : []),
+  },
   // ---------- a medicine with a condition ----------
   {
     id: "dronedarone-hf", kind: "condition", severity: "red",
@@ -342,7 +488,7 @@ export function preStartCheck(s: PatientState, code: string, def: { name: string
   const already = s.meds.some((m) => m.code === code && m.status === "active");
   const s2 = already ? s : ({ ...s, meds: [...s.meds, proposed] } as PatientState);
   const order: Record<Severity, number> = { red: 0, orange: 1, yellow: 2 };
-  return [...safetyHits(s2, "interaction"), ...safetyHits(s2, "condition")]
+  return [...safetyHits(s2, "interaction"), ...safetyHits(s2, "condition"), ...safetyHits(s2, "prestart")]
     .filter(({ hit }) => hit.meds.some((m) => m.code === code))
     .map(({ row, hit }) => ({ severity: hit.severity ?? row.severity, title: row.title(hit), detail: hit.reason ? `${hit.reason}. ${row.detail}`.replace(/\.\. /, ". ") : row.detail, source: row.source }))
     .sort((a, b) => order[a.severity] - order[b.severity]);

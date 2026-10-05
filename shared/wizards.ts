@@ -98,7 +98,7 @@ export type WizardContext = {
     prostheses?: { position: string; type: string }[]; echoFindings?: string[];
   } | null;
   // cardiomyopathy module: latest echo findings, NSVT on the latest ambulatory ECG, FHx answer
-  cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null; genetic?: string | null } | null;
+  cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null; genetic?: string | null; cyp2c19?: string | null } | null;
   // pulmonary hypertension (slice 4): the listed group and haemodynamics, the latest PVR and echo probability,
   // the date of a listed pulmonary embolism, the ILD type, antiphospholipid syndrome, current anticoagulants
   ph?: { group: string | null; haemo: string | null; pvr: number | null; echo: string | null; peAt: string | null; ildType: string | null; aps: boolean; anticoagulants: { name: string; doac: boolean }[] } | null;

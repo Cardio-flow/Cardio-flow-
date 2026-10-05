@@ -11,7 +11,10 @@
 //    (I B); mavacamten should be considered (IIa A), or as monotherapy (IIa B); septal reduction for a
 //    resting or maximal provoked gradient ≥50 mmHg in NYHA III–IV despite maximum tolerated medical
 //    therapy (I B), by experienced operators in a multidisciplinary team (I C).
-// CardioFlow plans these steps; it does not dose disopyramide or mavacamten (specialist start).
+// CardioFlow plans these steps; disopyramide is a specialist start (not dosed). Mavacamten is started at the label
+// starting dose for the CYP2C19 result when LVEF ≥55% (Ahmed, 5 Oct 19:56); titration stays with the specialist.
+import { addDays } from "./clinical.js";
+import { mavacamtenStart } from "./mavacamten.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 import { RISK_BAND_TEXT, hcmRiskScd } from "./cmp.js";
 
@@ -117,7 +120,8 @@ export const CMP_WIZARDS: Record<string, WizardDef> = {
               { value: "bb", label: "Titrate the beta-blocker to the maximum tolerated dose", effects: { plan: [{ category: "medication", title: "Obstructive HCM: titrate the non-vasodilating beta-blocker to the maximum tolerated dose", days: 14, completesOn: { type: "visit" } }] } },
               { value: "ccb", label: "Verapamil or diltiazem (beta-blocker not possible)", effects: { plan: [{ category: "medication", title: "Obstructive HCM: start verapamil or diltiazem (beta-blocker not possible)", days: 7, completesOn: manual }] } },
               { value: "disopyramide", label: "Add disopyramide", effects: { plan: [{ category: "referral", title: "Obstructive HCM: add disopyramide (specialist start, ECG / QTc monitoring)", days: 14, completesOn: manual }] } },
-              { value: "myosin", label: "Mavacamten (cardiac myosin inhibitor)", effects: { plan: [{ category: "referral", title: "Obstructive HCM: mavacamten (specialist start, echo LVEF monitoring)", days: 28, completesOn: manual }] } },
+              // started at the label dose for the CYP2C19 result when LVEF ≥55% (outcome below; Ahmed 5 Oct 19:56)
+              { value: "myosin", label: "Mavacamten (cardiac myosin inhibitor)", hint: "Starting dose from the CYP2C19 result" },
               { value: "srt", label: "Septal reduction therapy referral", effects: { plan: [{ category: "referral", title: "Septal reduction therapy (myectomy or alcohol septal ablation), experienced HCM team", days: 28, completesOn: manual }] } },
             ],
           },
@@ -150,6 +154,26 @@ CMP_WIZARDS["hcm-scd"].assess = (a: Answers, ctx: WizardContext): Assessment => 
   return { heading: "HCM: sudden death risk", rows, recommendations: rec };
 };
 
+// Mavacamten (SmPC Camzyos 4.2): started at the dose for the CYP2C19 result (poor metaboliser or not yet known
+// 2.5 mg, otherwise 5 mg once daily) only with LVEF ≥55%; echo (LVEF, Valsalva LVOT gradient) at 4 and 8 weeks;
+// CYP2C19 genotyping when no result is recorded. Titration stays with the specialist.
+CMP_WIZARDS["hcm-lvoto"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  if (!((a.actions as string[] | undefined) ?? []).includes("myosin") || ctx.meds.some((m) => m.code === "mavacamten")) return [];
+  const lvef = ctx.values?.lvef?.value;
+  if (lvef == null) return [
+    { kind: "note", label: "Mavacamten not started: no LVEF on record (start only with LVEF ≥55%)" },
+    { kind: "plan", category: "investigation", title: "Echo: LVEF and Valsalva LVOT gradient before mavacamten", dueDate: addDays(ctx.today, 7), completesOn: { type: "study", kind: "echo" }, label: "" },
+  ];
+  if (lvef < 55) return [{ kind: "note", label: `Mavacamten not started: LVEF ${lvef}% (not initiated below 55%, SmPC 4.2)` }];
+  const st = mavacamtenStart(ctx.cmp?.cyp2c19);
+  const echo = (w: number): OutcomeItem => ({ kind: "plan", category: "investigation", title: `Echo: LVEF and Valsalva LVOT gradient, ${w} weeks after starting mavacamten`, dueDate: addDays(ctx.today, w * 7), completesOn: { type: "study", kind: "echo" }, label: "", medicationRef: "code:mavacamten" });
+  return [
+    { kind: "start", code: "mavacamten", doseValue: st.dose, frequency: "OD", indication: "Obstructive hypertrophic cardiomyopathy", label: `Start mavacamten ${st.dose} mg once daily — ${st.why}` },
+    echo(4), echo(8),
+    ...(st.known ? [] : [{ kind: "plan", category: "investigation", title: "CYP2C19 genotyping (mavacamten dose)", dueDate: addDays(ctx.today, 14), completesOn: manual, label: "" } as OutcomeItem]),
+  ];
+};
+
 CMP_WIZARDS["hcm-lvoto"].assess = (a: Answers, ctx: WizardContext): Assessment => {
   const lv = lvotMax(ctx);
   const t = ((a.therapy as string[]) ?? []).filter((x) => x !== "none");
@@ -158,12 +182,22 @@ CMP_WIZARDS["hcm-lvoto"].assess = (a: Answers, ctx: WizardContext): Assessment =
     { label: "Symptoms", value: { I: "NYHA I", II: "NYHA II", "III-IV": "NYHA III–IV", syncope: "Exertional syncope" }[String(a.nyha)] ?? "Not given" },
     { label: "Therapy now", value: t.length ? t.map((x) => ({ bb: "beta-blocker", "bb-max": "beta-blocker at maximum dose", "bb-intolerant": "beta-blocker not tolerated", ccb: "verapamil / diltiazem", myosin: "mavacamten" }[x] ?? x)).join(", ") : "None" },
   ];
+  if (((a.actions as string[] | undefined) ?? []).includes("myosin")) {
+    const st = mavacamtenStart(ctx.cmp?.cyp2c19);
+    const lvef = ctx.values?.lvef?.value;
+    rows.push({ label: "CYP2C19 · LVEF", value: `${ctx.cmp?.cyp2c19 && ctx.cmp.cyp2c19 !== "Not tested" ? ctx.cmp.cyp2c19 : "not tested"} · ${lvef != null ? `${lvef}%` : "not recorded"}`, tone: lvef == null || lvef < 55 || !st.known ? "orange" : undefined });
+  }
   const rec: string[] = [];
   const onBb = t.includes("bb") || t.includes("bb-max");
   if (!onBb && !t.includes("bb-intolerant")) rec.push("Non-vasodilating beta-blocker, titrated to the maximum tolerated dose, first line (I B).");
   if (t.includes("bb") && !t.includes("bb-max")) rec.push("Titrate the beta-blocker to the maximum tolerated dose (I B).");
   if (t.includes("bb-intolerant") && !t.includes("ccb")) rec.push("Beta-blocker not possible: verapamil or diltiazem (I B).");
   if (onBb || t.includes("ccb")) rec.push("Persistent symptoms: add disopyramide to a beta-blocker (I B), or mavacamten (IIa A; monotherapy IIa B).");
+  if (((a.actions as string[] | undefined) ?? []).includes("myosin")) {
+    const st = mavacamtenStart(ctx.cmp?.cyp2c19);
+    const lvef = ctx.values?.lvef?.value;
+    rec.push(lvef != null && lvef >= 55 ? `Mavacamten: ${st.why}; echo (LVEF, Valsalva LVOT gradient) at 4 and 8 weeks; interrupt if LVEF <50%.` : "Mavacamten: not initiated with LVEF <55% (or without a recorded LVEF).");
+  }
   if ((a.nyha === "III-IV" || a.nyha === "syncope") && lv != null && lv >= 50) rec.push("NYHA III–IV or exertional syncope with a gradient ≥50 mmHg despite maximum tolerated medical therapy: septal reduction therapy (I B), by experienced operators in a multidisciplinary HCM team (I C).");
   return { heading: "Obstructive HCM: assessment", rows, recommendations: rec };
 };

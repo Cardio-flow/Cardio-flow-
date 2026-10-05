@@ -165,6 +165,13 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
   }
   return { missing };
 }
+// the target dose for this patient: the catalogue target, except finerenone (SmPC Kerendia 4.2: in heart failure
+// 40 mg with eGFR ≥60, 20 mg with eGFR 25–<60; in CKD with type 2 diabetes 20 mg)
+export function targetDose(s: PatientState, code: string, target: number | undefined) {
+  if (code !== "finerenone" || target == null) return target;
+  const egfr = val(s, "egfr", 365);
+  return s.tags.has("hf") && egfr != null && egfr >= 60 ? 40 : 20;
+}
 export function fmtStatus(s: PatientState) {
   const phen = hfPhenotype(s);
   if (!phen) return null;
@@ -177,7 +184,8 @@ export function fmtStatus(s: PatientState) {
       const held = s.meds.find((m) => (m.status === "held" || m.status === "not_taking") && p.tags.some((t) => m.tags.includes(t)));
       const barrier = !on && !held ? [...p.tags, drugClassOf(p.start.code)].map((t) => activeBarrier(s, t)).find(Boolean) : null;
       const def = on ? MEDICATION[on.code] : null;
-      const pct = on && def?.target && on.doseValue != null ? Math.round((on.doseValue / def.target) * 100) : null;
+      const target = def ? targetDose(s, def.code, def.target) : undefined;
+      const pct = on && target && on.doseValue != null ? Math.round((on.doseValue / target) * 100) : null;
       const gate = pillarGate(s, p.key, "start");
       return {
         key: p.key,
@@ -185,7 +193,7 @@ export function fmtStatus(s: PatientState) {
         state: on ? (pct != null && pct >= 100 ? "target" : "on") : held ? "held" : gate.block || barrier ? "blocked" : "missing",
         med: on ? medLine(on) : held ? medLine(held) + (held.status === "not_taking" ? " (not taking)" : " (held)") : null,
         percentOfTarget: pct,
-        target: on && def?.target ? doseLabel(def, def.target, on.doseUnit) : null,
+        target: on && def && target ? doseLabel(def, target, on.doseUnit) : null,
         note: !on && barrier ? `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}` : !on && gate.block ? `Not now: ${gate.block}` : null,
       };
     }),

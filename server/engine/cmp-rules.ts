@@ -189,7 +189,10 @@ export const CMP_RULES: RuleDef[] = [
     evidence: "2023 ESC cardiomyopathies: LVOTO therapy — non-vasodilating beta-blocker titrated to the maximum tolerated dose first line (I B); verapamil or diltiazem if a beta-blocker cannot be taken (I B); disopyramide added (I B); mavacamten (IIa A); septal reduction for a resting or maximal provoked gradient ≥50 mmHg with NYHA III–IV despite maximum tolerated therapy (I B). 50 mmHg is the guideline's threshold. Offered once per echo while symptoms (NYHA ≥II) are recorded.",
     evaluate(s) {
       if (!s.conditions.some((c) => c.code === "hcm" && c.status === "active")) return [];
-      const r = s.resolved("lvot-rest").current, p = s.resolved("lvot-provoked").current;
+      // gradients from the latest echo that measured one (an older resting gradient does not count after a newer study)
+      const r0 = s.resolved("lvot-rest").current, p0 = s.resolved("lvot-provoked").current;
+      const latestDay = [r0?.effective_at, p0?.effective_at].filter(Boolean).map((x) => String(x).slice(0, 10)).sort().pop();
+      const r = r0 && String(r0.effective_at).slice(0, 10) === latestDay ? r0 : null, p = p0 && String(p0.effective_at).slice(0, 10) === latestDay ? p0 : null;
       const max = Math.max(r?.value_num ?? 0, p?.value_num ?? 0);
       const nyha = s.resolved("nyha").current?.value_text ?? null;
       if (max < 50 || !nyha || nyha === "I") return [];
@@ -199,7 +202,8 @@ export const CMP_RULES: RuleDef[] = [
       return [{
         key: "hcm-lvoto", signature: `${at}:${nyha}`, severity: "orange",
         title: `Obstructive HCM: LVOT gradient ${max} mmHg with NYHA ${nyha}`,
-        detail: nyha === "III" || nyha === "IV" ? "Maximum tolerated medical therapy, then septal reduction therapy if NYHA III–IV persists (I B)." : "Beta-blocker to the maximum tolerated dose first (I B); disopyramide or mavacamten if symptoms persist.",
+        detail: s.meds.some((m) => m.status === "active" && m.code === "mavacamten") ? "On mavacamten: dose titration follows the label (Valsalva gradient and LVEF) with the specialist; septal reduction therapy if NYHA III–IV persists despite maximum tolerated therapy (I B)."
+          : nyha === "III" || nyha === "IV" ? "Maximum tolerated medical therapy, then septal reduction therapy if NYHA III–IV persists (I B)." : "Beta-blocker to the maximum tolerated dose first (I B); disopyramide or mavacamten if symptoms persist.",
         facts: [{ label: "LVOT rest", value: r?.value_num != null ? `${r.value_num} mmHg` : "Not recorded" }, { label: "LVOT provoked", value: p?.value_num != null ? `${p.value_num} mmHg` : "Not recorded" }, { label: "NYHA", value: nyha }, { label: "Guideline", value: SRC }],
         missing: [], action: { type: "wizard", wizard: "hcm-lvoto" },
       }];

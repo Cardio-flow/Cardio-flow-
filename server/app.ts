@@ -7,6 +7,7 @@ import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
 import { preStartCheck } from "./engine/med-safety.js";
 import { bookMonitoringAtStart } from "./engine/med-rules.js";
+import { mavacamtenStart } from "../shared/mavacamten.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -335,7 +336,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const def = MEDICATION[String(req.params.code)];
     if (!def) throw new ApiError(404, "Unknown medicine");
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), { hits: preStartCheck(await loadState(tx, id), def.code, def) })));
+    res.json(await db.transaction(async (tx) => {
+      await patientInSite(tx, actor(res), id);
+      const s = await loadState(tx, id);
+      // mavacamten: the starting dose from the CYP2C19 result on the HCM diagnosis (SmPC 4.2)
+      const start = def.code === "mavacamten" ? mavacamtenStart(s.conditions.find((c) => c.code === "hcm" && c.status === "active")?.attributes?.cyp2c19 as string | undefined) : null;
+      return { hits: preStartCheck(s, def.code, def), start };
+    }));
   }));
   app.post("/api/patients/:id/medications", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
