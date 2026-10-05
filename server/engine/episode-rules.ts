@@ -11,6 +11,28 @@ import { WIZARDS } from "../../shared/wizards.js";
 import { checkHasShock } from "../../shared/studies.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { cadEvents } from "./cad-profile.js";
+import { localDay } from "../../shared/clinical.js";
+
+// echo findings and grades that point at a prosthesis problem (valve module, slice 5): the
+// echocardiographer's own words and grades, on a position treated before that echo
+export const PROSTHESIS_FINDINGS = ["Prosthetic valve thrombus", "Prosthetic valve dysfunction", "Paravalvular leak"];
+const POSITION_GRADES: Record<string, [string, string][]> = { Aortic: [["as", "stenosis"], ["ar", "regurgitation"]], Mitral: [["ms", "stenosis"], ["mr", "regurgitation"]], Tricuspid: [["tr", "regurgitation"]] };
+export function prosthesisEchoProblem(s: PatientState) {
+  const e = latestStudy(s, "echo");
+  if (!e) return null;
+  const items = e.findings.filter((f) => PROSTHESIS_FINDINGS.includes(f));
+  for (const c of s.conditions.filter((x) => x.code === "prosthetic-valve")) {
+    const pos = String(c.attributes?.position ?? "");
+    const proc = s.procedures.filter((p) => p.kind === "valve" && p.attributes.position === pos).map((p) => p.performed_at).sort().pop();
+    const since = proc ?? c.onset;
+    if (!since || localDay(e.performed_at) <= localDay(since)) continue;
+    for (const [k, word] of POSITION_GRADES[pos] ?? []) {
+      const g = (e.attributes?.valves as Record<string, string> | undefined)?.[k];
+      if (g === "Moderate" || g === "Severe") items.push(`${g.toLowerCase()} ${pos.toLowerCase()} prosthesis ${word}`);
+    }
+  }
+  return items.length ? { e, items, thrombus: items.includes("Prosthetic valve thrombus") } : null;
+}
 import type { Finding, RuleDef } from "./rules.js";
 
 type Trigger = { at: string; label: string; ref: string };
@@ -36,7 +58,7 @@ function trigger(s: PatientState, wizard: string, reason: RegExp, indication: Re
   return open[0] ?? null;
 }
 
-const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia" };
+const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia", "prosthetic-valve": "prosthetic valve" };
 const offer = (wizard: string, t: Trigger, detail: string, severity: Finding["severity"] = "orange"): Finding => ({
   key: wizard,
   signature: t.ref,
@@ -177,6 +199,29 @@ export const EPISODE_RULES: RuleDef[] = [
       return [offer("icd-shock", t, storm
         ? "Electrical storm: monitored bed, amiodarone, non-selective beta-blocker and sedation (ESC VA 2022, I); ablation for recurrent storm. Find the trigger."
         : "Appropriate or inappropriate? Find and correct the trigger, then prevent recurrence: reprogramming, drugs, ablation.", storm ? "red" : "orange")];
+    },
+  },
+  {
+    id: "event.prosthetic-valve",
+    kind: "clinical",
+    title: "Prosthetic valve problem → prosthetic valve pathway",
+    inputs: ["contexts", "episodes", "studies", "conditions", "procedures"],
+    defaultParams: {},
+    evidence: "2025 ESC/EACTS VHD: TOE and/or 4D-CT to confirm suspected valve thrombosis (I C); Heart Team for acute HF from obstructive mechanical valve thrombosis — repeat replacement or low-dose slow-infusion fibrinolysis (I B); VKA for bioprosthetic valve thrombosis before reintervention (I B); reoperation / reintervention for symptomatic dysfunction not due to thrombosis (I C); valve-in-valve at intermediate or high risk (IIa B); Heart Team for paravalvular leak closure (I C). Triggered by the echocardiographer's finding or grade on a treated position, or an admission or visit for a prosthetic valve problem.",
+    evaluate(s) {
+      if (!s.conditions.some((c) => c.code === "prosthetic-valve")) return [];
+      const found: Trigger[] = [];
+      const pe = prosthesisEchoProblem(s);
+      if (pe && !handled(s, "prosthetic-valve", pe.e.performed_at))
+        found.push({ at: pe.e.performed_at, label: `Echo ${fmtDay(pe.e.performed_at)}: ${pe.items.map((x, i) => (i ? x.toLowerCase() : x[0].toUpperCase() + x.slice(1))).join(", ")}`, ref: pe.e.id });
+      const c = trigger(s, "prosthetic-valve", /prosthetic valve/i, null);
+      if (c) found.push(c);
+      const t = found.sort((x, y) => y.at.localeCompare(x.at))[0];
+      if (!t) return [];
+      const thrombus = t.ref === pe?.e.id && pe.thrombus;
+      return [offer("prosthetic-valve", t, thrombus
+        ? "Prosthetic valve thrombus: confirm with TOE and/or 4D-CT (I C); Heart Team for obstruction with acute HF (I B); VKA for bioprosthetic thrombosis (I B)."
+        : "Find the cause (thrombosis, structural dysfunction, paravalvular leak, endocarditis), then the Heart Team decides on reintervention.", thrombus ? "red" : "orange")];
     },
   },
 ];

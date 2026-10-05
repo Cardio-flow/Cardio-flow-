@@ -92,6 +92,8 @@ export type WizardContext = {
     // slice 4: the latest intervention per position, recent PCI/ACS, an anticoagulation indication, the INR target
     interventions?: { position: string; procedure: string; type: string; name: string; day: string }[];
     daptIndication?: string | null; oacIndication?: string | null; inrTarget?: string | null;
+    // slice 5: listed prostheses and the findings of the latest echo
+    prostheses?: { position: string; type: string }[]; echoFindings?: string[];
   } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;

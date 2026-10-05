@@ -331,6 +331,143 @@ VALVE_WIZARDS["valve-antithrombotic"].assess = (a: Answers, ctx: WizardContext):
   return { heading: "Antithrombotic therapy after valve intervention", rows, recommendations: rec };
 };
 
+// Prosthetic valve thrombosis or dysfunction (valve module, slice 5; opens an episode). Recommendations
+// read verbatim from the 2025 ESC/EACTS VHD guidelines (Praz et al., Eur Heart J 2025):
+//  - TOE and/or 4D-CT to confirm suspected valve thrombosis (I C).
+//  - Acute HF (NYHA III–IV) from obstructive mechanical valve thrombosis: Heart Team evaluation to decide
+//    between repeat valve replacement and low-dose slow-infusion fibrinolysis (I B). CardioFlow names the
+//    options; it never doses fibrinolysis or heparin.
+//  - Bioprosthetic valve thrombosis: OAC with a VKA before considering reintervention (I B).
+//  - Mechanical valve dysfunction not due to thrombosis, symptomatic: reoperation (I C). Bioprosthetic:
+//    reintervention (I C); transfemoral aortic valve-in-valve at intermediate or high surgical risk with
+//    suitable anatomy (IIa B); transvenous mitral or tricuspid valve-in-valve (IIa B).
+//  - Paravalvular leak: Heart Team decides transcatheter vs surgical closure (I C); transcatheter closure
+//    for suitable leaks with significant regurgitation and/or haemolysis (IIa B).
+// Not encoded (not found in the 2025 text): the fibrinolysis regimen, management of non-obstructive
+// thrombosis and of obstruction without acute HF, the haemodynamic valve deterioration criteria.
+export const PROSTHESIS_KIND: Record<string, string> = {
+  mech: "Mechanical valve", bio: "Surgical bioprosthesis", thv: "Transcatheter valve (TAVI)", repair: "Valve repair / ring / clip",
+};
+export const prosthesisKind = (type: string | null | undefined) =>
+  type === "Mechanical" ? "mech" : type === "Bioprosthetic (surgical)" || type === "Bioprosthetic" ? "bio"
+  : type === "TAVI" || type === "Transcatheter valve" ? "thv" : type === "Repair / ring" || type === "Edge-to-edge repair (clip)" ? "repair" : null;
+const FINDING: Record<string, string> = {
+  "thrombus-obstructive": "Valve thrombosis, obstructive", "thrombus": "Valve thrombosis, not obstructive / leaflet thickening",
+  dysfunction: "Structural valve dysfunction (degeneration, pannus, failed repair)", pvl: "Paravalvular leak", endocarditis: "Suspected prosthetic valve endocarditis", unclear: "Not yet clear",
+};
+
+VALVE_WIZARDS["prosthetic-valve"] = {
+  id: "prosthetic-valve", title: "Prosthetic valve thrombosis or dysfunction", tone: "orange", group: "Valve disease",
+  source: "ESC/EACTS VHD 2025",
+  note: "Confirm the cause first: thrombosis, structural dysfunction, a paravalvular leak or endocarditis. Thrombosis is confirmed with TOE and/or 4D-CT; the Heart Team decides between reoperation, fibrinolysis and transcatheter options.",
+  facts: ["inr", "haemoglobin", "creatinine", "av-mg", "av-vmax"],
+  steps: [
+    {
+      id: "presentation", title: "Presentation",
+      questions: [
+        { id: "prosthesis", label: "Prosthesis", type: "single", required: true, options: Object.entries(PROSTHESIS_KIND).map(([value, label]) => ({ value, label })) },
+        {
+          id: "presentation", label: "How it presented", type: "multi", required: true,
+          options: [
+            { value: "ahf", label: "Acute heart failure, NYHA III–IV" },
+            { value: "dyspnoea", label: "New or worse breathlessness" },
+            { value: "embolism", label: "Stroke, TIA or systemic embolism" },
+            { value: "haemolysis", label: "Haemolysis (anaemia, raised LDH)" },
+            { value: "click", label: "New murmur or muffled valve click" },
+            { value: "fever", label: "Fever / possible endocarditis" },
+            { value: "echo", label: "Found on echo (gradient or regurgitation)" },
+          ],
+        },
+        {
+          id: "inr", label: "INR in the weeks before", type: "single", showIf: { question: "prosthesis", includes: "mech" },
+          options: [{ value: "in-range", label: "In range" }, { value: "low", label: "Below target" }, { value: "unknown", label: "Not known" }],
+        },
+      ],
+    },
+    {
+      id: "finding", title: "Imaging & cause",
+      questions: [
+        {
+          id: "imaging", label: "Imaging", type: "multi", required: true,
+          options: [
+            { value: "tte", label: "Transthoracic echo done" },
+            { value: "toe", label: "TOE", effects: { plan: [{ category: "investigation", title: "TOE: prosthetic valve (thrombus, leaflet motion, leak)", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "ct", label: "4D cardiac CT", effects: { plan: [{ category: "investigation", title: "4D cardiac CT: prosthetic valve", days: 0, completesOn: { type: "study", kind: "ccta" } }] } },
+            { value: "cultures", label: "Blood cultures ×3", effects: { plan: [{ category: "investigation", title: "Blood cultures ×3 (prosthetic valve)", days: 0, completesOn: { type: "manual" } }] } },
+          ],
+        },
+        { id: "cause", label: "Cause, so far", type: "single", required: true, options: Object.entries(FINDING).map(([value, label]) => ({ value, label })) },
+        { id: "risk", label: "Surgical risk", type: "single", options: [{ value: "low", label: "Low" }, { value: "intermediate", label: "Intermediate" }, { value: "high", label: "High / prohibitive" }] },
+      ],
+    },
+    {
+      id: "management", title: "Management",
+      questions: [
+        {
+          id: "actions", label: "Plan", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Observe; no change yet" },
+            { value: "heart-team", label: "Heart Team now", hint: "Reoperation, fibrinolysis or transcatheter options", effects: { plan: [{ category: "referral", title: "Heart Team: prosthetic valve (urgent)", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "vka", label: "Warfarin (VKA)", hint: "Bioprosthetic thrombosis: before any reintervention" },
+            { value: "redo", label: "Reoperation / reintervention referral", effects: { plan: [{ category: "referral", title: "Cardiac surgery referral: prosthetic valve reintervention", days: 7, completesOn: { type: "manual" } }] } },
+            { value: "viv", label: "Valve-in-valve assessment", effects: { plan: [{ category: "investigation", title: "Valve-in-valve assessment (CT, Heart Team)", days: 14, completesOn: { type: "manual" } }] } },
+            { value: "pvl", label: "Paravalvular leak closure assessment", effects: { plan: [{ category: "referral", title: "Paravalvular leak: transcatheter vs surgical closure (Heart Team)", days: 14, completesOn: { type: "manual" } }] } },
+            { value: "haemolysis", label: "Haemolysis bloods", effects: { plan: [{ category: "monitoring", title: "Haemolysis screen: Hb, LDH, bilirubin, reticulocytes, haptoglobin", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "endocarditis", label: "Endocarditis pathway", hint: "Duke-ISCVID, Endocarditis Team" },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};
+
+VALVE_WIZARDS["prosthetic-valve"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const out: OutcomeItem[] = [];
+  const t = ctx.today;
+  const acts = ((a.actions as string[]) ?? []).filter((v) => v !== "none");
+  const target = a.prosthesis === "mech" && ctx.valve?.inrTarget ? ` · INR target ${ctx.valve.inrTarget}` : "";
+  const vka = ctx.meds.find((m) => m.tags.includes("vka"));
+  if (acts.includes("vka"))
+    out.push({ kind: "plan", category: "medication", title: vka ? `Warfarin: INR to target (prosthetic valve)${target}` : `Start warfarin (prosthetic valve ${String(a.cause).startsWith("thrombus") ? "thrombosis" : "dysfunction"})${target}`, dueDate: t, completesOn: { type: "manual" }, label: "", medicationId: vka?.id ?? null });
+  if (acts.includes("endocarditis")) out.push({ kind: "note", label: "Open the endocarditis pathway next (Pathways → Inflammatory & infective heart disease)" });
+  return out;
+};
+
+VALVE_WIZARDS["prosthetic-valve"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const kind = String(a.prosthesis), cause = String(a.cause);
+  const pres = (a.presentation as string[]) ?? [];
+  const pros = (ctx.valve?.prostheses ?? []).filter((p) => prosthesisKind(p.type) === kind);
+  const inr = ctx.values?.inr;
+  const rows: Assessment["rows"] = [
+    { label: "Prosthesis", value: pros.length ? pros.map((p) => `${p.position} · ${p.type}`).join(", ") : PROSTHESIS_KIND[kind] ?? "Not given" },
+    { label: "Cause so far", value: FINDING[cause] ?? "Not given", tone: "orange" },
+  ];
+  if (kind === "mech") rows.push({ label: "INR", value: inr ? `${inr.value}${ctx.valve?.inrTarget ? ` · target ${ctx.valve.inrTarget}` : ""}` : "Not recorded", tone: a.inr === "low" ? "orange" : undefined });
+  const rec: string[] = [];
+  if (cause.startsWith("thrombus") || cause === "unclear") rec.push("Suspected valve thrombosis: TOE and/or 4D-CT to confirm the diagnosis (I C).");
+  if (cause === "thrombus-obstructive" && kind === "mech")
+    rec.push(pres.includes("ahf") ? "Acute HF (NYHA III–IV) from obstructive mechanical valve thrombosis: Heart Team evaluation to decide between repeat valve replacement and low-dose slow-infusion fibrinolysis (I B)." : "Obstructive mechanical valve thrombosis: urgent Heart Team discussion.");
+  if (cause.startsWith("thrombus") && (kind === "bio" || kind === "thv")) rec.push("Bioprosthetic valve thrombosis: anticoagulation with a VKA before considering reintervention (I B).");
+  if (kind === "mech" && a.inr === "low") rec.push("INR below target before the event: review adherence, interactions and INR monitoring.");
+  if (cause === "dysfunction") {
+    if (kind === "mech") rec.push("Symptomatic significant mechanical valve dysfunction not due to thrombosis: reoperation (I C).");
+    else {
+      rec.push("Symptomatic significant valve dysfunction not due to thrombosis: reintervention (I C).");
+      if (a.risk === "intermediate" || a.risk === "high") {
+        const pos = new Set(pros.map((p) => p.position));
+        const aortic = "transcatheter transfemoral aortic valve-in-valve when the anatomy and prosthesis are suitable, as assessed by the Heart Team (IIa B)";
+        const av = "transcatheter transvenous mitral or tricuspid valve-in-valve if the anatomy is suitable (IIa B)";
+        rec.push(`Intermediate or high surgical risk: ${pos.has("Aortic") && !pos.has("Mitral") && !pos.has("Tricuspid") ? aortic : !pos.has("Aortic") && pos.size ? av : `${aortic}; ${av}`}.`);
+      }
+    }
+  }
+  if (cause === "pvl") rec.push("Clinically significant paravalvular leak: Heart Team decides transcatheter vs surgical closure (I C); transcatheter closure for suitable leaks with significant regurgitation and/or haemolysis (IIa B).");
+  if (cause === "endocarditis" || pres.includes("fever")) rec.push("Possible prosthetic valve endocarditis: blood cultures before antibiotics, TOE, and the endocarditis pathway.");
+  if (pres.includes("embolism") && kind === "mech") rec.push("Embolism with a mechanical valve: confirm the INR history and image the valve for thrombus.");
+  return { heading: "Prosthetic valve: assessment", rows, recommendations: rec };
+};
+
 // how many of the primary-MR features in the 2025 low-risk asymptomatic repair recommendation
 export const mrRepairFeatures = (a: Answers) => ((a.mrFeatures as string[]) ?? []).filter((v) => ["af", "spap", "la", "tr"].includes(v)).length;
 

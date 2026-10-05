@@ -7,7 +7,7 @@ import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, VALVE_GRADES } from "../../shared/
 // valve lesions are graded in the Valves section below; these are the other findings
 const FINDINGS = [
   "Dilated LV", "LV size normalised", "Regional wall motion abnormality", "LV thrombus", "LV hypertrophy", "RV dysfunction", "Calcified aortic valve", "Bicuspid aortic valve",
-  "Rheumatic mitral valve", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "Pericardial effusion", "Limited windows",
+  "Rheumatic mitral valve", "Prosthetic valve dysfunction", "Prosthetic valve thrombus", "Paravalvular leak", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "Pericardial effusion", "Limited windows",
 ];
 
 export function AddEcho({ patientId, contextId, onClose, onDone }: { patientId: string; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {

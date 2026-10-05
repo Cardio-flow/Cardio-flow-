@@ -302,3 +302,76 @@ test("mechanical valve: no anticoagulant → red (I A); aspirin + clopidogrel wi
   assert.equal(s.meds.find((m) => m.code === "clopidogrel")!.status, "stopped");
   assert.equal(s.meds.find((m) => m.code === "aspirin")!.status, "active", "aspirin is the clinician's call (symptomatic atherosclerosis)");
 });
+
+// ---- slice 5: prosthetic valve thrombosis or dysfunction ----
+test("Yousef (2016 surgical bioprosthesis, severe prosthesis stenosis and 'Prosthetic valve dysfunction' on echo, NYHA III): pathway offered (orange); suggestions; reintervention and ViV; an episode opens and the offer goes", async () => {
+  const pid = await byName("Yousef Al-Shammari");
+  const o = (await rec(pid, "event.prosthetic-valve"))[0];
+  assert.equal(o.severity, "orange");
+  assert.match(o.title, /^Echo .*: Prosthetic valve dysfunction, severe aortic prosthesis stenosis → prosthetic valve pathway$/);
+  assert.equal(o.action.wizard, "prosthetic-valve");
+  assert.equal((await rec(pid, "valve.severe-heart-team")).length, 0, "a treated position is not a native lesion");
+  assert.equal((await rec(pid, "valve.echo-lesion-unlisted")).length, 0);
+  const ctx = (await tx((q) => getWizard(q, pid, "prosthetic-valve"))).context;
+  assert.deepEqual(suggest("prosthetic-valve", "prosthesis", {}, ctx).map((x) => x.value), ["bio"]);
+  assert.deepEqual(suggest("prosthetic-valve", "presentation", {}, ctx).map((x) => x.value), ["echo", "ahf"]);
+  assert.deepEqual(suggest("prosthetic-valve", "cause", {}, ctx).map((x) => x.value), ["dysfunction"]);
+  const answers = { prosthesis: "bio", presentation: ["echo", "dyspnoea"], imaging: ["tte", "ct"], cause: "dysfunction", risk: "intermediate" };
+  assert.deepEqual(suggest("prosthetic-valve", "actions", answers, ctx).map((x) => x.value), ["redo", "viv"]);
+  const done = await run(pid, "prosthetic-valve", { ...answers, actions: ["heart-team", "viv"], review: "clinic-28" }, o.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /reintervention \(I C\)/.test(x)));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /valve-in-valve .*\(IIa B\)/.test(x)));
+  const s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "Heart Team: prosthetic valve (urgent)"));
+  assert.ok(s.plan.some((p) => p.title === "Valve-in-valve assessment (CT, Heart Team)"));
+  assert.ok(s.episodes.some((e) => e.wizard === "prosthetic-valve" && e.status === "open"));
+  assert.equal((await rec(pid, "event.prosthetic-valve")).length, 0);
+});
+
+test("mechanical valve thrombus on echo → red offer; obstructive with acute HF → Heart Team (I B) and TOE/CT (I C); bioprosthetic thrombosis → VKA suggested (I B) and planned", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Mhv Thr " + Date.now(), mrn: "MT" + Date.now(), sex: "Female", birthDate: "1970-01-01", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -900)), details: { position: "Mitral", procedure: "Surgical replacement", prosthesis: "Mechanical", design: "Bileaflet / current tilting-disc" } }));
+  await tx((q) => K.startMedication(q, doc, pid, { code: "warfarin", doseValue: 5, frequency: "OD", route: "PO", indication: "valve", effectiveAt: at(addDays(T, -900)) }));
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -2)), items: [{ code: "inr", value: 1.6 }] }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 55, findings: ["Prosthetic valve thrombus"], valves: { ms: "Severe" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const o = (await rec(pid, "event.prosthetic-valve"))[0];
+  assert.equal(o.severity, "red");
+  const ctx = (await tx((q) => getWizard(q, pid, "prosthetic-valve"))).context;
+  assert.deepEqual(suggest("prosthetic-valve", "prosthesis", {}, ctx).map((x) => x.value), ["mech"]);
+  assert.deepEqual(suggest("prosthetic-valve", "inr", {}, ctx).map((x) => x.value), ["low"], "INR 1.6 below the 3.0 (2.5–3.5) target");
+  const answers = { prosthesis: "mech", presentation: ["ahf", "echo"], inr: "low", imaging: ["tte", "toe"], cause: "thrombus-obstructive", risk: "intermediate" };
+  assert.deepEqual(suggest("prosthetic-valve", "actions", answers, ctx).map((x) => x.value), ["heart-team"]);
+  const done = await run(pid, "prosthetic-valve", { ...answers, actions: ["heart-team"], review: "none" }, o.id);
+  const r = done.assessment!.recommendations.join(" ");
+  assert.match(r, /TOE and\/or 4D-CT .*\(I C\)/);
+  assert.match(r, /repeat valve replacement and low-dose slow-infusion fibrinolysis \(I B\)/);
+  assert.match(r, /INR below target/);
+
+  const b = await tx((q) => K.createPatient(q, doc, { name: "Thv Thr " + Date.now(), mrn: "TT" + Date.now(), sex: "Male", birthDate: "1945-01-01", conditions: [] }));
+  await tx((q) => K.recordProcedure(q, doc, b, { kind: "valve", date: at(addDays(T, -200)), details: { position: "Aortic", procedure: "TAVI", access: "Transfemoral" } }));
+  await tx((q) => K.recordEcho(q, doc, b, { date: at(T), quality: "formal", lvef: 60, findings: ["Prosthetic valve thrombus"], valves: { as: "Moderate" } }));
+  await tx((q) => reassess(q, b, "sandbox"));
+  const ob = (await rec(b, "event.prosthetic-valve"))[0];
+  const cb = (await tx((q) => getWizard(q, b, "prosthetic-valve"))).context;
+  assert.deepEqual(suggest("prosthetic-valve", "prosthesis", {}, cb).map((x) => x.value), ["thv"]);
+  const ab = { prosthesis: "thv", presentation: ["echo"], imaging: ["tte", "ct"], cause: "thrombus" };
+  assert.deepEqual(suggest("prosthetic-valve", "actions", ab, cb).map((x) => x.value), ["vka"]);
+  const db2 = await run(b, "prosthetic-valve", { ...ab, actions: ["vka"], review: "clinic-90" }, ob.id);
+  assert.ok(db2.assessment!.recommendations.some((x: string) => /VKA before considering reintervention \(I B\)/.test(x)));
+  assert.ok((await loadState(db, b)).plan.some((p) => p.title === "Start warfarin (prosthetic valve thrombosis)"));
+});
+
+test("an echo before the intervention, or a mild grade, does not offer the pathway; an admission for a prosthetic valve problem does", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Pv Quiet " + Date.now(), mrn: "PQ" + Date.now(), sex: "Male", birthDate: "1950-01-01", conditions: ["as"] }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(addDays(T, -100)), quality: "formal", lvef: 55, findings: [], valves: { as: "Severe" } }));
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "valve", date: at(addDays(T, -60)), details: { position: "Aortic", procedure: "TAVI", access: "Transfemoral" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "event.prosthetic-valve")).length, 0, "the severe AS was before the TAVI");
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(addDays(T, -30)), quality: "formal", lvef: 55, findings: [], valves: { ar: "Mild" } }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "event.prosthetic-valve")).length, 0, "mild regurgitation");
+  await tx((q) => K.startAdmission(q, doc, pid, { startedAt: at(T), location: "CCU", reasons: ["Prosthetic valve problem"], route: "Emergency department", symptoms: ["Dyspnoea"] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.match((await rec(pid, "event.prosthetic-valve"))[0].title, /^Admission for prosthetic valve problem/);
+});

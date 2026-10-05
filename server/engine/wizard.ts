@@ -119,6 +119,8 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     bicuspid: s.studies.some((x) => x.kind === "echo" && x.findings.includes("Bicuspid aortic valve")),
     interventions: valveInterventions(s).map((v) => ({ position: v.position, procedure: v.procedure, type: v.type ?? "", name: v.name, day: v.day })),
     daptIndication: daptIndication(s), oacIndication: oacIndication(s),
+    prostheses: s.conditions.filter((c) => c.code === "prosthetic-valve").map((c) => ({ position: String(c.attributes?.position ?? ""), type: String(c.attributes?.type ?? "") })),
+    echoFindings: latestStudy(s, "echo")?.findings ?? [],
     inrTarget: (() => { const r = s.tags.has("mechanical-valve") ? mechanicalInrTarget(s) : null; return r ? `${formatNumber(r.target, 1)} (${formatNumber(r.low, 1)}–${formatNumber(r.high, 1)})` : null; })(),
   };
   if (wizardId === "valve-antithrombotic") {

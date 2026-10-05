@@ -17,7 +17,7 @@ import type { Answers, WizardContext } from "./wizards.js";
 import { fmtDay, localDay } from "./clinical.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
-import { interventionFor, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
+import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
@@ -597,6 +597,46 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ["tavi", "savr", "mv-surgery", "teer", "ar-surgery"].includes(String(a.decision)) && S("meeting", "Heart Team decision (ESC/EACTS 2025, I C)"),
       a.symptoms === "equivocal" && S("exercise", "Symptoms unclear: exercise testing"),
     ],
+  },
+  "prosthetic-valve": {
+    prosthesis: (_a, c) => {
+      const kinds = [...new Set((c.valve?.prostheses ?? []).map((p) => prosthesisKind(p.type)).filter(Boolean))] as string[];
+      return kinds.map((k) => S(k, `${(c.valve!.prostheses ?? []).filter((p) => prosthesisKind(p.type) === k).map((p) => `${p.position} ${p.type.toLowerCase()}`).join(", ")} on the problem list`));
+    },
+    presentation: (_a, c) => {
+      const f = c.valve?.echoFindings ?? [];
+      const n = c.valve?.nyha;
+      return [
+        f.some((x) => /^Prosthetic valve|Paravalvular/.test(x)) || Object.values(c.valve?.echo ?? {}).some((g) => g === "Moderate" || g === "Severe") ? S("echo", "Latest echo") : null,
+        n === "III" || n === "IV" ? S("ahf", `NYHA ${n} recorded`) : null,
+      ];
+    },
+    inr: (_a, c) => {
+      const v = val(c, "inr"), tg = c.valve?.inrTarget;
+      const lo = tg ? Number(tg.match(/\(([\d.]+)/)?.[1]) : null;
+      return [v != null && lo != null && Number.isFinite(lo) ? (v < lo ? S("low", `Latest INR ${v}, target ${tg}`) : S("in-range", `Latest INR ${v}, target ${tg}`)) : null];
+    },
+    imaging: (a) => [
+      S("tte", "First-line"),
+      ["thrombus-obstructive", "thrombus", "unclear"].includes(String(a.cause)) || ((a.presentation as string[]) ?? []).includes("embolism") ? S("toe", "Suspected thrombosis: TOE and/or 4D-CT (I C)") : null,
+      ((a.presentation as string[]) ?? []).includes("fever") ? S("cultures", "Fever with a prosthesis") : null,
+    ],
+    cause: (_a, c) => {
+      const f = c.valve?.echoFindings ?? [];
+      return [f.includes("Prosthetic valve thrombus") ? S("thrombus", "Thrombus on the latest echo") : null, f.includes("Paravalvular leak") ? S("pvl", "Paravalvular leak on the latest echo") : null, f.includes("Prosthetic valve dysfunction") ? S("dysfunction", "Dysfunction on the latest echo") : null];
+    },
+    actions: (a) => {
+      const cause = String(a.cause), kind = String(a.prosthesis), pres = (a.presentation as string[]) ?? [];
+      return [
+        cause === "thrombus-obstructive" && kind === "mech" ? S("heart-team", pres.includes("ahf") ? "Obstructive thrombosis with acute HF (I B)" : "Obstructive mechanical valve thrombosis") : null,
+        cause.startsWith("thrombus") && (kind === "bio" || kind === "thv") ? S("vka", "Bioprosthetic thrombosis: VKA before reintervention (I B)") : null,
+        cause === "dysfunction" ? S("redo", "Symptomatic dysfunction: reintervention (I C)") : null,
+        cause === "dysfunction" && kind !== "mech" && (a.risk === "intermediate" || a.risk === "high") ? S("viv", "Intermediate / high risk (IIa B)") : null,
+        cause === "pvl" ? S("pvl", "Heart Team decides closure (I C)") : null,
+        pres.includes("haemolysis") ? S("haemolysis", "Haemolysis suspected") : null,
+        cause === "endocarditis" || pres.includes("fever") ? S("endocarditis", "Possible endocarditis") : null,
+      ];
+    },
   },
   "valve-antithrombotic": {
     intervention: (_a, c) => {

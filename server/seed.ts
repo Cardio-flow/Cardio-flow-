@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 18;
+export const SEED_VERSION = 19;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -557,6 +557,18 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
         await obs(lf, d(-30), [{ code: "height", value: 154 }, { code: "weight", value: 66 }, { code: "sbp", value: 134 }, { code: "hr", value: 72 }, { code: "creatinine", value: 98 }, { code: "haemoglobin", value: 11.9 }]);
         touched.push(lf);
       }
+    }
+    // v19 (valve slice 5): Yousef had a surgical aortic bioprosthesis in 2016; today's echo shows severe
+    // stenosis of the prosthesis with the echocardiographer's "Prosthetic valve dysfunction", NYHA III
+    if (seeded < 19 && !(await byMrn("100813547"))) {
+      const yf = await K.createPatient(tx, sys, { name: "Yousef Al-Shammari", mrn: "100813547", sex: "Male", birthDate: addDays(T, -(76 * 365 + 40)), allergies: "No known drug allergies", conditions: ["htn", "dyslipidaemia"] });
+      await K.recordProcedure(tx, sys, yf, { kind: "valve", date: new Date("2016-03-09T10:00:00+03:00").toISOString(), details: { position: "Aortic", procedure: "Surgical replacement", prosthesis: "Bioprosthetic" } });
+      for (const [code, dose, ind] of [["aspirin", 100, "valve"], ["amlodipine", 5, "htn"], ["atorvastatin", 40, "dyslipidaemia"]] as const)
+        await K.startMedication(tx, sys, yf, { code, doseValue: dose, frequency: "OD", route: "PO", indication: ind, effectiveAt: at(d(-700)) });
+      await K.recordEcho(tx, sys, yf, { date: at(d(-1), "10:00"), quality: "formal", lvef: 55, findings: ["Prosthetic valve dysfunction", "LV hypertrophy"], valves: { as: "Severe", mr: "Mild", tr: "Mild" }, measures: { "av-vmax": 4.2, "av-mg": 44 } });
+      await obs(yf, d(-1), [{ code: "height", value: 170 }, { code: "weight", value: 81 }, { code: "sbp", value: 128 }, { code: "hr", value: 78 }, { code: "creatinine", value: 102 }, { code: "haemoglobin", value: 13.1 }]);
+      await K.recordObservations(tx, sys, yf, { effectiveAt: at(d(-1), "10:30"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
+      touched.push(yf);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

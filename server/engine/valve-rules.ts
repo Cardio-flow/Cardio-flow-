@@ -3,7 +3,7 @@
 // echocardiographer's; the valve rules read the problem list, so the lesion has to be listed.
 import { DIAGNOSIS } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
-import type { PatientState } from "../kernel/state.js";
+import { latestStudy, type PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 import { SURVEILLANCE_DEFAULTS, latestValveEcho, valveSurveillance } from "./valve-profile.js";
 import { localDay } from "../../shared/clinical.js";
@@ -48,7 +48,8 @@ export const daptIndication = (s: PatientState) => {
 };
 // a baseline indication for anticoagulation recorded in CardioFlow
 export const oacIndication = (s: PatientState) =>
-  s.tags.has("af") ? "AF / flutter" : s.tags.has("mechanical-valve") ? "mechanical valve" : null;
+  s.tags.has("af") ? "AF / flutter" : s.tags.has("mechanical-valve") ? "mechanical valve"
+  : latestStudy(s, "echo")?.findings.includes("LV thrombus") ? "LV thrombus" : null;
 
 const echoFacts = (s: PatientState) => {
   const f = (code: string, label: string, unit: string, d = 0) => { const o = s.resolved(code).current; return o?.value_num != null ? { label, value: `${formatNumber(o.value_num, d)} ${unit}`, date: o.effective_at } : null; };
