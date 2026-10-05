@@ -634,6 +634,22 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ];
     },
   },
+  "cmp-family": {
+    genetics: (_a, c) => {
+      const g = c.cmp?.genetic;
+      return [g === "P/LP variant" ? S("plp", `P/LP variant${c.cmp?.pgene ? ` in ${c.cmp.pgene}` : ""} on the problem list`) : g === "VUS only" ? S("vus", "VUS only on the problem list") : g === "No variant found" ? S("negative", "No variant found on the problem list") : S("not-done", g ? `Genetic test: ${g.toLowerCase()}` : "No genetic result recorded")];
+    },
+    actions: (a) => {
+      const rel = ((a.relatives as string[]) ?? []).filter((x) => x !== "none");
+      return [
+        S("counselling", "Families with an inherited cardiomyopathy (I B)"),
+        a.genetics === "plp" && rel.some((x) => x !== "minors") ? S("cascade", "P/LP variant: adult relatives (I B)") : null,
+        a.genetics !== "plp" && rel.length ? S("clinical", "No P/LP variant: ECG and imaging of first-degree relatives (I C)") : null,
+        rel.includes("minors") ? S("paediatric", "Children in the family") : null,
+        a.deceased === "yes" ? S("postmortem", "Cardiomyopathy at post-mortem (I C)") : null,
+      ];
+    },
+  },
   "prosthetic-valve": {
     prosthesis: (_a, c) => {
       const kinds = [...new Set((c.valve?.prostheses ?? []).map((p) => prosthesisKind(p.type)).filter(Boolean))] as string[];

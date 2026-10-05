@@ -127,7 +127,9 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const holter = latestStudy(s, "holter");
   const fhxAns = s.resolved(historyCode("fhx-scd")).current?.value_text ?? null;
   const cmpCond = s.conditions.find((c) => ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"].includes(c.code) && c.attributes?.genetic === "P/LP variant");
-  const cmp = { echoFindings: latestStudy(s, "echo")?.findings ?? [], nsvt: (holter?.attributes?.nsvt as string | undefined) ?? null, fhx: fhxAns, pgene: (cmpCond?.attributes?.gene as string | undefined) ?? null };
+  const anyCmp = s.conditions.find((c) => ["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"].includes(c.code));
+  const cmp = { echoFindings: latestStudy(s, "echo")?.findings ?? [], nsvt: (holter?.attributes?.nsvt as string | undefined) ?? null, fhx: fhxAns, pgene: (cmpCond?.attributes?.gene as string | undefined) ?? null,
+    genetic: cmpCond ? "P/LP variant" : ((anyCmp?.attributes?.genetic as string | undefined) ?? null) };
   if (wizardId === "hcm-scd" && cmp.nsvt) base.detected.nsvt = [cmp.nsvt === "Yes" ? "yes" : "no"];
   if (wizardId === "valve-antithrombotic") {
     const kind = valve.interventions.map((v) => interventionFor(v.type, v.procedure, v.position)).find(Boolean);

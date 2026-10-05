@@ -97,7 +97,7 @@ export type WizardContext = {
     prostheses?: { position: string; type: string }[]; echoFindings?: string[];
   } | null;
   // cardiomyopathy module: latest echo findings, NSVT on the latest ambulatory ECG, FHx answer
-  cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null } | null;
+  cmp?: { echoFindings: string[]; nsvt: string | null; fhx: string | null; pgene: string | null; genetic?: string | null } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice

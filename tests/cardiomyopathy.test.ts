@@ -142,3 +142,43 @@ test("obstructive HCM ≥50 mmHg with NYHA III: offered; beta-blocker at maximum
   assert.ok((await loadState(db, pid)).plan.some((p) => /^Septal reduction therapy/.test(p.title)));
   assert.equal((await rec(pid, "cmp.hcm-lvoto")).length, 0);
 });
+
+// ---- slice 3: family screening ----
+test("family screening: no variant → clinical evaluation of relatives (I C) and no genetic testing of unaffected relatives (III C); a P/LP variant recorded later → cascade testing offered (I B); not for wild-type ATTR", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Fam " + Date.now(), mrn: "FM" + Date.now(), sex: "Male", birthDate: "1975-01-01", conditions: ["dcm"] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  const f = (await rec(pid, "cmp.family-screening"))[0];
+  assert.equal(f.title, "Dilated cardiomyopathy: screening of first-degree relatives not planned");
+  assert.equal(f.action.wizard, "cmp-family");
+  const ctx = (await tx((q) => getWizard(q, pid, "cmp-family"))).context;
+  assert.deepEqual(suggest("cmp-family", "genetics", {}, ctx).map((x) => x.value), ["not-done"]);
+  const a = { genetics: "not-done", relatives: ["siblings", "minors"], deceased: "no" };
+  assert.deepEqual(suggest("cmp-family", "actions", a, ctx).map((x) => x.value), ["counselling", "clinical", "paediatric"]);
+  const repeat = addDays(T, 400);
+  const done = await run(pid, "cmp-family", { ...a, actions: ["counselling", "clinical", "paediatric"], repeat, review: "none" }, f.id);
+  assert.ok(done.assessment!.recommendations.some((x: string) => /\(III C\)/.test(x)));
+  let s = await loadState(db, pid);
+  assert.ok(s.plan.some((p) => p.title === "First-degree relatives: clinical evaluation with ECG and cardiac imaging"));
+  assert.equal(String(s.plan.find((p) => p.title === "Repeat family evaluation (cardiomyopathy)")!.due_date).slice(0, 10), repeat);
+  assert.equal((await rec(pid, "cmp.family-screening")).length, 0);
+  // a pathogenic variant found afterwards reopens the offer, now for cascade testing
+  const c = s.conditions.find((x) => x.code === "dcm")!;
+  await tx((q) => K.recordHistory(q, doc, pid, { effectiveAt: at(T), answers: [], update: [{ logicalId: c.logical_id, attributes: { genetic: "P/LP variant", gene: "LMNA" } }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "cmp.family-screening"))[0].title, "LMNA variant: offer cascade genetic testing to relatives");
+  const c2 = (await tx((q) => getWizard(q, pid, "cmp-family"))).context;
+  assert.deepEqual(suggest("cmp-family", "genetics", {}, c2).map((x) => x.value), ["plp"]);
+  assert.deepEqual(suggest("cmp-family", "actions", { genetics: "plp", relatives: ["siblings"], deceased: "no" }, c2).map((x) => x.value), ["counselling", "cascade"]);
+
+  const w = await tx((q) => K.createPatient(q, doc, { name: "Attr " + Date.now(), mrn: "AT" + Date.now(), sex: "Male", birthDate: "1945-01-01", conditions: ["amyloid"] }));
+  const am = (await loadState(db, w)).conditions.find((x) => x.code === "amyloid")!;
+  await tx((q) => K.recordHistory(q, doc, w, { effectiveAt: at(T), answers: [], update: [{ logicalId: am.logical_id, attributes: { type: "ATTR wild-type" } }] }));
+  await tx((q) => reassess(q, w, "sandbox"));
+  assert.equal((await rec(w, "cmp.family-screening")).length, 0);
+});
+
+test("a beta-blocker given for HCM is listed under Cardiomyopathy in the medication list", async () => {
+  const pid = await byName("Reem Al-Otaibi");
+  const m = (await tx((q) => summary(q, pid, "sandbox")) as any).medications;
+  assert.deepEqual(m.groups.filter((g: any) => g.meds.length).map((g: any) => g.purpose), ["Cardiomyopathy"]);
+});

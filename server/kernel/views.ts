@@ -200,12 +200,16 @@ function riskRow(s: PatientState) {
   };
 }
 
+// a medicine given for a cardiomyopathy (e.g. a beta-blocker for obstructive HCM) is listed there,
+// not under its catalogue purpose
+const CMP_INDICATIONS = new Set(["hcm", "dcm", "ndlvc", "arvc", "rcm", "amyloid"]);
+const purposeOf = (m: { purpose: string; indication: string }) => (CMP_INDICATIONS.has(m.indication) ? "Cardiomyopathy" : m.purpose);
 export function medicationGroups(s: PatientState) {
   const live = s.meds.filter((m) => m.status !== "stopped");
   const groups = PURPOSE_ORDER.map((purpose) => ({
     purpose,
     meds: live
-      .filter((m) => m.purpose === purpose)
+      .filter((m) => purposeOf(m) === purpose)
       .map((m) => ({
         id: m.id,
         code: m.code,

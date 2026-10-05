@@ -476,6 +476,7 @@ export const PURPOSE_FOR_TAG: Record<string, MedicationDef["purpose"][]> = {
   dm: ["Cardiometabolic", "Diabetes"],
   ckd: ["Cardiometabolic"],
   lipids: ["CAD / secondary prevention", "Lipids"],
+  cmp: ["Cardiomyopathy"],
 };
 
 export function doseLabel(def: MedicationDef | undefined, value: number | null | undefined, unit?: string | null) {

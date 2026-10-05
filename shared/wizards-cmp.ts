@@ -168,5 +168,91 @@ CMP_WIZARDS["hcm-lvoto"].assess = (a: Answers, ctx: WizardContext): Assessment =
   return { heading: "Obstructive HCM: assessment", rows, recommendations: rec };
 };
 
+// Family screening (cardiomyopathy module, slice 3). 2023 ESC cardiomyopathies, recommendation wording
+// as transcribed from the guideline tables:
+//  - genetic counselling for families with an inherited or suspected inherited cardiomyopathy, whether or
+//    not genetic testing is considered (I B);
+//  - cascade genetic testing, with pre- and post-test counselling, offered to adult at-risk relatives when
+//    a P/LP variant is established in the family, starting with first-degree relatives (I B);
+//  - relatives with the family variant: clinical evaluation with ECG and cardiac imaging and long-term
+//    follow-up (I B); phenotype-negative relatives without it: discharged, re-assessed if symptoms or new
+//    family data (I C);
+//  - no P/LP variant in the family: initial clinical evaluation of first-degree relatives with ECG and
+//    cardiac imaging (I C); diagnostic genetic testing of phenotype-negative relatives is not recommended
+//    (III C);
+//  - genetic testing of a deceased relative found to have cardiomyopathy at post-mortem when it helps the
+//    surviving relatives (I C).
+// No screening interval is given in the text that could be read, so repeat evaluations are dated by the
+// clinician (a date question), never by CardioFlow.
+export const CMP_FAMILY_SCOPE = (ctx: WizardContext) => (ctx.cmp?.pgene ? "variant" : "no-variant");
+CMP_WIZARDS["cmp-family"] = {
+  id: "cmp-family", title: "Cardiomyopathy: family screening", tone: "yellow", group: "Cardiomyopathy", episode: false,
+  source: "ESC cardiomyopathies 2023",
+  note: "With a pathogenic (P/LP) variant in the family, adult relatives are offered cascade genetic testing and those carrying it are followed with ECG and imaging. Without one, first-degree relatives have a clinical evaluation with ECG and imaging, and genetic testing of unaffected relatives is not recommended.",
+  facts: [],
+  steps: [
+    {
+      id: "family", title: "The family",
+      questions: [
+        {
+          id: "genetics", label: "Genetic result in the family", type: "single", required: true,
+          options: [
+            { value: "plp", label: "Pathogenic / likely pathogenic variant" },
+            { value: "vus", label: "Variant of uncertain significance only" },
+            { value: "negative", label: "No variant found" },
+            { value: "not-done", label: "Not tested yet / pending" },
+          ],
+        },
+        {
+          id: "relatives", label: "First-degree relatives", type: "multi", required: true,
+          options: [
+            { value: "none", label: "None known / all already assessed" },
+            { value: "parents", label: "Parents" }, { value: "siblings", label: "Siblings" },
+            { value: "adult-children", label: "Adult children" }, { value: "minors", label: "Children under 18" },
+          ],
+        },
+        { id: "deceased", label: "A relative died suddenly or had cardiomyopathy at post-mortem", type: "single", required: true, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No / not known" }] },
+      ],
+    },
+    {
+      id: "plan", title: "Plan",
+      questions: [
+        {
+          id: "actions", label: "Plan", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Nothing more" },
+            { value: "counselling", label: "Genetic counselling for the family", effects: { plan: [{ category: "referral", title: "Genetic counselling for the family (cardiomyopathy)", days: 28, completesOn: manual }] } },
+            { value: "cascade", label: "Offer cascade genetic testing to adult relatives", effects: { plan: [{ category: "referral", title: "Offer cascade genetic testing to adult first-degree relatives (pre- and post-test counselling)", days: 28, completesOn: manual }] } },
+            { value: "clinical", label: "Clinical evaluation of relatives: ECG and imaging", effects: { plan: [{ category: "referral", title: "First-degree relatives: clinical evaluation with ECG and cardiac imaging", days: 28, completesOn: manual }] } },
+            { value: "paediatric", label: "Children: paediatric cardiology", effects: { plan: [{ category: "referral", title: "Children of the patient: paediatric cardiology (family screening)", days: 28, completesOn: manual }] } },
+            { value: "postmortem", label: "Genetic testing of the deceased relative's samples", effects: { plan: [{ category: "referral", title: "Genetic testing of the deceased relative (post-mortem samples)", days: 28, completesOn: manual }] } },
+          ],
+        },
+        { id: "repeat", label: "Repeat family evaluation (date chosen by the clinician)", type: "date" },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};
+CMP_WIZARDS["cmp-family"].outcome = (a: Answers, _ctx: WizardContext): OutcomeItem[] =>
+  a.repeat ? [{ kind: "plan", category: "follow_up", title: "Repeat family evaluation (cardiomyopathy)", dueDate: String(a.repeat), completesOn: { type: "manual" }, label: "" }] : [];
+CMP_WIZARDS["cmp-family"].assess = (a: Answers, _ctx: WizardContext): Assessment => {
+  const rel = ((a.relatives as string[]) ?? []).filter((x) => x !== "none");
+  const rows: Assessment["rows"] = [
+    { label: "Family genetics", value: { plp: "P/LP variant", vus: "VUS only", negative: "No variant found", "not-done": "Not tested yet" }[String(a.genetics)] ?? "Not given", tone: a.genetics === "plp" ? "orange" : undefined },
+    { label: "Relatives to see", value: rel.length ? rel.map((x) => ({ parents: "parents", siblings: "siblings", "adult-children": "adult children", minors: "children under 18" }[x] ?? x)).join(", ") : "None" },
+  ];
+  const rec = ["Genetic counselling for the family, whether or not genetic testing is planned (I B)."];
+  if (a.genetics === "plp") {
+    rec.push("Offer cascade genetic testing with pre- and post-test counselling to adult at-risk relatives, first-degree first (I B).");
+    rec.push("Relatives carrying the variant: ECG and cardiac imaging with long-term follow-up (I B); relatives without it and without a phenotype can be discharged and re-assessed if symptoms or new family data (I C).");
+  } else {
+    rec.push("No P/LP variant in the family: initial clinical evaluation of first-degree relatives with ECG and cardiac imaging (I C).");
+    rec.push("Diagnostic genetic testing of phenotype-negative relatives is not recommended without a P/LP variant in the family (III C).");
+  }
+  if (a.deceased === "yes") rec.push("Cardiomyopathy found at post-mortem: genetic testing of the deceased relative when it helps the survivors (I C).");
+  return { heading: "Cardiomyopathy: family screening", rows, recommendations: rec };
+};
+
 // kept for the shared outcome builder (plan items come from the option effects)
 export const noOutcome = (): OutcomeItem[] => [];

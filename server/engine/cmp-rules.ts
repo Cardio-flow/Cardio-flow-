@@ -224,4 +224,27 @@ export const CMP_RULES: RuleDef[] = [
       }];
     },
   },
+  // ---- slice 3: family screening ----
+  {
+    id: "cmp.family-screening",
+    kind: "clinical",
+    title: "Inherited cardiomyopathy: family screening not planned",
+    inputs: ["conditions", "pathways"],
+    defaultParams: {},
+    evidence: "2023 ESC cardiomyopathies: genetic counselling for families with an inherited or suspected inherited cardiomyopathy (I B); cascade genetic testing offered to adult at-risk relatives when a P/LP variant is established (I B); without one, initial clinical evaluation of first-degree relatives with ECG and cardiac imaging (I C). Not for AL or wild-type ATTR amyloidosis (not inherited). Offered until the family screening pathway is completed, and again when a P/LP variant is recorded after it.",
+    evaluate(s) {
+      const cs = cmpConditions(s).filter((c) => !(c.code === "amyloid" && (c.attributes?.type === "AL" || c.attributes?.type === "ATTR wild-type")));
+      if (!cs.length) return [];
+      const plp = cs.find((c) => c.attributes?.genetic === "P/LP variant");
+      const done = s.pathwaysDone["cmp-family"];
+      if (done && (!plp || done >= new Date(plp.recorded_at).toISOString())) return [];
+      return [{
+        key: "family", signature: `${plp ? `plp:${plp.attributes?.gene ?? ""}` : "no-plp"}:${done ?? "never"}`, severity: "yellow",
+        title: plp ? `${plp.attributes?.gene ? `${plp.attributes.gene} variant` : "Pathogenic variant"}: offer cascade genetic testing to relatives` : `${names(cs)}: screening of first-degree relatives not planned`,
+        detail: plp ? "Cascade genetic testing with counselling for adult at-risk relatives (I B); carriers have ECG and imaging with long-term follow-up (I B)." : "Genetic counselling for the family (I B) and clinical evaluation of first-degree relatives with ECG and imaging (I C).",
+        facts: [{ label: "Diagnosis", value: names(cs) }, { label: "Family pathway", value: done ? `Completed ${fmtDay(done, { year: true })}` : "Not done" }, { label: "Guideline", value: SRC }],
+        missing: [], action: { type: "wizard", wizard: "cmp-family" },
+      }];
+    },
+  },
 ];
