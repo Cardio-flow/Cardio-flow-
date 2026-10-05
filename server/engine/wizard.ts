@@ -153,7 +153,11 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     const ny = s.resolved("nyha").current;
     if (!base.detected.symptoms && ny && localDay(ny.effective_at) >= ph.peAt && ["II", "III", "IV"].includes(String(ny.value_text))) base.detected.symptoms = ["yes"];
   }
-  if (wizardId === "ph-lhd-lung" && !base.detected.cause) {
+  if (wizardId === "ph-suspected") {
+    if (!base.detected.echo && ph.echo) base.detected.echo = [ph.echo];
+    if (!base.detected.warning && ["III", "IV"].includes(String(s.resolved("nyha").current?.value_text ?? ""))) base.detected.warning = ["severe"];
+  }
+  if ((wizardId === "ph-lhd-lung" || wizardId === "ph-suspected") && !base.detected.cause) {
     const tags = new Set(s.conditions.filter((c) => c.status === "active").flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []));
     const cause = [
       (ph.group?.startsWith("Group 2") || tags.has("hf") || valve.lesions.length > 0) && "lhd",

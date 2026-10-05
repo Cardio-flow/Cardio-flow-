@@ -243,3 +243,104 @@ PH_WIZARDS["ph-lhd-lung"].assess = (a: Answers, ctx: WizardContext): Assessment 
   }
   return { heading: "PH with left heart or lung disease", rows, recommendations: rec };
 };
+
+// ---------- PH slice 5: suspected pulmonary hypertension ----------
+// 2022 ESC/ERS diagnostic algorithm (Rev Esp Cardiol 2023 comments, quoting the guideline):
+//  - suspicion: history (including family history), examination with BP, heart rate and pulse oximetry,
+//    BNP/NT-proBNP and a resting ECG;
+//  - detection: echocardiographic probability from the TR velocity and other signs (I B; TRV >2.8 m/s, I C);
+//    pulmonary function tests (DLCO, FVC/DLCO) and CPET;
+//  - confirmation: referral to a PH centre for right heart catheterisation when the probability is intermediate
+//    or high with risk factors for PAH or a history of pulmonary embolism (I C);
+//  - warning signs needing immediate referral: "rapidly evolving or severe symptoms (WHO-FC III/IV), clinical
+//    signs of right ventricular failure, syncope, signs of low cardiac output, poorly tolerated arrhythmias, and
+//    haemodynamic instability";
+//  - after pulmonary embolism with persistent symptoms: evaluation for CTEPH/CTEPD (I C), V/Q scan.
+const WARNING = [
+  { value: "severe", label: "Rapidly evolving or severe symptoms (WHO-FC III–IV)" },
+  { value: "rvf", label: "Clinical signs of right ventricular failure" },
+  { value: "syncope", label: "Syncope" },
+  { value: "lowco", label: "Signs of low cardiac output" },
+  { value: "arrhythmia", label: "Poorly tolerated arrhythmias" },
+  { value: "unstable", label: "Haemodynamic instability" },
+];
+PH_WIZARDS["ph-suspected"] = {
+  id: "ph-suspected", title: "Suspected pulmonary hypertension", tone: "orange", group: "Pulmonary hypertension", episode: false,
+  source: "ESC/ERS pulmonary hypertension 2022",
+  note: "Suspicion → detection (echo probability, lung function) → confirmation at a PH centre. Warning signs mean immediate referral. Intermediate or high probability with PAH risk factors or a previous pulmonary embolism goes to a PH centre for right heart catheterisation.",
+  facts: ["trv", "spap", "nt-probnp", "spo2", "hr", "sbp"],
+  steps: [
+    {
+      id: "presentation", title: "Warning signs",
+      questions: [
+        { id: "warning", label: "Warning signs (immediate referral)", type: "multi", required: true, options: [...WARNING, { value: "none", label: "None" }] },
+      ],
+    },
+    {
+      id: "probability", title: "Probability and causes",
+      questions: [
+        {
+          id: "echo", label: "Echo probability of PH", type: "single", required: true,
+          options: [{ value: "high", label: "High" }, { value: "intermediate", label: "Intermediate" }, { value: "low", label: "Low" }, { value: "none", label: "No echo yet" }],
+        },
+        {
+          id: "risk", label: "Risk factors for PAH or CTEPH", type: "multi", required: true,
+          options: [
+            { value: "pe", label: "Previous pulmonary embolism", detectCondition: ["pe"] },
+            { value: "ctd", label: "Connective tissue disease (e.g. systemic sclerosis)" },
+            { value: "chd", label: "Congenital heart disease / shunt" },
+            { value: "portal", label: "Portal hypertension / liver disease", detectCondition: ["liver-disease"] },
+            { value: "hiv", label: "HIV infection" },
+            { value: "family", label: "Family history of PAH" },
+            { value: "drugs", label: "Drugs or toxins linked to PAH" },
+            { value: "none", label: "None known" },
+          ],
+        },
+        {
+          id: "cause", label: "Left heart or lung disease", type: "multi", required: true,
+          options: [{ value: "lhd", label: "Left heart disease (HF, valve disease)" }, { value: "lung", label: "Lung disease or hypoxia" }, { value: "none", label: "Neither found" }],
+        },
+      ],
+    },
+    {
+      id: "plan", title: "Plan",
+      questions: [
+        {
+          id: "actions", label: "Plan", type: "multi", required: true,
+          options: [
+            { value: "urgent", label: "Immediate referral to a PH centre", effects: { plan: [{ category: "referral", title: "Immediate PH centre referral: suspected PH with warning signs", days: 0, completesOn: manual }] } },
+            { value: "basics", label: "ECG, NT-proBNP and pulse oximetry", effects: { plan: [{ category: "investigation", title: "Suspected PH: resting ECG, NT-proBNP and pulse oximetry", days: 7, completesOn: manual }] } },
+            { value: "echo", label: "Echo (PH probability)", effects: { plan: [{ category: "investigation", title: "Echo: TR velocity and PH signs (suspected PH)", days: 14, completesOn: { type: "study", kind: "echo" } }] } },
+            { value: "lung", label: "Lung function with DLCO, arterial blood gases, chest CT", effects: { plan: [{ category: "investigation", title: "Suspected PH: pulmonary function tests with DLCO, arterial blood gases and chest CT", days: 14, completesOn: manual }] } },
+            { value: "vq", label: "V/Q scan (CTEPH)", effects: { plan: [{ category: "investigation", title: "V/Q lung scan: chronic thromboembolic disease (suspected PH)", days: 14, completesOn: manual }] } },
+            { value: "cpet", label: "Cardiopulmonary exercise test", effects: { plan: [{ category: "investigation", title: "Cardiopulmonary exercise test (intermediate PH probability)", days: 28, completesOn: manual }] } },
+            { value: "refer", label: "PH centre referral for right heart catheterisation", effects: { plan: [{ category: "referral", title: "PH centre referral: right heart catheterisation (pulmonary hypertension work-up)", days: 14, completesOn: manual }] } },
+            { value: "other", label: "Look for other causes of breathlessness", effects: { plan: [{ category: "follow_up", title: "Low PH probability: other causes of breathlessness, reassess if symptoms persist", days: 28, completesOn: { type: "visit" } }] } },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+PH_WIZARDS["ph-suspected"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const warn = (Array.isArray(a.warning) ? (a.warning as string[]) : []).filter((x) => x !== "none");
+  const risk = (Array.isArray(a.risk) ? (a.risk as string[]) : []).filter((x) => x !== "none");
+  const cause = (Array.isArray(a.cause) ? (a.cause as string[]) : []).filter((x) => x !== "none");
+  const p = a.echo as string;
+  const rows: Assessment["rows"] = [
+    { label: "Echo probability", value: { high: "High", intermediate: "Intermediate", low: "Low", none: "No echo yet" }[p] ?? "—", tone: p === "high" || p === "intermediate" ? "orange" : undefined },
+    { label: "Warning signs", value: warn.length ? warn.map((w) => WARNING.find((x) => x.value === w)!.label.toLowerCase()).join("; ") : "None", tone: warn.length ? "orange" : undefined },
+    { label: "PAH / CTEPH risk factors", value: risk.length ? `${risk.length} recorded` : "None known" },
+  ];
+  if (ctx.values?.trv) rows.push({ label: "TR velocity", value: `${ctx.values.trv.value} m/s` });
+  const rec: string[] = [];
+  if (warn.length) rec.push("Warning signs: refer immediately to a PH centre.");
+  if (p === "none") rec.push("History, examination with BP, heart rate and pulse oximetry, BNP/NT-proBNP and a resting ECG; then an echo to assign the probability of PH (I B; TR velocity threshold >2.8 m/s, I C).");
+  if ((p === "high" || p === "intermediate") && risk.length) rec.push("Intermediate or high probability with risk factors for PAH or a previous pulmonary embolism: refer to a PH centre for right heart catheterisation (I C).");
+  if ((p === "high" || p === "intermediate") && !risk.length) rec.push(`Intermediate or high probability without PAH risk factors: look for left heart and lung disease — lung function with DLCO, arterial blood gases, chest CT${cause.length ? "; then the pathway \"PH with left heart or lung disease\"" : ""}.`);
+  if (p === "intermediate") rec.push("Symptomatic with an intermediate probability: a cardiopulmonary exercise test can help decide.");
+  if (risk.includes("pe")) rec.push("Previous pulmonary embolism with persistent breathlessness: evaluate for CTEPH / CTEPD with a V/Q scan (I C).");
+  if (p === "low" && !warn.length) rec.push("Low probability: look for other causes of breathlessness and reassess if symptoms persist.");
+  return { heading: "Suspected pulmonary hypertension", rows, recommendations: rec };
+};

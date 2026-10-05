@@ -43,7 +43,7 @@ export const PH_RULES: RuleDef[] = [
           { label: "Other signs", value: e.categories.length ? `${e.signs.length} sign${e.signs.length > 1 ? "s" : ""} in ${e.categories.length} categor${e.categories.length > 1 ? "ies" : "y"}` : "None recorded" },
           { label: "Guideline", value: `${SRC} · I C` },
         ],
-        missing: [], action: { type: "add-plan", template: "ph-referral" },
+        missing: [], action: { type: "wizard", wizard: "ph-suspected" },
       } as Finding];
     },
   },

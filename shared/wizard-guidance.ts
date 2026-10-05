@@ -707,6 +707,23 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [S("workup", "Breathlessness after PE: evaluate for CTEPH / CTEPD (I C)")];
     },
   },
+  "ph-suspected": {
+    actions: (a) => {
+      const warn = (Array.isArray(a.warning) ? (a.warning as string[]) : []).filter((x) => x !== "none");
+      const risk = (Array.isArray(a.risk) ? (a.risk as string[]) : []).filter((x) => x !== "none");
+      const p = a.echo as string;
+      return [
+        warn.length ? S("urgent", "Warning signs: immediate referral") : null,
+        p === "none" ? S("basics", "Suspicion step: ECG, BNP/NT-proBNP, pulse oximetry") : null,
+        p === "none" ? S("echo", "Echo probability of PH (I B)") : null,
+        (p === "high" || p === "intermediate") && risk.length && !warn.length ? S("refer", "Intermediate/high probability with PAH risk factors or previous PE (I C)") : null,
+        (p === "high" || p === "intermediate") && !risk.length ? S("lung", "No PAH risk factors: look for lung disease (DLCO, ABG, CT)") : null,
+        risk.includes("pe") ? S("vq", "Previous PE: evaluate for CTEPH (I C)") : null,
+        p === "intermediate" ? S("cpet", "Intermediate probability, symptomatic") : null,
+        p === "low" && !warn.length ? S("other", "Low probability") : null,
+      ];
+    },
+  },
   "ph-lhd-lung": {
     actions: (a, c) => {
       const cause = (a.cause as string[] | undefined) ?? [];

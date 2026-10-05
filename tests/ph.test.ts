@@ -40,7 +40,7 @@ test("Huda (TRV 3.8 m/s, RV/LV >1, PA 31 mm): high probability → orange referr
   assert.equal(f.severity, "orange");
   assert.equal(f.title, "High echo probability of pulmonary hypertension (TRV 3.8 m/s)");
   assert.equal(f.rule_status, "PUBLISHED");
-  assert.equal(f.action.template, "ph-referral");
+  assert.equal(f.action.wizard, "ph-suspected");
   const p = (await tx((q) => summary(q, pid, "sandbox")) as any).ph;
   assert.equal(p.echo.probability, "high");
   assert.deepEqual(p.echo.categories, ["A", "B"]);
@@ -221,4 +221,25 @@ test("group 3: ambrisentan with IPF and riociguat with an IIP → orange (III); 
   assert.equal(y.severity, "yellow");
   assert.match(y.detail, /^PVR 3\.6 WU \(not >5\)/);
   assert.equal((await rec(ns, "ph.severe-precapillary")).length, 0);
+});
+
+// ---- slice 5: suspected pulmonary hypertension ----
+test("suspected PH pathway: Huda's high echo probability is prefilled; risk factors → PH centre referral (I C); warning signs → immediate referral; no risk factors → lung work-up", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Ph Susp " + Date.now(), mrn: "PS" + Date.now(), sex: "Female", birthDate: "1970-01-01", conditions: [] }));
+  await tx((q) => K.recordEcho(q, doc, pid, { date: at(T), quality: "formal", lvef: 62, findings: [], measures: { trv: 3.6 } }));
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: new Date().toISOString(), items: [{ code: "nyha", text: "III" }] }));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "ph.echo-probability"))[0].action.wizard, "ph-suspected");
+  const w = await tx((q) => getWizard(q, pid, "ph-suspected"));
+  assert.deepEqual(w.context.detected.echo, ["high"]);
+  assert.deepEqual(w.context.detected.warning, ["severe"]);
+  const s1 = suggest("ph-suspected", "actions", { warning: ["severe"], echo: "high", risk: ["ctd"], cause: ["none"] }, w.context).map((x) => x.value);
+  assert.deepEqual(s1, ["urgent"]);
+  assert.deepEqual(suggest("ph-suspected", "actions", { warning: ["none"], echo: "high", risk: ["ctd"], cause: ["none"] }, w.context).map((x) => x.value), ["refer"]);
+  assert.deepEqual(suggest("ph-suspected", "actions", { warning: ["none"], echo: "intermediate", risk: ["none"], cause: ["none"] }, w.context).map((x) => x.value), ["lung", "cpet"]);
+  const done = await tx((q) => completeWizard(q, doc, pid, "ph-suspected", { answers: { warning: ["severe"], echo: "high", risk: ["pe"], cause: ["none"], actions: ["urgent", "vq"] } } as any));
+  assert.ok(done.assessment!.recommendations.includes("Warning signs: refer immediately to a PH centre."));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /V\/Q scan \(I C\)/.test(x)));
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await rec(pid, "ph.echo-probability")).length, 0, "a PH centre referral is planned");
 });
