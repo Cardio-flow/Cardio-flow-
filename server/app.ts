@@ -5,9 +5,10 @@ import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
 import { loadState } from "./kernel/state.js";
+import { preStartCheck } from "./engine/med-safety.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
-import { BARRIER_LABEL, drugClassOf } from "../shared/catalog.js";
+import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
 import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.js";
@@ -328,6 +329,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- medications ----------
+  // pre-start check: contraindications and interactions of a proposed medicine (medicine safety table)
+  app.get("/api/patients/:id/medication-check/:code", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const def = MEDICATION[String(req.params.code)];
+    if (!def) throw new ApiError(404, "Unknown medicine");
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), { hits: preStartCheck(await loadState(tx, id), def.code, def) })));
+  }));
   app.post("/api/patients/:id/medications", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z

@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 26;
+export const SEED_VERSION = 27;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -650,6 +650,20 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await obs(mo, d(-5), [{ code: "sbp", value: 136 }, { code: "hr", value: 76 }, { code: "nt-probnp", value: 1150 }, { code: "creatinine", value: 96 }, { code: "potassium", value: 4.4 }, { code: "height", value: 158 }, { code: "weight", value: 92 }]);
       await K.recordObservations(tx, sys, mo, { effectiveAt: at(d(-5), "11:00"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
       touched.push(mo);
+    }
+    // v27 (medicine safety table): Yaqoub, 72, HFrEF (LVEF 35%) with persistent AF and stable CAD (PCI in 2019) on
+    // apixaban + aspirin, diltiazem for rate and simvastatin; clarithromycin started today for a chest infection
+    // → simvastatin + clarithromycin (red), diltiazem with LVEF ≤40% (orange), AF on OAC + aspirin (yellow, III B)
+    if (seeded < 27 && !(await byMrn("101027703"))) {
+      const yq = await K.createPatient(tx, sys, { name: "Yaqoub Al-Enezi", mrn: "101027703", sex: "Male", birthDate: addDays(T, -(72 * 365 + 140)), allergies: "No known drug allergies", conditions: ["hfref", "htn", "cad-ccs"] });
+      await K.recordHistory(tx, sys, yq, { effectiveAt: at(d(-900)), answers: [{ item: "smoking", answer: "ex" }], add: [{ code: "af", onset: d(-400), attributes: { pattern: "Persistent" } }, { code: "prior-pci", onsetYear: 2019 }] });
+      for (const [code, dose, freq, ind, day] of [["apixaban", 5, "BID", "af", -400], ["aspirin", 100, "OD", "cad", -2000], ["diltiazem", 120, "OD", "af", -300], ["simvastatin", 40, "Nightly", "cad", -2000], ["bisoprolol", 5, "OD", "hf", -700], ["sacubitril-valsartan", 97, "BID", "hf", -500], ["dapagliflozin", 10, "OD", "hf", -500]] as const)
+        await K.startMedication(tx, sys, yq, { code, doseValue: dose, frequency: freq, route: "PO", indication: ind, effectiveAt: at(d(day)) });
+      await K.startMedication(tx, sys, yq, { code: "clarithromycin", doseValue: 500, frequency: "BID", route: "PO", indication: "Chest infection (community-acquired)", effectiveAt: at(d(0), "09:00") });
+      await K.recordEcho(tx, sys, yq, { date: at(d(-60), "10:00"), quality: "formal", lvef: 35, findings: [] });
+      await obs(yq, d(-1), [{ code: "sbp", value: 118 }, { code: "hr", value: 78 }, { code: "creatinine", value: 110 }, { code: "potassium", value: 4.6 }, { code: "haemoglobin", value: 13.4 }, { code: "height", value: 171 }, { code: "weight", value: 80 }]);
+      await K.recordObservations(tx, sys, yq, { effectiveAt: at(d(-1), "11:00"), items: [{ code: "nyha", text: "II" }], silentEvent: true });
+      touched.push(yq);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

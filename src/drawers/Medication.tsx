@@ -172,7 +172,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <Segmented label="Route" options={def.routes.map((r) => ({ value: r, label: r }))} value={route} onChange={setRoute} />
               </div>
             </div>
-            <PreStart def={def} rec={rec} summary={summary} />
+            <PreStart def={def} rec={rec} summary={summary} patientId={patientId} />
             {renalK && (
               <div className="q">
                 <div className="label">Monitoring</div>
@@ -199,7 +199,32 @@ function tagLabel(t: string, summary: any) {
   return dx?.label ?? { hf: "Heart failure", cad: "Coronary disease", af: "Atrial fibrillation", htn: "Hypertension", dm: "Diabetes", ckd: "CKD", lipids: "Dyslipidaemia" }[t] ?? t;
 }
 
-function PreStart({ def, rec, summary }: { def: MedicationDef; rec: any; summary: any }) {
+// contraindications and interactions of the proposed medicine (server: medicine safety table, label/guideline cited)
+type SafetyHit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string };
+function SafetyCheck({ hits }: { hits: SafetyHit[] | null }) {
+  if (!hits) return null;
+  if (!hits.length)
+    return (
+      <div className="row small" style={{ fontWeight: 700, color: "var(--green-ink)" }}>
+        <CheckCircle2 size={16} /> No contraindication or interaction found with the current medicines and problem list.
+      </div>
+    );
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {hits.map((h, i) => (
+        <div key={i} style={{ display: "grid", gap: 4, padding: "12px 14px", borderRadius: 12, background: `var(--${h.severity}-soft)`, borderLeft: `4px solid var(--${h.severity}-line)` }}>
+          <b style={{ color: `var(--${h.severity}-ink)` }}><AlertTriangle size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />{h.title}</b>
+          <span className="small">{h.detail}</span>
+          <small style={{ color: "var(--ink-3)" }}>{h.source}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PreStart({ def, rec, summary, patientId }: { def: MedicationDef; rec: any; summary: any; patientId: string }) {
+  const { data: check } = useData<{ hits: SafetyHit[] }>(`/patients/${patientId}/medication-check/${def.code}`, [def.code]);
+  const contraindicated = check?.hits.some((h) => h.severity === "red");
   const items = def.monitoring.map((code) => {
     const r = rec?.results.find((x: any) => x.code === code) ?? rec?.vitals.find((x: any) => x.code === code);
     const m = MEASURES[code];
@@ -211,6 +236,7 @@ function PreStart({ def, rec, summary }: { def: MedicationDef; rec: any; summary
   return (
     <div className="q">
       <div className="label">Pre-start check</div>
+      <SafetyCheck hits={check?.hits ?? null} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
         {items.map((i) => (
           <div key={i.code} className="fact" style={{ background: i.missing ? "var(--orange-soft)" : i.flag ? "var(--red-soft)" : undefined }}>
@@ -226,6 +252,10 @@ function PreStart({ def, rec, summary }: { def: MedicationDef; rec: any; summary
       {missing.length > 0 ? (
         <div className="row small" style={{ fontWeight: 700, color: "var(--orange-ink)" }}>
           <AlertTriangle size={16} /> Safety assessment incomplete: {missing.map((m) => m.label.toLowerCase()).join(", ")} unavailable. Not assumed normal.
+        </div>
+      ) : contraindicated ? (
+        <div className="row small" style={{ fontWeight: 700, color: "var(--red-ink)" }}>
+          <AlertTriangle size={16} /> Contraindicated with the record above: start only after resolving it.
         </div>
       ) : (
         <div className="row small" style={{ fontWeight: 700, color: "var(--green-ink)" }}>
