@@ -120,7 +120,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
           diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan",
-          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics", "acs-discharge": "Open bundle", "chest-pain-cad": "Open pathway", "af-care": "AF-CARE plan", "peri-af-procedure": "Plan anticoagulation", "icd-shock": "Open pathway", "valve-heart-team": "Heart Team decision", "valve-antithrombotic": "Plan antithrombotics", "prosthetic-valve": "Open pathway", "hcm-scd": "Assess SCD risk", "hcm-lvoto": "Open pathway", "cmp-family": "Plan family screening", myocarditis: "Open pathway" } as Record<string, string>)[act.wizard] ?? "Review"}
+          "chest-infection": "Open pathway", pericarditis: "Open pathway", endocarditis: "Open pathway", "pre-procedure": "Open pathway", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics", "acs-discharge": "Open bundle", "chest-pain-cad": "Open pathway", "af-care": "AF-CARE plan", "peri-af-procedure": "Plan anticoagulation", "icd-shock": "Open pathway", "valve-heart-team": "Heart Team decision", "valve-antithrombotic": "Plan antithrombotics", "prosthetic-valve": "Open pathway", "hcm-scd": "Assess SCD risk", "hcm-lvoto": "Open pathway", "cmp-family": "Plan family screening", myocarditis: "Open pathway", "pah-followup": "Assess PAH risk" } as Record<string, string>)[act.wizard] ?? "Review"}
       </button>
     );
   if (act.type === "plan")
@@ -940,6 +940,13 @@ function PhPanel({ p, open }: { p: any; open(o: Open): void }) {
           <b>{p.listed ? [p.listed.title, p.listed.group && p.listed.group !== "Not yet classified" ? p.listed.group : null].filter(Boolean).join(" · ") : "Pulmonary hypertension suspected on echo"}</b>
           <em className={p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? "" : "stop"}>{p.listed?.haemo && p.listed.haemo !== "Not catheterised" ? `Right heart catheter: ${p.listed.haemo.toLowerCase()}` : "Not confirmed by right heart catheterisation"}</em>
         </div>
+        {p.strata && (
+          <div className="cad-drug">
+            <small>PAH risk · four strata (ESC/ERS 2022)</small>
+            <b>{p.strata.category ? `${p.strata.category[0].toUpperCase()}${p.strata.category.slice(1)} risk` : "Not enough data"}</b>
+            <em className={p.strata.category === "low" ? "" : "stop"}>{[p.strata.items.map((i: any) => `${i.label} ${i.value}`).join(" · "), p.strata.missing.length ? `missing ${p.strata.missing.join(", ")}` : null].filter(Boolean).join(" · ") || "Functional class, 6-minute walk, NT-proBNP"}</em>
+          </div>
+        )}
         {p.rhc && (
           <div className="cad-drug">
             <small>Right heart catheter {fmtDay(p.rhc.at, { year: true })}</small>

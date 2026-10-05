@@ -19,6 +19,8 @@ import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
 import { daysBetween } from "./clinical.js";
 import { riskFor, riskModifiers } from "./wizards-cmp.js";
+import { pahStrata } from "./wizards-ph.js";
+import { STRATA_LABEL } from "./ph.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
@@ -674,6 +676,20 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         S("cmr6", "Within 6 months (I B)"),
         a.form === "uncomplicated" ? S("followup", "Uncomplicated: 6, 12 and 24 months") : null,
       ];
+    },
+  },
+  "pah-followup": {
+    stage: (_a, c) => [c.meds.some((m) => ["era", "pde5", "sgc", "prostacyclin"].some((t) => m.tags.includes(t))) ? S("follow", "PAH therapy on the medication list") : S("new", "No PAH therapy on the medication list")],
+    actions: (a, c) => {
+      const r = pahStrata(c);
+      const t = ((a.therapy as string[]) ?? []).filter((x) => x !== "none");
+      if (a.stage === "new") return a.comorbid === "yes" ? [S("mono", "Cardiopulmonary comorbidities")]
+        : r.category === "high" ? [S("combo", "High risk: ERA + PDE5i"), S("parenteral", "High risk: with an IV/SC prostacyclin")]
+        : [S("combo", `${r.category ? STRATA_LABEL[r.category] : "Low or intermediate"} risk without comorbidities`)];
+      if (!r.category) return [];
+      if (r.category === "low") return [S("continue", "Low risk: treatment goal met")];
+      if (r.category === "intermediate-low") return [S("selexipag", "Intermediate-low risk"), t.includes("pde5") ? S("riociguat", "Intermediate-low risk, on a PDE5i") : null];
+      return [S("parenteral", `${STRATA_LABEL[r.category]} risk`), S("transplant", `${STRATA_LABEL[r.category]} risk`)];
     },
   },
   "prosthetic-valve": {

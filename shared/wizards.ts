@@ -11,6 +11,7 @@ import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
+import { PH_WIZARDS } from "./wizards-ph.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -47,7 +48,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
@@ -544,6 +545,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...RHYTHM_WIZARDS,
   ...VALVE_WIZARDS,
   ...CMP_WIZARDS,
+  ...PH_WIZARDS,
 };
 
 // Which medicines each wizard shows beside the questions.

@@ -281,7 +281,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("metformin", "Metformin", "Biguanide", "Diabetes", ["metformin"], ["dm"], "mg", [500, 750, 850, 1000], ["OD", "BID", "TID"], ["egfr", "hba1c"]),
   m("semaglutide", "Semaglutide", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [0.25, 0.5, 1, 1.7, 2, 2.4], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
   m("tirzepatide", "Tirzepatide", "Dual GIP/GLP-1 agonist", "Cardiometabolic", ["glp1"], ["dm", "obesity"], "mg", [2.5, 5, 7.5, 10, 12.5, 15], ["Weekly"], ["weight", "hba1c"], { routes: ["SC"] }),
-  m("sildenafil", "Sildenafil", "PDE-5 inhibitor", "Pulmonary hypertension", [], [], "mg", [20], ["TID"], ["sbp"]),
+  m("sildenafil", "Sildenafil", "PDE-5 inhibitor", "Pulmonary hypertension", ["pde5"], [], "mg", [20], ["TID"], ["sbp"]),
   // ---- Diabetes (ADA Standards of Care 2026 · ESC diabetes & CVD 2023). Label strengths, draft. ----
   m("semaglutide-oral", "Semaglutide (oral)", "GLP-1 receptor agonist", "Cardiometabolic", ["glp1", "glp1-cv"], ["dm", "cad"], "mg", [3, 7, 14], ["OD"], ["weight", "hba1c"]),
   m("canagliflozin", "Canagliflozin", "SGLT2 inhibitor", "Cardiometabolic", ["sglt2"], ["dm", "ckd"], "mg", [100, 300], ["OD"], ["egfr"]),
@@ -525,6 +525,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "arvc-bb", category: "medication", title: "ARVC with ventricular arrhythmia: start a beta-blocker", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
   { id: "myo-cmr", category: "investigation", title: "Cardiac MRI (myocarditis)", completesOn: { type: "study", kind: "cmr" }, offsets: [0, 14, 28] },
   { id: "myo-bb", category: "medication", title: "Myocarditis: beta-blocker for at least 6 months", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
+  { id: "pah-risk", category: "follow_up", title: "PAH: risk assessment (functional class, 6-minute walk, NT-proBNP)", completesOn: { type: "visit" }, offsets: [0, 14, 28] },
   { id: "ph-referral", category: "referral", title: "PH centre referral: right heart catheterisation (pulmonary hypertension work-up)", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "cmp-echo", category: "investigation", title: "ECG and echo (cardiomyopathy follow-up)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },
   { id: "valve-echo", category: "investigation", title: "Echo (valve surveillance)", completesOn: { type: "study", kind: "echo" }, offsets: [0, 14, 28] },

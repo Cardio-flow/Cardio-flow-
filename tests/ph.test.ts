@@ -98,3 +98,38 @@ test("Huda's RHC: pre-capillary PH → listed with its haemodynamics, measuremen
   assert.deepEqual(v.values.map((x: any) => x.code), ["mpap", "pawp", "pvr", "trv"]);
   await assert.rejects(tx((q) => K.recordProcedure(q, doc, pid, { kind: "rhc", date: at(T), details: { mpap: 44 } })), /wedge pressure are required/);
 });
+
+// ---- slice 3: PAH four-strata risk ----
+import { fourStrata } from "../shared/ph.js";
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
+test("four-strata model (ESC/ERS 2022): points per variable, mean rounded to the nearest integer, missing variables", () => {
+  const r = fourStrata({ fc: "III", sixmwd: 350, ntprobnp: 820 });
+  assert.deepEqual(r.items.map((i) => i.score), [3, 2, 3]);
+  assert.equal(r.mean, 2.67);
+  assert.equal(r.category, "intermediate-high");
+  assert.equal(fourStrata({ fc: "II", sixmwd: 480, ntprobnp: 210 }).category, "low");
+  assert.equal(fourStrata({ fc: "II", sixmwd: 400, ntprobnp: 500 }).category, "intermediate-low", "1,2,2 → 1.67 → 2");
+  assert.equal(fourStrata({ fc: "IV", sixmwd: 150, ntprobnp: 2400 }).category, "high");
+  assert.deepEqual(fourStrata({ fc: null, sixmwd: 300, ntprobnp: null }).missing, ["functional class", "NT-proBNP"]);
+});
+
+test("Nadia (PAH on ERA + PDE5i, NYHA III, 6MWD 350, NT-proBNP 820): intermediate-high → orange; the pathway suggests IV/SC prostacyclin and transplant evaluation and dates the reassessment", async () => {
+  const pid = await byName("Nadia Al-Ali");
+  const f = (await rec(pid, "ph.pah-risk"))[0];
+  assert.equal(f.severity, "orange");
+  assert.equal(f.title, "PAH: intermediate-high risk on the latest values — review therapy (goal: low risk)");
+  const w = await tx((q) => getWizard(q, pid, "pah-followup"));
+  assert.deepEqual(w.context.detected.therapy, ["era", "pde5"]);
+  assert.deepEqual(suggest("pah-followup", "stage", {}, w.context).map((x) => x.value), ["follow"]);
+  const a = { stage: "follow", comorbid: "no", therapy: ["era", "pde5"] };
+  assert.deepEqual(suggest("pah-followup", "actions", a, w.context).map((x) => x.value), ["parenteral", "transplant"]);
+  const done = await tx((q) => completeWizard(q, doc, pid, "pah-followup", { answers: { ...a, actions: ["parenteral", "transplant"], reassess: "91" }, recommendationId: f.id } as any));
+  assert.ok(done.assessment!.recommendations.some((x: string) => /IV\/SC prostacyclin analogue and\/or refer for lung transplant/.test(x)));
+  const s = await loadState(db, pid);
+  assert.equal(String(s.plan.find((p) => /^PAH: risk reassessment/.test(p.title))!.due_date).slice(0, 10), addDays(T, 91));
+  assert.ok(s.plan.some((p) => p.title === "Lung transplant evaluation (PAH)"));
+  assert.equal((await rec(pid, "ph.pah-risk")).length, 0);
+  const v = (await tx((q) => summary(q, pid, "sandbox")) as any).ph;
+  assert.equal(v.strata.category, "intermediate-high");
+});

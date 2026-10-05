@@ -32,3 +32,26 @@ export function phEchoProbability(trv: number | null | undefined, signs: string[
   return { probability, categories: cats, trv: trv ?? null };
 }
 export const PROBABILITY_LABEL: Record<PhProbability, string> = { low: "Low", intermediate: "Intermediate", high: "High" };
+
+// PAH follow-up risk (PH module, slice 3): the ESC/ERS 2022 four-strata model, cut-offs confirmed in two
+// sources (COMPERA 2.0 calculator; the guideline table as reprinted): functional class I–II = 1, III = 3,
+// IV = 4; 6MWD >440 m = 1, 320–440 = 2, 165–319 = 3, <165 = 4; NT-proBNP <300 = 1, 300–649 = 2,
+// 650–1100 = 3, >1100 ng/L = 4. The category is the mean of the available variables rounded to the
+// nearest integer: 1 low, 2 intermediate-low, 3 intermediate-high, 4 high. Treatment goal: low risk.
+export type Strata = "low" | "intermediate-low" | "intermediate-high" | "high";
+export const STRATA_LABEL: Record<Strata, string> = { low: "Low", "intermediate-low": "Intermediate-low", "intermediate-high": "Intermediate-high", high: "High" };
+export function fourStrata(x: { fc: string | null; sixmwd: number | null; ntprobnp: number | null }) {
+  const items: { label: string; value: string; score: number }[] = [];
+  const fc = x.fc ? x.fc.replace(/^NYHA\s*/i, "").trim() : null;
+  if (fc === "I" || fc === "II") items.push({ label: "Functional class", value: fc, score: 1 });
+  else if (fc === "III") items.push({ label: "Functional class", value: fc, score: 3 });
+  else if (fc === "IV") items.push({ label: "Functional class", value: fc, score: 4 });
+  if (x.sixmwd != null) items.push({ label: "6-minute walk", value: `${x.sixmwd} m`, score: x.sixmwd > 440 ? 1 : x.sixmwd >= 320 ? 2 : x.sixmwd >= 165 ? 3 : 4 });
+  if (x.ntprobnp != null) items.push({ label: "NT-proBNP", value: `${x.ntprobnp} ng/L`, score: x.ntprobnp < 300 ? 1 : x.ntprobnp < 650 ? 2 : x.ntprobnp <= 1100 ? 3 : 4 });
+  const missing = [!items.some((i) => i.label === "Functional class") && "functional class", x.sixmwd == null && "6-minute walk", x.ntprobnp == null && "NT-proBNP"].filter(Boolean) as string[];
+  if (!items.length) return { items, missing, mean: null, category: null } as const;
+  const mean = items.reduce((s, i) => s + i.score, 0) / items.length;
+  const r = Math.round(mean);
+  const category: Strata = r <= 1 ? "low" : r === 2 ? "intermediate-low" : r === 3 ? "intermediate-high" : "high";
+  return { items, missing, mean: Math.round(mean * 100) / 100, category } as const;
+}

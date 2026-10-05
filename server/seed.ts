@@ -155,7 +155,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
 // Seed v2: the data the guideline rules need (height, lipids, HbA1c, UACR, iron) and a
 // cardiometabolic patient. Idempotent and keyed by MRN, so it also upgrades a sandbox
 // that was seeded by an earlier build. Returns true when it changed anything.
-export const SEED_VERSION = 23;
+export const SEED_VERSION = 24;
 export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = true) {
   const T = today();
   const d = (n: number) => addDays(T, n);
@@ -612,6 +612,19 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
       await K.recordEcho(tx, sys, hu, { date: at(d(-1), "10:00"), quality: "formal", lvef: 62, findings: [], valves: { tr: "Moderate" }, measures: { trv: 3.8, spap: 68 }, phSigns: ["rv-lv", "pa"] });
       await obs(hu, d(-1), [{ code: "sbp", value: 112 }, { code: "hr", value: 92 }, { code: "nt-probnp", value: 980 }, { code: "height", value: 160 }, { code: "weight", value: 64 }]);
       touched.push(hu);
+    }
+    // v24 (PH slice 3): Nadia, 41, idiopathic PAH diagnosed a year ago (pre-capillary on RHC), on macitentan
+    // and tadalafil; now NYHA III, 6MWD 350 m, NT-proBNP 820 → intermediate-high four-strata risk
+    if (seeded < 24 && !(await byMrn("100988305"))) {
+      const na = await K.createPatient(tx, sys, { name: "Nadia Al-Ali", mrn: "100988305", sex: "Female", birthDate: addDays(T, -(41 * 365 + 60)), allergies: "No known drug allergies", conditions: [] });
+      await K.recordProcedure(tx, sys, na, { kind: "rhc", date: at(d(-380)), details: { mpap: 52, pawp: 9, co: 3.4, rap: 9, svo2: 64, vasoreactivity: "Negative" } });
+      const ph = ((await tx.query(`SELECT logical_id FROM cf.condition WHERE patient_id=$1 AND code='ph' LIMIT 1`, [na])).rows[0] as any).logical_id;
+      await K.recordHistory(tx, sys, na, { effectiveAt: at(d(-370)), answers: [{ item: "smoking", answer: "never" }], update: [{ logicalId: ph, attributes: { group: "Group 1 · PAH", haemo: "Pre-capillary" } }] });
+      for (const [code, dose, freq] of [["macitentan", 10, "OD"], ["tadalafil", 40, "OD"]] as const)
+        await K.startMedication(tx, sys, na, { code, doseValue: dose, frequency: freq, route: "PO", indication: "ph", effectiveAt: at(d(-360)) });
+      await obs(na, d(-3), [{ code: "6mwd", value: 350 }, { code: "nt-probnp", value: 820 }, { code: "sbp", value: 104 }, { code: "hr", value: 88 }, { code: "weight", value: 58 }, { code: "height", value: 158 }]);
+      await K.recordObservations(tx, sys, na, { effectiveAt: at(d(-3), "11:00"), items: [{ code: "nyha", text: "III" }], silentEvent: true });
+      touched.push(na);
     }
     await tx.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [siteId, JSON.stringify({ seedVersion: SEED_VERSION })]);
   });

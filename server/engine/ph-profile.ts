@@ -3,7 +3,7 @@
 // haemodynamics, and the PH-specific medicines. Shown when PH is listed or the latest echo gives an
 // intermediate or high probability.
 import { DIAGNOSIS, MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
-import { PH_SIGNS, phEchoProbability } from "../../shared/ph.js";
+import { PH_SIGNS, fourStrata, phEchoProbability } from "../../shared/ph.js";
 import type { PatientState } from "../kernel/state.js";
 
 // the latest echo that measured the TR velocity or recorded a PH sign, with its probability
@@ -32,6 +32,8 @@ export function phProfile(s: PatientState) {
     listed: c ? { title: DIAGNOSIS.ph.display, since: c.onset, group: (c.attributes?.group as string | undefined) ?? null, haemo: (c.attributes?.haemo as string | undefined) ?? null } : null,
     echo: echo ? { at: echo.at, probability: echo.probability, trv: echo.trv, signs: echo.signs.map((k) => PH_SIGNS.find((x) => x.key === k)?.label ?? k), categories: echo.categories } : null,
     rhc,
+    // PAH: the four-strata risk on the latest values
+    strata: c?.attributes?.group === "Group 1 · PAH" ? fourStrata({ fc: s.resolved("nyha").current?.value_text ?? null, sixmwd: s.resolved("6mwd").current?.value_num ?? null, ntprobnp: s.resolved("nt-probnp").current?.value_num ?? null }) : null,
     values: ["mpap", "pawp", "pvr", "trv", "spap", "nt-probnp"].map(value).filter(Boolean) as NonNullable<ReturnType<typeof value>>[],
     meds: meds.map((m) => ({ name: m.name, dose: `${doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)} ${m.frequency ?? ""}`.trim() })),
   };
