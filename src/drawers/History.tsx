@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice } from "../ui";
-import { DIAGNOSIS } from "../../shared/catalog";
+import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
 import { fmtDay } from "../../shared/clinical";
+import { DateField } from "../screens/SuggestLine";
 
 // One editable diagnosis: new (add) or existing (update).
 type Dx = { key: string; code: string; logicalId?: string; attributes: Record<string, any>; onset: string; onsetYear: string; dirty?: boolean; label?: string; expanded?: boolean };
@@ -41,7 +42,8 @@ function initialRow(item: HistoryItem, v: any): Row {
   return { answer: opt, initial: opt, packYears: pack, quitYear: quit, initialDetail: pack + "|" + quit, dx };
 }
 
-export function HistoryDrawer({ patientId, focus, onClose, onDone }: { patientId: string; focus?: "risk" | "cardiac"; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { patientId: string; focus?: "risk" | "cardiac"; summary?: any; onClose(): void; onDone(m?: string, r?: any): void }) {
+  const hints = useMemo(() => riskHints(summary), [summary]);
   const { data } = useData<any>(`/patients/${patientId}/history`);
   const [rows, setRows] = useState<Record<string, Row> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,7 +97,7 @@ export function HistoryDrawer({ patientId, focus, onClose, onDone }: { patientId
   }
 
   const sections: { key: "risk" | "cardiac"; title: string; help: string }[] = [
-    { key: "risk", title: "Risk factors", help: "Yes is a diagnosis on the problem list. No, Unknown and Not assessed are dated statements, so a blank is never read as no." },
+    { key: "risk", title: "Risk factors", help: "One tap each. Yes adds the diagnosis to the problem list; No and ? are dated statements, so a blank is never read as no. Hints come from the record." },
     { key: "cardiac", title: "Past cardiac history", help: "Add each diagnosis with its detail and date (the year is enough when the day is not known)." },
   ];
   const ordered = focus === "cardiac" ? [sections[1], sections[0]] : sections;
@@ -121,10 +123,7 @@ export function HistoryDrawer({ patientId, focus, onClose, onDone }: { patientId
       <div className="drawer-body">
         {!rows && <div className="empty">Loading…</div>}
         {rows && (
-          <label className="field" style={{ maxWidth: 260 }}>
-            <span>History taken on</span>
-            <input type="date" className="input" value={asOf} max={data.today} onChange={(e) => setAsOf(e.target.value)} />
-          </label>
+          <DateField label="History taken on" value={asOf} onChange={setAsOf} today={data.today} max={data.today} quick={[{ label: "Today", days: 0 }]} />
         )}
         {rows &&
           ordered.map((sec) => (
@@ -133,14 +132,127 @@ export function HistoryDrawer({ patientId, focus, onClose, onDone }: { patientId
                 <h3>{sec.title}</h3>
                 <p>{sec.help}</p>
               </div>
-              {HISTORY_ITEMS.filter((i) => i.section === sec.key).map((item) => (
-                <HistoryRow key={item.key} item={item} row={rows[item.key]} view={data.items.find((x: any) => x.key === item.key)} bmi={item.key === "obesity" ? data.bmi : null} onChange={(p) => set(item.key, p)} />
-              ))}
+              {sec.key === "risk" ? (
+                <>
+                  <div className="tap-grid">
+                    {HISTORY_ITEMS.filter((i) => i.section === "risk").map((item) => (
+                      <TapRow key={item.key} item={item} row={rows[item.key]} view={data.items.find((x: any) => x.key === item.key)} hint={hints[item.key]} bmi={item.key === "obesity" ? data.bmi : null} onChange={(p) => set(item.key, p)} />
+                    ))}
+                  </div>
+                  {(() => {
+                    const open = HISTORY_ITEMS.filter((i) => i.section === "risk" && !rows[i.key].answer && !hints[i.key]);
+                    return open.length > 0 ? (
+                      <button type="button" className="btn secondary small tap-rest" onClick={() => setRows((r) => {
+                        const n = { ...r! };
+                        for (const i of open) n[i.key] = { ...n[i.key], answer: i.conditions || i.options!.some((o) => o.value === "no") ? "no" : "never" };
+                        return n;
+                      })}>
+                        Mark the {open.length} unanswered as No / never
+                      </button>
+                    ) : null;
+                  })()}
+                </>
+              ) : (
+                HISTORY_ITEMS.filter((i) => i.section === sec.key).map((item) => (
+                  <HistoryRow key={item.key} item={item} row={rows[item.key]} view={data.items.find((x: any) => x.key === item.key)} bmi={null} onChange={(p) => set(item.key, p)} />
+                ))
+              )}
             </section>
           ))}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>
+  );
+}
+
+// Hints from the record (never answers): guideline diagnostic values and the medicines the patient takes.
+//  - diabetes: HbA1c ≥6.5% (ADA 2026 / ESC 2023 diagnostic threshold) or a glucose-lowering medicine
+//  - obesity: BMI ≥30 kg/m² (WHO)
+//  - CKD: eGFR <60 (KDIGO 2024), with the G stage preselected
+//  - hypertension: a blood-pressure medicine; dyslipidaemia: a lipid-lowering medicine
+type Hint = { text: string; code?: string };
+const KDIGO = (e: number) => (e >= 45 ? "ckd-3a" : e >= 30 ? "ckd-3b" : e >= 15 ? "ckd-4" : "ckd-5");
+function riskHints(s: any): Record<string, Hint> {
+  if (!s) return {};
+  const out: Record<string, Hint> = {};
+  const res = (code: string) => s.results?.find((r: any) => r.code === code)?.current?.value as number | undefined;
+  const meds: { name: string; code: string }[] = (s.medications?.groups ?? []).flatMap((g: any) => g.meds);
+  const on = (pred: (d: any) => boolean) => meds.filter((m) => MEDICATION[m.code] && pred(MEDICATION[m.code])).map((m) => m.name);
+  const a1c = res("hba1c");
+  const dm = on((d) => d.tags.some((t: string) => ["metformin", "insulin", "sulfonylurea", "dpp4", "tzd"].includes(t)));
+  if ((a1c != null && a1c >= 6.5) || dm.length) out.diabetes = { text: [a1c != null && a1c >= 6.5 ? `HbA1c ${a1c}%` : null, dm.length ? `on ${dm.join(", ").toLowerCase()}` : null].filter(Boolean).join(" · "), code: "t2dm" };
+  const egfr = res("egfr");
+  if (egfr != null && egfr < 60) out.ckd = { text: `eGFR ${Math.round(egfr)}`, code: KDIGO(egfr) };
+  const bp = on((d) => d.purpose === "Blood pressure");
+  if (bp.length) out.hypertension = { text: `on ${bp.join(", ").toLowerCase()}` };
+  const lip = on((d) => d.tags.includes("lipid"));
+  if (lip.length) out.dyslipidaemia = { text: `on ${lip.join(", ").toLowerCase()}` };
+  return out;
+}
+
+// One risk factor in one tap: Yes / No / ? (and the smoking states). Yes adds the diagnosis straight away —
+// the hinted or most common one — and shows it as a chip to change.
+const DEFAULT_CODE: Record<string, string> = { diabetes: "t2dm", dyslipidaemia: "dyslipidaemia", hypertension: "htn", obesity: "obesity" };
+function TapRow({ item, row, view, hint, bmi, onChange }: { item: HistoryItem; row: Row; view: any; hint?: Hint; bmi: any; onChange(p: Partial<Row>): void }) {
+  const obeseHint = item.key === "obesity" && bmi && bmi.value >= 30 ? { text: `BMI ${bmi.value.toFixed(1)}` } : null;
+  const h = hint ?? obeseHint ?? null;
+  const choose = (answer: string) => {
+    if (!item.conditions) return onChange({ answer: row.answer === answer ? row.initial : answer });
+    if (answer === "yes") {
+      if (row.dx.length) return onChange({ answer });
+      const code = (h as Hint | null)?.code ?? DEFAULT_CODE[item.key];
+      return onChange({ answer, dx: code ? [{ key: "new-" + code, code, attributes: {}, onset: "", onsetYear: "" }] : [] });
+    }
+    onChange({ answer: row.answer === answer ? row.initial : answer, dx: row.dx.filter((d) => d.logicalId) });
+  };
+  const opts = item.conditions
+    ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }, { value: "unknown", label: "?" }]
+    : item.options!.filter((o) => o.value !== "not-assessed").map((o) => ({ value: o.value, label: o.value === "unknown" ? "?" : o.label.replace(" smoker", "").replace("Never smoked", "Never") }));
+  const codes = item.conditions?.filter((c) => DIAGNOSIS[c] && !DIAGNOSIS[c].hidden) ?? [];
+  const fresh = row.dx.filter((d) => !d.logicalId);
+  return (
+    <div className={`tap-row${row.answer && row.answer !== row.initial ? " changed" : ""}${row.answer === "yes" || item.options?.find((o) => o.value === row.answer)?.present ? " present" : ""}`}>
+      <div className="tap-label">
+        <b>{item.short}</b>
+        <small className={h && row.answer !== "yes" ? "hint" : ""}>
+          {h && row.answer !== "yes" ? `Suggests yes · ${h.text}` : view?.at ? `Recorded ${fmtDay(view.at, { year: true })}` : view?.source === "diagnosis" ? "On the problem list" : "Not recorded"}
+        </small>
+      </div>
+      <div className="tap-opts" role="radiogroup" aria-label={item.label}>
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={row.answer === o.value} className={`tap-o${o.value === "yes" && h && row.answer !== "yes" ? " hinted" : ""}`} onClick={() => choose(o.value)} title={o.value === "unknown" ? "Unknown" : undefined}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {item.conditions && row.answer === "yes" && codes.length > 1 && (fresh.length > 0 || !row.dx.length) && (
+        <div className="tap-sub">
+          {codes.map((c) => (
+            <button key={c} type="button" className="tap-chip" aria-pressed={fresh.some((d) => d.code === c)} onClick={() => onChange({ dx: [...row.dx.filter((d) => d.logicalId), { key: "new-" + c, code: c, attributes: {}, onset: "", onsetYear: "" }] })}>
+              {DIAGNOSIS[c].display.replace(/^Diabetes, /, "").replace(/ \(.*\)$/, "")}
+            </button>
+          ))}
+        </div>
+      )}
+      {item.conditions && row.initial === "yes" && row.answer === "no" && (
+        <div className="tap-sub">
+          <span className="small muted">Leaves the problem list as</span>
+          {(["resolved", "entered_in_error"] as const).map((v) => (
+            <button key={v} type="button" className="tap-chip" aria-pressed={row.resolveAs === v} onClick={() => onChange({ resolveAs: v })}>{v === "resolved" ? "Resolved" : "Entered in error"}</button>
+          ))}
+        </div>
+      )}
+      {!item.conditions && (item.details ?? []).some((d) => row.answer && d.when.includes(row.answer)) && (
+        <div className="tap-sub">
+          {item.details!.filter((d) => d.when.includes(row.answer!)).map((d) => (
+            <label key={d.key} className="tap-num">
+              <span>{d.label}</span>
+              <input inputMode="numeric" value={(row as any)[d.key] ?? ""} onChange={(e) => onChange({ [d.key]: e.target.value.replace(/[^\d]/g, "").slice(0, 4) } as any)} />
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -164,7 +276,14 @@ function HistoryRow({ item, row, view, bmi, onChange }: { item: HistoryItem; row
       <div className="hx-input">
         {item.conditions ? (
           <>
-            <SingleChoice label={item.label} options={CONDITION_ANSWERS} value={row.answer} onChange={(v) => onChange({ answer: v, dx: v === "yes" ? row.dx : row.dx.filter((d) => d.logicalId) })} />
+            <div className="tap-opts" role="radiogroup" aria-label={item.label}>
+              {CONDITION_ANSWERS.filter((o) => o.value !== "not-assessed").map((o) => (
+                <button key={o.value} type="button" role="radio" aria-checked={row.answer === o.value} className="tap-o" title={o.label}
+                  onClick={() => onChange({ answer: o.value, dx: o.value === "yes" ? row.dx : row.dx.filter((d) => d.logicalId) })}>
+                  {o.value === "unknown" ? "?" : o.label}
+                </button>
+              ))}
+            </div>
             {row.initial === "yes" && row.answer === "no" && (
               <div className="hx-resolve">
                 <span>The diagnosis will leave the problem list. Was it</span>
