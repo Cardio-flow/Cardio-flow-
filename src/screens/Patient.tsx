@@ -186,7 +186,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "med-action" && <MedicationAction patientId={id} summary={s} medId={open.medId} initial={open.action} initialDose={open.dose} initialReason={open.reason} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-add" && <AddPlan patientId={id} template={open.template} medicationId={open.medicationId} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-item" && <PlanItem patientId={id} planId={open.planId} onClose={close} onDone={done} open={setOpen} />}
-      {open?.kind === "echo" && <AddEcho patientId={id} contextId={ctx?.id} onClose={close} onDone={done} />}
+      {open?.kind === "echo" && <AddEcho patientId={id} contextId={ctx?.id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "study" && <AddStudy patientId={id} kind={open.studyKind} initial={open.initial} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}

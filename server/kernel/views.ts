@@ -2,7 +2,7 @@ import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
 import { cadProfile } from "../engine/cad-profile.js";
 import { rhythmProfile } from "../engine/rhythm-profile.js";
-import { valveProfile } from "../engine/valve-profile.js";
+import { latestValveEcho, valveProfile } from "../engine/valve-profile.js";
 import { cmpProfile } from "../engine/cmp-profile.js";
 import { phProfile } from "../engine/ph-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
@@ -360,6 +360,11 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     planSource: lastSource ? { kind: lastSource.kind, at: lastSource.ended_at ?? lastSource.started_at } : null,
     medications: medicationGroups(s),
     results: results(s),
+    // the last echo's valve grades: the echo form offers "same as last echo"
+    lastEcho: (() => {
+      const e = latestValveEcho(s);
+      return e ? { at: e.at, valves: e.valves, mrType: e.mrType } : null;
+    })(),
     lvef: (() => {
       const r = s.resolved("lvef");
       return r.current ? { value: r.current.value_num, at: r.current.effective_at, quality: r.current.quality, reason: r.reason, latestQuality: r.latest?.quality, latestAt: r.latest?.effective_at, latestValue: r.latest?.value_num } : null;

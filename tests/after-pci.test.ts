@@ -102,3 +102,11 @@ test("PCI on apixaban with ticagrelor: clopidogrel only; ticagrelor switched; tr
   assert.equal(s.plan.find((p) => p.medication_id === clop.id)!.due_date, addDays(addDays(T, -1), 182));
   assert.ok(s.meds.some((m) => m.code === "pantoprazole"));
 });
+
+test("echo through the API: LVEF alone, or a few valves and measures, is accepted (only LVEF is required)", async () => {
+  const pid = await tx((q) => K.createPatient(q, doc, { name: "Echo " + rnd(), mrn: "E" + rnd() + Date.now(), sex: "Female", birthDate: "1960-01-01", conditions: [] }));
+  await call("POST", `/patients/${pid}/echo`, { date: nowIso(), quality: "formal", lvef: 55 });
+  await call("POST", `/patients/${pid}/echo`, { date: nowIso(), quality: "formal", lvef: 50, valves: { as: "Severe" }, measures: { "av-vmax": 4.3 } });
+  const s = await loadState(db, pid);
+  assert.equal(s.studies.filter((x) => x.kind === "echo").length, 2);
+});
