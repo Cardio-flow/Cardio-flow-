@@ -12,6 +12,8 @@ export const PCI_SETTINGS = [
 ] as const;
 export const PCI_VESSELS = ["Left main", "LAD", "LCx", "RCA", "Graft"] as const;
 export const PCI_DEVICES = ["Drug-eluting stent", "Drug-coated balloon", "Balloon only"] as const;
+// in-lab and early complications, recorded as they happened (descriptive; no threshold attached)
+export const PCI_COMPLICATIONS = ["Coronary dissection", "No-reflow / slow flow", "Coronary perforation", "Side-branch occlusion", "Acute stent thrombosis", "Peri-procedural MI", "VT / VF needing treatment", "Access-site haematoma or bleeding", "Contrast reaction", "Contrast-associated kidney injury"] as const;
 export const COMPLEX_FEATURES = ["≥3 vessels treated", "≥3 stents", "≥3 lesions", "Bifurcation with 2 stents", "Total stent length >60 mm", "Chronic total occlusion"] as const;
 export const CABG_GRAFTS = ["LIMA to LAD", "Other arterial graft", "Vein grafts"] as const;
 export const ACCESS = ["Radial", "Femoral"] as const;
@@ -126,12 +128,24 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
     if (!setting) throw new Error("Setting is required");
     const vessels = someOf(PCI_VESSELS, a.vessels, "Vessels");
     if (!vessels.length) throw new Error("Choose the vessel(s) treated");
-    const device = oneOf(PCI_DEVICES, a.device, "Device") ?? "Drug-eluting stent";
-    const stents = a.stents == null || a.stents === "" ? null : Number(a.stents);
-    if (stents != null && (!Number.isInteger(stents) || stents < 0 || stents > 12)) throw new Error("Number of stents: 0–12");
+    // devices: several may be used in one procedure (DES and DCB); `device` stays the main one for older readers
+    const picked = a.devices != null ? someOf(PCI_DEVICES, a.devices, "Devices") : [oneOf(PCI_DEVICES, a.device, "Device") ?? "Drug-eluting stent"];
+    const devices = PCI_DEVICES.filter((d) => picked.includes(d)) as string[];
+    if (!devices.length) throw new Error("Choose the device(s) used");
+    const count = (v: unknown, what: string) => {
+      const n = v == null || v === "" ? null : Number(v);
+      if (n != null && (!Number.isInteger(n) || n < 0 || n > 12)) throw new Error(`${what}: 0–12`);
+      return n;
+    };
+    const stents = devices.includes("Drug-eluting stent") ? count(a.stents, "Number of stents") : null;
+    const dcb = devices.includes("Drug-coated balloon") ? count(a.dcb, "Number of drug-coated balloons") : null;
+    const complex = someOf(COMPLEX_FEATURES, a.complex, "Complex PCI");
+    // ≥3 stents is part of the ESC complex-PCI definition: derived from the count
+    if (stents != null && stents >= 3 && !complex.includes("≥3 stents")) complex.push("≥3 stents");
     return {
-      setting, vessels, device, stents,
-      complex: someOf(COMPLEX_FEATURES, a.complex, "Complex PCI"),
+      setting, vessels, device: devices[0], devices, stents, dcb,
+      complex,
+      complications: someOf(PCI_COMPLICATIONS, a.complications, "Complications"),
       access: oneOf(ACCESS, a.access, "Access"),
     };
   }
@@ -190,8 +204,10 @@ export const isComplexPci = (p: { kind: string; attributes: Record<string, any> 
 export function procedureSummary(kind: string, a: Record<string, any>) {
   if (kind === "pci") {
     const setting = PCI_SETTINGS.find((s) => s.value === a.setting)?.label ?? "";
-    const dev = a.device === "Drug-eluting stent" ? (a.stents ? `DES ×${a.stents}` : "DES") : a.device === "Drug-coated balloon" ? "DCB" : a.device === "Balloon only" ? "balloon only" : "";
-    return [`${(a.vessels ?? []).join(", ")}${dev ? ` ${dev}` : ""}`, setting, a.complex?.length ? "complex PCI" : null].filter(Boolean).join(" · ");
+    const devs: string[] = a.devices ?? (a.device ? [a.device] : []);
+    const dev = devs.map((d) => (d === "Drug-eluting stent" ? (a.stents ? `DES ×${a.stents}` : "DES") : d === "Drug-coated balloon" ? (a.dcb ? `DCB ×${a.dcb}` : "DCB") : "balloon only")).join(" + ");
+    const comp: string[] = a.complications ?? [];
+    return [`${(a.vessels ?? []).join(", ")}${dev ? ` ${dev}` : ""}`, setting, a.complex?.length ? "complex PCI" : null, comp.length ? `complication: ${comp.map((c) => c.toLowerCase()).join(", ")}` : null].filter(Boolean).join(" · ");
   }
   if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null, a.remote === "Enrolled" ? "remote monitoring" : null].filter(Boolean).join(" · ");
   if (kind === "ablation") return [(a.targets ?? []).join(" + "), a.energy, a.result !== "Acute success" ? a.result?.toLowerCase() : null].filter(Boolean).join(" · ");

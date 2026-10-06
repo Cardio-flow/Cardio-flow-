@@ -8,6 +8,7 @@ import { loadState } from "./kernel/state.js";
 import { preStartCheck } from "./engine/med-safety.js";
 import { bookMonitoringAtStart } from "./engine/med-rules.js";
 import { mavacamtenStart } from "../shared/mavacamten.js";
+import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -268,6 +269,36 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       })
       .parse(req.body);
     await write(res, id, (tx, a) => K.recordProcedure(tx, a, id, input));
+  }));
+  // after PCI: the next-steps sheet (antithrombotic plan as a timeline, secondary prevention)
+  app.get("/api/patients/:id/after-pci", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async (tx) => {
+      await patientInSite(tx, actor(res), id);
+      return { context: pciContext(await loadState(tx, id)) };
+    }));
+  }));
+  app.post("/api/patients/:id/after-pci", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z
+      .object({
+        regimen: z.enum(["dapt", "oac"]),
+        p2y12: z.enum(["ticagrelor", "prasugrel", "clopidogrel"]),
+        aspirinDose: z.union([z.literal(75), z.literal(81), z.literal(100)]),
+        stops: z.array(z.object({ target: z.enum(["aspirin", "p2y12"]), title: z.string().trim().min(3).max(160), dueDate: isoDate })).max(3),
+        extras: z.array(z.enum(["statin", "statin-up", "ppi", "rehab", "echo", "lipids"])).max(6),
+        overrides: z.record(z.string(), z.string().max(300)).optional(),
+        contextId: uuidS.nullish(),
+      })
+      .parse(req.body);
+    await write(res, id, async (tx, a) => {
+      try {
+        return await applyAfterPci(tx, a, id, await loadState(tx, id), input);
+      } catch (e) {
+        if (e instanceof Refused) throw new ApiError(409, e.message);
+        throw e;
+      }
+    });
   }));
   app.post("/api/patients/:id/studies", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

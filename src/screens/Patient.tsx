@@ -20,6 +20,7 @@ import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
 import { DocumentsDrawer } from "../drawers/Documents";
+import { AfterPci } from "../drawers/AfterPci";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -39,7 +40,8 @@ export type Open =
   | { kind: "identity"; identity: any }
   | { kind: "status" }
   | { kind: "pathways" }
-  | { kind: "documents" };
+  | { kind: "documents" }
+  | { kind: "after-pci" };
 
 const TABS = [
   ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -189,11 +191,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
       {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}
-      {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} />}
+      {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
       {open?.kind === "pathways" && <Pathways onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} />}
+      {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>

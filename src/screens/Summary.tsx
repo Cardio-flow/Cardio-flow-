@@ -38,6 +38,13 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
 
 export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   const act = a.action ?? {};
+  // after a PCI, the stop dates are set on the next-steps sheet (timeline) rather than in the pathway
+  if (act.type === "wizard" && act.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title))
+    return (
+      <button className="go" onClick={() => open({ kind: "after-pci" })}>
+        Plan after PCI
+      </button>
+    );
   if (act.type === "wizard")
     return (
       <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: a.id })}>

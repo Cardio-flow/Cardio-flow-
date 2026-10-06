@@ -4,30 +4,30 @@ import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SingleChoice } from "../ui";
 import {
   ABLATION_ENERGY, ABLATION_RESULT, ABLATION_TARGETS, ACCESS, CABG_GRAFTS, COMPLEX_FEATURES, CV_METHOD, CV_PREP, CV_RESULT, CV_RHYTHM,
-  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, VALVE_POSITIONS, VALVE_PROCEDURES, VALVE_PROSTHESES, VALVE_ACCESS, MECH_DESIGNS, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, RHC_NUMBERS, VASOREACTIVITY, cleanProcedure, procedureSummary, rhcClass, rhcPvr, type ProcedureKind,
+  DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, VALVE_POSITIONS, VALVE_PROCEDURES, VALVE_PROSTHESES, VALVE_ACCESS, MECH_DESIGNS, PCI_COMPLICATIONS, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, RHC_NUMBERS, VASOREACTIVITY, cleanProcedure, procedureSummary, rhcClass, rhcPvr, type ProcedureKind,
 } from "../../shared/procedures";
 
 const opts = (l: readonly string[]) => l.map((x) => ({ value: x, label: x }));
 
 // Record a procedure with its exact date: PCI or CABG (antithrombotic durations count from here), or a
 // device implant, ablation or cardioversion (rhythm & devices).
-export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone, onAfterPci }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; onClose(): void; onDone(m?: string, r?: any): void; onAfterPci?(): void }) {
   const { data: health } = useData<any>("/health");
   const [kind, setKind] = useState<ProcedureKind>(group === "rhythm" ? "device" : group === "valve" ? "valve" : group === "ph" ? "rhc" : "pci");
   const [date, setDate] = useState("");
-  const [v, setV] = useState<Record<string, any>>({ device: "Drug-eluting stent", complex: [] });
+  const [v, setV] = useState<Record<string, any>>({ devices: ["Drug-eluting stent"], complex: [], complications: [] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = (k: string, x: any) => setV((o) => ({ ...o, [k]: x }));
   const details = kind === "pci"
-    ? { setting: v.setting, vessels: v.vessels ?? [], device: v.device, stents: v.device === "Drug-eluting stent" && v.stents ? Number(v.stents) : null, complex: v.complex ?? [], access: v.access ?? null }
+    ? { setting: v.setting, vessels: v.vessels ?? [], devices: v.devices ?? [], stents: (v.devices ?? []).includes("Drug-eluting stent") ? Number(v.stents ?? 1) : null, dcb: (v.devices ?? []).includes("Drug-coated balloon") ? Number(v.dcb ?? 1) : null, complex: v.complex ?? [], complications: v.complications ?? [], access: v.access ?? null }
     : kind === "cabg" ? { grafts: v.grafts ?? [], count: v.count ? Number(v.count) : null, setting: v.cabgSetting ?? "elective" }
     : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null, remote: v.remote ?? null }
     : kind === "ablation" ? { targets: v.targets ?? [], energy: v.energy ?? null, result: v.ablResult ?? "Acute success" }
     : kind === "valve" ? { position: v.position ?? null, procedure: v.vproc ?? null, prosthesis: v.prosthesis ?? null, design: v.design ?? null, access: v.vaccess ?? null }
     : kind === "rhc" ? { ...Object.fromEntries(RHC_NUMBERS.map((n) => [n.key, v[n.key] === undefined || v[n.key] === "" ? null : Number(v[n.key])])), vasoreactivity: v.vasoreactivity ?? "Not done" }
     : { method: v.method ?? null, rhythm: v.cvRhythm ?? "Atrial fibrillation", prep: v.prep ?? null, result: v.cvResult ?? "Sinus rhythm restored" };
-  const missing = (kind === "pci" ? [!v.setting && "setting", !(v.vessels ?? []).length && "vessels"]
+  const missing = (kind === "pci" ? [!v.setting && "setting", !(v.vessels ?? []).length && "vessels", !(v.devices ?? []).length && "device"]
     : kind === "cabg" ? [!(v.grafts ?? []).length && "grafts"]
     : kind === "device" ? [!v.devType && "device"]
     : kind === "ablation" ? [!(v.targets ?? []).length && "target"]
@@ -42,7 +42,10 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     try {
       const at = new Date(`${date}T10:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/procedures`, { body: { kind, date: at, details, contextId: contextId ?? null } });
-      onDone(`${PROCEDURE_LABEL[kind]} recorded`, r);
+      // a PCI's "stop dates not set" alert is answered on the sheet that opens next: no alert toast
+      onDone(`${PROCEDURE_LABEL[kind]} recorded`, kind === "pci" && onAfterPci ? undefined : r);
+      // a PCI goes straight on to its next steps: the antithrombotic plan and secondary prevention
+      if (kind === "pci") onAfterPci?.();
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -83,17 +86,27 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
               <div className="label">Vessels treated</div>
               <MultiChoice options={PCI_VESSELS.map((x) => ({ value: x, label: x }))} value={v.vessels ?? []} onChange={(x) => set("vessels", x)} />
             </div>
-            <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
-              <div className="q">
-                <div className="label">Device</div>
-                <SingleChoice label="Device" options={PCI_DEVICES.map((x) => ({ value: x, label: x }))} value={v.device} onChange={(x) => set("device", x)} />
+            <div className="q">
+              <div className="label">Devices used</div>
+              <div className="ap-devs">
+                {PCI_DEVICES.map((d) => {
+                  const on = (v.devices ?? []).includes(d);
+                  const key = d === "Drug-eluting stent" ? "stents" : d === "Drug-coated balloon" ? "dcb" : null;
+                  return (
+                    <div key={d} className={`ap-dev${on ? " on" : ""}`}>
+                      <button type="button" role="checkbox" aria-checked={on} onClick={() => set("devices", on ? (v.devices ?? []).filter((x: string) => x !== d) : [...(v.devices ?? []), d])}>{d}</button>
+                      {on && key && (
+                        <span className="ap-count" aria-label={`Number of ${d === "Drug-eluting stent" ? "stents" : "balloons"}`}>
+                          <button type="button" onClick={() => set(key, Math.max(1, Number(v[key] ?? 1) - 1))} aria-label="Fewer">−</button>
+                          <b>{v[key] ?? 1}</b>
+                          <button type="button" onClick={() => set(key, Math.min(12, Number(v[key] ?? 1) + 1))} aria-label="More">+</button>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              {v.device === "Drug-eluting stent" && (
-                <label className="field" style={{ maxWidth: 140 }}>
-                  <span>Number of stents</span>
-                  <input type="number" min={1} max={12} className="input" value={v.stents ?? ""} onChange={(e) => set("stents", e.target.value)} />
-                </label>
-              )}
+              {Number(v.stents ?? 1) >= 3 && (v.devices ?? []).includes("Drug-eluting stent") && <div className="help">≥3 stents counts as complex PCI (ESC).</div>}
             </div>
             <div className="q">
               <div className="label">Complex PCI (any of these)</div>
@@ -103,6 +116,10 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
             <div className="q">
               <div className="label">Access</div>
               <Segmented label="Access" options={ACCESS.map((x) => ({ value: x, label: x }))} value={v.access} onChange={(x) => set("access", x)} />
+            </div>
+            <div className="q">
+              <div className="label">Complications <span className="muted">(none if left empty)</span></div>
+              <MultiChoice options={PCI_COMPLICATIONS.map((x) => ({ value: x, label: x }))} value={v.complications ?? []} onChange={(x) => set("complications", x)} />
             </div>
           </>
         ) : kind === "rhc" ? (
