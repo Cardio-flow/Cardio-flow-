@@ -26,12 +26,30 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
   return { answers, suggested: [...suggested] };
 }
 
-// the pathway that usually follows, offered on the confirm step
-export const NEXT: Record<string, string> = {
-  "acs-discharge": "antithrombotic",
-  "chest-pain-cad": "antithrombotic",
-  bleeding: "antithrombotic",
-  "post-pe": "ph-suspected",
-  "hcm-scd": "hcm-lvoto",
-  "hcm-lvoto": "cmp-family",
+// Joined pathways: when the answers call for it, the pathway carries straight on into the one that follows,
+// as one flow with one Confirm (both recorded together). The condition reads the answers given, so the
+// second part appears only when it applies to this patient.
+export type Join = { next: string; when: (a: Answers, ctx: WizardContext) => boolean; why: string };
+const has = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
+export const JOIN: Record<string, Join> = {
+  "acs-discharge": { next: "antithrombotic", when: () => true, why: "Durations and stop dates of the antithrombotic therapy after this ACS" },
+  "chest-pain-cad": {
+    next: "antithrombotic",
+    when: (a) => ["ste", "dynamic"].includes(String(a.ecg)) || a.troponin === "rising" || ["stopped", "missed", "none"].includes(String(a.adherence)),
+    why: "A new ACS or interrupted antiplatelet therapy: set the antithrombotic plan again",
+  },
+  bleeding: {
+    next: "antithrombotic",
+    when: (_a, ctx) => !!ctx.coronary && ctx.meds.some((m) => m.tags.includes("antiplatelet")),
+    why: "Bleeding on antiplatelet therapy after ACS / PCI: revise the antithrombotic plan",
+  },
+  "af-care": { next: "peri-af-procedure", when: (a) => has(a, "rhythm", "cardioversion") || has(a, "rhythm", "ablation"), why: "Cardioversion or ablation planned: date the anticoagulation around it" },
+  pericarditis: { next: "myocarditis", when: (a) => a.myocardium === "yes", why: "Myocardial involvement (myopericarditis): myocarditis work-up" },
+  "post-pe": { next: "ph-suspected", when: (a) => a.symptoms === "yes" && a.time === "3m", why: "Breathless after ≥3 months of anticoagulation: work up pulmonary hypertension" },
+  "hcm-scd": { next: "hcm-lvoto", when: () => true, why: "Symptoms and LVOT obstruction" },
+  "hcm-lvoto": { next: "cmp-family", when: () => true, why: "Family screening" },
+};
+export const joinFor = (wizardId: string, a: Answers, ctx: WizardContext | null) => {
+  const j = JOIN[wizardId];
+  return j && ctx && WIZARDS[j.next] && j.when(a, ctx) ? j : null;
 };

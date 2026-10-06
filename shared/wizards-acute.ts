@@ -401,7 +401,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
         id: "features", title: "Features",
         questions: [
           { id: "features", label: "Features", type: "multi", required: true, options: [{ value: "gi", label: "Nausea / vomiting" }, { value: "visual", label: "Visual disturbance" }, { value: "confusion", label: "Confusion" }, { value: "brady", label: "Bradycardia / AV block" }, { value: "arrhythmia", label: "Ventricular arrhythmia" }, { value: "none", label: "None (level only)" }] },
-          { id: "causes", label: "Contributors", type: "multi", options: [{ value: "renal", label: "Falling renal function" }, { value: "lowk", label: "Low potassium" }, { value: "amiodarone", label: "Amiodarone / verapamil", detectTag: ["qt", "ndhp-ccb"] }, { value: "age", label: "Age / low weight" }] },
+          { id: "causes", label: "Contributors", type: "multi", options: [{ value: "renal", label: "Falling renal function" }, { value: "lowk", label: "Low potassium" }, { value: "amiodarone", label: "Amiodarone / dronedarone / verapamil", detectCode: ["amiodarone", "dronedarone", "verapamil"] }, { value: "age", label: "Age / low weight" }] },
         ],
       },
       {

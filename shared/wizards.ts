@@ -12,6 +12,7 @@ import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
 import { PH_WIZARDS } from "./wizards-ph.js";
+import { suggest } from "./wizard-guidance.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -25,6 +26,8 @@ export type Option = {
   effects?: Effect;
   // prefilled (AUTO) when the patient takes a drug with one of these tags
   detectTag?: string[];
+  // prefilled (AUTO) when the patient takes one of these medicines (catalogue codes): narrower than a tag
+  detectCode?: string[];
   // prefilled (AUTO) when the record holds one of these diagnosis codes, or the latest lab is above a value
   detectCondition?: string[];
   detectLab?: { code: string; above: number };
@@ -508,7 +511,7 @@ export const WIZARDS: Record<string, WizardDef> = {
             help: "Items marked AUTO were detected from the record.",
             options: [
               { value: "bb", label: "Beta-blocker" }, { value: "ivabradine", label: "Ivabradine" }, { value: "digoxin", label: "Digoxin" },
-              { value: "amiodarone", label: "Amiodarone / sotalol" }, { value: "ccb", label: "Diltiazem / verapamil" }, { value: "hyperkalaemia", label: "Hyperkalaemia" },
+              { value: "amiodarone", label: "Amiodarone / dronedarone / sotalol" }, { value: "ccb", label: "Diltiazem / verapamil" }, { value: "hyperkalaemia", label: "Hyperkalaemia" },
               { value: "thyroid", label: "Hypothyroidism" }, { value: "ischaemia", label: "Ischaemia" },
             ],
           },
@@ -550,6 +553,38 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
 };
+
+// Closing summary for every pathway that has no summary of its own (audit, 6 Oct): what was found, the
+// follow-up, and the guideline recommendations that apply to these answers (the same cited suggestions the
+// steps show). Saved with the decision, so the Journey reads why the plan was made.
+const PLAN_QUESTIONS = new Set(["actions", "recheck", "review", "now", "post", "monitoring", "after", "followup", "reassess"]);
+const FLAG_QUESTIONS = new Set(["redflags", "highrisk", "instability", "features", "hmod"]);
+function closingSummary(def: WizardDef) {
+  return (a: Answers, ctx: WizardContext): Assessment => {
+    const rows: Assessment["rows"] = [];
+    const recs: string[] = [];
+    for (const st of def.steps)
+      for (const q of visibleQuestions(st, a)) {
+        if (!q.options) continue;
+        const allowed = new Set(optionsFor(q, ctx).map((o) => o.value));
+        for (const x of suggest(def.id, q.id, a, ctx, allowed)) if (x.value !== "none" && !recs.includes(x.why)) recs.push(x.why);
+        if (PLAN_QUESTIONS.has(q.id) || q.type !== "single" && q.type !== "multi") continue;
+        const v = a[q.id];
+        const vals = Array.isArray(v) ? v : v != null && v !== "" ? [String(v)] : [];
+        if (!vals.length) continue;
+        const flagged = FLAG_QUESTIONS.has(q.id);
+        rows.push({ label: q.label, value: vals.map((x) => q.options!.find((o) => o.value === x)?.label ?? x).join(" · "), tone: flagged ? (vals.some((x) => x !== "none") ? "orange" : "green") : undefined });
+      }
+    const follow: string[] = [];
+    const days = Number(a.recheck);
+    if (a.recheck != null && a.recheck !== "" && Number.isFinite(days)) follow.push(`${(def.recheck?.title ?? "Renal function and potassium check")} · ${fmtDay(addDays(ctx.today, days))}`);
+    const rq = def.steps.flatMap((st) => st.questions).find((q) => q.id === "review");
+    if (a.review && a.review !== "none") follow.push(rq?.options?.find((o) => o.value === a.review)?.label ?? String(a.review));
+    if (follow.length) rows.push({ label: "Follow-up", value: follow.join(" · ") });
+    return { heading: `${def.title}: summary`, rows, recommendations: recs };
+  };
+}
+for (const w of Object.values(WIZARDS)) w.assess ??= closingSummary(w);
 
 // Which medicines each wizard shows beside the questions.
 export const RELEVANT_TAGS: Record<string, string[]> = {

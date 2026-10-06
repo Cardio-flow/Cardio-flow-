@@ -475,6 +475,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       if (a.setting === "ccs") return [hbr && !highIschaemic(a) ? S("1-3m", "Elective PCI with high bleeding risk, not high ischaemic risk: DAPT 1–3 months (ESC CCS 2024, I A)") : S("6m", "Elective PCI: DAPT 6 months (ESC CCS 2024)")];
       return [];
     },
+    sapt: (a, c) => [a.setting === "acs" && a.dapt === "3-6m" && on(c, "p2y12") ? S("p2y12", "Event-free after 3–6 months of DAPT: single antiplatelet, preferably a P2Y12 inhibitor (ESC ACS 2023, IIa A)") : null],
     tat: (a) => [highIschaemic(a) && !isHbr(a) ? S("1m", "High ischaemic risk without high bleeding risk: triple therapy up to 1 month (ESC ACS 2023)") : S("1w", "Triple therapy up to 1 week, then stop aspirin (ESC ACS 2023 / CCS 2024, I A)")],
     dual: (a) => [a.setting === "ccs" ? S("6m", "Elective PCI: anticoagulant + clopidogrel to 6 months, then anticoagulant alone (ESC CCS 2024)") : isHbr(a) ? S("6m", "ACS with high bleeding risk: consider stopping the antiplatelet at 6 months (ESC ACS 2023)") : a.setting === "acs" ? S("12m", "ACS: anticoagulant + clopidogrel to 12 months, then anticoagulant alone (ESC ACS 2023, I A)") : null],
     now: (a, c) => {
@@ -501,6 +502,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         risk === "stemi" && S("cath-now", "ST elevation with ongoing ischaemia: immediate primary PCI (ESC ACS 2023, I A)"),
         risk === "very-high" && S("cath-now", "Very high-risk NSTE-ACS: immediate invasive strategy <2 h (ESC ACS 2023, I C)"),
         risk === "high" && S("invasive-24", "NSTE-ACS: early invasive strategy within 24 h (ESC ACS 2023, IIa A)"),
+        (risk === "stemi" || risk === "very-high" || risk === "high") && !on(c, "oac") && S("anticoag", "Parenteral anticoagulation for all patients at the diagnosis of ACS (ESC ACS 2023, I A)"),
+        (risk === "high" || risk === "possible") && S("admit", "ACS not yet excluded or confirmed: admit with ECG rhythm monitoring"),
         a.ecg === "not-done" && S("ecg", "ECG within 10 minutes (ESC ACS 2023, I B)"),
         a.troponin === "pending" && S("serial-trop", "hs-troponin 0 h/1 h or 0 h/2 h (ESC ACS 2023, I B)"),
         (a.adherence === "stopped" || a.adherence === "missed") && S("restart-ap", "Interrupted antiplatelet therapy after PCI: restart unless bleeding forbids it"),

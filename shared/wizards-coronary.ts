@@ -4,7 +4,7 @@
 // no PCI) and each stop is a dated plan item linked to the medicine, so the Coronary panel shows it.
 // Sources:
 //  - 2023 ESC ACS: aspirin + P2Y12 inhibitor for 12 months by default (I A); in event-free patients
-//    single antiplatelet after 3–6 months (IIa A); in high bleeding risk, single antiplatelet after
+//    single antiplatelet (preferably a P2Y12 inhibitor) after 3–6 months (IIa A); in high bleeding risk, single antiplatelet after
 //    1 month of DAPT (IIb A); de-escalation not in the first 30 days. With an oral anticoagulant:
 //    triple therapy up to 1 week (I A), up to 1 month if high ischaemic risk; then anticoagulant +
 //    one antiplatelet (clopidogrel) to 12 months (I A), then anticoagulant alone; ticagrelor or
@@ -13,6 +13,8 @@
 //  - 2024 ESC CCS: after PCI, 6 months of aspirin + clopidogrel; 1–3 months if high bleeding risk
 //    and not high ischaemic risk (I A); then clopidogrel or aspirin monotherapy (I A); with an
 //    anticoagulant, triple therapy up to 1 week, then anticoagulant + clopidogrel to 6 months.
+//  - 2023 ESC ACS: parenteral anticoagulation for all patients at the time of diagnosis (I A) — agent
+//    and dose per local protocol (recurrent chest pain pathway).
 //  - ARC-HBR (Urban 2019): high bleeding risk = ≥1 major or ≥2 minor criteria.
 // CardioFlow never gives loading doses; clopidogrel 75 mg daily is the maintenance dose.
 import { addDays, localDay } from "./clinical.js";
@@ -140,6 +142,8 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
             options: [
               { value: "cath-now", label: "Immediate coronary angiography (STEMI pathway / very high risk)", effects: { plan: [{ category: "procedure", title: "Immediate coronary angiography (primary PCI pathway)", days: 0, completesOn: { type: "manual" } }] } },
               { value: "invasive-24", label: "Invasive angiography within 24 h", effects: { plan: [{ category: "procedure", title: "Invasive coronary angiography within 24 h", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "admit", label: "Admit with ECG monitoring", hint: "Possible or confirmed ACS", effects: { plan: [{ category: "follow_up", title: "Admission with ECG monitoring (possible ACS)", days: 0, completesOn: { type: "visit" } }] } },
+              { value: "anticoag", label: "Parenteral anticoagulation (agent and dose per local protocol)", hint: "At the diagnosis of ACS (ESC ACS 2023, I A)", effects: { plan: [{ category: "medication", title: "Parenteral anticoagulation at ACS diagnosis (agent and dose per local protocol)", days: 0, completesOn: { type: "manual" } }] } },
               { value: "serial-trop", label: "Serial hs-troponin (0 h/1 h or 0 h/2 h)", effects: { plan: [{ category: "monitoring", title: "Serial hs-troponin", days: 0, completesOn: { type: "lab", codes: ["hs-troponin"] } }] } },
               { value: "ecg", label: "12-lead ECG (repeat)", effects: { plan: [{ category: "investigation", title: "12-lead ECG", days: 0, completesOn: { type: "study", kind: "ecg" } }] } },
               { value: "restart-ap", label: "Restart / continue antiplatelet therapy", effects: { plan: [{ category: "medication", title: "Restart antiplatelet therapy (interrupted after PCI / ACS)", days: 0, completesOn: { type: "manual" } }] } },
@@ -314,6 +318,7 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
             options: [
               { value: "aspirin", label: "Aspirin", hint: "Continue aspirin; stop the P2Y12 inhibitor" },
               { value: "clopidogrel", label: "Clopidogrel", hint: "Continue / switch to clopidogrel; stop aspirin (ESC CCS 2024, I A)" },
+              { value: "p2y12", label: "P2Y12 inhibitor monotherapy", requires: ["p2y12"], hint: "Continue the current P2Y12 inhibitor; stop aspirin (ESC ACS 2023: preferably a P2Y12 inhibitor, IIa A)" },
             ],
           },
           {
@@ -372,7 +377,8 @@ CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): Outc
   } else if (a.dapt) {
     const days = { "12m": 365, "3-6m": 90, "1m-acs": 30, "6m": 182, "1-3m": 30 }[String(a.dapt)] ?? 365;
     const what = { "12m": "End of 12-month DAPT", "3-6m": "DAPT 3–6 months: if event-free", "1m-acs": "High bleeding risk: after 1 month of DAPT", "6m": "End of 6-month DAPT", "1-3m": "High bleeding risk: DAPT 1–3 months" }[String(a.dapt)];
-    if (a.sapt === "clopidogrel" && aspirin) out.push(plan(`${what}: stop aspirin, continue clopidogrel${p2y12 && !p2y12.code.includes("clopidogrel") && !switching ? " (switch from " + p2y12.name.toLowerCase() + ")" : ""}`, due(days), { id: aspirin.id }));
+    if (a.sapt === "p2y12" && aspirin) out.push(plan(`${what}: stop aspirin, continue ${p2name} alone`, due(days), { id: aspirin.id }));
+    else if (a.sapt === "clopidogrel" && aspirin) out.push(plan(`${what}: stop aspirin, continue clopidogrel${p2y12 && !p2y12.code.includes("clopidogrel") && !switching ? " (switch from " + p2y12.name.toLowerCase() + ")" : ""}`, due(days), { id: aspirin.id }));
     else out.push(plan(`${what}: stop ${p2name}, continue aspirin`, due(days), p2));
   }
   if (((a.now as string[]) ?? []).includes("ppi") && !ctx.meds.some((m) => m.tags.includes("ppi")))
@@ -468,10 +474,40 @@ CORONARY_WIZARDS["chest-pain-cad"].assess = (a: Answers, ctx: WizardContext): As
   if (risk === "stemi") rec.push("ST elevation with ongoing ischaemia: STEMI pathway, immediate primary PCI (I A)." + (pciDays != null ? " Stent thrombosis is likely in a recently stented territory." : ""));
   if (risk === "very-high") rec.push("Very high-risk features: immediate invasive strategy (<2 h) (I C).");
   if (risk === "high") rec.push("Troponin rise/fall or dynamic ST/T changes: NSTE-ACS; early invasive strategy within 24 h should be considered (IIa A)." + (pciDays != null && pciDays <= 365 ? " Consider stent thrombosis or early restenosis of the treated vessel." : ""));
+  const acts = ((a.actions as string[]) ?? []);
+  if ((risk === "stemi" || risk === "very-high" || risk === "high") && !acts.includes("anticoag") && !ctx.meds.some((m) => m.tags.includes("oac")))
+    rec.push("Parenteral anticoagulation for all patients at the diagnosis of ACS (I A); agent and dose per local protocol.");
+  if ((risk === "high" || risk === "possible") && !acts.includes("admit") && !acts.includes("cath-now")) rec.push("ACS not yet excluded: admission with ECG rhythm monitoring.");
   if (a.ecg === "not-done") rec.push("12-lead ECG within 10 minutes of first contact (I B).");
   if (a.troponin === "pending") rec.push("hs-troponin with the 0 h/1 h (or 0 h/2 h) algorithm (I B).");
   if (a.adherence === "stopped" || a.adherence === "missed") rec.push("Interrupted antiplatelet therapy is the strongest trigger of stent thrombosis: restart unless active bleeding forbids it.");
   if (risk === "stable") rec.push("Stable angina after PCI: sublingual nitrate for relief (I B); beta-blocker and/or calcium-channel blocker first line (I B); test for ischaemia or restenosis.");
   if (risk === "atypical") rec.push("Look for non-cardiac causes; keep secondary prevention unchanged.");
   return { heading: "Chest pain after ACS / PCI: risk and recommendations", rows, recommendations: rec };
+};
+
+// Closing summary: bleeding and ischaemic risk, and the regimen with its dates.
+CORONARY_WIZARDS.antithrombotic.assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const hbr = isHbr(a);
+  const isch = highIschaemic(a);
+  const l = (a.hbr as string[]) ?? [];
+  const major = l.filter((v) => HBR_MAJOR.includes(v)).length, minor = l.filter((v) => HBR_MINOR.includes(v)).length;
+  const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
+  const stops = CORONARY_WIZARDS.antithrombotic.outcome!(a, ctx).filter((o) => o.kind === "plan");
+  const rows: Assessment["rows"] = [
+    { label: "Counted from", value: `${ctx.coronary?.pciAt ? "PCI" : ctx.coronary ? ctx.coronary.indexTitle : "today"} · ${i0}` },
+    { label: "Bleeding risk (ARC-HBR)", value: hbr ? `High · ${major} major, ${minor} minor` : `Not high · ${major} major, ${minor} minor`, tone: hbr ? "orange" : "green" },
+    { label: "Ischaemic risk", value: isch ? "High" : "Not high", tone: isch ? "orange" : undefined },
+    ...stops.map((o) => ({ label: o.kind === "plan" ? o.dueDate : "", value: o.kind === "plan" ? o.title : "" })),
+  ];
+  const rec: string[] = [];
+  const potent = ctx.meds.some((m) => m.tags.includes("p2y12-potent"));
+  const now = (a.now as string[]) ?? [];
+  if (a.oac === "yes" && potent && !now.includes("to-clopidogrel")) rec.push("With an anticoagulant, clopidogrel is the P2Y12 inhibitor: ticagrelor or prasugrel are not recommended as part of triple therapy (ESC ACS 2023).");
+  if (a.oac === "no" && hbr && (a.dapt === "12m" || a.dapt === "6m")) rec.push(a.setting === "acs" ? "High bleeding risk: single antiplatelet after 1 month of DAPT may be considered (ESC ACS 2023, IIb A)." : "High bleeding risk without high ischaemic risk: DAPT 1–3 months (ESC CCS 2024, I A).");
+  if (a.setting === "acs" && a.oac === "no") rec.push("Do not de-escalate antiplatelet therapy in the first 30 days after ACS.");
+  const combined = ctx.meds.filter((m) => m.tags.some((t) => t === "antiplatelet" || t === "oac")).length >= 2 || a.oac === "yes";
+  if (combined && !ctx.meds.some((m) => m.tags.includes("ppi")) && !now.includes("ppi")) rec.push("Combined antithrombotic therapy at increased GI-bleeding risk: proton-pump inhibitor (ESC ACS 2023, I A).");
+  if (a.oac === "yes") rec.push("After the antiplatelet stops, the anticoagulant continues alone (ESC ACS 2023 / CCS 2024).");
+  return { heading: "Antithrombotic plan", rows, recommendations: rec };
 };

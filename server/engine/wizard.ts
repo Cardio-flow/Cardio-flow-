@@ -15,7 +15,8 @@ import { historyCode } from "../../shared/history.js";
 import { daptIndication, oacIndication, valveInterventions } from "./valve-rules.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
-import { DIAGNOSIS } from "../../shared/catalog.js";
+import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
+import { preStartCheck } from "./med-safety.js";
 import { latestPhEcho } from "./ph-profile.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
@@ -47,7 +48,7 @@ function baseContext(s: PatientState, wizardId: string): WizardContext {
     for (const q of def.steps.flatMap((st) => st.questions))
       for (const o of q.options ?? []) {
         const lab = o.detectLab ? s.resolved(o.detectLab.code).current?.value_num : null;
-        if (o.detectTag?.some((t) => on(t)) || o.detectCondition?.some((c) => s.conditions.some((x) => x.code === c)) || (lab != null && lab > o.detectLab!.above))
+        if (o.detectTag?.some((t) => on(t)) || o.detectCode?.some((c) => s.meds.some((m) => m.status === "active" && m.code === c)) || o.detectCondition?.some((c) => s.conditions.some((x) => x.code === c)) || (lab != null && lab > o.detectLab!.above))
           (detected[q.id] ??= []).push(o.value);
       }
     const t = def.trend ? series(s, def.trend).slice(0, 5).reverse() : [];
@@ -200,7 +201,7 @@ export async function completeWizard(
   actor: Actor,
   patientId: string,
   wizardId: string,
-  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string> },
+  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string>; overrides?: Record<string, string> },
 ) {
   const def = WIZARDS[wizardId];
   if (!def) throw new ApiError(404, "Unknown wizard");
@@ -231,6 +232,19 @@ export async function completeWizard(
       if (d < ctx.today) throw new ApiError(400, `${item.title}: choose today or a later date`);
       item.dueDate = d;
     }
+  // a medicine the pathway starts goes through the same pre-start check as the medicine drawer: a red hit
+  // (contraindication) needs the clinician's reason, recorded with the start
+  const startWhy: Record<string, string> = {};
+  const afterStops = startChecksState(s, outcome);
+  for (const item of outcome) {
+    if (item.kind !== "start" || !MEDICATION[item.code]) continue;
+    if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
+    const reds = preStartCheck(afterStops, item.code, MEDICATION[item.code]).filter((h) => h.severity === "red");
+    if (!reds.length) continue;
+    const why = input.overrides?.[item.code]?.trim();
+    if (!why || why.length < 3) throw new ApiError(409, `${MEDICATION[item.code].name}: ${reds[0].title}. Record a reason to start it anyway.`);
+    startWhy[item.code] = `Started despite: ${reds.map((h) => h.title).join("; ")} — ${why}`.slice(0, 300);
+  }
   const decisionId = uuid();
   const at = nowIso();
   // the complication episode: the first completion opens it, later ones are its reviews
@@ -253,7 +267,7 @@ export async function completeWizard(
   for (const item of outcome.filter((i) => i.kind === "start")) {
     if (item.kind !== "start") continue;
     if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
-    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId });
+    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId, reason: startWhy[item.code] });
     changed.push(...r.changed);
   }
   const medByRef = async (ref: string | undefined) => {
@@ -363,7 +377,9 @@ function extraContext(
   }
   // bradycardia
   detected.contributors = [];
-  for (const [tag, v] of [["bb", "bb"], ["bb-other", "bb"], ["ivabradine", "ivabradine"], ["digoxin", "digoxin"], ["qt", "amiodarone"], ["ndhp-ccb", "ccb"]] as const) if (on(tag)) detected.contributors.push(v);
+  for (const [tag, v] of [["bb", "bb"], ["bb-other", "bb"], ["ivabradine", "ivabradine"], ["digoxin", "digoxin"], ["ndhp-ccb", "ccb"]] as const) if (on(tag)) detected.contributors.push(v);
+  // amiodarone / dronedarone / sotalol by name: the QT tag also covers drugs that do not slow the heart
+  if (s.meds.some((m) => m.status === "active" && ["amiodarone", "dronedarone", "sotalol"].includes(m.code))) detected.contributors.push("amiodarone");
   if ((s.resolved("potassium").current?.value_num ?? 0) > 5.5) detected.contributors.push("hyperkalaemia");
   const av = [ecg, holter].map((st) => st?.attributes.avBlock).find(Boolean);
   const block =
@@ -402,4 +418,24 @@ export async function resolveEpisode(tx: Q, actor: Actor, patientId: string, epi
   });
   await audit(tx, actor, "resolve-episode", "episode", episodeId, patientId, { outcome: input.outcome });
   return { changed: ["episodes"] };
+}
+
+// the record as it will be once the pathway's stops are applied: a medicine being stopped (e.g. ticagrelor
+// switched to clopidogrel) does not count against the one being started
+export function startChecksState(s: PatientState, outcome: ReturnType<typeof buildOutcome>): PatientState {
+  const stopped = new Set(outcome.flatMap((o) => (o.kind === "medication" && o.event === "stop" ? [o.medicationId] : [])));
+  return stopped.size ? ({ ...s, meds: s.meds.filter((m) => !stopped.has(m.id)) } as PatientState) : s;
+}
+
+// pre-start check of every medicine the answers would start (the Confirm step shows them; red needs a reason)
+export async function wizardStartCheck(tx: Q, patientId: string, wizardId: string, answers: Answers) {
+  if (!WIZARDS[wizardId]) throw new ApiError(404, "Unknown wizard");
+  const s = await loadState(tx, patientId);
+  const outcome = buildOutcome(wizardId, answers, wizardContext(s, wizardId));
+  const after = startChecksState(s, outcome);
+  const out: Record<string, ReturnType<typeof preStartCheck>> = {};
+  for (const item of outcome)
+    if (item.kind === "start" && MEDICATION[item.code] && !s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held")))
+      out[item.code] = preStartCheck(after, item.code, MEDICATION[item.code]);
+  return out;
 }

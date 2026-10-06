@@ -488,3 +488,32 @@ RHYTHM_WIZARDS["icd-shock"].assess = (a: Answers, ctx: WizardContext): Assessmen
 };
 const TRIG: Record<string, string> = { electrolytes: "low potassium or magnesium", ischaemia: "ischaemia", hf: "heart failure", thyroid: "thyroid dysfunction", qt: "QT-prolonging drug", infection: "infection", adherence: "missed doses" };
 const pickT = (a: Answers) => ((a.triggers as string[]) ?? []).filter((v) => v !== "none").map((v) => TRIG[v] ?? v);
+
+// Closing summary: the procedure date the anticoagulation allows, and what the guideline asks around it.
+RHYTHM_WIZARDS["peri-af-procedure"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const items = RHYTHM_WIZARDS["peri-af-procedure"].outcome!(a, ctx);
+  const proc = items.find((o) => o.kind === "plan" && o.category === "procedure");
+  const after = items.find((o) => o.kind === "plan" && /at least (4 weeks|2 months)/.test(o.title));
+  const oac = ctx.meds.find((m) => m.tags.includes("oac"));
+  const rows: Assessment["rows"] = [
+    { label: "Procedure", value: proc && proc.kind === "plan" ? `${proc.title} · ${fmtDay(proc.dueDate, { year: true })}` : String(a.proc ?? "Not chosen") },
+    {
+      label: "Anticoagulation",
+      value: oac ? `${oac.name}${a.oacNow === "3w" ? " · ≥3 weeks" : a.oacNow === "short" ? " · less than 3 weeks" : ""}` : a.start === "apixaban" ? "Apixaban to start" : a.start === "other" ? "Anticoagulant to start" : "None",
+      tone: a.oacNow === "3w" || (a.proc === "cardioversion" && a.prep === "toe") ? "green" : "orange",
+    },
+  ];
+  if (after && after.kind === "plan") rows.push({ label: "Anticoagulation until at least", value: fmtDay(after.dueDate, { year: true }) });
+  if (ctx.af) rows.push({ label: "CHA₂DS₂-VA", value: String(ctx.af.score), tone: ctx.af.score >= 2 ? "orange" : undefined });
+  const rec: string[] = [];
+  if (a.proc === "cardioversion") {
+    if (a.prep === "early" && a.onset !== "lt24") rec.push("Early cardioversion without TOE only with a known AF onset <24 h; otherwise ≥3 weeks of effective anticoagulation or TOE first (I B).");
+    if (a.prep === "wait" && a.oacNow !== "3w") rec.push("Cardioversion after ≥3 weeks of effective anticoagulation (I B): the date above counts from the start of anticoagulation.");
+    rec.push("Anticoagulation for at least 4 weeks after cardioversion.");
+  } else if (a.proc === "ablation") {
+    rec.push("AF ablation on uninterrupted oral anticoagulation (I A), continued for at least 2 months after it.");
+  }
+  rec.push(ctx.af ? `Long-term anticoagulation follows the stroke risk (CHA₂DS₂-VA ${ctx.af.score}), not the rhythm achieved.` : "Long-term anticoagulation follows CHA₂DS₂-VA, not the rhythm achieved.");
+  if (oac?.tags.includes("vka")) rec.push("Warfarin: INR 2.0–3.0 throughout the weeks before cardioversion.");
+  return { heading: "Anticoagulation around the procedure", rows, recommendations: rec };
+};

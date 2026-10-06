@@ -3,14 +3,25 @@ import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pi
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
-import { NEXT, prefill } from "../../shared/wizard-prefill";
+import { joinFor, prefill } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
 import { flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
+// one part of a joined pathway, answered and waiting to be recorded with the parts after it
+export type PathwayPart = {
+  wizard: string; answers: Answers; dueDates: Record<string, string>; overrides: Record<string, string>; recommendationId?: string | null;
+  outcome: string[]; assessment: { heading: string; recommendations: string[] } | null; step: number;
+};
+type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string };
+
 export function WizardDrawer({
-  patientId, patientName, wizard, recommendationId, contextId, onClose, onDone, onNext,
-}: { patientId: string; patientName: string; wizard: string; recommendationId?: string; contextId?: string; onClose(): void; onDone(msg?: string, r?: any): void; onNext?(wizard: string): void }) {
+  patientId, patientName, wizard, recommendationId, contextId, onClose, onDone, onJoin, onBack, carried = [], resume,
+}: {
+  patientId: string; patientName: string; wizard: string; recommendationId?: string; contextId?: string; onClose(): void; onDone(msg?: string, r?: any): void;
+  // joined pathways: carry this part into the next pathway, or go back to an earlier part
+  onJoin?(parts: PathwayPart[], next: string): void; onBack?(index: number): void; carried?: PathwayPart[]; resume?: PathwayPart;
+}) {
   const def = WIZARDS[wizard];
   const [ctx, setCtx] = useState<WizardContext | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
@@ -25,14 +36,17 @@ export function WizardDrawer({
   const [episode, setEpisode] = useState<{ id: string; startedAt: string; day: number; reviews: number; lastAt: string } | null>(null);
   const [reason, setReason] = useState("");
   const [autoFilled, setAutoFilled] = useState<string[]>([]);
-  const [dueDates, setDueDates] = useState<Record<string, string>>({});
+  const [dueDates, setDueDates] = useState<Record<string, string>>(resume?.dueDates ?? {});
+  const [overrides, setOverrides] = useState<Record<string, string>>(resume?.overrides ?? {});
+  const [startHits, setStartHits] = useState<Record<string, Hit[]>>({});
   const loaded = useRef(false);
   useEffect(() => {
     api(`/patients/${patientId}/wizards/${wizard}`).then((r) => {
       setCtx(r.context);
       setEpisode(r.episode ?? null);
-      // a review starts from the episode's last answers (a newer draft wins)
-      const base = r.draft?.answers ?? r.episode?.answers;
+      // a review starts from the episode's last answers (a newer draft wins); going back in a joined pathway
+      // returns to the answers given there
+      const base = resume?.answers ?? r.draft?.answers ?? r.episode?.answers;
       if (base) {
         // drop choices that no longer fit the patient's medicines (e.g. the drug was stopped since the draft)
         const clean: Record<string, any> = { ...base };
@@ -43,7 +57,7 @@ export function WizardDrawer({
           else if (v != null && !ok.has(String(v))) delete clean[q.id];
         }
         setAnswers(clean);
-        setStep(r.draft ? Math.min(r.draft.step, def.steps.length) : 0);
+        setStep(resume ? Math.min(resume.step, def.steps.length) : r.draft ? Math.min(r.draft.step, def.steps.length) : 0);
       } else {
         // everything the record shows, and the guideline's suggestion for every open question, is filled in;
         // the clinician reviews and changes it
@@ -65,10 +79,20 @@ export function WizardDrawer({
   const allAnswered = def.steps.every((st) => !missingRequired(st, answers).length);
   // the first step that still needs an answer: everything before it is filled in from the record and the guideline
   const firstOpen = def.steps.findIndex((st) => missingRequired(st, answers).length > 0);
-  const next = NEXT[wizard] && WIZARDS[NEXT[wizard]] ? NEXT[wizard] : null;
+  const join = isReview && onJoin ? joinFor(wizard, answers, ctx) : null;
   const current = def.steps[step];
   const missing = current ? missingRequired(current, answers) : [];
   const outcome = useMemo(() => (ctx ? buildOutcome(wizard, answers, ctx) : []), [ctx, wizard, answers]);
+  // medicines this pathway starts go through the pre-start check; a red hit needs a reason (as in the drawer)
+  const startKey = outcome.filter((o) => o.kind === "start").map((o) => (o as any).code).join(",");
+  useEffect(() => {
+    if (!isReview || !startKey) { setStartHits({}); return; }
+    let live = true;
+    api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers } }).then((r) => live && setStartHits(r.hits ?? {}), () => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReview, startKey, patientId, wizard]);
+  const needReason = Object.entries(startHits).filter(([code, hits]) => hits.some((h) => h.severity === "red") && (overrides[code]?.trim().length ?? 0) < 3).map(([c]) => c);
   const assessment = useMemo(() => (ctx && def.assess ? def.assess(answers, ctx) : null), [ctx, def, answers]);
   // guideline suggestions for every question, from the record and the answers so far
   const suggestions = useMemo(() => {
@@ -94,13 +118,23 @@ export function WizardDrawer({
     : [];
   const set = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
   const tone = def.tone;
-  async function confirm(then?: string) {
+  const thisPart = (): PathwayPart => ({
+    wizard, answers, dueDates, overrides, recommendationId: recommendationId ?? null, step,
+    outcome: outcome.map((o) => o.label || (o as any).title), assessment: assessment ? { heading: assessment.heading, recommendations: assessment.recommendations } : null,
+  });
+  async function confirm() {
     setBusy(true);
     setError("");
     try {
-      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers, recommendationId: recommendationId ?? null, contextId: contextId ?? null, dueDates } });
+      if (carried.length) {
+        const parts = [...carried, thisPart()].map((p) => ({ wizard: p.wizard, answers: p.answers, recommendationId: p.recommendationId ?? null, dueDates: p.dueDates, overrides: p.overrides }));
+        const r = await api(`/patients/${patientId}/wizards-joined/complete`, { body: { parts, contextId: contextId ?? null } });
+        const n = r.outcome?.length ?? 0;
+        onDone(`${parts.map((p) => WIZARDS[p.wizard].title).join(" + ")} recorded · ${n} action${n === 1 ? "" : "s"} added to the plan`, r);
+        return;
+      }
+      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers, recommendationId: recommendationId ?? null, contextId: contextId ?? null, dueDates, overrides } });
       onDone(`${def.title}${r.review ? " review" : ""} recorded · ${outcome.length} action${outcome.length === 1 ? "" : "s"} added to the plan`, r);
-      if (then) onNext?.(then);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -130,6 +164,17 @@ export function WizardDrawer({
       tone={tone}
       onClose={onClose}
       head={
+        <>
+        {carried.length > 0 && (
+          <div className="wiz-chain" aria-label="Joined pathway">
+            {carried.map((p, i) => (
+              <button key={p.wizard} type="button" className="wiz-chain-part done" onClick={() => onBack?.(i)} title="Go back and change">
+                <Check size={14} strokeWidth={3} /> {WIZARDS[p.wizard].title}
+              </button>
+            ))}
+            <span className="wiz-chain-part cur">{def.title}</span>
+          </div>
+        )}
         <ol className="steps" data-caption={`Step ${step + 1} of ${def.steps.length + 1} · ${[...def.steps.map((s) => s.title), "Confirm"][step]}`} style={{ gridTemplateColumns: `repeat(${def.steps.length + 1}, minmax(0, 1fr))` }}>
           {[...def.steps.map((s) => s.title), "Confirm"].map((t, i) => (
             <li key={t} className={i < step ? "done" : i === step ? "cur" : ""} aria-current={i === step ? "step" : undefined}>
@@ -138,6 +183,7 @@ export function WizardDrawer({
             </li>
           ))}
         </ol>
+        </>
       }
       footer={
         declining ? (
@@ -161,11 +207,15 @@ export function WizardDrawer({
               ) : firstOpen > step + 1 ? (
                 <button className="btn secondary" onClick={() => setStep(firstOpen)}>Skip to {def.steps[firstOpen].title.toLowerCase()}</button>
               ) : null)}
-              {isReview && next && onNext && (
-                <button className="btn secondary" disabled={busy} onClick={() => confirm(next)}>Confirm, then {WIZARDS[next].title.toLowerCase()}</button>
-              )}
-              {isReview ? (
-                <button className="btn primary" disabled={busy} onClick={() => confirm()}>{busy ? "Recording…" : "Confirm plan"}</button>
+              {isReview && join ? (
+                <>
+                  <button className="btn secondary" disabled={busy || needReason.length > 0} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
+                  <button className="btn primary" disabled={needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.toLowerCase()}</button>
+                </>
+              ) : isReview ? (
+                <button className="btn primary" disabled={busy || needReason.length > 0} title={needReason.length ? "Give the reason to start despite the contraindication" : undefined} onClick={() => confirm()}>
+                  {busy ? "Recording…" : carried.length ? `Confirm all ${carried.length + 1}` : "Confirm plan"}
+                </button>
               ) : (
                 <button className="btn primary" disabled={missing.length > 0} title={missing.length ? `Answer: ${missing[0].label}` : undefined} onClick={() => setStep(step + 1)}>
                   Continue{def.steps[step + 1] ? ` to ${def.steps[step + 1].title.toLowerCase()}` : ""}
@@ -286,6 +336,19 @@ export function WizardDrawer({
               </div>
               );
             })}
+          {ctx && isReview && carried.length > 0 && (
+            <section className="wiz-carried" aria-label="Earlier parts of this pathway">
+              {carried.map((p, i) => (
+                <div key={p.wizard} className="wiz-ans">
+                  <div className="wiz-ans-head"><b>{WIZARDS[p.wizard].title}</b><button type="button" className="btn ghost small" onClick={() => onBack?.(i)}>Change</button></div>
+                  {p.outcome.length ? p.outcome.map((o, k) => <div key={k} className="wiz-ans-row"><span>Will record</span><b>{o}</b></div>) : <div className="wiz-ans-row"><span>Will record</span><b>Decision with no further actions</b></div>}
+                </div>
+              ))}
+            </section>
+          )}
+          {ctx && isReview && join && (
+            <div className="wiz-join"><b>Next in this pathway: {WIZARDS[join.next].title}</b><span>{join.why}. Both are recorded together when you confirm.</span></div>
+          )}
           {ctx && isReview && (
             <section className="wiz-answers" aria-label="Your answers">
               {def.steps.map((st, i) => {
@@ -337,15 +400,29 @@ export function WizardDrawer({
               <div className="label">This will be recorded</div>
               <div className="outcome">
                 {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
-                {outcome.map((o, i) => (
-                  <div key={i}>
-                    {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
-                    <span className="grow">{o.label}</span>
-                    {o.kind === "plan" && o.dueDate && (
-                      <input type="date" className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => e.target.value && setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
-                    )}
-                  </div>
-                ))}
+                {outcome.map((o, i) => {
+                  const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
+                  const red = hits.some((h) => h.severity === "red");
+                  return (
+                    <div key={i} className={hits.length ? "has-hits" : undefined}>
+                      <div className="out-line">
+                        {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
+                        <span className="grow">{o.label}</span>
+                        {o.kind === "plan" && o.dueDate && (
+                          <input type="date" className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => e.target.value && setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
+                        )}
+                      </div>
+                      {o.kind === "start" && hits.length > 0 && (
+                        <div className="out-hits">
+                          {hits.map((h, k) => <div key={k} className={`out-hit sev-${h.severity}`}><AlertTriangle size={14} /> <b>{h.title}</b> <span>{h.detail}</span></div>)}
+                          {red && (
+                            <input className="input" placeholder="Reason to start it anyway (required)" value={overrides[o.code] ?? ""} onChange={(e) => setOverrides((v) => ({ ...v, [o.code]: e.target.value }))} aria-label={`Reason to start ${o.label}`} />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="help" style={{ marginTop: 4 }}>Medication changes take effect now. Each dated item becomes a task that closes itself when the result or visit is recorded.</div>
             </div>

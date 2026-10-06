@@ -7,7 +7,7 @@ import { triage } from "../../shared/triage";
 import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
 import { QuickLabs } from "../drawers/QuickLabs";
-import { WizardDrawer } from "../drawers/Wizard";
+import { WizardDrawer, type PathwayPart } from "../drawers/Wizard";
 import { ProcedureDrawer } from "../drawers/Procedure";
 import { AddMedication, MedicationAction } from "../drawers/Medication";
 import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
@@ -25,7 +25,7 @@ import { ChecklistDrawer } from "../drawers/Checklist";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
-  | { kind: "wizard"; wizard: string; recommendationId?: string }
+  | { kind: "wizard"; wizard: string; recommendationId?: string; carried?: PathwayPart[]; resume?: PathwayPart }
   | { kind: "med-add"; code?: string; dose?: number; reason?: string }
   | { kind: "med-action"; medId: string; action?: string; dose?: number; reason?: string }
   | { kind: "plan-add"; template?: string; medicationId?: string }
@@ -183,7 +183,14 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "registries" && <RegistriesTab id={id} version={version} />}
 
       {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} onClose={close} onDone={done} />}
-      {open?.kind === "wizard" && <WizardDrawer key={open.wizard} patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.recommendationId} contextId={ctx?.id} onClose={close} onDone={done} onNext={(w) => setOpen({ kind: "wizard", wizard: w })} />}
+      {open?.kind === "wizard" && (
+        <WizardDrawer
+          key={`${open.wizard}:${open.carried?.length ?? 0}`} patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.resume?.recommendationId ?? open.recommendationId} contextId={ctx?.id}
+          onClose={close} onDone={done} carried={open.carried} resume={open.resume}
+          onJoin={(parts, next) => setOpen({ kind: "wizard", wizard: next, carried: parts })}
+          onBack={(i) => { const c = open.carried ?? []; setOpen({ kind: "wizard", wizard: c[i].wizard, carried: c.slice(0, i), resume: c[i] }); }}
+        />
+      )}
       {open?.kind === "med-add" && <AddMedication patientId={id} summary={s} contextId={ctx?.id} preset={open.code ? { code: open.code, dose: open.dose, reason: open.reason } : undefined} onClose={close} onDone={done} />}
       {open?.kind === "med-action" && <MedicationAction patientId={id} summary={s} medId={open.medId} initial={open.action} initialDose={open.dose} initialReason={open.reason} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "plan-add" && <AddPlan patientId={id} template={open.template} medicationId={open.medicationId} contextId={ctx?.id} onClose={close} onDone={done} />}

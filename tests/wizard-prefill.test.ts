@@ -6,7 +6,7 @@ import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot } from "../server/boot.js";
 import { getWizard } from "../server/engine/wizard.js";
 import { WIZARDS, optionsFor } from "../shared/wizards.js";
-import { NEXT, prefill } from "../shared/wizard-prefill.js";
+import { JOIN, prefill } from "../shared/wizard-prefill.js";
 
 let db: DB;
 before(async () => { db = await createLocalDb(); await boot(db, { seed: true }); });
@@ -30,5 +30,5 @@ test("prefill across all seed patients and pathways: valid options only; 'none' 
       }
     }
   assert.ok(combos > 500 && filled > combos, `prefilled ${filled} answers in ${combos} pathway openings`);
-  for (const [a, b] of Object.entries(NEXT)) assert.ok(WIZARDS[a] && WIZARDS[b], `${a} → ${b}`);
+  for (const [a, j] of Object.entries(JOIN)) assert.ok(WIZARDS[a] && WIZARDS[j.next], `${a} → ${j.next}`);
 });

@@ -19,7 +19,7 @@ import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.
 import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
-import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft } from "./engine/wizard.js";
+import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays } from "../shared/clinical.js";
@@ -630,8 +630,28 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/wizards/:wizard/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional() }).parse(req.body);
+    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() }).parse(req.body);
     await write(res, id, (tx, a) => completeWizard(tx, a, id, String(req.params.wizard), input));
+  }));
+  // joined pathways (e.g. bleeding, then the antithrombotic plan): every part recorded in one transaction,
+  // in order, so the later part sees what the earlier one changed
+  app.post("/api/patients/:id/wizards-joined/complete", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const part = z.object({ wizard: z.string().max(60), answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() });
+    const input = z.object({ parts: z.array(part).min(1).max(4), contextId: uuidS.nullish() }).parse(req.body);
+    await write(res, id, async (tx, a) => {
+      const results = [];
+      for (const p of input.parts) results.push(await completeWizard(tx, a, id, p.wizard, { ...p, contextId: input.contextId }));
+      return { parts: results, review: results.some((r) => r.review), outcome: results.flatMap((r) => r.outcome), changed: [...new Set(results.flatMap((r) => r.changed))] };
+    });
+  }));
+  app.post("/api/patients/:id/wizards/:wizard/start-check", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ answers: z.record(z.string(), z.any()) }).parse(req.body);
+    res.json(await db.transaction(async (tx) => {
+      await patientInSite(tx, actor(res), id);
+      return { hits: await wizardStartCheck(tx, id, String(req.params.wizard), input.answers) };
+    }));
   }));
   app.post("/api/patients/:id/episodes/:eid/resolve", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
