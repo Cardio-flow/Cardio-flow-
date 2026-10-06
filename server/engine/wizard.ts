@@ -200,7 +200,7 @@ export async function completeWizard(
   actor: Actor,
   patientId: string,
   wizardId: string,
-  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null },
+  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string> },
 ) {
   const def = WIZARDS[wizardId];
   if (!def) throw new ApiError(404, "Unknown wizard");
@@ -224,6 +224,13 @@ export async function completeWizard(
     if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || v < ctx.today) throw new ApiError(400, `${q.label}: choose today or a later date`);
   }
   const outcome = buildOutcome(wizardId, input.answers, ctx);
+  // the clinician may move a planned date (keyed by the plan item's title); never before today
+  for (const item of outcome)
+    if (item.kind === "plan" && input.dueDates?.[item.title]) {
+      const d = input.dueDates[item.title];
+      if (d < ctx.today) throw new ApiError(400, `${item.title}: choose today or a later date`);
+      item.dueDate = d;
+    }
   const decisionId = uuid();
   const at = nowIso();
   // the complication episode: the first completion opens it, later ones are its reviews

@@ -152,7 +152,7 @@ export function MultiChoice({
       {options.map((o) => {
         const on = value.includes(o.value);
         return (
-          <button type="button" key={o.value} className="choice" aria-pressed={on} onClick={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])}>
+          <button type="button" key={o.value} className="choice" aria-pressed={on} onClick={() => onChange(on ? value.filter((v) => v !== o.value) : o.value === "none" ? ["none"] : [...value.filter((v) => v !== "none"), o.value])}>
             {on && <CheckMark />}
             {o.label}
             {auto.includes(o.value) && <span className="auto">AUTO</span>}

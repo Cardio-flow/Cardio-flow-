@@ -1168,3 +1168,20 @@ details.lane > .lane-rows { padding: 0 18px 8px; }
 .tap-rest { align-self: flex-start; margin-top: 6px; }
 .hx-row .tap-opts { margin-bottom: 6px; }
 @media (max-width: 760px) { .tap-grid { grid-template-columns: 1fr; } }
+
+/* ---------- pathways redesign (slice 6) ---------- */
+.pw-search { display: flex; align-items: center; gap: 10px; margin: 0 32px 14px; height: 44px; padding: 0 14px; border: 1px solid var(--control); border-radius: 12px; background: #fff; color: var(--ink-4); }
+.pw-search input { flex: 1; border: 0; outline: none; font-size: 14.5px; background: transparent; color: var(--ink); }
+.pw-head { font-family: var(--font-brand); font-size: 16px; font-weight: 700; color: var(--navy); display: flex; gap: 10px; align-items: baseline; }
+.pw-head em { font-style: normal; font-family: var(--font); font-size: 12px; font-weight: 700; color: var(--action); }
+.label .prefilled { margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--action); background: var(--blue-bg); padding: 2px 7px; border-radius: 6px; vertical-align: 2px; }
+.wiz-answers { display: flex; flex-direction: column; gap: 8px; }
+.wiz-ans { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: #fff; }
+.wiz-ans-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.wiz-ans-head b { font-size: 14px; color: var(--navy); }
+.wiz-ans-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; padding: 4px 0; font-size: 13px; border-top: 1px solid var(--line-2); }
+.wiz-ans-row span { color: var(--ink-3); font-weight: 600; }
+.wiz-ans-row b { color: var(--ink); font-weight: 700; }
+.outcome > div { align-items: center; }
+.outcome .grow { flex: 1; }
+@media (max-width: 640px) { .pw-search { margin: 0 16px 12px; } .wiz-ans-row { grid-template-columns: 1fr; gap: 2px; } }

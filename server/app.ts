@@ -620,7 +620,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/wizards/:wizard/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish() }).parse(req.body);
+    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional() }).parse(req.body);
     await write(res, id, (tx, a) => completeWizard(tx, a, id, String(req.params.wizard), input));
   }));
   app.post("/api/patients/:id/episodes/:eid/resolve", clinician, route(async (req, res) => {
