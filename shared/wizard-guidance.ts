@@ -812,7 +812,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [a.bleeding === "high" && !ind.includes("af") && !ind.includes("vte") ? S("asa", "High bleeding risk, no OAC indication (IIb B)") : S("oac", "First 3 months after repair (IIa B)")];
     },
     mech: (a, c) => [S("vka", "Lifelong VKA (I A)"), ((a.indications as string[]) ?? []).includes("athero") ? S("asa", "Symptomatic atherosclerosis (IIa B)") : null, on(c, "doac") ? S("switch", "DOAC with a mechanical valve (III A)") : null],
-    care: (a) => [a.intervention === "mech" ? S("education", "Patient education (I A)") : null, S("endocarditis", "Prosthetic material")],
+    care: (a, c) => [a.intervention === "mech" ? S("education", "Patient education (I A)") : null, S("endocarditis", "Prosthetic material"), (c.valve?.interventions ?? []).length ? S("echo", "Baseline echo 6 weeks–3 months after implantation, the reference for later follow-up (EACVI 2016)") : null],
   },
   // ESC VA 2022 (task-force summary, Europace 2023) and the 2023 HRS/EHRA/APHRS/LAHRS consensus
   "icd-shock": {
@@ -992,6 +992,37 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     type: (a) => [a.type ? null : S("pending", "Endocrinology types it (Doppler, uptake, antibodies)")],
     cardiac: (_a, c) => [S("amio", "Decide amiodarone continuation with endocrinology (ETA 2018)"), S("rate", "Beta-blocker for rate control"), on(c, "vka") && S("inr", "Thyrotoxicosis raises warfarin effect: INR"), dx(c, "dm") && S("glucose", "Glucose monitoring on steroids")],
     endo: (a) => [a.situation === "hypo" || a.situation === "thyrotox" ? S("refer", "Thyroid dysfunction on amiodarone: endocrinology (ETA 2018)") : null],
+  },
+  "after-cabg": {
+    setting: (_a, c) => [c.coronary?.acsAt && c.cabgAt && daysBetween(c.coronary.acsAt, c.cabgAt) <= 60 ? S("acs", `ACS ${c.coronary.acsAt}, CABG ${c.cabgAt}`) : c.cabgAt ? S("ccs", `CABG ${c.cabgAt}, no ACS before it`) : null],
+    poaf: (_a, c) => [dx(c, "af", "flutter") ? S("yes", "AF on the problem list") : null],
+    meds: (a, c) => {
+      const out = [
+        !onCode(c, "aspirin") && S("aspirin", "Aspirin 75–100 mg daily after CABG (ESC CCS 2024)"),
+        !on(c, "statin") && S("statin", "High-intensity statin after CABG; LDL-C goal <1.4 mmol/L"),
+        a.setting === "acs" && S("p2y12", "CABG during an ACS: resume the P2Y12 inhibitor to complete 12 months of DAPT (ESC ACS 2023)"),
+        a.poaf === "yes" && !on(c, "oac") && S("oac", "Post-operative AF: long-term anticoagulation should be considered (ESC AF 2024, IIa B)"),
+      ];
+      return out.some(Boolean) ? out : [S("none", "Aspirin and a statin are on the list")];
+    },
+    followup: (_a, c) => [
+      !(c.planned ?? []).some((t) => /rehabilitation/i.test(t)) && S("rehab", "Cardiac rehabilitation after CABG (ESC CCS 2024, I A)"),
+      !(c.planned ?? []).some((t) => /lipid/i.test(t)) && S("lipids", "Lipids re-evaluated 4–6 weeks after the event (ESC ACS 2023)"),
+      S("surgical", "Wound and sternal care follow the surgical team"),
+    ],
+  },
+  "after-device": {
+    device: (_a, c) => {
+      const t = c.device?.type ?? "";
+      return [/CRT/i.test(t) ? S("crt", `${t} recorded`) : /ICD/i.test(t) ? S("icd", `${t} recorded`) : /loop/i.test(t) ? S("ilr", `${t} recorded`) : /pacemaker/i.test(t) ? S("pm", `${t} recorded`) : null];
+    },
+    followup: (a, c) => [
+      a.device !== "ilr" && S("check", "In-person evaluation 2–12 weeks after implant (HRS/EHRA 2015 consensus)"),
+      S("remote", "Remote monitoring of the device (ESC pacing 2021)"),
+      on(c, "oac") && S("oac", "Anticoagulation: continue or restart as planned around the implant"),
+      (a.device === "icd" || a.device === "crt") && dx(c, "hf") && S("hf", "An ICD or CRT does not replace guideline-directed HF therapy"),
+      S("advice", "Device card, wound care and driving advice"),
+    ],
   },
 };
 

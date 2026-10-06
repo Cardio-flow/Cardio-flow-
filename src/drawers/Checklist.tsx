@@ -7,13 +7,15 @@ import { Drawer } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import type { Open } from "../screens/Patient";
 
-type Kind = "pci" | "cardioversion" | "ablation" | "device";
+import type { CheckKind as Kind } from "../../shared/procedures";
 type Item = { key: string; label: string; status: "ok" | "flag" | "missing" | "info"; value?: string; date?: string; why?: string; source?: string; action?: any };
 const KINDS: { value: Kind; label: string }[] = [
   { value: "pci", label: "Angiography / PCI" },
   { value: "cardioversion", label: "Cardioversion" },
   { value: "ablation", label: "AF ablation" },
   { value: "device", label: "Device implant" },
+  { value: "valve", label: "Valve intervention" },
+  { value: "rhc", label: "Right heart cath" },
 ];
 const ICON = { ok: CheckCircle2, flag: AlertTriangle, missing: Circle, info: Info };
 
@@ -42,7 +44,7 @@ export function ChecklistDrawer({ patientId, initial, onClose, open }: { patient
           <span className="note">{data ? `${n.ok} ready · ${n.flag} to act on · ${n.missing} not recorded` : "Reading the record…"}</span>
           <span className="end">
             {missingLabs.length > 0 && <button className="btn secondary" onClick={() => open({ kind: "labs", codes: missingLabs })}>Enter missing results</button>}
-            <button className="btn primary" onClick={() => open(kind === "pci" ? { kind: "procedure", group: "coronary" } : { kind: "procedure", group: "rhythm" })}>Record the procedure</button>
+            <button className="btn primary" onClick={() => open({ kind: "procedure", group: kind === "pci" ? "coronary" : kind === "valve" ? "valve" : kind === "rhc" ? "ph" : "rhythm" })}>Record the procedure</button>
           </span>
         </>
       }

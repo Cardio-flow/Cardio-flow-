@@ -7,7 +7,7 @@
 import { addDays, fmtDay, localDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
 import { acsIndex, antithrombotic, indexEvent } from "./cad-profile.js";
-import type { RuleDef } from "./rules.js";
+import type { Finding, RuleDef } from "./rules.js";
 
 const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
 const months = (d: number) => (d < 60 ? `${d} days` : `${Math.round(d / 30.4)} months`);
@@ -246,6 +246,46 @@ export const CAD_RULES: RuleDef[] = [
         facts: [{ label: "Event", value: cabg && cabg.performed_at === at ? "CABG" : ix!.title, date: at }, { label: "Guideline", value: "ESC ACS 2023 · CCS 2024 · I A" }],
         missing: [], action: { type: "add-plan", template: "rehab" },
       }];
+    },
+  },
+  {
+    id: "cad.pci-complication",
+    kind: "clinical",
+    title: "Follow-up of a PCI complication",
+    inputs: ["procedures", "creatinine", "haemoglobin", "lvef", "plan"],
+    defaultParams: {},
+    evidence: "Complications recorded with the PCI (audit, 6 Oct): contrast-associated kidney injury → creatinine and potassium again (KDIGO 2012 AKI: monitor serum creatinine); access-site bleeding → haemoglobin again; peri-procedural MI, acute stent thrombosis, VT/VF or perforation → echocardiography for LV function and pericardial effusion (ESC ACS 2023: LV function after MI). Each closes once the result is recorded after the PCI, or an echo is planned. Shown for 30 days after the PCI; no threshold is applied.",
+    evaluate(s) {
+      const pci = [...s.procedures].reverse().find((p) => p.kind === "pci");
+      const comp: string[] = (pci?.attributes.complications as string[] | undefined) ?? [];
+      if (!pci || !comp.length) return [];
+      const at = localDay(pci.performed_at);
+      if (Math.round((Date.parse(s.today) - Date.parse(at)) / 86400000) > 30) return [];
+      const facts: Finding["facts"] = [{ label: "PCI", value: pci.summary, date: at }];
+      const out: Finding[] = [];
+      if (comp.includes("Contrast-associated kidney injury") && !measuredSince(s, "creatinine", at))
+        out.push({
+          key: "aki", signature: at, severity: "orange" as const,
+          title: "Kidney injury after PCI contrast: recheck creatinine and potassium",
+          detail: "Contrast-associated kidney injury was recorded with the PCI and no creatinine has been recorded since.",
+          facts: [...facts, { label: "Guideline", value: "KDIGO 2012 AKI" }], missing: [], action: { type: "add-labs", codes: ["creatinine", "potassium"], label: "Enter creatinine and potassium" },
+        });
+      if (comp.includes("Access-site haematoma or bleeding") && !measuredSince(s, "haemoglobin", at))
+        out.push({
+          key: "bleed", signature: at, severity: "orange" as const,
+          title: "Access-site bleeding after PCI: recheck haemoglobin",
+          detail: "Bleeding at the access site was recorded with the PCI and no haemoglobin has been recorded since. Antithrombotic therapy continues unless the bleeding pathway decides otherwise.",
+          facts, missing: [], action: { type: "add-labs", codes: ["haemoglobin"], label: "Enter haemoglobin" },
+        });
+      const lv = comp.filter((c) => ["Peri-procedural MI", "Acute stent thrombosis", "VT / VF needing treatment", "Coronary perforation"].includes(c));
+      if (lv.length && !measuredSince(s, "lvef", at) && !plannedTitle(s, /echo/i))
+        out.push({
+          key: "echo", signature: at, severity: "orange" as const,
+          title: `${lv[0]} during PCI: echo for LV function${lv.includes("Coronary perforation") ? " and effusion" : ""}`,
+          detail: `${lv.join(", ")} recorded with the PCI; no echo since.`,
+          facts: [...facts, { label: "Guideline", value: "ESC ACS 2023" }], missing: [], action: { type: "add-plan", template: "echo" },
+        });
+      return out;
     },
   },
 ];

@@ -166,7 +166,8 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     ].filter(Boolean) as string[];
     if (cause.length) base.detected.cause = cause;
   }
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, af, device, valve, cmp, ph };
+  const cabg = [...s.procedures].reverse().find((p) => p.kind === "cabg");
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

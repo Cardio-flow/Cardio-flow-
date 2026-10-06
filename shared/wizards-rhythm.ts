@@ -517,3 +517,75 @@ RHYTHM_WIZARDS["peri-af-procedure"].assess = (a: Answers, ctx: WizardContext): A
   if (oac?.tags.includes("vka")) rec.push("Warfarin: INR 2.0–3.0 throughout the weeks before cardioversion.");
   return { heading: "Anticoagulation around the procedure", rows, recommendations: rec };
 };
+
+// After a device implant (audit finish, 6 Oct): the next steps once an implant is recorded. Sources:
+// 2021 ESC pacing and CRT — remote monitoring of CIEDs; antibiotic prophylaxis before implant (done
+// before); uninterrupted VKA rather than heparin bridging; 2015 HRS/EHRA/APHRS/SOLAECE expert consensus on
+// CIED monitoring — an in-person evaluation 2–12 weeks after implant, then remote or in-person follow-up.
+// 2022 ESC VA / 2021 ESC HF: an ICD or CRT for heart failure does not replace guideline-directed therapy.
+// Driving and wound-care specifics follow local regulations and the implanting team.
+RHYTHM_WIZARDS["after-device"] = {
+  id: "after-device", title: "After a device implant: next steps", tone: "blue", group: "Rhythm & devices", episode: false,
+  source: "ESC pacing 2021 · HRS/EHRA 2015 · ESC HF 2021",
+  note: "Follow-up after a pacemaker, ICD or CRT implant: the first device check, remote monitoring, the anticoagulation plan and advice. The wound and driving rules follow the implanting team and local regulations.",
+  facts: ["haemoglobin", "lvef", "hr"],
+  steps: [
+    {
+      id: "device", title: "The device",
+      questions: [
+        { id: "device", label: "Device", type: "single", required: true, options: [{ value: "pm", label: "Pacemaker" }, { value: "icd", label: "ICD" }, { value: "crt", label: "CRT-P / CRT-D" }, { value: "ilr", label: "Loop recorder" }] },
+        { id: "wound", label: "Wound / pocket", type: "single", required: true, options: [{ value: "ok", label: "Clean and dry" }, { value: "haematoma", label: "Haematoma", hint: "Anticoagulation or DAPT: review with the implanting team" }, { value: "concern", label: "Concern for infection", hint: "Same-day review by the implanting team" }] },
+      ],
+    },
+    {
+      id: "follow", title: "Follow-up",
+      questions: [
+        {
+          id: "followup", label: "Arrange", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Nothing more" },
+            { value: "check", label: "First device check (in person, 2–12 weeks after implant)", hint: "HRS/EHRA 2015 consensus" },
+            { value: "remote", label: "Enrol in remote monitoring", hint: "ESC pacing 2021" },
+            { value: "oac", label: "Anticoagulation as planned around the implant", requires: ["oac"] },
+            { value: "hf", label: "Heart failure clinic: continue guideline-directed therapy", hint: "ICD / CRT do not replace it" },
+            { value: "advice", label: "Device card, arm and wound care, driving advice (local rules)" },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: [{ value: "none", label: "No extra visit" }, { value: "clinic-14", label: "Clinic · 2 weeks" }, { value: "clinic-28", label: "Clinic · 4 weeks" }], required: true },
+      ],
+    },
+  ],
+};
+RHYTHM_WIZARDS["after-device"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const out: OutcomeItem[] = [];
+  const t = ctx.today;
+  const plan = (category: string, title: string, due: string, completesOn: Record<string, unknown> = { type: "manual" }, medicationId: string | null = null): OutcomeItem =>
+    ({ kind: "plan", category, title, dueDate: due, completesOn, label: "", medicationId });
+  const f = ((a.followup as string[]) ?? []).filter((v) => v !== "none");
+  const name = { pm: "pacemaker", icd: "ICD", crt: "CRT", ilr: "loop recorder" }[String(a.device)] ?? "device";
+  if (a.wound === "concern") out.push(plan("follow_up", `Same-day review by the implanting team: possible ${name} pocket infection`, t, { type: "visit" }));
+  if (a.wound === "haematoma") out.push(plan("follow_up", `${name[0].toUpperCase() + name.slice(1)} pocket haematoma: review with the implanting team`, t, { type: "visit" }));
+  if (f.includes("check")) out.push(plan("follow_up", `First ${name} check after implant (in person)`, addDays(t, 14), { type: "study", kind: "device_check" }));
+  if (f.includes("remote")) out.push(plan("follow_up", `Enrol the ${name} in remote monitoring`, t));
+  if (f.includes("oac")) {
+    const oac = ctx.meds.find((m) => m.tags.includes("oac"));
+    out.push(plan("medication", `${oac ? oac.name : "Anticoagulant"}: continue or restart as planned around the implant`, t, { type: "manual" }, oac?.id ?? null));
+  }
+  if (f.includes("hf")) out.push(plan("referral", "Heart failure clinic after ICD / CRT: continue guideline-directed therapy", addDays(t, 28), { type: "visit" }));
+  if (f.includes("advice")) out.push(plan("education", `Device card, arm and wound care, driving advice after the ${name}`, t));
+  return out;
+};
+RHYTHM_WIZARDS["after-device"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const f = (a.followup as string[]) ?? [];
+  const rows: Assessment["rows"] = [
+    { label: "Device", value: ctx.device?.type ?? ({ pm: "Pacemaker", icd: "ICD", crt: "CRT", ilr: "Loop recorder" }[String(a.device)] ?? "Not given") },
+    { label: "Wound / pocket", value: { ok: "Clean and dry", haematoma: "Haematoma", concern: "Concern for infection" }[String(a.wound)] ?? "Not given", tone: a.wound === "ok" ? "green" : "orange" },
+  ];
+  const rec: string[] = [];
+  if (!f.includes("check") && a.device !== "ilr") rec.push("In-person device evaluation 2–12 weeks after implant (HRS/EHRA 2015 consensus).");
+  if (!f.includes("remote")) rec.push("Remote monitoring of the device (ESC pacing 2021).");
+  if ((a.device === "icd" || a.device === "crt") && !f.includes("hf")) rec.push("An ICD or CRT does not replace guideline-directed heart failure therapy.");
+  if (a.wound === "concern") rec.push("Suspected pocket infection: same-day review by the implanting team; blood cultures before any antibiotic (EHRA 2020 consensus on CIED infection).");
+  if (!rec.length) rec.push("Follow-up after the implant is in place.");
+  return { heading: "After the device implant", rows, recommendations: rec };
+};

@@ -8,6 +8,7 @@ import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
 import { QuickLabs } from "../drawers/QuickLabs";
 import { WizardDrawer, type PathwayPart } from "../drawers/Wizard";
+import type { CheckKind } from "../../shared/procedures";
 import { ProcedureDrawer } from "../drawers/Procedure";
 import { AddMedication, MedicationAction } from "../drawers/Medication";
 import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
@@ -43,7 +44,7 @@ export type Open =
   | { kind: "pathways" }
   | { kind: "documents" }
   | { kind: "after-pci" }
-  | { kind: "checklist"; check?: "pci" | "cardioversion" | "ablation" | "device" };
+  | { kind: "checklist"; check?: CheckKind };
 
 const TABS = [
   ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -200,7 +201,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
       {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}
-      {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} />}
+      {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} onAfter={(w) => setOpen({ kind: "wizard", wizard: w })} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}

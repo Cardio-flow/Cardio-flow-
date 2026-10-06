@@ -228,6 +228,7 @@ VALVE_WIZARDS["valve-antithrombotic"] = {
             { value: "none", label: "Nothing more" },
             { value: "education", label: "Anticoagulation education", hint: "INR target, interactions, bleeding" },
             { value: "endocarditis", label: "Endocarditis prevention advice", hint: "Dental and skin hygiene; dental check-ups" },
+            { value: "echo", label: "Baseline echo after the intervention", hint: "Reference for later follow-up: 6 weeks–3 months after implantation (EACVI 2016)" },
           ],
         },
         { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
@@ -314,6 +315,10 @@ VALVE_WIZARDS["valve-antithrombotic"].outcome = (a: Answers, ctx: WizardContext)
   const care = picks(a, "care");
   if (care.includes("education")) out.push({ kind: "plan", category: "education", title: a.intervention === "mech" && ctx.valve?.inrTarget ? `Anticoagulation education (INR target ${ctx.valve.inrTarget})` : "Antithrombotic therapy education", dueDate: t, completesOn: { type: "manual" }, label: "" });
   if (care.includes("endocarditis") && !has(/endocarditis prevention/i)) out.push({ kind: "plan", category: "education", title: "Endocarditis prevention advice (prosthetic valve / repair)", dueDate: t, completesOn: { type: "manual" }, label: "" });
+  if (care.includes("echo") && !has(/baseline echo/i)) {
+    const d = addDays(day, 42);
+    out.push({ kind: "plan", category: "investigation", title: "Baseline echo after the valve intervention (reference for follow-up)", dueDate: d < t ? t : d, completesOn: { type: "study", kind: "echo" }, label: "" });
+  }
   return out;
 };
 

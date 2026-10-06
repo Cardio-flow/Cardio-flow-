@@ -11,7 +11,7 @@ const opts = (l: readonly string[]) => l.map((x) => ({ value: x, label: x }));
 
 // Record a procedure with its exact date: PCI or CABG (antithrombotic durations count from here), or a
 // device implant, ablation or cardioversion (rhythm & devices).
-export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone, onAfterPci }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; onClose(): void; onDone(m?: string, r?: any): void; onAfterPci?(): void }) {
+export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone, onAfterPci, onAfter }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; onClose(): void; onDone(m?: string, r?: any): void; onAfterPci?(): void; onAfter?(wizard: string): void }) {
   const { data: health } = useData<any>("/health");
   const [kind, setKind] = useState<ProcedureKind>(group === "rhythm" ? "device" : group === "valve" ? "valve" : group === "ph" ? "rhc" : "pci");
   const [date, setDate] = useState("");
@@ -42,10 +42,12 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     try {
       const at = new Date(`${date}T10:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/procedures`, { body: { kind, date: at, details, contextId: contextId ?? null } });
-      // a PCI's "stop dates not set" alert is answered on the sheet that opens next: no alert toast
-      onDone(`${PROCEDURE_LABEL[kind]} recorded`, kind === "pci" && onAfterPci ? undefined : r);
-      // a PCI goes straight on to its next steps: the antithrombotic plan and secondary prevention
+      // the procedure goes straight on to its next steps (PCI: the after-PCI sheet; CABG, device implant and valve
+      // intervention: their pathway); the alerts they answer are not toasted
+      const next = kind === "cabg" ? "after-cabg" : kind === "device" && ["New implant", "Upgrade"].includes((details as any).action) ? "after-device" : kind === "valve" ? "valve-antithrombotic" : null;
+      onDone(`${PROCEDURE_LABEL[kind]} recorded`, (kind === "pci" && onAfterPci) || (next && onAfter) ? undefined : r);
       if (kind === "pci") onAfterPci?.();
+      else if (next) onAfter?.(next);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);

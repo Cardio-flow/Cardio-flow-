@@ -107,6 +107,8 @@ export type WizardContext = {
   ph?: { group: string | null; haemo: string | null; pvr: number | null; echo: string | null; peAt: string | null; ildType: string | null; aps: boolean; anticoagulants: { name: string; doac: boolean }[] } | null;
   // the current cardiac device and its latest check (rhythm module, slice 4)
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
+  // the latest CABG (the after-CABG pathway counts from here)
+  cabgAt?: string | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
   planned?: string[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found

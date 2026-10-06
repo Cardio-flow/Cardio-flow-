@@ -129,3 +129,73 @@ test("digoxin and bradycardia: amiodarone detected by name, not by the QT tag", 
   ctx = (await tx((q) => getWizard(q, pid, "digoxin"))).context;
   assert.ok(ctx.detected.causes.includes("amiodarone"));
 });
+
+const recs = async (pid: string, rule: string) =>
+  ((await db.query(`SELECT title, action FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[]).map((r) => ({ ...r, action: typeof r.action === "string" ? JSON.parse(r.action) : r.action }));
+
+test("PCI complications act: kidney injury → creatinine, access bleeding → haemoglobin, stent thrombosis → echo; each closes with its result", async () => {
+  const { reassess } = await import("../server/engine/engine.js");
+  const pid = await newPatient(["cad-ccs"]);
+  await tx(async (q) => {
+    await K.recordProcedure(q, doc, pid, { kind: "pci", date: at(addDays(T, -2)), details: { setting: "nste-acs", vessels: ["LAD"], devices: ["Drug-eluting stent"], stents: 1, access: "Femoral", complications: ["Contrast-associated kidney injury", "Access-site haematoma or bleeding", "Acute stent thrombosis"] } });
+    await reassess(q, pid, "sandbox");
+  });
+  let r = await recs(pid, "cad.pci-complication");
+  assert.equal(r.length, 3);
+  assert.deepEqual(r.find((x) => /creatinine/.test(x.title))!.action.codes, ["creatinine", "potassium"]);
+  assert.ok(r.some((x) => /Acute stent thrombosis during PCI: echo/.test(x.title) && x.action.template === "echo"));
+  await tx(async (q) => { await K.recordObservations(q, doc, pid, { effectiveAt: at(T), items: [{ code: "creatinine", value: 110 }, { code: "haemoglobin", value: 12.5 }] }); await reassess(q, pid, "sandbox"); });
+  r = await recs(pid, "cad.pci-complication");
+  assert.deepEqual(r.map((x) => x.title), ["Acute stent thrombosis during PCI: echo for LV function"]);
+});
+
+test("after CABG: aspirin and statin started, P2Y12 resumed to 12 months after the ACS, dates from the operation", async () => {
+  const pid = await newPatient(["cad-ccs"]);
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "cabg", date: at(addDays(T, -5)), details: { grafts: ["LIMA to LAD", "Vein grafts"], count: 3, setting: "elective" } }));
+  const ctx = (await tx((q) => getWizard(q, pid, "after-cabg"))).context;
+  assert.equal(ctx.cabgAt, addDays(T, -5));
+  const v = suggest("after-cabg", "meds", { setting: "ccs", poaf: "no" }, ctx).map((x) => x.value);
+  assert.ok(v.includes("aspirin") && v.includes("statin") && !v.includes("p2y12"));
+  const out = buildOutcome("after-cabg", { setting: "ccs", poaf: "no", meds: ["aspirin", "statin"], followup: ["lipids", "rehab"], review: "none" }, ctx);
+  assert.ok(out.some((o) => o.kind === "start" && o.code === "aspirin" && o.doseValue === 100));
+  assert.ok(out.some((o) => o.kind === "start" && o.code === "atorvastatin" && o.doseValue === 80));
+  assert.ok(out.some((o) => o.kind === "plan" && /Lipid profile 4–6 weeks after CABG/.test(o.title) && o.dueDate === addDays(T, 37)));
+  const sum = WIZARDS["after-cabg"].assess!({ setting: "acs", poaf: "yes", meds: ["aspirin"], followup: ["none"] }, ctx);
+  assert.ok(sum.recommendations.some((x) => /resume the P2Y12 inhibitor/.test(x)));
+  assert.ok(sum.recommendations.some((x) => /Post-operative AF/.test(x)));
+});
+
+test("after a device implant: device from the record, first check and remote monitoring planned, infection concern same day", async () => {
+  const pid = await newPatient(["hfref"]);
+  await tx((q) => K.recordProcedure(q, doc, pid, { kind: "device", date: at(addDays(T, -1)), details: { type: "CRT-D", action: "New implant", indication: "CRT for heart failure", pacing: "Biventricular", remote: "Not enrolled" } }));
+  const ctx = (await tx((q) => getWizard(q, pid, "after-device"))).context;
+  assert.deepEqual(suggest("after-device", "device", {}, ctx).map((x) => x.value), ["crt"]);
+  const f = suggest("after-device", "followup", { device: "crt" }, ctx).map((x) => x.value);
+  assert.ok(f.includes("check") && f.includes("remote") && f.includes("hf"));
+  const out = buildOutcome("after-device", { device: "crt", wound: "concern", followup: ["check", "remote"], review: "none" }, ctx) as any[];
+  assert.ok(out.some((o) => /Same-day review by the implanting team: possible CRT pocket infection/.test(o.title) && o.dueDate === T));
+  assert.ok(out.some((o) => o.title === "First CRT check after implant (in person)" && o.completesOn.kind === "device_check"));
+});
+
+test("checklists: valve and right heart catheterisation, and planned procedures carry their checklist", async () => {
+  const { checklist } = await import("../server/engine/checklist.js");
+  const { checklistForPlan } = await import("../shared/procedures.js");
+  const { planView } = await import("../server/kernel/views.js");
+  const pid = await newPatient(["as"]);
+  let c = checklist(await loadState(db, pid), "valve");
+  assert.equal(c.items.find((i) => i.key === "team")!.status, "flag");
+  assert.equal(c.items.find((i) => i.key === "coronary")!.status, "missing");
+  assert.match(c.items.find((i) => i.key === "dental")!.source!, /ESC endocarditis 2023/);
+  c = checklist(await loadState(db, pid), "rhc");
+  assert.equal(c.items.find((i) => i.key === "echo")!.status, "missing");
+  assert.equal(c.items.find((i) => i.key === "vq")!.status, "info");
+
+  assert.equal(checklistForPlan("TAVI (Heart Team decision)", "procedure"), "valve");
+  assert.equal(checklistForPlan("Cardioversion (after 3 weeks of effective anticoagulation)", "procedure"), "cardioversion");
+  assert.equal(checklistForPlan("Anticoagulation for at least 4 weeks after cardioversion, then by CHA₂DS₂-VA", "medication"), null);
+  assert.equal(checklistForPlan("Staged PCI (complete revascularisation within 45 days)", "follow_up"), "pci");
+  assert.equal(checklistForPlan("Immediate coronary angiography (primary PCI pathway)", "procedure"), null);
+  assert.equal(checklistForPlan("PH centre referral: right heart catheterisation (pulmonary hypertension work-up)", "referral"), "rhc");
+  await tx((q) => K.addPlanAction(q, doc, pid, { category: "procedure", title: "TAVI (Heart Team decision)", reason: "test", dueDate: addDays(T, 20), completesOn: { type: "manual" } }));
+  assert.equal(planView(await loadState(db, pid)).find((p) => p.title.startsWith("TAVI"))!.checklist, "valve");
+});

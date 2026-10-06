@@ -223,3 +223,17 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
   if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");
   return [a.count ? `${a.count} graft${a.count === 1 ? "" : "s"}` : null, (a.grafts ?? []).join(", ") || null, a.setting === "acs" ? "during ACS" : null].filter(Boolean).join(" · ");
 }
+
+// Checklists before a procedure (redesign slice 7; valve and RHC added in the audit finish, 6 Oct)
+export type CheckKind = "pci" | "cardioversion" | "ablation" | "device" | "valve" | "rhc";
+// a planned procedure (plan item) that has a checklist: matched by its title
+export function checklistForPlan(title: string, category: string): CheckKind | null {
+  if (!["procedure", "referral", "follow_up"].includes(category) || /immediate|primary PCI|^(anticoagulation|12-lead|ambulatory|TOE|echo)/i.test(title)) return null;
+  if (/cardioversion/i.test(title)) return "cardioversion";
+  if (/AF catheter ablation|ablation for AF|AF ablation/i.test(title)) return "ablation";
+  if (/coronary angiography|\bPCI\b/i.test(title)) return "pci";
+  if (/TAVI|TEER|valve (replacement|repair|intervention|surgery)|commissurotomy|valvotomy|tricuspid intervention/i.test(title)) return "valve";
+  if (/right heart catheteri[sz]ation/i.test(title)) return "rhc";
+  if (/pacemaker implant|ICD implant|CRT implant|device implant/i.test(title)) return "device";
+  return null;
+}

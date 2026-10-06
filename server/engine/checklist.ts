@@ -10,16 +10,25 @@
 //  - AF ablation: ESC AF 2024 — uninterrupted oral anticoagulation in patients undergoing ablation (I A).
 //  - Device implantation: ESC 2021 pacing — antibiotic prophylaxis within 1 h of incision (I A); continue
 //    uninterrupted VKA rather than heparin bridging (heparin bridging not recommended, III).
+//  - Valve intervention (audit finish, 6 Oct): ESC/EACTS 2025 — Heart Team decision (I C); coronary
+//    assessment before intervention (angiography or CCTA); CT for TAVI planning. ESC endocarditis 2023 —
+//    potential dental sources of sepsis eliminated before prosthetic valve implantation (I C).
+//  - Right heart catheterisation: ESC/ERS 2022 PH — echocardiography first (probability of PH); RHC in a PH
+//    centre; V/Q scan to look for CTEPH in unexplained PH (I C).
 import { DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, flagFor, fmtDay } from "../../shared/clinical.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
+import { latestPhEcho } from "./ph-profile.js";
+import type { CheckKind } from "../../shared/procedures.js";
+export type { CheckKind };
 
-export type CheckKind = "pci" | "cardioversion" | "ablation" | "device";
 export const CHECK_TITLE: Record<CheckKind, string> = {
   pci: "Before coronary angiography / PCI",
   cardioversion: "Before cardioversion of AF",
   ablation: "Before AF ablation",
   device: "Before device implantation",
+  valve: "Before a valve intervention",
+  rhc: "Before right heart catheterisation",
 };
 export type CheckItem = {
   key: string; label: string;
@@ -110,6 +119,39 @@ export function checklist(s: PatientState, kind: CheckKind): { title: string; it
     else if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Plan the peri-procedural interruption.", action: { type: "wizard", wizard: "pre-procedure", label: "Plan interruption" } });
     if (antiplatelets.length > 1) items.push({ key: "dapt", label: "Dual antiplatelet therapy", status: "flag", value: antiplatelets.map((m) => m.name).join(", "), why: "Higher pocket-haematoma risk: weigh the timing against the indication for DAPT." });
     items.push(lab(s, "crp", "CRP (active infection)"));
+  }
+  if (kind === "valve") {
+    const team = s.pathwaysDone["valve-heart-team"];
+    items.push(team
+      ? { key: "team", label: "Heart Team decision", status: "ok", date: team, why: ago(daysBetween(team, s.today)), source: "ESC/EACTS 2025 · I C" }
+      : { key: "team", label: "Heart Team decision", status: "flag", why: "Not recorded: the intervention follows a Heart Team decision.", source: "ESC/EACTS 2025 · I C", action: { type: "wizard", wizard: "valve-heart-team", label: "Heart Team" } });
+    const echo = latestStudy(s, "echo", 100000);
+    items.push(echo
+      ? { key: "echo", label: "Echo", status: "ok", value: echo.attributes?.lvef != null ? `LVEF ${echo.attributes.lvef}%` : "recorded", date: echo.performed_at, why: ago(daysBetween(echo.performed_at, s.today)) }
+      : { key: "echo", label: "Echo", status: "missing", why: "No echo on record." });
+    const cor = [latestStudy(s, "cath", 100000), latestStudy(s, "ccta", 100000)].filter(Boolean).sort((a, b) => (a!.performed_at < b!.performed_at ? 1 : -1))[0];
+    items.push(cor
+      ? { key: "coronary", label: "Coronary assessment", status: "ok", value: cor.kind === "ccta" ? "CT coronary angiography" : "Coronary angiography", date: cor.performed_at, why: ago(daysBetween(cor.performed_at, s.today)) }
+      : { key: "coronary", label: "Coronary assessment", status: "missing", why: "No coronary angiography or CCTA on record: coronary assessment before the intervention.", source: "ESC/EACTS 2025" });
+    items.push({ key: "ct", label: "CT for TAVI planning", status: "info", why: "TAVI: CT of the annulus and the access route." });
+    items.push({ key: "dental", label: "Dental check", status: "info", why: "Eliminate potential dental sources of sepsis before a prosthetic valve is implanted.", source: "ESC endocarditis 2023 · I C" });
+    items.push(oac.length
+      ? { key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Plan the peri-procedural anticoagulation; afterwards the valve antithrombotic pathway sets the regimen.", action: { type: "wizard", wizard: "pre-procedure", label: "Plan interruption" } }
+      : { key: "oac", label: "Anticoagulant", status: "ok", value: "None" });
+  }
+
+  if (kind === "rhc") {
+    const ph = latestPhEcho(s);
+    const echo = latestStudy(s, "echo", 100000);
+    items.push(ph
+      ? { key: "echo", label: "Echo: probability of PH", status: "ok", value: `${ph.probability} probability${ph.trv != null ? ` · TRV ${ph.trv} m/s` : ""}`, date: ph.at, why: ago(daysBetween(ph.at, s.today)), source: "ESC/ERS 2022" }
+      : echo
+      ? { key: "echo", label: "Echo: probability of PH", status: "flag", date: echo.performed_at, why: "The latest echo does not record TR velocity or PH signs: the probability of PH is not set.", source: "ESC/ERS 2022" }
+      : { key: "echo", label: "Echo: probability of PH", status: "missing", why: "Echo first: it sets the probability of PH.", source: "ESC/ERS 2022" });
+    const pe = s.conditions.some((c) => c.code === "pe");
+    items.push({ key: "vq", label: "V/Q scan (CTEPH)", status: pe ? "flag" : "info", why: pe ? "Previous pulmonary embolism: V/Q scan for chronic thromboembolic disease." : "In unexplained PH, a V/Q scan looks for CTEPH.", source: "ESC/ERS 2022 · I C" });
+    items.push({ key: "centre", label: "PH centre", status: "info", why: "Right heart catheterisation is done in a PH centre, with a standardised protocol.", source: "ESC/ERS 2022" });
+    if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Venous access: plan the peri-procedural anticoagulation with the PH centre." });
   }
   return { title: CHECK_TITLE[kind], items };
 }

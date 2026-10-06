@@ -274,7 +274,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // checklists before a procedure (redesign slice 7), read from the record
   app.get("/api/patients/:id/checklist/:kind", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const kind = z.enum(["pci", "cardioversion", "ablation", "device"]).parse(req.params.kind);
+    const kind = z.enum(["pci", "cardioversion", "ablation", "device", "valve", "rhc"]).parse(req.params.kind);
     res.json(await db.transaction(async (tx) => {
       await patientInSite(tx, actor(res), id);
       return checklist(await loadState(tx, id), kind);

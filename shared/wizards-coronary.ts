@@ -511,3 +511,105 @@ CORONARY_WIZARDS.antithrombotic.assess = (a: Answers, ctx: WizardContext): Asses
   if (a.oac === "yes") rec.push("After the antiplatelet stops, the anticoagulant continues alone (ESC ACS 2023 / CCS 2024).");
   return { heading: "Antithrombotic plan", rows, recommendations: rec };
 };
+
+// After CABG (audit finish, 6 Oct): the next steps once a CABG is recorded, like the after-PCI sheet.
+// Sources: 2024 ESC CCS — aspirin 75–100 mg daily after CABG; high-intensity statin; cardiac rehabilitation
+// (I A). 2023 ESC ACS — CABG during an ACS: the P2Y12 inhibitor is resumed after surgery to complete 12
+// months of DAPT; rehabilitation (I A); LDL-C goal <1.4 mmol/L, lipids at 4–6 weeks. 2024 ESC AF —
+// post-operative AF after cardiac surgery: long-term oral anticoagulation should be considered (IIa B),
+// by CHA₂DS₂-VA. CardioFlow does not dose after-surgery drugs beyond the catalogue maintenance doses.
+CORONARY_WIZARDS["after-cabg"] = {
+  id: "after-cabg", title: "After CABG: next steps", tone: "blue", group: "Coronary", episode: false,
+  source: "ESC CCS 2024 · ESC ACS 2023 · ESC AF 2024",
+  note: "Secondary prevention and follow-up after coronary bypass surgery, counted from the operation. Surgical wound and sternal care follow the surgical team.",
+  facts: ["lvef", "ldl-c", "haemoglobin", "egfr", "hr"],
+  steps: [
+    {
+      id: "setting", title: "The operation",
+      questions: [
+        { id: "setting", label: "Setting", type: "single", required: true, options: [{ value: "acs", label: "During an acute coronary syndrome" }, { value: "ccs", label: "Chronic coronary syndrome (elective)" }] },
+        { id: "poaf", label: "Post-operative atrial fibrillation", type: "single", required: true, options: [{ value: "no", label: "No" }, { value: "yes", label: "Yes", hint: "Long-term anticoagulation should be considered (ESC AF 2024, IIa B)" }] },
+      ],
+    },
+    {
+      id: "meds", title: "Medicines",
+      questions: [
+        {
+          id: "meds", label: "Start or plan", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Nothing to change" },
+            { value: "aspirin", label: "Aspirin 100 mg daily, long term", unless: ["aspirin"], hint: "After CABG (ESC CCS 2024)" },
+            { value: "statin", label: "High-intensity statin: atorvastatin 80 mg", unless: ["statin"] },
+            { value: "intensify", label: "Increase the statin to high intensity", requires: ["statin"] },
+            { value: "p2y12", label: "Resume the P2Y12 inhibitor to complete 12 months of DAPT", hint: "CABG during an ACS (ESC ACS 2023)" },
+            { value: "oac", label: "Decide long-term anticoagulation (post-operative AF)", hint: "By CHA₂DS₂-VA (ESC AF 2024, IIa B)" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "follow", title: "Follow-up",
+      questions: [
+        {
+          id: "followup", label: "Arrange", type: "multi", required: true,
+          options: [
+            { value: "none", label: "Nothing more" },
+            { value: "rehab", label: "Cardiac rehabilitation referral", hint: "I A" },
+            { value: "lipids", label: "Lipid profile 4–6 weeks after the operation" },
+            { value: "echo", label: "Echo: LV function after surgery" },
+            { value: "surgical", label: "Surgical follow-up (wound, sternum) as set by the surgical team" },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};
+CORONARY_WIZARDS["after-cabg"].outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
+  const out: OutcomeItem[] = [];
+  const day = ctx.cabgAt ?? ctx.today;
+  const due = (days: number) => { const d = addDays(day, days); return d < ctx.today ? ctx.today : d; };
+  const plan = (category: string, title: string, dueDate: string, completesOn: Record<string, unknown> = { type: "manual" }, medicationId: string | null = null): OutcomeItem =>
+    ({ kind: "plan", category, title, dueDate, completesOn, label: "", medicationId });
+  const has = (re: RegExp) => (ctx.planned ?? []).some((t) => re.test(t));
+  const meds = ((a.meds as string[]) ?? []).filter((v) => v !== "none");
+  if (meds.includes("aspirin") && !ctx.meds.some((m) => m.code === "aspirin")) out.push({ kind: "start", code: "aspirin", doseValue: 100, frequency: "OD", indication: "cad", label: "Aspirin 100 mg daily: start (long term after CABG)" });
+  if (meds.includes("statin") && !ctx.meds.some((m) => m.tags.includes("statin"))) out.push({ kind: "start", code: ACS_MEDS.statin.code, doseValue: ACS_MEDS.statin.dose, frequency: "OD", indication: "cad", label: `${ACS_MEDS.statin.label}: start` });
+  if (meds.includes("intensify")) {
+    const st = ctx.meds.find((m) => m.tags.includes("statin"));
+    if (st) out.push(plan("medication", "Increase the statin to high intensity (atorvastatin 40–80 mg / rosuvastatin 20–40 mg)", ctx.today, { type: "manual" }, st.id));
+  }
+  if (meds.includes("p2y12")) {
+    const p2 = ctx.meds.find((m) => m.tags.includes("p2y12"));
+    out.push(plan("medication", p2 ? `Resume ${p2.name.toLowerCase()} after CABG` : "Resume a P2Y12 inhibitor after CABG", ctx.today, { type: "manual" }, p2?.id ?? null));
+    const acsAt = ctx.coronary?.acsAt;
+    if (acsAt) out.push(plan("medication", "End of 12-month DAPT after the ACS: stop the P2Y12 inhibitor, continue aspirin", addDays(acsAt, 365) < ctx.today ? ctx.today : addDays(acsAt, 365), { type: "manual" }, p2?.id ?? null));
+  }
+  if (meds.includes("oac")) out.push(plan("medication", "Post-operative AF after CABG: decide long-term anticoagulation by CHA₂DS₂-VA", ctx.today));
+  const f = ((a.followup as string[]) ?? []).filter((v) => v !== "none");
+  if (f.includes("rehab") && !has(/rehabilitation/i)) out.push(plan("referral", "Cardiac rehabilitation referral", due(7)));
+  if (f.includes("lipids") && !has(/lipid/i)) out.push(plan("monitoring", "Lipid profile 4–6 weeks after CABG", due(42), { type: "lab", codes: ["ldl-c"] }));
+  if (f.includes("echo") && !has(/echo/i)) out.push(plan("investigation", "Echo: LV function after CABG", ctx.today, { type: "study", kind: "echo" }));
+  if (f.includes("surgical")) out.push(plan("follow_up", "Surgical follow-up after CABG (wound, sternum)", due(28), { type: "visit" }));
+  return out;
+};
+CORONARY_WIZARDS["after-cabg"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const on = (...t: string[]) => ctx.meds.some((m) => m.tags.some((x) => t.includes(x)));
+  const meds = (a.meds as string[]) ?? [];
+  const f = (a.followup as string[]) ?? [];
+  const ldl = ctx.values?.["ldl-c"]?.value ?? null;
+  const rows: Assessment["rows"] = [
+    { label: "Operation", value: `CABG${ctx.cabgAt ? ` · ${ctx.cabgAt}` : ""} · ${a.setting === "acs" ? "during an ACS" : "elective"}` },
+    { label: "Aspirin", value: ctx.meds.some((m) => m.code === "aspirin") ? "On aspirin" : meds.includes("aspirin") ? "To start" : "Not on aspirin", tone: ctx.meds.some((m) => m.code === "aspirin") || meds.includes("aspirin") ? "green" : "orange" },
+    { label: "LDL-C", value: ldl != null ? `${ldl} mmol/L · goal <1.4` : "Not measured", tone: ldl == null || ldl >= 1.4 ? "orange" : "green" },
+  ];
+  if (a.poaf === "yes") rows.push({ label: "Post-operative AF", value: on("oac") ? "On an anticoagulant" : "No anticoagulant", tone: on("oac") ? "green" : "orange" });
+  const rec: string[] = [];
+  if (!ctx.meds.some((m) => m.code === "aspirin") && !meds.includes("aspirin")) rec.push("Aspirin 75–100 mg daily after CABG (ESC CCS 2024).");
+  if (!on("statin") && !meds.includes("statin")) rec.push("High-intensity statin; LDL-C goal <1.4 mmol/L.");
+  if (a.setting === "acs" && !meds.includes("p2y12")) rec.push("CABG during an ACS: resume the P2Y12 inhibitor after surgery to complete 12 months of DAPT (ESC ACS 2023).");
+  if (a.poaf === "yes" && !on("oac") && !meds.includes("oac")) rec.push("Post-operative AF after cardiac surgery: long-term anticoagulation should be considered (ESC AF 2024, IIa B).");
+  if (!f.includes("rehab") && !(ctx.planned ?? []).some((t) => /rehabilitation/i.test(t))) rec.push("Cardiac rehabilitation after CABG (I A).");
+  if (!rec.length) rec.push("All guideline steps after CABG are in place.");
+  return { heading: "After CABG", rows, recommendations: rec };
+};

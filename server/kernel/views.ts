@@ -12,6 +12,7 @@ import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/cl
 import { ANSWER_LABEL, HISTORY_ITEMS, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
 import { WIZARDS } from "../../shared/wizards.js";
+import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
 
 const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
@@ -332,6 +333,8 @@ export function planView(s: PatientState) {
     completesOn: p.completes_on,
     version: p.version,
     medicationId: p.medication_id,
+    // a planned procedure with a checklist before it
+    checklist: p.status === "planned" ? checklistForPlan(p.title, p.category) : null,
   }));
   const order = { overdue: 0, due: 1, planned: 2, done: 3, deferred: 4, cancelled: 5, superseded: 6 } as Record<string, number>;
   return withState.sort((a, b) => order[a.view] - order[b.view] || (a.dueDate ?? "9") .localeCompare(b.dueDate ?? "9"));

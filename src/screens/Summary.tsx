@@ -29,7 +29,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="stack">
           <Meds s={s} open={open} done={done} />
           <Results s={s} open={open} />
-          <Upcoming s={s} />
+          <Upcoming s={s} open={open} />
         </div>
       </div>
     </main>
@@ -486,7 +486,7 @@ function Results({ s, open }: { s: any; open(o: Open): void }) {
   );
 }
 
-function Upcoming({ s }: { s: any }) {
+function Upcoming({ s, open }: { s: any; open(o: Open): void }) {
   if (!s.upcoming.length) return null;
   return (
     <section className="navy-card">
@@ -502,6 +502,7 @@ function Upcoming({ s }: { s: any }) {
             <div className="t">
               <b>{p.title}</b>
               <span>{p.source ? `${p.source.label} · ${fmtDay(p.source.at)}` : p.reason ? `From ${p.reason.toLowerCase()}` : p.category.replace("_", " ")}</span>
+              {p.checklist && <button className="cal-check" onClick={() => open({ kind: "checklist", check: p.checklist })}>Checklist before it</button>}
             </div>
           </div>
         );

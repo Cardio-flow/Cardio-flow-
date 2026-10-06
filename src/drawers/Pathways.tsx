@@ -3,6 +3,7 @@ import { Route, Search } from "lucide-react";
 import { Drawer } from "../ui";
 import { WIZARDS } from "../../shared/wizards";
 import { DIAGNOSIS } from "../../shared/catalog";
+import type { CheckKind } from "../../shared/procedures";
 
 const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Valve disease", "Cardiomyopathy", "Pulmonary hypertension", "Diabetes"] as const;
 // diagnosis tags that make a group relevant to this patient
@@ -13,7 +14,7 @@ const GROUP_TAGS: Record<string, string[]> = {
 
 // Every pathway, opened on demand (alerts open the same pathways automatically). Search by name or source;
 // the ones this patient's alerts and open episodes point to come first.
-export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: any; onClose(): void; onPick(wizard: string): void; onChecklist?(kind: "pci" | "cardioversion" | "ablation" | "device"): void }) {
+export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: any; onClose(): void; onPick(wizard: string): void; onChecklist?(kind: CheckKind): void }) {
   const [q, setQ] = useState("");
   const all = Object.values(WIZARDS);
   const forPatient = useMemo(() => {
@@ -58,7 +59,7 @@ export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: 
           <section className="col" style={{ gap: 10 }}>
             <span className="pw-head">Checklists before a procedure</span>
             <div className="ck-chips">
-              {([["pci", "Angiography / PCI"], ["cardioversion", "Cardioversion"], ["ablation", "AF ablation"], ["device", "Device implant"]] as const).map(([k, l]) => (
+              {([["pci", "Angiography / PCI"], ["cardioversion", "Cardioversion"], ["ablation", "AF ablation"], ["device", "Device implant"], ["valve", "Valve intervention"], ["rhc", "Right heart cath"]] as const).map(([k, l]) => (
                 <button key={k} className="ck-chip" onClick={() => onChecklist(k)}>{l}</button>
               ))}
             </div>

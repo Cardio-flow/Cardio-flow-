@@ -223,7 +223,10 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
               </span>
               <span className="when">{p.dueDate ? fmtDay(p.dueDate, { weekday: true, year: true }) : "No date"}</span>
               <span><Tag sev={VIEW_SEV[p.view]}>{VIEW_LABEL(p, data.today)}</Tag></span>
-              <span>{p.status === "planned" && <button className="btn ghost small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Update</button>}</span>
+              <span className="row" style={{ gap: 4, justifyContent: "flex-end" }}>
+                {p.checklist && <button className="btn ghost small" onClick={() => open({ kind: "checklist", check: p.checklist })}>Checklist</button>}
+                {p.status === "planned" && <button className="btn ghost small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Update</button>}
+              </span>
             </div>
           ))}
         </div>
