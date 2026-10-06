@@ -210,7 +210,7 @@ export function WizardDrawer({
               {isReview && join ? (
                 <>
                   <button className="btn secondary" disabled={busy || needReason.length > 0} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
-                  <button className="btn primary" disabled={needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.toLowerCase()}</button>
+                  <button className="btn primary" disabled={needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
                 </>
               ) : isReview ? (
                 <button className="btn primary" disabled={busy || needReason.length > 0} title={needReason.length ? "Give the reason to start despite the contraindication" : undefined} onClick={() => confirm()}>

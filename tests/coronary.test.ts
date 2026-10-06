@@ -213,7 +213,7 @@ test("Salem (PCI 5 months ago) with chest pain at clinic: the pathway is offered
   const pid = await byName("Salem Al-Rashidi");
   const r = await rec(pid, "event.chest-pain-cad");
   assert.ok(r && r.severity === "orange");
-  assert.match(r.title, /Visit for chest pain .*→ chest pain after ACS \/ PCI pathway/);
+  assert.match(r.title, /^Visit for chest pain · /);
   const ctx = (await tx((q) => getWizard(q, pid, "chest-pain-cad"))).context;
   assert.deepEqual(suggest("chest-pain-cad", "adherence", {}, ctx).map((x) => x.value), ["taking"]);
   const a = { pattern: "rest", ecg: "dynamic", troponin: "rising", instability: ["none"], adherence: "missed" };

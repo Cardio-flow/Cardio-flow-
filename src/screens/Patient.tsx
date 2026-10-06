@@ -68,6 +68,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
     [reload, toast],
   );
   const close = useCallback(() => setOpen(null), []);
+  const [more, setMore] = useState(false);
   if (error) return <main className="page"><div className="error-box">{error}</div></main>;
   if (!s) return <main className="page" aria-busy="true" />;
   const h = s.header;
@@ -97,16 +98,28 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                 </span>
               )}
             </div>
-            <div className="row wrap" style={{ gap: 8 }}>
-              {h.diagnoses.map((d: any) => (
-                <span key={d.id} className="chip dx">{d.label}</span>
-              ))}
-              <button className="chip outline" style={{ cursor: "pointer" }} onClick={() => setOpen({ kind: "dx" })}>
-                <Plus size={14} /> Diagnosis
-              </button>
-              <span className="chip outline">Allergies: {h.allergies}</span>
+            {/* phones: diagnoses and risk factors fold into one line so the actions stay near the top */}
+            <button type="button" className="pt-more-toggle" aria-expanded={more} onClick={() => setMore(!more)}>
+              <span className="grow">
+                {h.diagnoses.length ? h.diagnoses.slice(0, 2).map((d: any) => d.label).join(", ") : "No diagnoses listed"}
+                {h.diagnoses.length > 2 && <b> +{h.diagnoses.length - 2}</b>}
+                {h.riskFactors?.present?.length ? <em> · {h.riskFactors.present.length} risk factor{h.riskFactors.present.length === 1 ? "" : "s"}</em> : null}
+              </span>
+              <span aria-hidden>{more ? "Hide ▴" : "All ▾"}</span>
+            </button>
+            <div className="pt-more" data-open={more}>
+              <div className="row wrap" style={{ gap: 8 }}>
+                {h.diagnoses.map((d: any) => (
+                  <span key={d.id} className="chip dx">{d.label}</span>
+                ))}
+                <button className="chip outline" style={{ cursor: "pointer" }} onClick={() => setOpen({ kind: "dx" })}>
+                  <Plus size={14} /> Diagnosis
+                </button>
+                <span className="chip outline pt-allergy-inline">Allergies: {h.allergies}</span>
+              </div>
+              <RiskRow rf={h.riskFactors} onOpen={() => setOpen({ kind: "history", focus: "risk" })} />
             </div>
-            <RiskRow rf={h.riskFactors} onOpen={() => setOpen({ kind: "history", focus: "risk" })} />
+            <span className="chip outline pt-allergy">Allergies: {h.allergies}</span>
           </div>
           <div className="pt-actions">
             {!h.deceased && (

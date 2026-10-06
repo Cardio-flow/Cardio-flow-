@@ -1242,3 +1242,21 @@ details.lane > .lane-rows { padding: 0 18px 8px; }
 .sl-before em.ok::before { content: "✓ "; color: var(--green-ink); }
 .sl-before em.flag { background: var(--orange-soft); border-color: #fdd9b5; color: var(--orange-deep); }
 .sl-before em.miss { border-style: dashed; color: var(--ink-4); }
+
+/* patient header: diagnoses and risk factors fold on phones (audit finish, 6 Oct) */
+.pt-more { display: flex; flex-direction: column; gap: 8px; }
+.pt-more-toggle { display: none; }
+.pt-allergy { display: none; }
+@media (max-width: 640px) {
+  .pt-more[data-open="false"] { display: none; }
+  .pt-allergy { display: inline-flex; align-self: flex-start; }
+  .pt-allergy-inline { display: none; }
+  .pt-more-toggle { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font: 600 13.5px/1.35 var(--font); color: var(--ink); }
+  .pt-more-toggle .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-more-toggle b { color: var(--navy); }
+  .pt-more-toggle em { font-style: normal; color: var(--ink-3); }
+  .pt-more-toggle > span:last-child { flex-shrink: 0; color: var(--action); font-weight: 700; }
+}
+
+.hx-dx-line.new { background: var(--blue-soft); border-color: var(--blue-line); }
+.hx-year { width: 84px; height: 36px; }

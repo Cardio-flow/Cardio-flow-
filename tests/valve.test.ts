@@ -308,7 +308,7 @@ test("Yousef (2016 surgical bioprosthesis, severe prosthesis stenosis and 'Prost
   const pid = await byName("Yousef Al-Shammari");
   const o = (await rec(pid, "event.prosthetic-valve"))[0];
   assert.equal(o.severity, "orange");
-  assert.match(o.title, /^Echo .*: Prosthetic valve dysfunction, severe aortic prosthesis stenosis → prosthetic valve pathway$/);
+  assert.match(o.title, /^Echo .*: Prosthetic valve dysfunction, severe aortic prosthesis stenosis$/);
   assert.equal(o.action.wizard, "prosthetic-valve");
   assert.equal((await rec(pid, "valve.severe-heart-team")).length, 0, "a treated position is not a native lesion");
   assert.equal((await rec(pid, "valve.echo-lesion-unlisted")).length, 0);

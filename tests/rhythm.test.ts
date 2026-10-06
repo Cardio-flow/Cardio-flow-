@@ -209,7 +209,7 @@ test("Bader: two appropriate shocks for VT on today's remote check → ICD shock
   const pid = await byName("Bader Al-Mutairi");
   const r = await rec(pid, "event.icd-shock");
   assert.ok(r && r.severity === "orange");
-  assert.match(r.title, /2 shocks → ICD shock \/ ventricular arrhythmia pathway/);
+  assert.match(r.title, /2 shocks/);
   const ctx = (await tx((q) => getWizard(q, pid, "icd-shock"))).context;
   assert.equal(ctx.device!.type, "CRT-D");
   assert.deepEqual(suggest("icd-shock", "what", {}, ctx).map((x) => x.value), ["multiple"]);

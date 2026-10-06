@@ -569,7 +569,9 @@ function closingSummary(def: WizardDef) {
       for (const q of visibleQuestions(st, a)) {
         if (!q.options) continue;
         const allowed = new Set(optionsFor(q, ctx).map((o) => o.value));
-        for (const x of suggest(def.id, q.id, a, ctx, allowed)) if (x.value !== "none" && !recs.includes(x.why)) recs.push(x.why);
+        // the cited suggestions the answers follow (the ones not taken are listed separately on Confirm)
+        const chosen = (v: string) => (Array.isArray(a[q.id]) ? (a[q.id] as string[]).includes(v) : a[q.id] === v);
+        for (const x of suggest(def.id, q.id, a, ctx, allowed)) if (x.value !== "none" && chosen(x.value) && !recs.includes(x.why)) recs.push(x.why);
         if (PLAN_QUESTIONS.has(q.id) || q.type !== "single" && q.type !== "multi") continue;
         const v = a[q.id];
         const vals = Array.isArray(v) ? v : v != null && v !== "" ? [String(v)] : [];

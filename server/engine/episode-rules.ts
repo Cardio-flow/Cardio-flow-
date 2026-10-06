@@ -58,12 +58,12 @@ function trigger(s: PatientState, wizard: string, reason: RegExp, indication: Re
   return open[0] ?? null;
 }
 
-const SHORT: Record<string, string> = { "chest-infection": "chest infection", pericarditis: "pericarditis", endocarditis: "endocarditis", "pre-procedure": "pre-procedure", "chest-pain-cad": "chest pain after ACS / PCI", bleeding: "bleeding", "icd-shock": "ICD shock / ventricular arrhythmia", "prosthetic-valve": "prosthetic valve", myocarditis: "myocarditis" };
 const offer = (wizard: string, t: Trigger, detail: string, severity: Finding["severity"] = "orange"): Finding => ({
   key: wizard,
   signature: t.ref,
   severity,
-  title: `${t.label} → ${SHORT[wizard] ?? WIZARDS[wizard].title.toLowerCase()} pathway`,
+  // the button names the pathway (Overview), so the title is the event alone
+  title: t.label,
   detail,
   facts: [{ label: "Recorded", value: t.label }, { label: "Pathway", value: `${WIZARDS[wizard].title} · ${WIZARDS[wizard].source ?? ""}`.replace(/ · $/, "") }],
   missing: [],

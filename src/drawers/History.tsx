@@ -98,7 +98,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
 
   const sections: { key: "risk" | "cardiac"; title: string; help: string }[] = [
     { key: "risk", title: "Risk factors", help: "One tap each. Yes adds the diagnosis to the problem list; No and ? are dated statements, so a blank is never read as no. Hints come from the record." },
-    { key: "cardiac", title: "Past cardiac history", help: "Add each diagnosis with its detail and date (the year is enough when the day is not known)." },
+    { key: "cardiac", title: "Past cardiac history", help: "One tap each. Yes adds the diagnosis; pick the type when there are several. The year is enough; the detail is optional." },
   ];
   const ordered = focus === "cardiac" ? [sections[1], sections[0]] : sections;
   return (
@@ -153,9 +153,23 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
                   })()}
                 </>
               ) : (
-                HISTORY_ITEMS.filter((i) => i.section === sec.key).map((item) => (
-                  <HistoryRow key={item.key} item={item} row={rows[item.key]} view={data.items.find((x: any) => x.key === item.key)} bmi={null} onChange={(p) => set(item.key, p)} />
-                ))
+                <>
+                  {HISTORY_ITEMS.filter((i) => i.section === sec.key).map((item) => (
+                    <HistoryRow key={item.key} item={item} row={rows[item.key]} view={data.items.find((x: any) => x.key === item.key)} bmi={null} onChange={(p) => set(item.key, p)} />
+                  ))}
+                  {(() => {
+                    const open = HISTORY_ITEMS.filter((i) => i.section === "cardiac" && !rows[i.key].answer);
+                    return open.length > 0 ? (
+                      <button type="button" className="btn secondary small tap-rest" onClick={() => setRows((r) => {
+                        const n = { ...r! };
+                        for (const i of open) n[i.key] = { ...n[i.key], answer: "no" };
+                        return n;
+                      })}>
+                        Mark the {open.length} unanswered as No
+                      </button>
+                    ) : null;
+                  })()}
+                </>
               )}
             </section>
           ))}
@@ -279,7 +293,7 @@ function HistoryRow({ item, row, view, bmi, onChange }: { item: HistoryItem; row
             <div className="tap-opts" role="radiogroup" aria-label={item.label}>
               {CONDITION_ANSWERS.filter((o) => o.value !== "not-assessed").map((o) => (
                 <button key={o.value} type="button" role="radio" aria-checked={row.answer === o.value} className="tap-o" title={o.label}
-                  onClick={() => onChange({ answer: o.value, dx: o.value === "yes" ? row.dx : row.dx.filter((d) => d.logicalId) })}>
+                  onClick={() => onChange({ answer: o.value, dx: o.value === "yes" ? (row.dx.length ? row.dx : oneCode(item)) : row.dx.filter((d) => d.logicalId) })}>
                   {o.value === "unknown" ? "?" : o.label}
                 </button>
               ))}
@@ -325,6 +339,13 @@ function HistoryRow({ item, row, view, bmi, onChange }: { item: HistoryItem; row
   );
 }
 
+// an item with one diagnosis (pulmonary embolism, device, PH): Yes adds it at once
+const newDx = (code: string): Dx => ({ key: "new-" + code + "-" + Math.random().toString(36).slice(2, 6), code, attributes: {}, onset: "", onsetYear: "" });
+function oneCode(item: HistoryItem): Dx[] {
+  const codes = (item.conditions ?? []).filter((c) => DIAGNOSIS[c] && !DIAGNOSIS[c].hidden);
+  return codes.length === 1 ? [newDx(codes[0])] : [];
+}
+
 function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; onChange(dx: Dx[]): void }) {
   const codes = item.conditions!.filter((c) => DIAGNOSIS[c] && !DIAGNOSIS[c].hidden);
   const addable = codes.filter((c) => MULTIPLE_ALLOWED.has(c) || !dx.some((d) => d.code === c));
@@ -338,6 +359,18 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
             <span className="small muted">On the problem list</span>
             <button type="button" className="btn ghost small" onClick={() => onChange(dx.map((x) => (x.key === d.key ? { ...x, expanded: true } : x)))}>
               Edit detail
+            </button>
+          </div>
+        ) : !d.logicalId && !d.expanded ? (
+          // a new diagnosis: one line — the year is enough; the detail opens on demand
+          <div key={d.key} className="hx-dx-line new">
+            <b>{DIAGNOSIS[d.code]?.display ?? d.code}</b>
+            <input className="input num hx-year" inputMode="numeric" placeholder="Year" aria-label={`${DIAGNOSIS[d.code]?.display} year`} value={d.onsetYear} onChange={(e) => upd(d.key, { onsetYear: e.target.value.replace(/[^\d]/g, "").slice(0, 4) })} />
+            {(DIAGNOSIS_ATTRIBUTES[d.code] ?? []).length > 0 && (
+              <button type="button" className="btn ghost small" onClick={() => onChange(dx.map((x) => (x.key === d.key ? { ...x, expanded: true } : x)))}>Add detail</button>
+            )}
+            <button type="button" className="icon-btn" aria-label={`Remove ${DIAGNOSIS[d.code]?.display}`} onClick={() => onChange(dx.filter((x) => x.key !== d.key))}>
+              <X size={16} />
             </button>
           </div>
         ) : (
@@ -393,7 +426,7 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
       {addable.length > 0 && (
         <div className="choices">
           {addable.map((c) => (
-            <button key={c} type="button" className="choice small add" onClick={() => onChange([...dx, { key: "new-" + c + "-" + Math.random().toString(36).slice(2, 6), code: c, attributes: {}, onset: "", onsetYear: "" }])}>
+            <button key={c} type="button" className="choice small add" onClick={() => onChange([...dx, newDx(c)])}>
               + {DIAGNOSIS[c].display}
             </button>
           ))}

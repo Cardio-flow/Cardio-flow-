@@ -17,7 +17,7 @@
 //    and dose per local protocol (recurrent chest pain pathway).
 //  - ARC-HBR (Urban 2019): high bleeding risk = ≥1 major or ≥2 minor criteria.
 // CardioFlow never gives loading doses; clopidogrel 75 mg daily is the maintenance dose.
-import { addDays, localDay } from "./clinical.js";
+import { addDays, fmtDay, localDay } from "./clinical.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -495,10 +495,10 @@ CORONARY_WIZARDS.antithrombotic.assess = (a: Answers, ctx: WizardContext): Asses
   const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
   const stops = CORONARY_WIZARDS.antithrombotic.outcome!(a, ctx).filter((o) => o.kind === "plan");
   const rows: Assessment["rows"] = [
-    { label: "Counted from", value: `${ctx.coronary?.pciAt ? "PCI" : ctx.coronary ? ctx.coronary.indexTitle : "today"} · ${i0}` },
+    { label: "Counted from", value: `${ctx.coronary?.pciAt ? "PCI" : ctx.coronary ? ctx.coronary.indexTitle : "today"} · ${fmtDay(i0, { year: true })}` },
     { label: "Bleeding risk (ARC-HBR)", value: hbr ? `High · ${major} major, ${minor} minor` : `Not high · ${major} major, ${minor} minor`, tone: hbr ? "orange" : "green" },
     { label: "Ischaemic risk", value: isch ? "High" : "Not high", tone: isch ? "orange" : undefined },
-    ...stops.map((o) => ({ label: o.kind === "plan" ? o.dueDate : "", value: o.kind === "plan" ? o.title : "" })),
+    ...stops.map((o) => ({ label: o.kind === "plan" ? fmtDay(o.dueDate, { year: true }) : "", value: o.kind === "plan" ? o.title : "" })),
   ];
   const rec: string[] = [];
   const potent = ctx.meds.some((m) => m.tags.includes("p2y12-potent"));
@@ -607,6 +607,7 @@ CORONARY_WIZARDS["after-cabg"].assess = (a: Answers, ctx: WizardContext): Assess
   const rec: string[] = [];
   if (!ctx.meds.some((m) => m.code === "aspirin") && !meds.includes("aspirin")) rec.push("Aspirin 75–100 mg daily after CABG (ESC CCS 2024).");
   if (!on("statin") && !meds.includes("statin")) rec.push("High-intensity statin; LDL-C goal <1.4 mmol/L.");
+  else if (ldl != null && ldl >= 1.4 && !on("ezetimibe")) rec.push("LDL-C not at goal on a statin: add ezetimibe (ESC ACS 2023, I B).");
   if (a.setting === "acs" && !meds.includes("p2y12")) rec.push("CABG during an ACS: resume the P2Y12 inhibitor after surgery to complete 12 months of DAPT (ESC ACS 2023).");
   if (a.poaf === "yes" && !on("oac") && !meds.includes("oac")) rec.push("Post-operative AF after cardiac surgery: long-term anticoagulation should be considered (ESC AF 2024, IIa B).");
   if (!f.includes("rehab") && !(ctx.planned ?? []).some((t) => /rehabilitation/i.test(t))) rec.push("Cardiac rehabilitation after CABG (I A).");

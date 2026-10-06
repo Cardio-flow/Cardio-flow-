@@ -235,7 +235,7 @@ test("ARVC with NSVT and no beta-blocker → yellow (I C); restrictive cardiomyo
 test("Omar (admitted with myocarditis): pathway offered; suggestions; the pathway lists myocarditis and plans CMR, beta-blocker, exercise restriction and follow-up; then the CMR and beta-blocker rules follow", async () => {
   const pid = await byName("Omar Al-Saleh");
   const o = (await rec(pid, "event.myocarditis"))[0];
-  assert.match(o.title, /^Admission for myocarditis .* → myocarditis pathway$/);
+  assert.match(o.title, /^Admission for myocarditis · /);
   const ctx = (await tx((q) => getWizard(q, pid, "myocarditis"))).context;
   assert.deepEqual(suggest("myocarditis", "tests", { form: "complicated", cad: "low" }, ctx).map((x) => x.value), ["admit", "bloods", "echo", "cmr"]);
   assert.deepEqual(suggest("myocarditis", "tests", { form: "fulminant", cad: "moderate-high" }, ctx).map((x) => x.value), ["admit", "bloods", "echo", "cmr", "coronary", "emb"]);
