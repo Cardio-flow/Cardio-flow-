@@ -5,8 +5,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
 import { api, useData } from "../api";
-import { DIAGNOSIS, MEDICATION, MEDICATIONS, doseLabel, type MedicationDef } from "../../shared/catalog";
-import { addDays, fmtDay } from "../../shared/clinical";
+import { DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, doseLabel, formatNumber, type MedicationDef } from "../../shared/catalog";
+import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
 import type { Open } from "./Patient";
 
@@ -124,6 +124,7 @@ function StartLine({ a, s, open, done, onCancel }: { a: any; s: any; open(o: Ope
         <DateField label="Start" value={start} onChange={setStart} today={today} max={today} quick={[{ label: "Today", days: 0 }]} />
         {renalK && <DateField label="K / creatinine check" value={check1} onChange={setCheck1} today={today} quick={[{ label: "1 wk", days: 7 }, { label: "2 wk", days: 14 }]} />}
       </div>
+      <BeforeStart codes={def.monitoring} s={s} />
       <Safety hits={check?.hits ?? null} />
       {schedule.length > 0 && <div className="sl-note">Monitoring booked from the label schedule: {schedule.map((k) => `${k.what.toLowerCase()} (${k.schedule})`).join("; ")}.</div>}
       {needReason && (
@@ -204,6 +205,27 @@ function TitrateLine({ a, s, open, done, onCancel }: { a: any; s: any; open(o: O
         <button className="btn ghost small" onClick={() => open({ kind: "med-action", medId: med.id, action: a.action.direction, dose, reason: up ? "Titration toward target" : a.title })}>More options</button>
         <button className="btn ghost small" onClick={onCancel}>Cancel</button>
       </div>
+    </div>
+  );
+}
+
+// the values this medicine is checked against before a start (its monitoring list), as a one-line checklist
+function BeforeStart({ codes, s }: { codes: string[]; s: any }) {
+  const rows = codes.map((code) => {
+    const r = s.results?.find((x: any) => x.code === code);
+    const v = r ? { value: r.current.value, at: r.current.at } : s.vitals?.find((x: any) => x.code === code);
+    const m = MEASURES[code];
+    return { code, label: m?.short ?? code, v, flag: v ? flagFor(v.value, m?.ref) : null, unit: m?.unit ?? "", dec: m?.decimals ?? 0 };
+  });
+  if (!rows.length) return null;
+  return (
+    <div className="sl-before" aria-label="Before starting">
+      <span>Before starting</span>
+      {rows.map((r) => (
+        <em key={r.code} className={!r.v ? "miss" : r.flag ? "flag" : "ok"} title={r.v ? fmtDay(r.v.at, { year: true }) : "Not recorded"}>
+          {r.label} {r.v ? `${formatNumber(r.v.value, r.dec)}${r.unit && r.unit !== "ratio" ? " " + r.unit : ""} · ${fmtDay(r.v.at)}` : "not recorded"}
+        </em>
+      ))}
     </div>
   );
 }

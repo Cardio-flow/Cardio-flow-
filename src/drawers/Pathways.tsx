@@ -13,7 +13,7 @@ const GROUP_TAGS: Record<string, string[]> = {
 
 // Every pathway, opened on demand (alerts open the same pathways automatically). Search by name or source;
 // the ones this patient's alerts and open episodes point to come first.
-export function Pathways({ summary, onClose, onPick }: { summary?: any; onClose(): void; onPick(wizard: string): void }) {
+export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: any; onClose(): void; onPick(wizard: string): void; onChecklist?(kind: "pci" | "cardioversion" | "ablation" | "device"): void }) {
   const [q, setQ] = useState("");
   const all = Object.values(WIZARDS);
   const forPatient = useMemo(() => {
@@ -50,6 +50,16 @@ export function Pathways({ summary, onClose, onPick }: { summary?: any; onClose(
                   <b>{WIZARDS[id].title}</b>
                   <span>{why}</span>
                 </button>
+              ))}
+            </div>
+          </section>
+        )}
+        {!needle && onChecklist && (
+          <section className="col" style={{ gap: 10 }}>
+            <span className="pw-head">Checklists before a procedure</span>
+            <div className="ck-chips">
+              {([["pci", "Angiography / PCI"], ["cardioversion", "Cardioversion"], ["ablation", "AF ablation"], ["device", "Device implant"]] as const).map(([k, l]) => (
+                <button key={k} className="ck-chip" onClick={() => onChecklist(k)}>{l}</button>
               ))}
             </div>
           </section>

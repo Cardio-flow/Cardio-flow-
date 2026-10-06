@@ -21,6 +21,7 @@ import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
 import { DocumentsDrawer } from "../drawers/Documents";
 import { AfterPci } from "../drawers/AfterPci";
+import { ChecklistDrawer } from "../drawers/Checklist";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
@@ -41,7 +42,8 @@ export type Open =
   | { kind: "status" }
   | { kind: "pathways" }
   | { kind: "documents" }
-  | { kind: "after-pci" };
+  | { kind: "after-pci" }
+  | { kind: "checklist"; check?: "pci" | "cardioversion" | "ablation" | "device" };
 
 const TABS = [
   ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -195,8 +197,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
-      {open?.kind === "pathways" && <Pathways summary={s} onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} />}
+      {open?.kind === "pathways" && <Pathways summary={s} onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} onChecklist={(c) => setOpen({ kind: "checklist", check: c })} />}
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
+      {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>

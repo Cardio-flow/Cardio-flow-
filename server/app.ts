@@ -9,6 +9,7 @@ import { preStartCheck } from "./engine/med-safety.js";
 import { bookMonitoringAtStart } from "./engine/med-rules.js";
 import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
+import { checklist } from "./engine/checklist.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -269,6 +270,15 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       })
       .parse(req.body);
     await write(res, id, (tx, a) => K.recordProcedure(tx, a, id, input));
+  }));
+  // checklists before a procedure (redesign slice 7), read from the record
+  app.get("/api/patients/:id/checklist/:kind", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const kind = z.enum(["pci", "cardioversion", "ablation", "device"]).parse(req.params.kind);
+    res.json(await db.transaction(async (tx) => {
+      await patientInSite(tx, actor(res), id);
+      return checklist(await loadState(tx, id), kind);
+    }));
   }));
   // after PCI: the next-steps sheet (antithrombotic plan as a timeline, secondary prevention)
   app.get("/api/patients/:id/after-pci", route(async (req, res) => {
