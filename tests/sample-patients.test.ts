@@ -239,7 +239,7 @@ test("age typed without a date of birth gives an estimated date; a civil ID repl
   assert.deepEqual([h2.birthDate, h2.birthDateEstimated], ["1955-06-15", false]);
 });
 
-test("several medicines start together (all or none); patient summary lists them", async () => {
+test("several medicines start together (all or none); the clinical summary document lists them", async () => {
   const r = await call("POST", "/patients", { name: "Batch Meds", mrn: "920000001", sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"] });
   const id = r.body.id;
   const ok = await call("POST", `/patients/${id}/medications/batch`, { items: [
@@ -255,7 +255,24 @@ test("several medicines start together (all or none); patient summary lists them
   ] });
   assert.equal(bad.status, 409, "bisoprolol already listed: the whole batch is refused");
   assert.ok(!(await loadState(db, id)).meds.some((m) => m.code === "ramipril"), "none started");
-  const sum = (await call("GET", `/patients/${id}/summary`)).body.clinicalSummary;
-  assert.match(sum.text, /Bisoprolol/);
-  assert.match(sum.opening, /year-old man/);
+  const docs = (await call("GET", `/patients/${id}/documents`)).body;
+  assert.match(docs.find((d: any) => d.id === "summary").text, /Bisoprolol/i);
+});
+
+test("a diagnosis is edited, changed over time (old one resolved) or corrected (entered in error, onset kept)", async () => {
+  const r = await call("POST", "/patients", { name: "Dx Edit", mrn: "930000001", sex: "Female", birthDate: "1950-01-01", conditions: ["ckd-3a", "hfref"] });
+  const id = r.body.id;
+  const dxOf = async () => (await call("GET", `/patients/${id}/summary`)).body.header.diagnoses as any[];
+  const ckd = (await dxOf()).find((d) => d.code === "ckd-3a");
+  assert.equal((await call("POST", `/patients/${id}/conditions/${ckd.id}/update`, { onset: "2020-03-01" })).status, 200);
+  assert.equal((await call("POST", `/patients/${id}/conditions/${ckd.id}/change`, { code: "ckd-3b", mode: "changed" })).status, 200);
+  let dx = await dxOf();
+  assert.ok(dx.some((d) => d.code === "ckd-3b") && !dx.some((d) => d.code === "ckd-3a"));
+  const hist = (await db.query(`SELECT DISTINCT ON (logical_id) code, status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC`, [id])).rows as any[];
+  assert.ok(hist.some((h) => h.code === "ckd-3a" && h.status === "resolved"), "the earlier stage stays as resolved");
+  const hf = dx.find((d) => d.code === "hfref");
+  assert.equal((await call("POST", `/patients/${id}/conditions/${hf.id}/change`, { code: "hfpef", mode: "error" })).status, 200);
+  dx = await dxOf();
+  assert.ok(dx.some((d) => d.code === "hfpef") && !dx.some((d) => d.code === "hfref"));
+  assert.equal((await call("POST", `/patients/${id}/conditions/${hf.id}/change`, { code: "hfpef", mode: "error" })).status, 409, "an inactive diagnosis cannot be changed again");
 });

@@ -439,6 +439,16 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       return { changed: ["conditions"] };
     });
   }));
+  app.post("/api/patients/:id/conditions/:cid/change", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ code: z.string().max(40), mode: z.enum(["changed", "error"]) }).parse(req.body);
+    await write(res, id, async (tx, a) => K.changeCondition(tx, a, id, uuidS.parse(req.params.cid), input));
+  }));
+  app.post("/api/patients/:id/conditions/:cid/update", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ onset: isoDate.nullish(), onsetYear: z.number().int().nullish(), attributes }).parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await K.updateCondition(tx, a, id, uuidS.parse(req.params.cid), input) }));
+  }));
   app.post("/api/patients/:id/conditions/:cid/status", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const { status } = z.object({ status: z.enum(["resolved", "entered_in_error", "active"]) }).parse(req.body);

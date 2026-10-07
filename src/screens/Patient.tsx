@@ -19,6 +19,7 @@ import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { CorrectMedication, CorrectResult, VoidEntry } from "../drawers/Corrections";
 import { AddMedications } from "../drawers/MedicationBatch";
+import { EditDiagnosis } from "../drawers/Diagnosis";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
@@ -49,6 +50,7 @@ export type Open =
   | { kind: "checklist"; check?: CheckKind }
   | { kind: "med-correct"; med: any }
   | { kind: "med-batch" }
+  | { kind: "dx-edit"; dx: any }
   | { kind: "result-correct"; result: any }
   | { kind: "void"; what: string; path: string };
 
@@ -123,7 +125,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             <div className="pt-more" data-open={more}>
               <div className="row wrap" style={{ gap: 8 }}>
                 {h.diagnoses.map((d: any) => (
-                  <span key={d.id} className="chip dx">{d.label}</span>
+                  <button key={d.id} type="button" className="chip dx dx-edit" title="Edit, change or remove" onClick={() => setOpen({ kind: "dx-edit", dx: d })}>{d.label}</button>
                 ))}
                 <button className="chip outline" style={{ cursor: "pointer" }} onClick={() => setOpen({ kind: "dx" })}>
                   <Plus size={14} /> Diagnosis
@@ -239,6 +241,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
+      {open?.kind === "dx-edit" && <EditDiagnosis patientId={id} dx={open.dx} onClose={close} onDone={done} />}
       {open?.kind === "med-batch" && <AddMedications patientId={id} summary={s} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "med-correct" && <CorrectMedication patientId={id} med={open.med} today={s.today} onClose={close} onDone={done} />}
       {open?.kind === "result-correct" && <CorrectResult patientId={id} result={open.result} onClose={close} onDone={done} />}
@@ -270,6 +273,7 @@ function RiskRow({ rf, onOpen }: { rf: any; onOpen(): void }) {
               {rf.notRecorded.length} not recorded
             </button>
           )}
+          <button className="chip outline rf-edit" onClick={onOpen} aria-label="Edit risk factors">Edit</button>
         </>
       )}
     </div>

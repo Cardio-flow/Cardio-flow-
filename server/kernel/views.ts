@@ -1,4 +1,3 @@
-import { clinicalSummary } from "./clinical-summary.js";
 import { correctedRefs } from "./corrections.js";
 import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
@@ -83,6 +82,7 @@ export function header(s: PatientState) {
       label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display} · EF ${formatNumber(ef.value_num, 0)}%` : conditionLabel(c),
       family: DIAGNOSIS[c.code]?.family ?? "Other",
       onset: c.onset,
+      attributes: c.attributes ?? {},
     })),
     riskFactors: riskRow(s),
     deceased: s.deceased,
@@ -362,7 +362,6 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   return {
     header: head,
     today: s.today,
-    clinicalSummary: clinicalSummary(s, head, attention as any),
     overview: overview(s, attention, plan, changes),
     attention,
     changes,

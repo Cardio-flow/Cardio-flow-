@@ -14,7 +14,6 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
     <main className="page">
       <div className="grid-main">
         <div className="stack">
-          <PatientSummary s={s} />
           <Episodes s={s} open={open} done={done} />
           <TodayBoard s={s} open={open} done={done} />
           {F("hf", <HfPanel hf={s.hf} open={open} />)}
@@ -1274,39 +1273,3 @@ function Goal({ label, value, goal, met, sub, onAdd }: { label: string; value: s
   );
 }
 
-// Patient summary: who, problems, LV function, key results, investigations, procedures, medicines, what is open.
-// Folds to its first line; Copy puts the plain text on the clipboard (letters, referrals, handover).
-function PatientSummary({ s }: { s: any }) {
-  const cs = s.clinicalSummary;
-  const [openS, setOpenS] = useState(false);
-  const [copied, setCopied] = useState(false);
-  if (!cs) return null;
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(cs.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch { /* clipboard not available */ }
-  }
-  return (
-    <section className="card pad psum">
-      <div className="card-head">
-        <h2>Patient summary</h2>
-        <span className="row" style={{ gap: 6 }}>
-          <button className="btn ghost small" onClick={copy}>{copied ? <><Check size={14} /> Copied</> : "Copy"}</button>
-          <button className="btn ghost small" aria-expanded={openS} onClick={() => setOpenS(!openS)}>{openS ? "Less" : "More"}</button>
-        </span>
-      </div>
-      <p className="psum-open">{cs.opening}</p>
-      <dl className="psum-list">
-        {(openS ? cs.lines : cs.lines.slice(0, 3)).map((l: any) => (
-          <div key={l.label}>
-            <dt>{l.label}</dt>
-            <dd>{l.value}</dd>
-          </div>
-        ))}
-      </dl>
-      {!openS && cs.lines.length > 3 && <button className="linkish psum-more" onClick={() => setOpenS(true)}>{cs.lines.length - 3} more: {cs.lines.slice(3).map((l: any) => l.label.toLowerCase()).join(", ")}</button>}
-    </section>
-  );
-}

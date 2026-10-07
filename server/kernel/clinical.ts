@@ -5,7 +5,7 @@ import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, cla
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
-import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
+import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { PH_SIGNS } from "../../shared/ph.js";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Rwma } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
@@ -185,6 +185,30 @@ export async function setConditionStatus(tx: Q, actor: Actor, patientId: string,
 }
 
 // Detail or date of an existing diagnosis: a new version, history kept.
+// Changing a diagnosis (7 Oct 2026, Ahmed: "allow edit diagnosis"): history stays append-only. "changed"
+// (CKD 3a → 3b, HFrEF → HF with improved EF): the old one is resolved and the new one starts today, so the
+// course stays visible. "error" (wrong pick): the old one is marked entered in error and the new one takes
+// its onset and the details that apply to it.
+export async function changeCondition(tx: Q, actor: Actor, patientId: string, logicalId: string, input: { code: string; mode: "changed" | "error" }) {
+  const cur = await latestCondition(tx, patientId, logicalId);
+  if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be changed");
+  if (!DIAGNOSIS[input.code]) throw new ApiError(400, "Unknown diagnosis");
+  if (input.code === cur.code) throw new ApiError(400, "Choose a different diagnosis");
+  await setConditionStatus(tx, actor, patientId, logicalId, input.mode === "changed" ? "resolved" : "entered_in_error");
+  const prevAttrs = (typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes) ?? {};
+  const keys = new Set((DIAGNOSIS_ATTRIBUTES[input.code] ?? []).map((f) => f.key));
+  const carried = input.mode === "error" ? Object.fromEntries(Object.entries(prevAttrs).filter(([k]) => keys.has(k))) : {};
+  const onset = input.mode === "error" && cur.onset ? String(cur.onset instanceof Date ? cur.onset.toISOString() : cur.onset).slice(0, 10) : input.mode === "changed" ? today() : null;
+  const onsetYear = input.mode === "error" && !onset && prevAttrs.onsetYear != null ? Number(prevAttrs.onsetYear) : null;
+  const r = await addCondition(tx, actor, patientId, { code: input.code, onset, onsetYear, attributes: carried });
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: nowIso(), kind: "condition-changed", category: "complication",
+    title: input.mode === "changed" ? `${cur.display} → ${DIAGNOSIS[input.code].display}` : `Corrected: ${cur.display} → ${DIAGNOSIS[input.code].display}`,
+  });
+  await audit(tx, actor, input.mode === "changed" ? "change-diagnosis" : "correct-diagnosis", "condition", logicalId, patientId, { from: cur.code, to: input.code });
+  return { id: r.id, changed: ["conditions"] as Changed };
+}
+
 export async function updateCondition(tx: Q, actor: Actor, patientId: string, logicalId: string, input: { onset?: string | null; onsetYear?: number | null; attributes?: Record<string, unknown> | null }) {
   const cur = await latestCondition(tx, patientId, logicalId);
   if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be updated");

@@ -1,3 +1,4 @@
+import { STUDY_LABEL, studySummary } from "../../shared/studies.js";
 // Copy-ready documents built from confirmed data only (blueprint P1.11): a clinical summary for
 // the hospital record or a referral, the medication list with recent changes, and the patient
 // plan in English and Arabic. Nothing is invented: every line comes from the record, and the
@@ -54,7 +55,10 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
     L.push("");
     L.push("Investigations:");
     if (ef) L.push(`- LVEF ${formatNumber(ef.value_num!, 0)}% (${ef.quality} Echo, ${fmtDay(ef.effective_at, { year: true })})`);
-    for (const st of studies) L.push(`- ${st.kind.toUpperCase()} ${fmtDay(st.performed_at, { year: true })}: ${st.conclusion || st.findings.join(", ") || "recorded"}`);
+    for (const st of studies) {
+      const what = st.kind === "echo" ? st.findings.join(", ") : studySummary(st.kind, st.attributes ?? {});
+      L.push(`- ${STUDY_LABEL[st.kind] ?? st.kind} ${fmtDay(st.performed_at, { year: true })}: ${[what, st.conclusion].filter(Boolean).join(" · ") || "recorded"}`);
+    }
   }
   const hf = hfProfile(s);
   if (hf) {
