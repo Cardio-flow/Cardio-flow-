@@ -281,6 +281,28 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
   const savedRef = useRef<Record<string, string>>({});
+  const [already, setAlready] = useState<string[]>([]);
+  // values already recorded today (an earlier part of this visit, quick labs, a reading at the desk): shown
+  // filled in and marked, and not recorded again unless changed
+  useEffect(() => {
+    api(`/patients/${patientId}/record`).then((r) => {
+      const t = r.todayValues ?? {};
+      const num = (c: string) => (t[c]?.value != null ? String(t[c].value) : undefined);
+      const v: Record<string, string> = {};
+      for (const c of ["sbp", "dbp", "hr", "weight"]) if (num(c)) v[c] = num(c)!;
+      const h: Record<string, string> = {};
+      for (const c of ["kccq", "6mwd", "dry-weight"]) if (num(c)) h[c] = num(c)!;
+      setVit((x) => ({ ...v, ...x }));
+      setHfa((x) => ({ ...h, ...x }));
+      if (t.nyha?.text) setNyha((x) => x || t.nyha.text);
+      if (t.congestion?.text) setCong((x) => x || t.congestion.text);
+      for (const [c, val] of Object.entries(v)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
+      for (const [c, val] of Object.entries(h)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
+      if (t.nyha?.text) savedRef.current.nyha = JSON.stringify({ code: "nyha", text: t.nyha.text });
+      if (t.congestion?.text) savedRef.current.congestion = JSON.stringify({ code: "congestion", text: t.congestion.text });
+      setAlready(Object.keys(t));
+    }).catch(() => {});
+  }, [patientId]);
   useEffect(() => {
     if (step === 3 && visitId) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => setNote(n.text));
     if (step === 2) api(`/patients/${patientId}/summary`).then(setLive);
@@ -393,6 +415,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           <>
             <div className="q">
               <div className="label">Vital signs today</div>
+              {["sbp", "dbp", "hr", "weight"].some((c) => already.includes(c)) && <div className="help">Values already recorded today are filled in; change one only if it is a new reading.</div>}
               <div className="row wrap" style={{ gap: 16 }}>
                 {[["sbp", "Systolic BP", "mmHg"], ["dbp", "Diastolic BP", "mmHg"], ["hr", "Heart rate", "bpm"], ["weight", "Weight", "kg"]].map(([c, l, u]) => (
                   <label key={c} className="field">
@@ -443,7 +466,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               <div className="label">Needs a decision</div>
               {live.attention.length === 0 && <div className="help">Nothing open.</div>}
               {live.attention.map((a: any) => (
-                <div key={a.id} className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 10 }}>
+                <div key={a.id} className="row wrap visit-dec" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 10, gap: 8 }}>
                   <SevChip sev={a.severity}>{a.title}</SevChip>
                   <span className={`alert sev-${a.severity}`} style={{ all: "unset" }}>
                     <ActionButton a={a} open={open} />
@@ -451,6 +474,27 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 </div>
               ))}
               <div className="help">Opening a decision keeps this visit open. Return with “Continue visit”.</div>
+            </div>
+            <div className="q">
+              <div className="label">Medications now</div>
+              {(() => {
+                const meds = (live.medications?.groups ?? []).flatMap((g: any) => g.meds);
+                if (!meds.length) return <div className="help">No current medications recorded.</div>;
+                return (
+                  <div className="visit-meds">
+                    {meds.map((m: any) => {
+                      const today = String(m.startedAt ?? "").slice(0, 10) === live.today;
+                      return (
+                        <span key={m.id} className={`visit-med ${today ? "new" : ""}`}>
+                          <b>{m.name}</b> {m.dose} {m.frequency}
+                          {today && <em>started today</em>}
+                          {m.status === "held" && <em>held</em>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
             <div className="q">
               <div className="label">Plan</div>

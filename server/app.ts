@@ -24,7 +24,7 @@ import { reassess } from "./engine/engine.js";
 import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
-import { addDays } from "../shared/clinical.js";
+import { addDays, localDay } from "../shared/clinical.js";
 import { ADMISSION_ROUTES, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
 
 export type Session = Actor & { email: string; expires: number; csrf: string };
@@ -237,6 +237,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           })(),
           contexts: s.contexts,
           conditions: s.conditions,
+          // values already recorded today (latest per code): a visit opened again shows them instead of empty fields
+          todayValues: Object.fromEntries(
+            [...s.observations]
+              .filter((o) => o.status !== "entered_in_error" && localDay(o.effective_at) === s.today)
+              .sort((a, b) => String(a.effective_at).localeCompare(String(b.effective_at)))
+              .map((o) => [o.code, { value: o.value_num, text: o.value_text, at: o.effective_at }]),
+          ),
         };
       })(db),
     );
