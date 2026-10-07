@@ -43,7 +43,8 @@ export type ReassessResult = { created: { id: string; severity: string; title: s
 
 export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "production", changed: string[] | null = null, state?: PatientState): Promise<ReassessResult> {
   const s = state ?? (await loadState(tx, patientId));
-  const versions = await activeRuleVersions(tx, siteMode);
+  // sandbox-only rules (NEEDS_REVIEW) run on sample patients only: a real patient on a sandbox site sees published rules
+  const versions = await activeRuleVersions(tx, s.patient.synthetic ? siteMode : "production");
   const result: ReassessResult = { created: [], resolved: 0, superseded: 0 };
   // a deceased patient leaves every reminder list: all rules run and find nothing
   // a new visit or admission can end a "until next review" reason: then every rule runs

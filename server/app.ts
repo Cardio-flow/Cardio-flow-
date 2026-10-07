@@ -147,20 +147,32 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     res.json({ ok: true });
   });
   app.get("/api/site", route(async (_req, res) => {
-    res.json((await db.query(`SELECT id,name,mode FROM cf.site WHERE id=$1`, [actor(res).siteId])).rows[0]);
+    const siteId = actor(res).siteId;
+    const site = (await db.query(`SELECT id,name,mode FROM cf.site WHERE id=$1`, [siteId])).rows[0];
+    const n = (await db.query<{ real: number; sample: number }>(
+      `SELECT count(*) FILTER (WHERE NOT synthetic)::int AS real, count(*) FILTER (WHERE synthetic)::int AS sample FROM cf.patient WHERE site_id=$1`, [siteId],
+    )).rows[0];
+    res.json({ ...site, patients: { real: Number(n?.real ?? 0), sample: Number(n?.sample ?? 0) } });
   }));
 
   // ---------- worklist & patients ----------
-  app.get("/api/attention-count", route(async (_req, res) => res.json({ count: await attentionCount(db, actor(res).siteId) })));
-  app.get("/api/worklist", route(async (_req, res) => {
-    const rows = await worklist(db, actor(res).siteId);
-    res.json({ today: today(), rows });
+  // real patients by default; ?sample=1 shows the synthetic sample patients instead
+  const sampleQ = (req: express.Request) => req.query.sample === "1";
+  app.get("/api/attention-count", route(async (req, res) => res.json({ count: await attentionCount(db, actor(res).siteId, sampleQ(req)) })));
+  app.get("/api/worklist", route(async (req, res) => {
+    const sample = sampleQ(req);
+    const siteId = actor(res).siteId;
+    const rows = await worklist(db, siteId, sample);
+    const counts = (await db.query<{ real: number; sample: number }>(
+      `SELECT count(*) FILTER (WHERE NOT synthetic)::int AS real, count(*) FILTER (WHERE synthetic)::int AS sample FROM cf.patient WHERE site_id=$1`, [siteId],
+    )).rows[0];
+    res.json({ today: today(), rows, sample, counts: { real: Number(counts?.real ?? 0), sample: Number(counts?.sample ?? 0) } });
   }));
   app.get("/api/patients", route(async (req, res) => {
     const q = z.string().max(80).parse(req.query.q ?? "");
     res.json(
       (
-        await db.query(`SELECT id,name,mrn,sex,birth_date FROM cf.patient WHERE site_id=$1 AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY name LIMIT 30`, [actor(res).siteId, `%${q}%`])
+        await db.query(`SELECT id,name,mrn,sex,birth_date,synthetic AS sample FROM cf.patient WHERE site_id=$1 AND synthetic=$3 AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY name LIMIT 30`, [actor(res).siteId, `%${q}%`, sampleQ(req)])
       ).rows,
     );
   }));
@@ -173,15 +185,21 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         birthDate: isoDate,
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
+        sample: z.boolean().default(false),
         ...identity,
       })
       .parse(req.body);
     const id = await db.transaction(async (tx) => {
-      const id = await K.createPatient(tx, actor(res), input);
+      const id = await K.createPatient(tx, actor(res), { ...input, synthetic: input.sample });
       await reassess(tx, id, await siteMode(tx, actor(res).siteId));
       return id;
     });
     res.status(201).json({ id });
+  }));
+  app.post("/api/patients/:id/move-to-sample", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    await db.transaction((tx) => K.moveToSample(tx, actor(res), id));
+    res.json({ ok: true });
   }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -577,12 +595,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // the EP registry as a whole: every patient with a device procedure (not a loop recorder) or an ablation
-  app.get("/api/registries/eps", route(async (_req, res) => {
+  app.get("/api/registries/eps", route(async (req, res) => {
     const siteId = actor(res).siteId;
     res.json(await db.transaction(async (tx) => {
       const ids = (await tx.query<{ id: string }>(
-        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND (x.kind='ablation' OR (x.kind='device' AND coalesce(x.attributes->>'type','') <> 'Implantable loop recorder')))`,
-        [siteId],
+        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND p.synthetic=$2 AND EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND (x.kind='ablation' OR (x.kind='device' AND coalesce(x.attributes->>'type','') <> 'Implantable loop recorder')))`,
+        [siteId, sampleQ(req)],
       )).rows.map((r) => r.id);
       const states = [];
       for (const id of ids) states.push(await loadState(tx, id));
@@ -591,15 +609,15 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // the CAD registry as a whole: every patient with a PCI, an angiography or an ACS admission
-  app.get("/api/registries/cad", route(async (_req, res) => {
+  app.get("/api/registries/cad", route(async (req, res) => {
     const siteId = actor(res).siteId;
     res.json(await db.transaction(async (tx) => {
       const ids = (await tx.query<{ id: string }>(
-        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND (
+        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND p.synthetic=$2 AND (
            EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND x.kind='pci')
            OR EXISTS (SELECT 1 FROM cf.study x WHERE x.patient_id=p.id AND x.kind='cath')
            OR EXISTS (SELECT 1 FROM cf.care_context x WHERE x.patient_id=p.id AND x.kind='admission' AND array_to_string(x.reasons, ' ') ~* '(STEMI|NSTE)'))`,
-        [siteId],
+        [siteId, sampleQ(req)],
       )).rows.map((r) => r.id);
       const states = [];
       for (const id of ids) states.push(await loadState(tx, id));
@@ -608,12 +626,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // the HF registry as a whole: every HF patient of the site, read-only
-  app.get("/api/registries/hf", route(async (_req, res) => {
+  app.get("/api/registries/hf", route(async (req, res) => {
     const siteId = actor(res).siteId;
     res.json(await db.transaction(async (tx) => {
       const ids = (await tx.query<{ patient_id: string }>(
-        `SELECT DISTINCT c.patient_id FROM cf.condition c JOIN cf.patient p ON p.id=c.patient_id WHERE p.site_id=$1 AND c.code = ANY($2)`,
-        [siteId, ["hfref", "hfmref", "hfpef", "hfimpef"]],
+        `SELECT DISTINCT c.patient_id FROM cf.condition c JOIN cf.patient p ON p.id=c.patient_id WHERE p.site_id=$1 AND p.synthetic=$3 AND c.code = ANY($2)`,
+        [siteId, ["hfref", "hfmref", "hfpef", "hfimpef"], sampleQ(req)],
       )).rows.map((r) => r.patient_id);
       const states = [];
       for (const id of ids) states.push(await loadState(tx, id));

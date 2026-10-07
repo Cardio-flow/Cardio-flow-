@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, Clock, Plus } from "lucide-react";
-import { useData } from "../api";
+import { setSampleMode, useData, useSampleMode, withSample } from "../api";
 import { Link, SevChip, initials, navigate, type Sev } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
@@ -16,7 +16,8 @@ const FILTERS = [
 ] as const;
 
 export function Worklist() {
-  const { data, error } = useData<{ today: string; rows: Row[] }>("/worklist");
+  const sample = useSampleMode();
+  const { data, error } = useData<{ today: string; rows: Row[]; counts?: { real: number; sample: number } }>(withSample("/worklist", sample));
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>("all");
   const [adding, setAdding] = useState(false);
   const rows = data?.rows ?? [];
@@ -34,8 +35,8 @@ export function Worklist() {
     <main className="page">
       <div className="page-head">
         <div>
-          <h1>Worklist</h1>
-          <p>Who needs attention now</p>
+          <h1>{sample ? "Sample worklist" : "Worklist"}</h1>
+          <p>{sample ? "Synthetic patients for practice" : "Who needs attention now"}</p>
         </div>
         <button className="btn primary" onClick={() => setAdding(true)}>
           <Plus size={18} strokeWidth={2.4} />
@@ -43,12 +44,16 @@ export function Worklist() {
         </button>
       </div>
       {error && <div className="error-box">{error}</div>}
+      {data && !sample && data.counts?.real === 0 ? (
+        <FirstPatient samples={data.counts?.sample ?? 0} onAdd={() => setAdding(true)} />
+      ) : (
+      <>
       <div className="stats">
         <Stat sev="red" label="Critical" value={count("red")} sub="Safety alerts open" onClick={() => setFilter("attention")} />
         <Stat sev="orange" label="Review" value={count("orange")} sub="Decisions waiting" onClick={() => setFilter("attention")} />
         <Stat sev="yellow" label="Due today" value={rows.reduce((n, r) => n + r.dueToday, 0)} sub="Planned actions" onClick={() => setFilter("today")} />
         <Stat sev="red" label="Overdue" value={rows.reduce((n, r) => n + r.overdue, 0)} sub="From earlier plans" icon onClick={() => setFilter("overdue")} />
-        <Stat sev="blue" label="Inpatients" value={rows.filter((r) => r.inpatient).length} sub={`${rows.length} patients followed`} onClick={() => setFilter("inpatients")} />
+        <Stat sev="blue" label="Inpatients" value={rows.filter((r) => r.inpatient).length} sub={`${rows.length} patient${rows.length === 1 ? "" : "s"} followed`} onClick={() => setFilter("inpatients")} />
       </div>
       <div className="filters" role="toolbar" aria-label="Filter worklist">
         {FILTERS.map(([id, label]) => (
@@ -102,7 +107,9 @@ export function Worklist() {
           </Link>
         ))}
       </div>
-      {adding && <NewPatient onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
+      </>
+      )}
+      {adding && <NewPatient sample={sample} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
     </main>
   );
 }
@@ -117,5 +124,26 @@ function Stat({ sev, label, value, sub, icon, onClick }: { sev: Sev; label: stri
       <span className="v" style={{ color: "#0F1B2D" }}>{value}</span>
       <span className="s">{sub}</span>
     </button>
+  );
+}
+
+// No real patient yet: the worklist is the place to register the first one.
+function FirstPatient({ samples, onAdd }: { samples: number; onAdd(): void }) {
+  return (
+    <div className="card first-patient">
+      <h2>No patients yet</h2>
+      <p>Register a patient with the hospital file number. CardioFlow starts following them from the first diagnosis, result or medication you record.</p>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <button className="btn primary" onClick={onAdd}>
+          <Plus size={18} strokeWidth={2.4} />
+          Register first patient
+        </button>
+        {samples > 0 && (
+          <button className="btn ghost" onClick={() => setSampleMode(true)}>
+            Look at the {samples} sample patients
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

@@ -55,6 +55,7 @@ export type PatientRow = {
   civil_id: string | null;
   nationality: string | null;
   mobile: string | null;
+  synthetic: boolean;
   created_at: string;
 };
 

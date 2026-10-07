@@ -167,7 +167,7 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
     const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
     const seeded = Number(settings.seedVersion ?? 1);
     if (!site || site.mode !== "sandbox" || seeded >= SEED_VERSION) return;
-    const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND mrn=$2`, [siteId, mrn])).rows[0]?.id ?? null;
+    const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND mrn IN ($2, 'SYN-' || $2)`, [siteId, mrn])).rows[0]?.id ?? null;
     const obs = async (id: string | null, day: string, items: { code: string; value: number }[], silentEvent = true) => {
       if (!id) return;
       await K.recordObservations(tx, sys, id, { effectiveAt: at(day, "08:30"), items, silentEvent });

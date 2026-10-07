@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { Plus, ChevronRight } from "lucide-react";
-import { useData } from "../api";
+import { useData, useSampleMode, withSample } from "../api";
 import { Link, initials, navigate } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
 
 export function Patients() {
   const [q, setQ] = useState("");
-  const { data } = useData<any[]>(`/patients?q=${encodeURIComponent(q)}`);
+  const sample = useSampleMode();
+  const { data } = useData<any[]>(withSample(`/patients?q=${encodeURIComponent(q)}`, sample));
   const [adding, setAdding] = useState(false);
   return (
     <main className="page">
       <div className="page-head">
         <div>
-          <h1>Patients</h1>
+          <h1>{sample ? "Sample patients" : "Patients"}</h1>
           <p>One record per patient across admissions, clinic and procedures</p>
         </div>
         <button className="btn primary" onClick={() => setAdding(true)}><Plus size={18} /> New patient</button>
@@ -33,9 +34,9 @@ export function Patients() {
             <ChevronRight size={18} color="#98A2B3" />
           </Link>
         ))}
-        {data && !data.length && <div className="empty" style={{ margin: 20 }}>No patients match.</div>}
+        {data && !data.length && <div className="empty" style={{ margin: 20 }}>{q ? "No patients match." : "No patients registered yet."}</div>}
       </div>
-      {adding && <NewPatient onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
+      {adding && <NewPatient sample={sample} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
     </main>
   );
 }

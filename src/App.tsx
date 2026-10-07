@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BarChart3, ListChecks, LogOut, Search, ShieldCheck, Users, Bell } from "lucide-react";
-import { api, setCsrf, type Session } from "./api";
+import { api, setCsrf, setSampleMode, useSampleMode, withSample, type Session } from "./api";
 import { Link, Logo, SessionCtx, ToastHost, initials, navigate, usePath } from "./ui";
 import { SignIn } from "./SignIn";
 import { Worklist } from "./screens/Worklist";
@@ -10,18 +10,21 @@ import { Registries } from "./screens/Registries";
 import { Governance } from "./screens/Governance";
 import { fmtDay } from "../shared/clinical";
 
+type Site = { name: string; mode: string; patients?: { real: number; sample: number } };
+
 export function App() {
   const [config, setConfig] = useState<{ hosted: boolean } | null>(null);
   const [session, setSession] = useState<Session | null | undefined>(undefined);
-  const [site, setSite] = useState<{ name: string; mode: string } | null>(null);
+  const [site, setSite] = useState<Site | null>(null);
   useEffect(() => {
     api("/config").then(setConfig);
     api<Session>("/session")
       .then((s) => (setCsrf(s.csrf), setSession(s)))
       .catch(() => setSession(null));
   }, []);
+  const refreshSite = () => api("/site").then(setSite).catch(() => {});
   useEffect(() => {
-    if (session) api("/site").then(setSite);
+    if (session) refreshSite();
   }, [session]);
   if (!config || session === undefined) return null;
   if (!session)
@@ -37,22 +40,28 @@ export function App() {
   return (
     <SessionCtx.Provider value={{ name: session.name, role: session.role, siteMode: site?.mode ?? "sandbox" }}>
       <ToastHost>
-        <Shell session={session} site={site} onLogout={async () => (await api("/logout", { body: {} }), setSession(null))} />
+        <Shell session={session} site={site} refreshSite={refreshSite} onLogout={async () => (await api("/logout", { body: {} }), setSession(null))} />
       </ToastHost>
     </SessionCtx.Provider>
   );
 }
 
-function Shell({ session, site, onLogout }: { session: Session; site: { name: string; mode: string } | null; onLogout(): void }) {
+function Shell({ session, site, refreshSite, onLogout }: { session: Session; site: Site | null; refreshSite(): void; onLogout(): void }) {
   const path = usePath();
   const [today, setToday] = useState<string>("");
   const [attention, setAttention] = useState(0);
+  const sample = useSampleMode();
   useEffect(() => {
     api("/health").then((h) => setToday(h.today));
   }, []);
   useEffect(() => {
-    api("/attention-count").then((r) => setAttention(r.count)).catch(() => {});
+    api(withSample("/attention-count", sample)).then((r) => setAttention(r.count)).catch(() => {});
+  }, [path, sample]);
+  useEffect(() => {
+    refreshSite();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
+  const samples = site?.patients?.sample ?? 0;
   const section = path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : path.startsWith("/registries") ? "registries" : "worklist";
   const patientMatch = path.match(/^\/patients\/([0-9a-f-]{36})(?:\/(\w+))?/);
   return (
@@ -99,13 +108,25 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
         <header className="topbar">
           <PatientSearch />
           <span className="spacer" />
-          {site?.mode === "sandbox" && <span className="pill-note">Sandbox · synthetic data</span>}
+          {(samples > 0 || sample) && (
+            <div className="sample-switch" role="group" aria-label="Which patients">
+              <button aria-pressed={!sample} onClick={() => setSampleMode(false)}>Real patients</button>
+              <button aria-pressed={sample} onClick={() => setSampleMode(true)}>Sample patients</button>
+            </div>
+          )}
           {today && <span className="today">{fmtDay(today, { weekday: true, year: true })}</span>}
           <button className="icon-btn" aria-label="Alerts" onClick={() => navigate("/")}>
             <Bell size={20} />
             {attention > 0 && <span style={{ position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: "50%", background: "var(--red)", border: "2px solid #fff" }} />}
           </button>
         </header>
+        {sample && (
+          <div className="sample-band" role="note">
+            <b>Sample patients</b>
+            <span>Synthetic records for practice and teaching. They never appear in real lists, counts or registries.</span>
+            <button className="linkish" onClick={() => setSampleMode(false)}>Back to real patients</button>
+          </div>
+        )}
         {/* phones: the sidebar is hidden, so the main sections sit in a bar at the bottom */}
         <nav className="phone-nav" aria-label="Main (phone)">
           <Link to="/" aria-current={section === "worklist" ? "page" : undefined}>
@@ -146,6 +167,7 @@ function Shell({ session, site, onLogout }: { session: Session; site: { name: st
 }
 
 function PatientSearch() {
+  const sample = useSampleMode();
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<any[]>([]);
   const [sel, setSel] = useState(0);
@@ -162,9 +184,9 @@ function PatientSearch() {
   }, []);
   useEffect(() => {
     if (!q.trim()) return setRows([]);
-    const t = setTimeout(() => api(`/patients?q=${encodeURIComponent(q.trim())}`).then((r) => (setRows(r), setSel(0))), 120);
+    const t = setTimeout(() => api(withSample(`/patients?q=${encodeURIComponent(q.trim())}`, sample)).then((r) => (setRows(r), setSel(0))), 120);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, sample]);
   const open = (id: string) => {
     setQ("");
     setRows([]);
@@ -178,7 +200,7 @@ function PatientSearch() {
         <span className="sr-only">Search patients</span>
         <input
           ref={input}
-          placeholder="Search patient, MRN or file number"
+          placeholder={sample ? "Search sample patients" : "Search patient, MRN or file number"}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {

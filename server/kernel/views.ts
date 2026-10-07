@@ -64,6 +64,7 @@ export function header(s: PatientState) {
     id: s.patient.id,
     name: s.patient.name,
     mrn: s.patient.mrn,
+    sample: s.patient.synthetic,
     sex: s.patient.sex,
     age: s.patient.age,
     allergies: s.patient.allergies,
@@ -171,7 +172,7 @@ export function historyView(s: PatientState) {
     items,
     bmi: b,
     comorbidities,
-    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies },
+    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic },
     missing: items.filter((i) => i.status === "not-recorded").map((i) => i.label),
   };
 }
@@ -350,7 +351,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const attention = await recommendations(tx, patientId);
   const changes = whatChanged(s);
   // the echo-surveillance intervals are shown only where their rule runs (sandbox, or once approved)
-  const surveillanceLive = siteMode === "sandbox" || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);
+  const surveillanceLive = (siteMode === "sandbox" && s.patient.synthetic) || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);
   const valve = valveProfile(s);
   if (valve && !surveillanceLive) valve.surveillance = [];
   return {
@@ -453,7 +454,8 @@ export async function journey(tx: Q, patientId: string) {
 }
 
 // One set-based query for the whole list (latency to the database dominates, not query cost).
-export async function worklist(q: Q, siteId: string) {
+// sample = the synthetic demonstration patients; the default list is real patients only
+export async function worklist(q: Q, siteId: string, sample = false) {
   const today = todayFn();
   const rows = (
     await q.query<any>(
@@ -484,9 +486,9 @@ export async function worklist(q: Q, siteId: string) {
          SELECT count(*) FILTER (WHERE due_date < $2::date) overdue, count(*) FILTER (WHERE due_date = $2::date) due_today
          FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned'
        ) pc ON true
-       WHERE p.site_id=$1
+       WHERE p.site_id=$1 AND p.synthetic = $3
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
-      [siteId, today],
+      [siteId, today, sample],
     )
   ).rows;
   const out = rows.map((r) => {
@@ -504,6 +506,7 @@ export async function worklist(q: Q, siteId: string) {
       id: r.id,
       name: r.name,
       mrn: r.mrn,
+      sample,
       age: ageOn(String(r.birth_date).slice(0, 10), today),
       sex: r.sex,
       where,
@@ -535,13 +538,13 @@ function countMerged(recs: { s: string; a: any }[]) {
   return c;
 }
 
-export async function attentionCount(q: Q, siteId: string) {
+export async function attentionCount(q: Q, siteId: string, sample = false) {
   const r = (
     await q.query<{ n: number }>(
       `SELECT count(DISTINCT r.patient_id)::int n FROM cf.recommendation r JOIN cf.patient p ON p.id=r.patient_id
-       WHERE p.site_id=$1 AND r.status='active' AND r.severity IN ('red','orange')
+       WHERE p.site_id=$1 AND p.synthetic = $2 AND r.status='active' AND r.severity IN ('red','orange')
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
-      [siteId],
+      [siteId, sample],
     )
   ).rows[0];
   return Number(r?.n ?? 0);

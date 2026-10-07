@@ -40,7 +40,7 @@ test("duplicate drug suggestions are shown once, with the others carried as 'als
   assert.ok(glp.also.some((x: any) => x.rule_id === "metabolic.obesity" || x.rule_id === "metabolic.diabetes-cv-protection"));
   // worklist counts the merged card once
   const { worklist } = await import("../server/kernel/views.js");
-  const row = (await tx((q) => worklist(q, SITE_ID))).find((r: any) => r.id === pid)!;
+  const row = (await tx((q) => worklist(q, SITE_ID, true))).find((r: any) => r.id === pid)!;
   const total = (Object.values(row.alertCounts) as number[]).reduce((a, b) => a + b, 0);
   assert.equal(total, s.attention.length);
 });

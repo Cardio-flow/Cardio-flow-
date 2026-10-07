@@ -44,7 +44,8 @@ function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: str
   );
 }
 
-export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(id: string): void }) {
+export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): void; onCreated(id: string): void; sample?: boolean }) {
+  const [test, setTest] = useState(sample);
   const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -53,7 +54,7 @@ export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(
   async function save() {
     setBusy(true);
     try {
-      const r = await api("/patients", { body: { ...f, conditions: dx } });
+      const r = await api("/patients", { body: { ...f, conditions: dx, sample: test } });
       onCreated(r.id);
     } catch (e) {
       setError((e as Error).message);
@@ -62,14 +63,14 @@ export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(
   }
   return (
     <Drawer
-      title="New patient"
-      subtitle="Registration only. Registry enrolment is separate and optional."
+      title={test ? "New sample patient" : "New patient"}
+      subtitle={test ? "Synthetic record for practice. Kept with the sample patients, never with real ones." : "Registration only. Registry enrolment is separate and optional."}
       icon={<UserPlus size={22} />}
       onClose={onClose}
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : "Create patient"}</button>
+          <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : test ? "Create sample patient" : "Create patient"}</button>
         </span>
       }
     >
@@ -104,6 +105,13 @@ export function NewPatient({ onClose, onCreated }: { onClose(): void; onCreated(
           <div className="help">Risk-factor status (smoking, family history…) and details such as MI type or valve prosthesis are recorded next in the patient's History.</div>
           <DiagnosisPicker value={dx} onChange={setDx} />
         </div>
+        <label className="check-line">
+          <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />
+          <span>
+            <b>Sample patient for practice</b>
+            <span className="muted small"> — synthetic data; the file number gets the SYN- prefix and the patient stays out of real lists and registries</span>
+          </span>
+        </label>
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>

@@ -30,7 +30,7 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
 }
 
 // tiny data hook with manual reload
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 export function useData<T>(path: string | null, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,3 +49,19 @@ export function useData<T>(path: string | null, deps: unknown[] = []) {
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { data, error, reload, setData };
 }
+
+// Real patients by default. "Sample patients" switches every list (worklist, search, registries) to the
+// synthetic demonstration patients. Not remembered between page loads: each session starts on real patients.
+let sampleMode = false;
+const sampleSubs = new Set<() => void>();
+export function setSampleMode(v: boolean) {
+  sampleMode = v;
+  sampleSubs.forEach((f) => f());
+}
+export function useSampleMode() {
+  return useSyncExternalStore(
+    (f) => (sampleSubs.add(f), () => sampleSubs.delete(f)),
+    () => sampleMode,
+  );
+}
+export const withSample = (path: string, on: boolean) => (on ? `${path}${path.includes("?") ? "&" : "?"}sample=1` : path);

@@ -467,6 +467,17 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const civilBad = !!f.civilId && !/^\d{12}$/.test(f.civilId);
+  const [confirmSample, setConfirmSample] = useState(false);
+  async function toSample() {
+    setBusy(true);
+    try {
+      await api(`/patients/${patientId}/move-to-sample`, { body: {} });
+      onDone("Moved to the sample patients", { changed: ["patient"] });
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
   async function save() {
     setBusy(true);
     try {
@@ -496,6 +507,20 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
           <span>Allergies</span>
           <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />
         </label>
+        {!identity.sample && (
+          <div className="sample-move">
+            <b>Registered only to try the app?</b>
+            <span className="muted small">Move this record to the sample patients. It leaves the real worklist and registries and its file number gets the SYN- prefix. This cannot be undone.</span>
+            {confirmSample ? (
+              <span className="row wrap" style={{ gap: 8 }}>
+                <button className="btn small" disabled={busy} onClick={toSample}>Yes, move to sample patients</button>
+                <button className="btn ghost small" onClick={() => setConfirmSample(false)}>Keep as real patient</button>
+              </span>
+            ) : (
+              <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => setConfirmSample(true)}>Move to sample patients…</button>
+            )}
+          </div>
+        )}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>

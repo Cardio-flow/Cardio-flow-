@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useData } from "../api";
+import { useData, useSampleMode, withSample } from "../api";
 import { Link, Segmented, useToast } from "../ui";
 
 // Each registry as a whole: every eligible patient of the site, how much of the registry form the
@@ -14,7 +14,8 @@ const REGS = [
 export function Registries() {
   const [reg, setReg] = useState("hf");
   const def = REGS.find((x) => x.value === reg)!;
-  const { data: r } = useData<any>(`/registries/${reg}`, [reg]);
+  const sample = useSampleMode();
+  const { data: r } = useData<any>(withSample(`/registries/${reg}`, sample), [reg]);
   const toast = useToast();
   const [q, setQ] = useState("");
   const head = (

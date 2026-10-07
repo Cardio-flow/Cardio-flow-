@@ -17,34 +17,49 @@ export type Identity = { civilId?: string | null; nationality?: string | null; m
 
 async function civilIdFree(tx: Q, siteId: string, civilId: string | null | undefined, exceptPatient?: string) {
   if (!civilId) return;
-  const other = (await tx.query(`SELECT name, mrn FROM cf.patient WHERE site_id=$1 AND civil_id=$2 AND id IS DISTINCT FROM $3`, [siteId, civilId, exceptPatient ?? null])).rows[0];
+  const other = (await tx.query(`SELECT name, mrn FROM cf.patient WHERE site_id=$1 AND civil_id=$2 AND NOT synthetic AND id IS DISTINCT FROM $3`, [siteId, civilId, exceptPatient ?? null])).rows[0];
   if (other) throw new ApiError(409, `This civil ID is already registered to ${other.name} (MRN ${other.mrn})`);
 }
 
 export async function createPatient(
   tx: Q,
   actor: Actor,
-  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[] } & Identity,
+  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[]; synthetic?: boolean } & Identity,
 ) {
   if (input.birthDate > today() || input.birthDate < "1900-01-01") throw new ApiError(400, "Check the date of birth");
-  const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2", [actor.siteId, input.mrn])).rows[0];
+  // sample patients (the seed, or a test patient) are kept apart: SYN- MRN, never counted with real patients
+  const synthetic = input.synthetic === true || actor.id === "system:synthetic-seed";
+  const mrn = synthetic && !/^SYN-/.test(input.mrn) ? `SYN-${input.mrn}` : input.mrn;
+  if (!synthetic && /^SYN-/i.test(mrn)) throw new ApiError(400, "MRNs starting with SYN- are reserved for sample patients");
+  const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2", [actor.siteId, mrn])).rows[0];
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
-  await civilIdFree(tx, actor.siteId, input.civilId);
+  if (!synthetic) await civilIdFree(tx, actor.siteId, input.civilId);
   const id = uuid();
   await tx.query(
-    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-    [id, actor.siteId, input.mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null],
+    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile,synthetic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+    [id, actor.siteId, mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null, synthetic],
   );
   for (const code of input.conditions ?? []) await addCondition(tx, actor, id, { code });
   await audit(tx, actor, "create", "patient", id, id);
   return id;
 }
 
+// A real patient registered by mistake for testing moves to the sample patients (one way only: sample data
+// never becomes a real record). The MRN gains the SYN- prefix so the real MRN is free again.
+export async function moveToSample(tx: Q, actor: Actor, patientId: string) {
+  const p = await patientInSite(tx, actor, patientId);
+  if (p.synthetic) return;
+  const mrn = /^SYN-/.test(p.mrn) ? p.mrn : `SYN-${p.mrn}`;
+  if ((await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2`, [actor.siteId, mrn])).rows[0]) throw new ApiError(409, "A sample patient already has this MRN");
+  await tx.query(`UPDATE cf.patient SET synthetic=true, mrn=$2 WHERE id=$1`, [patientId, mrn]);
+  await audit(tx, actor, "move-to-sample", "patient", patientId, patientId, { mrn: p.mrn });
+}
+
 // Registration details are not clinical history: they are updated in place, and the audit
 // keeps the previous values.
 export async function updateIdentity(tx: Q, actor: Actor, patientId: string, input: Identity & { allergies?: string }) {
   const before = await patientInSite(tx, actor, patientId);
-  await civilIdFree(tx, actor.siteId, input.civilId, patientId);
+  if (!before.synthetic) await civilIdFree(tx, actor.siteId, input.civilId, patientId);
   const next = {
     civil_id: input.civilId === undefined ? before.civil_id : input.civilId || null,
     nationality: input.nationality === undefined ? before.nationality : input.nationality || null,

@@ -86,6 +86,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               <span className="id">
                 {h.age} y · {h.sex} · MRN {h.mrn}
               </span>
+              {h.sample && <span className="chip sample-chip">Sample patient · synthetic</span>}
               <span className={`chip ${h.deceased ? "deceased" : "gray"}`}>{h.where}</span>
               {h.readmission?.hfReadmission && h.readmission.days <= 30 && <span className="chip sev sev-orange"><span className="dot" />HF readmission · day {h.readmission.days}</span>}
               {h.status?.followUp && h.status.followUp.status !== "active" && !h.deceased && (

@@ -206,7 +206,7 @@ test("publication policy: guideline rules published at build, local thresholds s
 });
 
 test("worklist ranks the most urgent patient first", async () => {
-  const rows = await tx((q) => worklist(q, SITE_ID));
+  const rows = await tx((q) => worklist(q, SITE_ID, true));
   assert.ok(rows.length >= 7);
   const first = rows.find((r: any) => r.alert);
   assert.ok(["red", "orange"].includes(first!.alert!.severity));

@@ -37,7 +37,7 @@ export async function boot(db: DB, opts: { seed: boolean }) {
   });
   if (opts.seed) {
     const mode = (await db.query(`SELECT mode FROM cf.site WHERE id=$1`, [SITE_ID])).rows[0]?.mode;
-    const any = (await db.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 LIMIT 1`, [SITE_ID])).rows[0];
+    const any = (await db.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND synthetic LIMIT 1`, [SITE_ID])).rows[0];
     if (mode === "sandbox" && !any) await seedSynthetic(db, SITE_ID);
     else if (mode === "sandbox") await enrichSynthetic(db, SITE_ID);
   }
