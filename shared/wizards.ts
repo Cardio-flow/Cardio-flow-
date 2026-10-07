@@ -25,6 +25,8 @@ export type Option = {
   value: string; label: string; hint?: string; requires?: string[]; unless?: string[];
   // shown only with / hidden with one of these diagnoses (codes or tags), e.g. no DOAC with a mechanical valve
   requiresDx?: string[]; unlessDx?: string[];
+  // set automatically: a "reduce" option whose dose question needs a lower catalogue dose than the current one
+  lowerDoseOf?: string;
   effects?: Effect;
   // prefilled (AUTO) when the patient takes a drug with one of these tags
   detectTag?: string[];
@@ -594,6 +596,13 @@ function closingSummary(def: WizardDef) {
   };
 }
 for (const w of Object.values(WIZARDS)) w.assess ??= closingSummary(w);
+// link each "reduce" option to its lower-dose question, so it is offered only when a lower dose exists
+for (const w of Object.values(WIZARDS))
+  for (const st of w.steps)
+    for (const dq of st.questions.filter((q) => q.type === "dose" && q.direction === "lower" && q.showIf && q.medTag)) {
+      const opt = st.questions.find((q) => q.id === dq.showIf!.question)?.options?.find((o) => o.value === dq.showIf!.includes);
+      if (opt) opt.lowerDoseOf ??= dq.medTag;
+    }
 
 // Which medicines each wizard shows beside the questions.
 export const RELEVANT_TAGS: Record<string, string[]> = {
@@ -613,7 +622,12 @@ export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds"> & { dx?
   const dx = new Set(ctx.dx ?? []);
   return (q.options ?? []).filter((o) =>
     (!o.requires || o.requires.some((t) => tags.has(t))) && (!o.unless || !o.unless.some((t) => tags.has(t))) &&
-    (!o.requiresDx || o.requiresDx.some((t) => dx.has(t))) && (!o.unlessDx || !o.unlessDx.some((t) => dx.has(t))));
+    (!o.requiresDx || o.requiresDx.some((t) => dx.has(t))) && (!o.unlessDx || !o.unlessDx.some((t) => dx.has(t))) &&
+    // "reduce" only when a lower dose exists (eplerenone 25 mg has none: hold instead)
+    (!o.lowerDoseOf || (() => {
+      const m = ctx.meds.find((x) => x.tags.includes(o.lowerDoseOf!));
+      return !m || m.doseValue == null || (MEDICATION[m.code]?.doses ?? []).some((d) => d < m.doseValue!);
+    })()));
 }
 
 export function visibleQuestions(step: Step, answers: Answers) {

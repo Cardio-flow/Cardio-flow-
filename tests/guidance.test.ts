@@ -1,3 +1,4 @@
+import { MEDICATION } from "../shared/catalog.js";
 // Guideline suggestions inside pathways (3 Oct 2026): each question proposes the option(s) the
 // guideline recommends for this patient's data and answers, with the reason; the clinician applies
 // or ignores them; suggestions not taken are recorded with the decision.
@@ -12,7 +13,9 @@ import { completeWizard } from "../server/engine/wizard.js";
 import { nowIso, today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 
-const med = (code: string, tags: string[]) => ({ id: code, code, name: code, doseValue: 1, doseUnit: "mg", frequency: "OD", tags });
+// a mid-range catalogue dose (so "reduce" and "increase" both exist), 1 for codes not in the catalogue
+const midDose = (code: string) => { const d = MEDICATION[code]?.doses ?? []; return d.length ? d[Math.min(1, d.length - 1)] : 1; };
+const med = (code: string, tags: string[]) => ({ id: code, code, name: code, doseValue: midDose(code), doseUnit: "mg", frequency: "OD", tags });
 const ctx = (values: Record<string, number | [number, number]>, meds: [string, string[]][] = [], dx: string[] = [], age = 70): WizardContext => ({
   today: "2026-10-03", facts: [], detected: {},
   meds: meds.map(([c, t]) => med(c, t)),

@@ -209,7 +209,9 @@ export function WizardDrawer({
         ) : (
           <>
             <span className="note">
-              {saved ? <><Check size={16} color="var(--green)" strokeWidth={2.6} /> Draft saved</> : dirty ? "Saving draft…" : "Nothing recorded until you confirm"}
+              {/* a disabled Continue says why (phones show no tooltip) */}
+              {!isReview && missing.length > 0 ? <span style={{ color: "var(--orange-ink)", fontWeight: 700 }}>Answer “{missing[0].label}” to continue</span>
+                : saved ? <><Check size={16} color="var(--green)" strokeWidth={2.6} /> Draft saved</> : dirty ? "Saving draft…" : "Nothing recorded until you confirm"}
             </span>
             {recommendationId && step === 0 && (
               <button className="btn ghost small" style={{ color: "var(--ink-3)" }} onClick={() => setDeclining(true)}>No action needed</button>
@@ -338,6 +340,7 @@ export function WizardDrawer({
                 {q.type === "dose" && (() => {
                   const { med, options } = doseChoices(ctx, q);
                   if (!med) return <div className="infobox">No active medication of this type is recorded.</div>;
+                  if (!options.length) return <div className="infobox">{med.name} is already at {doseLabel(MEDICATION[med.code], med.doseValue, med.doseUnit)}, the lowest dose in the catalogue: go back one question and choose Hold instead.</div>;
                   return (
                     <>
                       <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>

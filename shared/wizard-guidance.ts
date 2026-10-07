@@ -15,6 +15,7 @@
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
 import { fmtDay, localDay } from "./clinical.js";
+import { MEDICATION } from "./catalog.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
 import { daysBetween } from "./clinical.js";
@@ -35,6 +36,11 @@ const list = (a: Answers, id: string) => ((a[id] as string[] | undefined) ?? [])
 const is = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 const n1 = (x: number) => (Math.round(x * 10) / 10).toString();
 const S = (value: string, why: string): Suggestion => ({ value, why });
+// the MRA is already at its lowest catalogue dose (no "reduce" possible)
+const mraLowest = (c: WizardContext) => {
+  const m = c.meds.find((x) => x.tags.includes("mra"));
+  return !!m && m.doseValue != null && !(MEDICATION[m.code]?.doses ?? []).some((d) => d < m.doseValue!);
+};
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
   // ---------------- Heart failure ----------------
@@ -50,7 +56,9 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
         k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && on(c, "mra") && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
+        // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold instead (Inspra SmPC: 25 mg every other day, or withhold)
+        k > 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K 5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
         k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && S("reduce-raas", `K 5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
         k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
         k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),

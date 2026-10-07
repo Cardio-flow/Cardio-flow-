@@ -195,3 +195,20 @@ test("finish (7 Oct): bradycardia can reduce atenolol; CABG and pericardiocentes
   assert.equal(checklistForPlan("CABG (Heart Team)", "referral"), "cabg");
   assert.equal(checklistForPlan("Urgent Echo-guided assessment for pericardiocentesis (tamponade / large effusion)", "referral"), "pericardiocentesis");
 });
+
+test("hyperkalaemia on eplerenone 25 mg (lowest dose): 'Reduce MRA dose' is not offered and Hold is suggested, so the step can be completed", async () => {
+  const pid = await newPatient(["hfref"]);
+  await start(pid, "eplerenone", 25, "OD");
+  await obs(pid, [{ code: "potassium", value: 5.8 }]);
+  const ctx = (await tx((q) => getWizard(q, pid, "hyperkalaemia"))).context;
+  const q = WIZARDS.hyperkalaemia.steps.flatMap((s) => s.questions).find((x) => x.id === "actions")!;
+  const vals = optionsFor(q, ctx).map((o) => o.value);
+  assert.ok(!vals.includes("reduce-mra") && vals.includes("hold-mra"));
+  const sug = suggest("hyperkalaemia", "actions", { ecg: "none" }, ctx, new Set(vals)).map((x) => x.value);
+  assert.ok(sug.includes("hold-mra") && !sug.includes("reduce-mra"), sug.join(","));
+  // spironolactone 25 mg still has 12.5 mg: reduce is offered
+  const p2 = await newPatient(["hfref"]);
+  await start(p2, "spironolactone", 25, "OD");
+  const ctx2 = (await tx((q2) => getWizard(q2, p2, "hyperkalaemia"))).context;
+  assert.ok(optionsFor(q, ctx2).some((o) => o.value === "reduce-mra"));
+});
