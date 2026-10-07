@@ -164,7 +164,8 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
               { value: "vka-to-doac", label: "Switch warfarin to a DOAC", requires: ["vka"], unlessDx: ["mechanical-valve", "ms-significant"] },
               { value: "doac-to-vka", label: "Switch the DOAC to warfarin", requires: ["doac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "DOACs are contraindicated with a mechanical valve and not used in moderate–severe MS" },
               { value: "not-indicated", label: "Not indicated (CHA₂DS₂-VA 0)" },
-              { value: "declined", label: "Contraindicated or declined" },
+              { value: "contraindicated", label: "Contraindicated", unless: ["oac"] },
+              { value: "declined", label: "Declined by the patient", unless: ["oac"] },
             ],
           },
           {
@@ -255,6 +256,8 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
   }
   if (a.oac === "other-doac") out.push(plan("medication", "Start a DOAC at the label dose (renal function, age, weight)"));
   if (a.oac === "warfarin") out.push(plan("medication", "Start warfarin with INR monitoring (target for the valve or mitral stenosis)", t, { type: "lab", codes: ["inr"] }));
+  if (a.oac === "contraindicated" || a.oac === "declined")
+    out.push({ kind: "barrier", drugClass: "oac", category: a.oac === "declined" ? "declined" : "contraindication", label: `Anticoagulation ${a.oac === "declined" ? "declined by the patient" : "contraindicated"}: recorded as the reason (the AF alert closes)` });
   if (a.oac === "doac-to-vka") {
     const d = ctx.meds.find((m) => m.tags.includes("doac"));
     out.push(plan("medication", `Switch ${d?.name.toLowerCase() ?? "the DOAC"} to warfarin (INR-guided; stop the DOAC per the label switching rule)`, t, { type: "lab", codes: ["inr"] }, d?.id ?? null));

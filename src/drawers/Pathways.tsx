@@ -59,7 +59,7 @@ export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: 
           <section className="col" style={{ gap: 10 }}>
             <span className="pw-head">Checklists before a procedure</span>
             <div className="ck-chips">
-              {([["pci", "Angiography / PCI"], ["cardioversion", "Cardioversion"], ["ablation", "AF ablation"], ["device", "Device implant"], ["valve", "Valve intervention"], ["rhc", "Right heart cath"]] as const).map(([k, l]) => (
+              {([["pci", "Angiography / PCI"], ["cardioversion", "Cardioversion"], ["ablation", "AF ablation"], ["device", "Device implant"], ["valve", "Valve intervention"], ["rhc", "Right heart cath"], ["cabg", "CABG"], ["pericardiocentesis", "Pericardiocentesis"]] as const).map(([k, l]) => (
                 <button key={k} className="ck-chip" onClick={() => onChecklist(k)}>{l}</button>
               ))}
             </div>

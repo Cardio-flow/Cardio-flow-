@@ -156,3 +156,42 @@ test("statin that cannot reach high intensity is changed, not 'increased' to the
   const titles = (await db.query(`SELECT title FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id LIKE 'med.%'`, [pid])).rows.map((x: any) => x.title);
   assert.ok(titles.some((t: string) => /Simvastatin above 20 mg with Amiodarone/.test(t)), titles.join(" | "));
 });
+
+test("finish (7 Oct): AF-CARE 'declined' records the reason and the AF alert closes; chest pain carries a new ACS into the antithrombotic plan", async () => {
+  const pid = await newPatient(["af", "htn", "t2dm"], "1950-01-01");
+  await obs(pid, [{ code: "creatinine", value: 90 }, { code: "weight", value: 80 }]);
+  await tx((q) => reassess(q, pid, "sandbox"));
+  assert.equal((await active(pid, "af.anticoagulation")).length, 1);
+  const ans = { pattern: "persistent", comorb: ["none"], oac: "declined", bleed: ["none"], symptoms: "1", rate: ["none"], rhythm: ["none"], tests: ["none"], review: "none" };
+  await call("POST", `/patients/${pid}/wizards/af-care/complete`, { answers: ans });
+  assert.equal((await active(pid, "af.anticoagulation")).length, 0, "reason recorded: the suggestion stays quiet");
+
+  const { JOIN } = await import("../shared/wizard-prefill.js");
+  assert.deepEqual(JOIN["chest-pain-cad"].carry!({ ecg: "dynamic", troponin: "rising" }), { from: "today", setting: "acs" });
+  const c = await newPatient(["cad-ccs"]);
+  await tx((q) => K.recordProcedure(q, doc, c, { kind: "pci", date: at(addDays(T, -200)), details: { setting: "elective", vessels: ["LAD"], devices: ["Drug-eluting stent"], stents: 1, access: "Radial" } }));
+  await start(c, "aspirin", 100, "OD", addDays(T, -200), "cad");
+  await start(c, "clopidogrel", 75, "OD", addDays(T, -200), "cad");
+  const ctx = (await tx((q) => getWizard(q, c, "antithrombotic"))).context;
+  const out = buildOutcome("antithrombotic", { from: "today", setting: "acs", oac: "no", hbr: ["none"], ischaemic: ["none"], dapt: "12m", sapt: "aspirin", now: ["none"], review: "none" }, ctx) as any[];
+  assert.equal(out.find((o) => o.kind === "plan").dueDate, addDays(T, 365), "12 months from today, not from the old PCI");
+});
+
+test("finish (7 Oct): bradycardia can reduce atenolol; CABG and pericardiocentesis checklists", async () => {
+  const pid = await newPatient(["htn"]);
+  await start(pid, "atenolol", 50, "OD", addDays(T, -60), "htn");
+  const ctx = (await tx((q) => getWizard(q, pid, "bradycardia"))).context;
+  const out = buildOutcome("bradycardia", { actions: ["reduce-bb-other"], bbOtherDose: "25" }, ctx);
+  assert.ok(out.some((o) => o.kind === "medication" && o.event === "decrease" && o.doseValue === 25));
+
+  const c = await newPatient(["cad-ccs"]);
+  await start(c, "aspirin", 100, "OD", addDays(T, -60), "cad");
+  await start(c, "ticagrelor", 90, "BID", addDays(T, -60), "cad");
+  const ck = checklist(await loadState(db, c), "cabg");
+  assert.equal(ck.items.find((i) => i.key === "aspirin")!.status, "ok");
+  assert.match(ck.items.find((i) => i.key.startsWith("p2y12"))!.value!, /≥3 days/);
+  assert.ok(checklist(await loadState(db, c), "pericardiocentesis").items.some((i) => i.key === "echo"));
+  const { checklistForPlan } = await import("../shared/procedures.js");
+  assert.equal(checklistForPlan("CABG (Heart Team)", "referral"), "cabg");
+  assert.equal(checklistForPlan("Urgent Echo-guided assessment for pericardiocentesis (tamponade / large effusion)", "referral"), "pericardiocentesis");
+});

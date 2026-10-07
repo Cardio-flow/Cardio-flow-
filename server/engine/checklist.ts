@@ -13,6 +13,11 @@
 //  - Valve intervention (audit finish, 6 Oct): ESC/EACTS 2025 — Heart Team decision (I C); coronary
 //    assessment before intervention (angiography or CCTA); CT for TAVI planning. ESC endocarditis 2023 —
 //    potential dental sources of sepsis eliminated before prosthetic valve implantation (I C).
+//  - CABG (audit, 7 Oct): ESC myocardial revascularisation 2018 / ESC ACS 2023 — continue low-dose aspirin;
+//    stop ticagrelor ≥3 days, clopidogrel ≥5 days, prasugrel ≥7 days before elective CABG (IIa B); LV function
+//    by echo; glycaemic status (HbA1c).
+//  - Pericardiocentesis: ESC pericardial diseases 2015 — echo (or fluoroscopy) guided; anticoagulation and
+//    platelets checked before an elective procedure.
 //  - Right heart catheterisation: ESC/ERS 2022 PH — echocardiography first (probability of PH); RHC in a PH
 //    centre; V/Q scan to look for CTEPH in unexplained PH (I C).
 import { DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
@@ -29,6 +34,8 @@ export const CHECK_TITLE: Record<CheckKind, string> = {
   device: "Before device implantation",
   valve: "Before a valve intervention",
   rhc: "Before right heart catheterisation",
+  cabg: "Before coronary bypass surgery (CABG)",
+  pericardiocentesis: "Before pericardiocentesis",
 };
 export type CheckItem = {
   key: string; label: string;
@@ -152,6 +159,29 @@ export function checklist(s: PatientState, kind: CheckKind): { title: string; it
     items.push({ key: "vq", label: "V/Q scan (CTEPH)", status: pe ? "flag" : "info", why: pe ? "Previous pulmonary embolism: V/Q scan for chronic thromboembolic disease." : "In unexplained PH, a V/Q scan looks for CTEPH.", source: "ESC/ERS 2022 · I C" });
     items.push({ key: "centre", label: "PH centre", status: "info", why: "Right heart catheterisation is done in a PH centre, with a standardised protocol.", source: "ESC/ERS 2022" });
     if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Venous access: plan the peri-procedural anticoagulation with the PH centre." });
+  }
+  if (kind === "cabg") {
+    const asa = meds.find((m) => m.code === "aspirin");
+    items.push(asa ? { key: "aspirin", label: "Aspirin", status: "ok", value: asa.name, why: "Continue low-dose aspirin through surgery.", source: "ESC revascularisation 2018" }
+      : { key: "aspirin", label: "Aspirin", status: "info", value: "Not on the list", why: "Low-dose aspirin is continued through CABG." });
+    const P2: Record<string, number> = { ticagrelor: 3, clopidogrel: 5, prasugrel: 7 };
+    for (const m of meds.filter((x) => P2[x.code]))
+      items.push({ key: "p2y12-" + m.id, label: `${m.name}: stop before elective surgery`, status: "flag", value: `≥${P2[m.code]} days before`, why: "Interrupt before elective CABG; urgent surgery is decided with the surgical team.", source: "ESC ACS 2023 · IIa B" });
+    if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Plan the interruption.", action: { type: "wizard", wizard: "pre-procedure", label: "Plan interruption" } });
+    const echo = latestStudy(s, "echo", 100000);
+    items.push(echo
+      ? { key: "echo", label: "Echo (LV function)", status: "ok", value: echo.attributes?.lvef != null ? `LVEF ${echo.attributes.lvef}%` : "recorded", date: echo.performed_at, why: ago(daysBetween(echo.performed_at, s.today)) }
+      : { key: "echo", label: "Echo (LV function)", status: "missing", why: "No echo on record." });
+    items.push(lab(s, "hba1c", "HbA1c (glycaemic status)"));
+  }
+
+  if (kind === "pericardiocentesis") {
+    const echo = latestStudy(s, "echo", 100000);
+    items.push(echo
+      ? { key: "echo", label: "Echo (effusion size and site)", status: "ok", date: echo.performed_at, why: `${ago(daysBetween(echo.performed_at, s.today))} · echo-guided procedure` }
+      : { key: "echo", label: "Echo (effusion size and site)", status: "missing", why: "Echo guides the procedure.", source: "ESC pericardial 2015" });
+    if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Elective procedure: plan the interruption; tamponade is not delayed for it." });
+    if (antiplatelets.length) items.push({ key: "ap", label: "Antiplatelet therapy", status: "info", value: antiplatelets.map((m) => m.name).join(", "), why: "Weigh against the indication with the team." });
   }
   return { title: CHECK_TITLE[kind], items };
 }

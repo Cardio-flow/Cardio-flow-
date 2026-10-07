@@ -26,7 +26,7 @@ import { ChecklistDrawer } from "../drawers/Checklist";
 
 export type Open =
   | { kind: "labs"; codes?: string[] }
-  | { kind: "wizard"; wizard: string; recommendationId?: string; carried?: PathwayPart[]; resume?: PathwayPart }
+  | { kind: "wizard"; wizard: string; recommendationId?: string; carried?: PathwayPart[]; resume?: PathwayPart; ahead?: PathwayPart[] }
   | { kind: "med-add"; code?: string; dose?: number; reason?: string }
   | { kind: "med-action"; medId: string; action?: string; dose?: number; reason?: string }
   | { kind: "plan-add"; template?: string; medicationId?: string }
@@ -201,8 +201,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
         <WizardDrawer
           key={`${open.wizard}:${open.carried?.length ?? 0}`} patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.resume?.recommendationId ?? open.recommendationId} contextId={ctx?.id}
           onClose={close} onDone={done} carried={open.carried} resume={open.resume}
-          onJoin={(parts, next) => setOpen({ kind: "wizard", wizard: next, carried: parts })}
-          onBack={(i) => { const c = open.carried ?? []; setOpen({ kind: "wizard", wizard: c[i].wizard, carried: c.slice(0, i), resume: c[i] }); }}
+          // going back keeps the later parts (answers, moved dates, override reasons) to return to them unchanged
+          onJoin={(parts, next) => {
+            const ahead = open.ahead ?? [];
+            setOpen({ kind: "wizard", wizard: next, carried: parts, resume: ahead[0]?.wizard === next ? ahead[0] : undefined, ahead: ahead[0]?.wizard === next ? ahead.slice(1) : [] });
+          }}
+          onBack={(i, current) => { const c = open.carried ?? []; setOpen({ kind: "wizard", wizard: c[i].wizard, carried: c.slice(0, i), resume: c[i], ahead: [...c.slice(i + 1), current, ...(open.ahead ?? [])] }); }}
         />
       )}
       {open?.kind === "med-add" && <AddMedication patientId={id} summary={s} contextId={ctx?.id} preset={open.code ? { code: open.code, dose: open.dose, reason: open.reason } : undefined} onClose={close} onDone={done} />}

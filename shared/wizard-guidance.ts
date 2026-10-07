@@ -441,6 +441,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
 
   // ---------------- Coronary ----------------
   antithrombotic: {
+    from: (_a, c) => [c.coronary ? S("recorded", `${c.coronary.indexTitle} (${localDay(c.coronary.pciAt ?? c.coronary.indexAt)})`) : S("today", "No PCI or ACS on the record")],
     setting: (_a, c) => [c.coronary ? S(c.coronary.acs ? "acs" : "ccs", `${c.coronary.indexTitle} (${localDay(c.coronary.indexAt)})`) : null],
     oac: (_a, c) => [on(c, "oac") ? S("yes", "On an oral anticoagulant") : S("no", "No anticoagulant recorded")],
     hbr: (_a, c) => {

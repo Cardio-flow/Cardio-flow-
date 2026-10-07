@@ -3,7 +3,7 @@ import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pi
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
-import { joinFor, prefill } from "../../shared/wizard-prefill";
+import { JOIN, joinFor, prefill } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
 import { flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
@@ -20,7 +20,7 @@ export function WizardDrawer({
 }: {
   patientId: string; patientName: string; wizard: string; recommendationId?: string; contextId?: string; onClose(): void; onDone(msg?: string, r?: any): void;
   // joined pathways: carry this part into the next pathway, or go back to an earlier part
-  onJoin?(parts: PathwayPart[], next: string): void; onBack?(index: number): void; carried?: PathwayPart[]; resume?: PathwayPart;
+  onJoin?(parts: PathwayPart[], next: string): void; onBack?(index: number, current: PathwayPart): void; carried?: PathwayPart[]; resume?: PathwayPart;
 }) {
   const def = WIZARDS[wizard];
   const [ctx, setCtx] = useState<WizardContext | null>(null);
@@ -65,7 +65,10 @@ export function WizardDrawer({
       } else {
         // everything the record shows, and the guideline's suggestion for every open question, is filled in;
         // the clinician reviews and changes it
-        const pre = prefill(wizard, r.context);
+        // a joined part starts from what the earlier part carries over (e.g. a new ACS → count from today)
+        const last = carried[carried.length - 1];
+        const carry = last ? JOIN[last.wizard]?.carry?.(last.answers) ?? {} : {};
+        const pre = prefill(wizard, r.context, carry);
         setAnswers(pre.answers);
         setAutoFilled(pre.suggested);
       }
@@ -179,7 +182,7 @@ export function WizardDrawer({
         {carried.length > 0 && (
           <div className="wiz-chain" aria-label="Joined pathway">
             {carried.map((p, i) => (
-              <button key={p.wizard} type="button" className="wiz-chain-part done" onClick={() => onBack?.(i)} title="Go back and change">
+              <button key={p.wizard} type="button" className="wiz-chain-part done" onClick={() => onBack?.(i, thisPart())} title="Go back and change">
                 <Check size={14} strokeWidth={3} /> {WIZARDS[p.wizard].title}
               </button>
             ))}
@@ -351,7 +354,7 @@ export function WizardDrawer({
             <section className="wiz-carried" aria-label="Earlier parts of this pathway">
               {carried.map((p, i) => (
                 <div key={p.wizard} className="wiz-ans">
-                  <div className="wiz-ans-head"><b>{WIZARDS[p.wizard].title}</b><button type="button" className="btn ghost small" onClick={() => onBack?.(i)}>Change</button></div>
+                  <div className="wiz-ans-head"><b>{WIZARDS[p.wizard].title}</b><button type="button" className="btn ghost small" onClick={() => onBack?.(i, thisPart())}>Change</button></div>
                   {p.outcome.length ? p.outcome.map((o, k) => <div key={k} className="wiz-ans-row"><span>Will record</span><b>{o}</b></div>) : <div className="wiz-ans-row"><span>Will record</span><b>Decision with no further actions</b></div>}
                 </div>
               ))}

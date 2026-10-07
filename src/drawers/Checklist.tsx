@@ -16,6 +16,8 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: "device", label: "Device implant" },
   { value: "valve", label: "Valve intervention" },
   { value: "rhc", label: "Right heart cath" },
+  { value: "cabg", label: "CABG" },
+  { value: "pericardiocentesis", label: "Pericardiocentesis" },
 ];
 const ICON = { ok: CheckCircle2, flag: AlertTriangle, missing: Circle, info: Info };
 
@@ -44,7 +46,7 @@ export function ChecklistDrawer({ patientId, initial, onClose, open }: { patient
           <span className="note">{data ? `${n.ok} ready · ${n.flag} to act on · ${n.missing} not recorded` : "Reading the record…"}</span>
           <span className="end">
             {missingLabs.length > 0 && <button className="btn secondary" onClick={() => open({ kind: "labs", codes: missingLabs })}>Enter missing results</button>}
-            <button className="btn primary" onClick={() => open({ kind: "procedure", group: kind === "pci" ? "coronary" : kind === "valve" ? "valve" : kind === "rhc" ? "ph" : "rhythm" })}>Record the procedure</button>
+            {kind !== "pericardiocentesis" && <button className="btn primary" onClick={() => open({ kind: "procedure", group: kind === "pci" || kind === "cabg" ? "coronary" : kind === "valve" ? "valve" : kind === "rhc" ? "ph" : "rhythm" })}>Record the procedure</button>}
           </span>
         </>
       }

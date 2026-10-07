@@ -256,6 +256,13 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
             ],
           },
           {
+            id: "from", label: "Count the durations from", type: "single", required: true,
+            options: [
+              { value: "recorded", label: "The recorded PCI / ACS", hint: "Date from the record" },
+              { value: "today", label: "Today: a new ACS or PCI not yet recorded" },
+            ],
+          },
+          {
             id: "oac", label: "Does the patient also need an oral anticoagulant?", type: "single", required: true,
             help: "AF, venous thromboembolism, mechanical valve, LV thrombus.",
             options: [{ value: "no", label: "No" }, { value: "yes", label: "Yes" }],
@@ -358,7 +365,7 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
 // Dated stops, linked to the medicine they stop.
 CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
   const out: OutcomeItem[] = [];
-  const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
+  const i0 = a.from === "today" ? ctx.today : localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
   // a stop date already passed (event entered late) is planned for today
   const due = (days: number) => { const d = addDays(i0, days); return d < ctx.today ? ctx.today : d; };
   const aspirin = ctx.meds.find((m) => m.code === "aspirin");
@@ -493,10 +500,10 @@ CORONARY_WIZARDS.antithrombotic.assess = (a: Answers, ctx: WizardContext): Asses
   const isch = highIschaemic(a);
   const l = (a.hbr as string[]) ?? [];
   const major = l.filter((v) => HBR_MAJOR.includes(v)).length, minor = l.filter((v) => HBR_MINOR.includes(v)).length;
-  const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
+  const i0 = a.from === "today" ? ctx.today : localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
   const stops = CORONARY_WIZARDS.antithrombotic.outcome!(a, ctx).filter((o) => o.kind === "plan");
   const rows: Assessment["rows"] = [
-    { label: "Counted from", value: `${ctx.coronary?.pciAt ? "PCI" : ctx.coronary ? ctx.coronary.indexTitle : "today"} · ${fmtDay(i0, { year: true })}` },
+    { label: "Counted from", value: `${a.from === "today" ? "today (new event)" : ctx.coronary?.pciAt ? "PCI" : ctx.coronary ? ctx.coronary.indexTitle : "today"} · ${fmtDay(i0, { year: true })}` },
     { label: "Bleeding risk (ARC-HBR)", value: hbr ? `High · ${major} major, ${minor} minor` : `Not high · ${major} major, ${minor} minor`, tone: hbr ? "orange" : "green" },
     { label: "Ischaemic risk", value: isch ? "High" : "Not high", tone: isch ? "orange" : undefined },
     ...stops.map((o) => ({ label: o.kind === "plan" ? fmtDay(o.dueDate, { year: true }) : "", value: o.kind === "plan" ? o.title : "" })),

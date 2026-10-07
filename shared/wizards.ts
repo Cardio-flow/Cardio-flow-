@@ -532,6 +532,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "continue", label: "Asymptomatic, no block: continue and monitor" },
               { value: "stop-other", label: "Stop other rate-slowing drugs (ivabradine, digoxin, diltiazem)", requires: ["ivabradine", "digoxin", "ndhp-ccb"] },
               { value: "reduce-bb", label: "Reduce the beta-blocker (halve)", requires: ["bb"] },
+              { value: "reduce-bb-other", label: "Reduce the beta-blocker (atenolol, propranolol, labetalol)", requires: ["bb-other"] },
               { value: "ecg", label: "12-lead ECG" },
               { value: "holter", label: "Holter monitor" },
               { value: "pacing", label: "EP / pacing assessment" },
@@ -539,6 +540,7 @@ export const WIZARDS: Record<string, WizardDef> = {
             ],
           },
           { id: "bbDose", label: "New beta-blocker dose", type: "dose", medTag: "bb", direction: "lower", showIf: { question: "actions", includes: "reduce-bb" }, required: true },
+          { id: "bbOtherDose", label: "New beta-blocker dose", type: "dose", medTag: "bb-other", direction: "lower", showIf: { question: "actions", includes: "reduce-bb-other" }, required: true },
         ],
       },
       {
@@ -653,7 +655,9 @@ export type OutcomeItem =
   | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
   // a diagnosis the pathway confirms (added, or its detail updated, keeping its onset)
   | { kind: "condition"; code: string; attributes: Record<string, unknown>; label: string }
-  | { kind: "note"; label: string };
+  | { kind: "note"; label: string }
+  // why a drug class is not given (recorded once, reused by every rule, as from an alert card)
+  | { kind: "barrier"; drugClass: string; category: "contraindication" | "declined"; label: string };
 
 // wizards whose dose questions are handled explicitly above the generic pass
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
@@ -735,6 +739,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   if (wizardId === "bradycardia") {
     if (actions.includes("stop-other")) stopTagged(["ivabradine", "digoxin", "ndhp-ccb"]);
     if (actions.includes("reduce-bb")) change("bb", "bbDose", "decrease");
+    if (actions.includes("reduce-bb-other")) change("bb-other", "bbOtherDose", "decrease");
     if (actions.includes("ecg")) plan("investigation", "12-lead ECG", 0, { type: "study", kind: "ecg" });
     if (actions.includes("holter")) plan("investigation", "Holter monitor", 14, { type: "study", kind: "holter" });
     if (actions.includes("pacing")) plan("referral", "EP / pacing assessment", answers.block === "high-grade" || answers.block === "pauses" ? 0 : 14);

@@ -29,7 +29,8 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
 // Joined pathways: when the answers call for it, the pathway carries straight on into the one that follows,
 // as one flow with one Confirm (both recorded together). The condition reads the answers given, so the
 // second part appears only when it applies to this patient.
-export type Join = { next: string; when: (a: Answers, ctx: WizardContext) => boolean; why: string };
+// carry: answers the next part takes from this one (e.g. a new ACS: count the antithrombotic plan from today)
+export type Join = { next: string; when: (a: Answers, ctx: WizardContext) => boolean; why: string; carry?: (a: Answers) => Answers };
 const has = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 export const JOIN: Record<string, Join> = {
   "acs-discharge": { next: "antithrombotic", when: () => true, why: "Durations and stop dates of the antithrombotic therapy after this ACS" },
@@ -37,6 +38,7 @@ export const JOIN: Record<string, Join> = {
     next: "antithrombotic",
     when: (a) => ["ste", "dynamic"].includes(String(a.ecg)) || a.troponin === "rising" || ["stopped", "missed", "none"].includes(String(a.adherence)),
     why: "A new ACS or interrupted antiplatelet therapy: set the antithrombotic plan again",
+    carry: (a) => (["ste", "dynamic"].includes(String(a.ecg)) || a.troponin === "rising" ? { from: "today", setting: "acs" } : {}),
   },
   bleeding: {
     next: "antithrombotic",

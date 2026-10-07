@@ -72,7 +72,7 @@ test("CABG: grafts recorded, past CABG added once", async () => {
 const rec = async (pid: string, rule: string) =>
   ((await db.query(`SELECT id, severity, title, action FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [pid, rule])).rows as any[])[0];
 const complete = (pid: string, answers: any, recommendationId?: string) =>
-  tx(async (q) => { const r = await completeWizard(q, doc, pid, "antithrombotic", { answers, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
+  tx(async (q) => { const r = await completeWizard(q, doc, pid, "antithrombotic", { answers: { from: "recorded", ...answers }, recommendationId }); await reassess(q, pid, "sandbox", r.changed); return r; });
 const newCad = (name: string) => tx((q) => K.createPatient(q, doc, { name: name + " " + Date.now(), mrn: "A" + Math.random().toString(36).slice(2, 8) + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["cad-ccs"] }));
 const start = (pid: string, code: string, dose: number, freq: string, indication: string, days: number) =>
   tx(async (q) => { await K.startMedication(q, doc, pid, { code, doseValue: dose, frequency: freq, route: "PO", indication, effectiveAt: at(addDays(T, days)) }); await reassess(q, pid, "sandbox"); });

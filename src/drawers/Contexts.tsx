@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
@@ -280,6 +280,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
+  const savedRef = useRef<Record<string, string>>({});
   useEffect(() => {
     if (step === 3 && visitId) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => setNote(n.text));
     if (step === 2) api(`/patients/${patientId}/summary`).then(setLive);
@@ -305,7 +306,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         ...(cong ? [{ code: "congestion", text: cong }] : []),
         ...(isHf ? ["kccq", "6mwd", "dry-weight"].filter((c) => hfa[c]?.trim()).map((c) => ({ code: c, value: Number(hfa[c]) })) : []),
       ];
-      if (items.length) await api(`/patients/${patientId}/observations`, { body: { effectiveAt: new Date().toISOString(), contextId: visitId, items } });
+      // going Back and saving again records only what changed since the last save (no duplicate vitals)
+      const fresh = items.filter((i: any) => savedRef.current[i.code] !== JSON.stringify(i));
+      if (fresh.length) await api(`/patients/${patientId}/observations`, { body: { effectiveAt: new Date().toISOString(), contextId: visitId, items: fresh } });
+      for (const i of fresh) savedRef.current[i.code] = JSON.stringify(i);
       setStep(2);
     } catch (e) {
       setError((e as Error).message);

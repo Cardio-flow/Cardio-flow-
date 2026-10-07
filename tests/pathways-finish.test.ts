@@ -82,7 +82,7 @@ test("joined pathways: the join follows the answers, and both parts are recorded
 
   const p = await newPatient(["cad-ccs"]);
   const hb = { severity: "minor", agents: [], actions: ["restart"], recheck: "7", review: "none" };
-  const at2 = { setting: "ccs", oac: "no", hbr: ["none"], ischaemic: ["none"], dapt: "6m", sapt: "aspirin", now: ["none"], review: "none" };
+  const at2 = { from: "recorded", setting: "ccs", oac: "no", hbr: ["none"], ischaemic: ["none"], dapt: "6m", sapt: "aspirin", now: ["none"], review: "none" };
   const r = await post(`/patients/${p}/wizards-joined/complete`, { parts: [{ wizard: "bleeding", answers: hb }, { wizard: "antithrombotic", answers: at2 }] });
   assert.equal(r.parts.length, 2);
   const d = (await db.query(`SELECT wizard FROM cf.decision WHERE patient_id=$1`, [p])).rows.map((x: any) => x.wizard).sort();

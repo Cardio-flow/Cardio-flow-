@@ -4,7 +4,7 @@ import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
-import { addCondition, addPlanAction, medicationEvent, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
+import { addCondition, addPlanAction, medicationEvent, recordBarrier, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
 import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
@@ -288,6 +288,11 @@ export async function completeWizard(
   }
   for (const item of outcome) {
     if (item.kind === "start" || item.kind === "condition") continue;
+    if (item.kind === "barrier") {
+      await recordBarrier(tx, actor, patientId, { drugClass: item.drugClass, category: item.category, detail: def.title, effectiveAt: at });
+      changed.push("meds", "conditions"); // the rules that suggest this class re-run and stay quiet
+      continue;
+    }
     if (item.kind === "medication") {
       changed.push(...(await medicationEvent(tx, actor, patientId, item.medicationId, {
         kind: item.event, doseValue: item.doseValue, reason: def.title, effectiveAt: at, contextId: input.contextId, decisionId,

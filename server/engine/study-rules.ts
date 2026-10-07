@@ -108,7 +108,7 @@ export const STUDY_RULES: RuleDef[] = [
     title: "High-degree AV block with reduced LVEF: CRT rather than RV pacing",
     inputs: ["studies", "conditions", "lvef"],
     defaultParams: { lvef_below: 40, days: 180 },
-    evidence: "2026 ESC HF: CRT rather than RV pacing in HFrEF with an indication for ventricular pacing for high-degree AV block, regardless of NYHA class or QRS width (IIa). 2021 ESC pacing: LVEF <40% threshold.",
+    evidence: "2021 ESC pacing and CRT: CRT rather than RV pacing is recommended for HFrEF (LVEF <40%) regardless of NYHA class with an indication for ventricular pacing and high-degree AV block, including AF (I A; upgraded from IIa B in 2013). Confirmed 7 Oct 2026 against the ACC summary of the guideline.",
     evaluate(s, p) {
       if (s.tags.has("crt")) return [];
       const ef = s.resolved("lvef").current;
@@ -122,7 +122,7 @@ export const STUDY_RULES: RuleDef[] = [
         severity: "orange",
         title: `${fromStudy ? fromStudy.attributes.avBlock : fromHistory!.attributes.degree} AV block with LVEF ${formatNumber(ef.value_num, 0)}%: if pacing, CRT rather than RV pacing`,
         detail: "Plan the device with the EP team; the pacing indication itself is the clinician's decision.",
-        facts: [{ label: "LVEF", value: `${formatNumber(ef.value_num, 0)}%`, date: ef.effective_at }, fromStudy ? studyFact(fromStudy) : { label: "History", value: `${fromHistory!.attributes.degree} AV block` }, { label: "Guideline", value: "ESC HF 2026 · IIa" }],
+        facts: [{ label: "LVEF", value: `${formatNumber(ef.value_num, 0)}%`, date: ef.effective_at }, fromStudy ? studyFact(fromStudy) : { label: "History", value: `${fromHistory!.attributes.degree} AV block` }, { label: "Guideline", value: "ESC pacing 2021 · I A" }],
         missing: [],
         action: { type: "add-plan", template: "device" },
       }];

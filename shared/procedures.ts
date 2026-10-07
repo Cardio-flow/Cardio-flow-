@@ -225,7 +225,7 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
 }
 
 // Checklists before a procedure (redesign slice 7; valve and RHC added in the audit finish, 6 Oct)
-export type CheckKind = "pci" | "cardioversion" | "ablation" | "device" | "valve" | "rhc";
+export type CheckKind = "pci" | "cardioversion" | "ablation" | "device" | "valve" | "rhc" | "cabg" | "pericardiocentesis";
 // a planned procedure (plan item) that has a checklist: matched by its title
 export function checklistForPlan(title: string, category: string): CheckKind | null {
   if (!["procedure", "referral", "follow_up"].includes(category) || /immediate|primary PCI|^(anticoagulation|12-lead|ambulatory|TOE|echo)/i.test(title)) return null;
@@ -234,6 +234,8 @@ export function checklistForPlan(title: string, category: string): CheckKind | n
   if (/coronary angiography|\bPCI\b/i.test(title)) return "pci";
   if (/TAVI|TEER|valve (replacement|repair|intervention|surgery)|commissurotomy|valvotomy|tricuspid intervention/i.test(title)) return "valve";
   if (/right heart catheteri[sz]ation/i.test(title)) return "rhc";
+  if (/\bCABG\b|coronary (artery )?bypass/i.test(title)) return "cabg";
+  if (/pericardiocentesis/i.test(title)) return "pericardiocentesis";
   if (/pacemaker implant|ICD implant|CRT implant|device implant/i.test(title)) return "device";
   return null;
 }
