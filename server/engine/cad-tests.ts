@@ -1,8 +1,8 @@
 // The latest non-invasive coronary test and the decision it calls for (7 Oct 2026). Risk classes are the
 // guideline's own (ESC CCS 2024, Rec. Table 14; shared/ccs-tests.ts).
 import { localDay } from "../../shared/clinical.js";
-import { ccsTestRisk, CCS_TEST_KINDS } from "../../shared/ccs-tests.js";
-import { STUDY_LABEL, studySummary } from "../../shared/studies.js";
+import { ccsTestRisk, CCS_TEST_KINDS, ruleOutCapable } from "../../shared/ccs-tests.js";
+import { STUDY_LABEL, obstructiveCad, studySummary } from "../../shared/studies.js";
 import type { PatientState } from "../kernel/state.js";
 import type { RuleDef } from "./rules.js";
 
@@ -28,10 +28,15 @@ export const CAD_TEST_RULES: RuleDef[] = [
       if (s.conditions.some((x) => ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"].includes(x.code))) return [];
       const since = c.onset ? String(c.onset).slice(0, 10) : localDay(c.recorded_at);
       const t = latestCcsTest(s);
-      const tested = (t && t.at >= since) || s.studies.some((x) => x.kind === "cath" && localDay(x.performed_at) >= since);
+      const cath = [...s.studies].reverse().find((x) => x.kind === "cath" && localDay(x.performed_at) >= since);
+      const tested = (t && t.at >= since) || !!cath;
       if (tested) {
-        if (t && t.risk === "negative" && t.at >= since)
-          return [{ key: "negative", signature: t.id, severity: "yellow", title: "Suspected IHD: test negative — rule it out?", detail: `${t.why}. Resolve the working diagnosis from the header, or plan the next step.`, facts: [{ label: "Test", value: t.label, date: t.at }], missing: [], action: { type: "wizard", wizard: "ccs-test-result" } }];
+        const decided = s.pathwaysDone["ccs-test-result"] && localDay(s.pathwaysDone["ccs-test-result"]) >= (t?.at ?? since);
+        // a coronary angiogram without obstructive disease, or a negative imaging test: ask to rule it out
+        if (cath && !obstructiveCad("cath", cath.attributes ?? {}) && (!t || localDay(cath.performed_at) >= t.at))
+          return [{ key: "negative", signature: cath.id, severity: "yellow", title: "Suspected IHD: no obstructive disease on angiography — rule it out?", detail: "Resolve the working diagnosis from the header, or consider ANOCA/INOCA testing if angina persists.", facts: [{ label: "Angiography", value: "No obstructive coronary disease", date: localDay(cath.performed_at) }], missing: [], action: { type: "edit-dx", code: "cad-suspected", label: "Rule out" } }];
+        if (t && t.risk === "negative" && t.at >= since && ruleOutCapable(t.kind, s.studies.find((x) => x.id === t.id)?.attributes ?? {}) && !decided)
+          return [{ key: "negative", signature: t.id, severity: "yellow", title: "Suspected IHD: test negative — rule it out?", detail: `${t.why}. Resolve the working diagnosis from the header, or plan the next step.`, facts: [{ label: "Test", value: t.label, date: t.at }], missing: [], action: { type: "edit-dx", code: "cad-suspected", label: "Rule out" } }];
         return [];
       }
       if (s.pathwaysDone["suspected-ihd"] && localDay(s.pathwaysDone["suspected-ihd"]) >= since) return [];
@@ -62,7 +67,7 @@ export const CAD_TEST_RULES: RuleDef[] = [
       if (s.studies.some((x) => x.kind === "cath" && after(x.performed_at))) return [];
       if (s.procedures.some((p) => (p.kind === "pci" || p.kind === "cabg") && after(p.performed_at))) return [];
       if (s.pathwaysDone["ccs-test-result"] && localDay(s.pathwaysDone["ccs-test-result"]) >= t.at) return [];
-      if (s.plan.some((p) => p.status === "planned" && /coronary angiography/i.test(p.title))) return [];
+      if (s.plan.some((p) => p.status === "planned" && /^invasive coronary angiography/i.test(p.title))) return [];
       const title =
         t.risk === "high" ? `${t.label}: high-risk result — invasive angiography with a view to revascularisation`
         : t.risk === "uncertain" ? `${t.label}: uncertain result — decide the next test`

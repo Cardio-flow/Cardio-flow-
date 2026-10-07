@@ -193,7 +193,7 @@ function riskRow(s: PatientState) {
       label:
         i.key === "smoking" ? (i.text.startsWith("Ex") ? "Ex-smoker" : "Current smoker")
         : i.key === "ckd" ? i.conditions.map((c) => c.display.replace(" (with albuminuria)", "")).join(", ")
-        : i.key === "diabetes" ? i.conditions.map((c) => (c.code === "t1dm" ? "Type 1 diabetes" : "Type 2 diabetes")).join(", ")
+        : i.key === "diabetes" ? i.conditions.map((c) => (c.code === "t1dm" ? "Type 1 diabetes" : c.code === "t2dm" ? "Type 2 diabetes" : c.display)).join(", ")
         : i.key === "obesity" && h.bmi ? `Obesity · BMI ${formatNumber(h.bmi.value, 1)}`
         : i.short,
       major: i.major && !(i.key === "smoking" && i.text.startsWith("Ex")),

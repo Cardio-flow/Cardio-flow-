@@ -1252,7 +1252,7 @@ details.lane > .lane-rows { padding: 0 18px 8px; }
   .pt-allergy { display: inline-flex; align-self: flex-start; }
   .pt-allergy-inline { display: none; }
   .pt-more-toggle { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font: 600 13.5px/1.35 var(--font); color: var(--ink); }
-  .pt-more-toggle .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-more-toggle .grow { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
   .pt-more-toggle b { color: var(--navy); }
   .pt-more-toggle em { font-style: normal; color: var(--ink-3); }
   .pt-more-toggle > span:last-child { flex-shrink: 0; color: var(--action); font-weight: 700; }

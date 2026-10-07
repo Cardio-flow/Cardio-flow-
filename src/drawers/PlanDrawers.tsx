@@ -104,7 +104,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
 }
 
 export function PlanItem({ patientId, planId, onClose, onDone, open }: { patientId: string; planId: string; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void }) {
-  const { data: rec } = useData<any>(`/patients/${patientId}/record`);
+  const { data: rec, reload } = useData<any>(`/patients/${patientId}/record`);
   const [action, setAction] = useState<string>("");
   const [outcome, setOutcome] = useState("");
   const [date, setDate] = useState("");
@@ -120,7 +120,11 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
       const r = await api(`/patients/${patientId}/plan/${planId}`, { body: { action, outcome, dueDate: date || undefined, version: p.version } });
       onDone(action === "complete" ? `Completed · ${p.title}` : action === "cancel" ? "Plan item cancelled" : `Moved to ${fmtDay(date, { weekday: true })}`, r);
     } catch (e) {
-      setError((e as Error).message);
+      // changed elsewhere (another tab, a result that closed it): load the current version so Save works again
+      if ((e as any).status === 409) {
+        reload();
+        setError("This item changed since you opened it — it has been reloaded. Check it and save again.");
+      } else setError((e as Error).message);
       setBusy(false);
     }
   }

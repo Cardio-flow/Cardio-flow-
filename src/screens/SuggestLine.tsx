@@ -20,7 +20,7 @@ export function alternatives(def: MedicationDef, active: Set<string>) {
 }
 
 type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string };
-const noonIso = (day: string, today: string) => (day === today ? undefined : new Date(`${day}T12:00:00`).toISOString());
+const noonIso = (day: string, today: string) => (day === today ? undefined : new Date(`${day}T12:00:00+03:00`).toISOString());
 
 export function DateField({ label, value, onChange, today, quick, max }: { label: string; value: string; onChange(v: string): void; today: string; quick: { label: string; days: number }[]; max?: string }) {
   return (

@@ -3,13 +3,13 @@ import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, Segmented, SingleChoice, navigate, useToast, DateInput } from "../ui";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
-import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
+import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, siblingsOf, type HistoryItem } from "../../shared/history";
 import { ageOn, fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 import { civilIdBirthDate, civilIdCheckDigitOk } from "../../shared/civil-id";
 
 // One editable diagnosis: new (add) or existing (update).
-type Dx = { key: string; code: string; logicalId?: string; attributes: Record<string, any>; onset: string; onsetYear: string; dirty?: boolean; label?: string; expanded?: boolean };
+type Dx = { key: string; code: string; logicalId?: string; attributes: Record<string, any>; onset: string; onsetYear: string; dirty?: boolean; label?: string; expanded?: boolean; changeTo?: string };
 type Row = {
   answer?: string; // yes | no | unknown | not-assessed | <status option>
   initial?: string;
@@ -58,7 +58,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
 
   const payload = useMemo(() => {
     if (!rows) return null;
-    const answers: any[] = [], add: any[] = [], update: any[] = [], problems: string[] = [];
+    const answers: any[] = [], add: any[] = [], update: any[] = [], change: { logicalId: string; code: string }[] = [], problems: string[] = [];
     for (const item of HISTORY_ITEMS) {
       const r = rows[item.key];
       if (item.conditions) {
@@ -66,7 +66,8 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
           const fresh = r.dx.filter((d) => !d.logicalId);
           if (!r.dx.length) problems.push(`${item.label}: choose the diagnosis`);
           for (const d of fresh) add.push(dxBody(d));
-          for (const d of r.dx.filter((d) => d.logicalId && d.dirty)) update.push({ logicalId: d.logicalId, ...dxBody(d) });
+          for (const d of r.dx.filter((d) => d.logicalId && d.changeTo)) change.push({ logicalId: d.logicalId!, code: d.changeTo! });
+          for (const d of r.dx.filter((d) => d.logicalId && d.dirty && !d.changeTo)) update.push({ logicalId: d.logicalId, ...dxBody(d) });
         } else if (r.answer && r.answer !== r.initial) {
           if (r.initial === "yes" && r.answer !== "no") problems.push(`${item.label}: to remove a diagnosis answer "No" and say why`);
           else if (r.initial === "yes" && !r.resolveAs) problems.push(`${item.label}: resolved, or entered in error?`);
@@ -79,9 +80,9 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
         answers.push(body);
       }
     }
-    return { answers, add, update, problems };
+    return { answers, add, update, change, problems };
   }, [rows]);
-  const count = payload ? payload.answers.length + payload.add.length + payload.update.length : 0;
+  const count = payload ? payload.answers.length + payload.add.length + payload.update.length + payload.change.length : 0;
 
   async function save() {
     if (!payload) return;
@@ -89,7 +90,11 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
     setError("");
     try {
       const effectiveAt = asOf && data && asOf !== data.today ? new Date(`${asOf}T12:00:00+03:00`).toISOString() : undefined;
-      const r = await api(`/patients/${patientId}/history`, { body: { answers: payload.answers, add: payload.add, update: payload.update, effectiveAt } });
+      // a new CKD stage / diabetes type / HF phenotype replaces the old one (a dated change, not a second diagnosis)
+      for (const c of payload.change) await api(`/patients/${patientId}/conditions/${c.logicalId}/change`, { body: { code: c.code, mode: "changed" } });
+      const r = payload.answers.length + payload.add.length + payload.update.length
+        ? await api(`/patients/${patientId}/history`, { body: { answers: payload.answers, add: payload.add, update: payload.update, effectiveAt } })
+        : null;
       onDone(`History saved · ${count} change${count === 1 ? "" : "s"}`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -349,15 +354,23 @@ function oneCode(item: HistoryItem): Dx[] {
 
 function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; onChange(dx: Dx[]): void }) {
   const codes = item.conditions!.filter((c) => DIAGNOSIS[c] && !DIAGNOSIS[c].hidden);
-  const addable = codes.filter((c) => MULTIPLE_ALLOWED.has(c) || !dx.some((d) => d.code === c));
+  // one CKD stage / diabetes type: a recorded one is changed, not joined by a second
+  const addable = codes.filter((c) => MULTIPLE_ALLOWED.has(c) || !dx.some((d) => d.code === c || siblingsOf(d.code).includes(c)));
   const upd = (key: string, patch: Partial<Dx>) => onChange(dx.map((d) => (d.key === key ? { ...d, ...patch, dirty: true } : d)));
   return (
     <div className="hx-dx">
       {dx.map((d) =>
         d.logicalId && !d.expanded ? (
           <div key={d.key} className="hx-dx-line">
-            <b>{d.label}</b>
-            <span className="small muted">On the problem list</span>
+            <b>{d.changeTo ? `${DIAGNOSIS[d.code]?.display} → ${DIAGNOSIS[d.changeTo]?.display}` : d.label}</b>
+            {siblingsOf(d.code).filter((c) => codes.includes(c)).length > 0 ? (
+              <select className="input small" aria-label={`Change ${DIAGNOSIS[d.code]?.display}`} value={d.changeTo ?? ""} onChange={(e) => onChange(dx.map((x) => (x.key === d.key ? { ...x, changeTo: e.target.value || undefined } : x)))}>
+                <option value="">On the problem list</option>
+                {siblingsOf(d.code).filter((c) => codes.includes(c)).map((c) => <option key={c} value={c}>Change to {DIAGNOSIS[c].display}</option>)}
+              </select>
+            ) : (
+              <span className="small muted">On the problem list</span>
+            )}
             <button type="button" className="btn ghost small" onClick={() => onChange(dx.map((x) => (x.key === d.key ? { ...x, expanded: true } : x)))}>
               Edit detail
             </button>

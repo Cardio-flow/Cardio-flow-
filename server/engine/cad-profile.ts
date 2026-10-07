@@ -20,7 +20,7 @@ export function cadEvents(s: PatientState): CadEvent[] {
   const ev: CadEvent[] = [];
   for (const c of s.contexts.filter((c) => c.kind === "admission")) {
     const r = c.reasons.find((x) => ACS_REASON.test(x));
-    if (r) ev.push({ at: c.started_at, kind: "acs", title: `${r} admission`, detail: c.ended_at ? `discharged ${c.ended_at.slice(0, 10)}` : "in hospital", acs: true, dateKnown: true });
+    if (r) ev.push({ at: c.started_at, kind: "acs", title: `${r} admission`, detail: c.ended_at ? `discharged ${localDay(c.ended_at)}` : "in hospital", acs: true, dateKnown: true });
   }
   for (const c of s.conditions.filter((c) => ["acs-stemi", "acs-nstemi", "prior-mi"].includes(c.code))) {
     const year = c.attributes?.onsetYear;

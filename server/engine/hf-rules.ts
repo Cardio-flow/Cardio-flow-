@@ -13,7 +13,7 @@
 //
 // Ahmed (2 Oct 2026): shown under Needs attention (orange), not as a quiet card.
 import { MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
-import { addDays, daysBetween, fmtDay } from "../../shared/clinical.js";
+import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import { activeBarrier, latestStudy, type PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
@@ -153,7 +153,7 @@ export function optimalFmt(s: PatientState) {
     .sort();
   const complete = gaps.length === 0 && starts.length > 0;
   const since = complete ? starts[starts.length - 1] : null;
-  return { complete, since, gaps, reassessFrom: since ? addDays(since.slice(0, 10), 90) : null };
+  return { complete, since, gaps, reassessFrom: since ? addDays(localDay(since), 90) : null };
 }
 
 const ISCHAEMIC = (s: PatientState) => {
@@ -228,7 +228,7 @@ HF_RULES.push(
       }
 
       // 3. ≥3 months of optimal therapy, but the LVEF predates it: repeat the Echo now
-      if (ef.effective_at.slice(0, 10) < opt.reassessFrom!)
+      if (localDay(ef.effective_at) < opt.reassessFrom!)
         return [{
           key: "device", signature: `repeat${dev}:${ef.id}:${opt.since}`, severity: "blue",
           title: `≥3 months of optimal therapy since ${fmtDay(opt.since!, { year: true })}: repeat Echo to decide on ICD/CRT`,

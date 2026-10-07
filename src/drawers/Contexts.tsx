@@ -4,7 +4,7 @@ import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
-import { addDays, daysBetween, fmtDay } from "../../shared/clinical";
+import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
 import type { Open } from "../screens/Patient";
@@ -128,7 +128,16 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [events, setEvents] = useState<string[]>([]);
   const [cause, setCause] = useState<string>("");
   const [weight, setWeight] = useState<string>("");
-  const [picked, setPicked] = useState<Record<string, number | null>>(() => (hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 }));
+  // an item already booked (open in the plan) is not preselected again — it would be a duplicate task
+  const booked = (title: string) => (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
+  const [picked, setPicked] = useState<Record<string, number | null>>(() => {
+    const base: Record<string, number | null> = hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 };
+    for (const id of Object.keys(base)) {
+      const t = PLAN_TEMPLATES.find((x) => x.id === id);
+      if (t && booked(t.title)) base[id] = null;
+    }
+    return base;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const today = summary.today;
@@ -243,6 +252,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
             return (
               <div key={t.id} className="row wrap" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 8 }}>
                 <button type="button" className="choice" aria-pressed={on} onClick={() => setPicked({ ...picked, [t.id]: on ? null : t.offsets[0] })}>{t.title}</button>
+                {!on && booked(t.title) && <span className="help">Already booked{booked(t.title).dueDate ? ` · ${fmtDay(booked(t.title).dueDate, { weekday: true })}` : ""}</span>}
                 {on && (
                   <Segmented
                     label={`${t.title} date`}
@@ -265,10 +275,12 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
 
 const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Prosthetic valve problem", "Arrhythmia", "Device", "ICD shock", "Pre-operative assessment", "Chest pain", "Bleeding", "Chest infection", "Myocarditis", "Pericarditis", "Routine cardiology"];
 
-export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void }) {
+export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
   const [step, setStep] = useState(contextId ? 1 : 0);
-  const [reasons, setReasons] = useState<string[]>(summary.header.where.startsWith("Post-discharge") ? ["Heart failure", "Post-discharge"] : []);
+  // resuming an open visit keeps the reasons chosen when it was started
+  const resumed = contextId && summary.header.openContext?.id === contextId ? summary.header.openContext : null;
+  const [reasons, setReasons] = useState<string[]>(resumed?.reasons?.length ? resumed.reasons : summary.header.where.startsWith("Post-discharge") ? ["Heart failure", "Post-discharge"] : []);
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [vit, setVit] = useState<Record<string, string>>({});
   const [nyha, setNyha] = useState<string>("");
@@ -282,6 +294,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [live, setLive] = useState<any>(summary);
   const savedRef = useRef<Record<string, string>>({});
   const [already, setAlready] = useState<string[]>([]);
+  const [prefilled, setPrefilled] = useState(false);
   // values already recorded today (an earlier part of this visit, quick labs, a reading at the desk): shown
   // filled in and marked, and not recorded again unless changed
   useEffect(() => {
@@ -301,10 +314,11 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       if (t.nyha?.text) savedRef.current.nyha = JSON.stringify({ code: "nyha", text: t.nyha.text });
       if (t.congestion?.text) savedRef.current.congestion = JSON.stringify({ code: "congestion", text: t.congestion.text });
       setAlready(Object.keys(t));
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setPrefilled(true));
   }, [patientId]);
   useEffect(() => {
-    if (step === 3 && visitId) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => setNote(n.text));
+    // the draft note is fetched once; going Back and returning keeps the clinician's edits
+    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => setNote((x) => x || n.text)).catch((e) => setError((e as Error).message));
     if (step === 2) api(`/patients/${patientId}/summary`).then(setLive);
   }, [step, visitId, patientId]);
   const previous = summary.plan;
@@ -314,12 +328,14 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       const r = await api(`/patients/${patientId}/visits`, { body: { reasons, symptoms, service: reasons.includes("Heart failure") ? "HF clinic" : "Cardiology clinic" } });
       setVisitId(r.id);
       setStep(1);
+      onStarted?.();
     } catch (e) {
       setError((e as Error).message);
     }
     setBusy(false);
   }
   async function saveAssessment() {
+    if (busy) return;
     setBusy(true);
     try {
       const items = [
@@ -371,7 +387,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           {step > 1 && <button className="btn secondary" onClick={() => setStep(step - 1)}>Back</button>}
           <span className="end">
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
-            {step === 1 && <button className="btn primary" disabled={busy} onClick={saveAssessment}>Save and continue</button>}
+            {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" onClick={() => setStep(3)}>Continue to note</button>}
             {step === 3 && <button className="btn primary" disabled={busy} onClick={finish}>Finish visit</button>}
           </span>
@@ -483,7 +499,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 return (
                   <div className="visit-meds">
                     {meds.map((m: any) => {
-                      const today = String(m.startedAt ?? "").slice(0, 10) === live.today;
+                      const today = !!m.startedAt && localDay(String(m.startedAt)) === live.today;
                       return (
                         <span key={m.id} className={`visit-med ${today ? "new" : ""}`}>
                           <b>{m.name}</b> {m.dose} {m.frequency}

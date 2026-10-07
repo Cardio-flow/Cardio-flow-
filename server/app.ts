@@ -204,8 +204,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/move-to-sample", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    await db.transaction((tx) => K.moveToSample(tx, actor(res), id));
-    res.json({ ok: true });
+    // the rule set depends on sample/real: every rule runs again
+    await write(res, id, async (tx, a) => (await K.moveToSample(tx, a, id), {}));
   }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -485,7 +485,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     reason: z.string().max(300).optional(),
     effectiveAt: isoDateTime.optional(),
     contextId: uuidS.nullish(),
-    monitoring: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
+    monitoring: z.object({ dueDate: isoDate.refine((d) => d >= today(), "A monitoring check cannot be dated in the past"), title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
     bookSchedule: z.boolean().optional(),
     // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
     override: z.string().trim().min(3).max(300).optional(),
@@ -533,7 +533,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         frequency: z.string().max(60).nullish(),
         reason: z.string().max(300).optional(),
         contextId: uuidS.nullish(),
-        review: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).optional() }).nullish(),
+        review: z.object({ dueDate: isoDate.refine((d) => d >= today(), "A review cannot be dated in the past"), title: z.string().max(120), codes: z.array(z.string()).optional() }).nullish(),
         effectiveAt: isoDateTime.optional(),
       })
       .parse(req.body);
@@ -804,7 +804,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         let cls: string | null = null, drug: string | null = null;
         if (act?.type === "start-med") (cls = drugClassOf(act.code)), (drug = act.code);
         if (act?.type === "titrate") {
-          const m = (await tx.query(`SELECT drug FROM cf.medication WHERE id=$1 AND patient_id=$2`, [act.medicationId, id])).rows[0] as any;
+          const m = (await tx.query(`SELECT drug FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${K.LIVE_MED}`, [act.medicationId, id])).rows[0] as any;
           if (m) (cls = "up:" + drugClassOf(m.drug)), (drug = m.drug);
         }
         if (!cls) throw new ApiError(400, "A reason category applies to medicine suggestions only");

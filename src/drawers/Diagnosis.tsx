@@ -46,7 +46,10 @@ export function EditDiagnosis({ patientId, dx, onClose, onDone }: { patientId: s
     }
   }
   const yearBad = !!year && (!/^\d{4}$/.test(year) || Number(year) < 1900 || Number(year) > Number(today.slice(0, 4)));
-  const ok = what === "details" ? !yearBad : what === "change" ? !!to : !!status;
+  // Save stays off until something actually changed (no empty "details saved" versions)
+  const initialAttrs = JSON.stringify(Object.fromEntries(Object.entries(dx.attributes ?? {}).filter(([k]) => k !== "onsetYear")));
+  const dirty = JSON.stringify(attrs) !== initialAttrs || onset !== (dx.onset ? String(dx.onset).slice(0, 10) : "") || year !== (dx.attributes?.onsetYear ? String(dx.attributes.onsetYear) : "");
+  const ok = what === "details" ? !yearBad && dirty : what === "change" ? !!to : !!status;
   return (
     <Drawer
       title={`Edit ${DIAGNOSIS[dx.code]?.display ?? dx.label}`}

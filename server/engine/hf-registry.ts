@@ -5,7 +5,7 @@
 // written to the registry from here. Labs are the latest value (the registry's "Adm" fields are
 // admission values: shown with their date so the registry user can judge).
 import { formatNumber } from "../../shared/catalog.js";
-import { fmtDay } from "../../shared/clinical.js";
+import { fmtDay, localDay } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { fmtStatus, hfImprovedEf, hfPhenotype, patientBmi } from "./guidelines.js";
@@ -78,10 +78,10 @@ export const HF_REGISTRY: Section[] = [
         return v.length ? { value: v.join(", ") } : null;
       } },
       { key: "Admissions", label: "HF admissions in the last year", get: (s) => ({ value: String(s.contexts.filter((c) => c.kind === "admission" && isHfAdmission(c as any) && Date.parse(c.started_at) >= Date.parse(s.today) - 365 * 86400000).length) }) },
-      { key: "Last_Admission", label: "Last admission date", get: (s) => { const a = lastAdmission(s); return a ? { value: a.started_at.slice(0, 10) } : null; } },
+      { key: "Last_Admission", label: "Last admission date", get: (s) => { const a = lastAdmission(s); return a ? { value: localDay(a.started_at) } : null; } },
       { key: "LOS", label: "Length of stay (days)", get: (s) => { const los = (lastAdmission(s)?.summary as any)?.los; return los != null ? { value: String(los) } : null; } },
-      { key: "Admission_Date", label: "Admission date", get: (s) => { const a = lastAdmission(s); return a ? { value: a.started_at.slice(0, 10) } : null; } },
-      { key: "Admission_Discharge_Date", label: "Discharge date", get: (s) => { const a = lastAdmission(s); return a?.ended_at ? { value: a.ended_at.slice(0, 10) } : null; } },
+      { key: "Admission_Date", label: "Admission date", get: (s) => { const a = lastAdmission(s); return a ? { value: localDay(a.started_at) } : null; } },
+      { key: "Admission_Discharge_Date", label: "Discharge date", get: (s) => { const a = lastAdmission(s); return a?.ended_at ? { value: localDay(a.ended_at) } : null; } },
       { key: "Admission_Reason", label: "Admission reason", get: (s) => { const a = lastAdmission(s); return a?.reasons.length ? { value: a.reasons.join(", ") } : null; } },
     ],
   },

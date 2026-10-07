@@ -50,7 +50,7 @@ export type Open =
   | { kind: "checklist"; check?: CheckKind }
   | { kind: "med-correct"; med: any }
   | { kind: "med-batch" }
-  | { kind: "dx-edit"; dx: any }
+  | { kind: "dx-edit"; dx?: any; code?: string }
   | { kind: "result-correct"; result: any }
   | { kind: "void"; what: string; path: string };
 
@@ -213,7 +213,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "plan" && <PlanTab id={id} version={version} open={setOpen} />}
       {tab === "registries" && <RegistriesTab id={id} version={version} />}
 
-      {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} onClose={close} onDone={done} />}
+      {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "wizard" && (
         <WizardDrawer
           key={`${open.wizard}:${open.carried?.length ?? 0}`} patientId={id} patientName={h.name} wizard={open.wizard} recommendationId={open.resume?.recommendationId ?? open.recommendationId} contextId={ctx?.id}
@@ -234,16 +234,18 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "study" && <AddStudy patientId={id} kind={open.studyKind} initial={open.initial} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
-      {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} />}
+      {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} onStarted={reload} />}
       {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} onAfter={(w) => setOpen({ kind: "wizard", wizard: w })} />}
-      {open?.kind === "dx" && <AddDiagnosis patientId={id} onClose={close} onDone={done} />}
+      {open?.kind === "dx" && <AddDiagnosis patientId={id} existing={h.diagnoses.map((d: any) => d.code)} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
       {open?.kind === "pathways" && <Pathways summary={s} onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} onChecklist={(c) => setOpen({ kind: "checklist", check: c })} />}
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
-      {open?.kind === "dx-edit" && <EditDiagnosis patientId={id} dx={open.dx} onClose={close} onDone={done} />}
+      {open?.kind === "dx-edit" && (open.dx ?? h.diagnoses.find((d: any) => d.code === open.code)) && (
+        <EditDiagnosis patientId={id} dx={open.dx ?? h.diagnoses.find((d: any) => d.code === open.code)} onClose={close} onDone={done} />
+      )}
       {open?.kind === "med-batch" && <AddMedications patientId={id} summary={s} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "med-correct" && <CorrectMedication patientId={id} med={open.med} today={s.today} onClose={close} onDone={done} />}
       {open?.kind === "result-correct" && <CorrectResult patientId={id} result={open.result} onClose={close} onDone={done} />}

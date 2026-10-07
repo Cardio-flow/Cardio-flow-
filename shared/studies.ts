@@ -100,6 +100,8 @@ export const STUDIES: StudyDef[] = [
       { key: "cac", label: "Calcium score (Agatston)", type: "number", unit: "", min: 0, max: 10000, obs: "cac" },
       { key: "cadrads", label: "CAD-RADS", type: "choice", options: ["0", "1", "2", "3", "4A", "4B", "5", "N (non-diagnostic)", "Calcium score only"] },
       { key: "vessels", label: "Vessels with ≥50% stenosis", type: "multi", options: ["Left main", "LAD", "LCx", "RCA"], when: { field: "cadrads", in: ["3", "4A", "4B", "5"] } },
+      // ESC 2024 CCS Table 14: two-vessel ≥70% disease including the proximal LAD is high event risk
+      { key: "twoVesselProxLad", label: "Two-vessel ≥70% including the proximal LAD", type: "choice", options: ["No", "Yes"], when: { field: "cadrads", in: ["4A", "5"] } },
       { key: "highRiskPlaque", label: "High-risk plaque features", type: "choice", options: ["No", "Yes"], when: { field: "cadrads", notIn: ["Calcium score only"] } },
     ],
   },

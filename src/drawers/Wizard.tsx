@@ -76,7 +76,10 @@ export function WizardDrawer({
       opened.current = null;
     }, (e) => setError(e.message));
   }, [patientId, wizard, def]);
-  // keep a draft so an accidental close loses nothing
+  // keep a draft so an accidental close loses nothing; confirming stops further drafts and waits for one in
+  // flight, so a late draft save can never resurrect a pathway that was just completed
+  const confirming = useRef(false);
+  const draftReq = useRef<Promise<unknown> | null>(null);
   useEffect(() => {
     if (!loaded.current) return;
     // opening a pathway is not an edit: no draft until the clinician changes something, so the next open
@@ -86,7 +89,11 @@ export function WizardDrawer({
     if (opened.current === key) return;
     setDirty(true);
     setSaved(false);
-    const t = setTimeout(() => api(`/patients/${patientId}/wizards/${wizard}/draft`, { method: "PUT", body: { answers, step, recommendationId: recommendationId ?? null } }).then(() => setSaved(true)).catch(() => {}), 500);
+    if (confirming.current) return;
+    const t = setTimeout(() => {
+      if (confirming.current) return;
+      draftReq.current = api(`/patients/${patientId}/wizards/${wizard}/draft`, { method: "PUT", body: { answers, step, recommendationId: recommendationId ?? null } }).then(() => setSaved(true)).catch(() => {});
+    }, 500);
     return () => clearTimeout(t);
   }, [answers, step, patientId, wizard, recommendationId]);
   const isReview = step === def.steps.length;
@@ -137,8 +144,11 @@ export function WizardDrawer({
     outcome: outcome.map((o) => o.label || (o as any).title), assessment: assessment ? { heading: assessment.heading, recommendations: assessment.recommendations } : null,
   });
   async function confirm() {
+    if (busy) return;
     setBusy(true);
     setError("");
+    confirming.current = true;
+    await draftReq.current;
     try {
       if (carried.length) {
         const parts = [...carried, thisPart()].map((p) => ({ wizard: p.wizard, answers: p.answers, recommendationId: p.recommendationId ?? null, dueDates: p.dueDates, overrides: p.overrides }));
@@ -152,6 +162,7 @@ export function WizardDrawer({
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
+      confirming.current = false;
     }
   }
   async function decline() {

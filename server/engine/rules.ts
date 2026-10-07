@@ -40,7 +40,8 @@ export type Finding = {
     | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
     | { type: "add-labs"; codes: string[]; label: string }
     | { type: "med-action"; medicationId: string; action?: "stop" | "hold" | "decrease" | "resume"; label: string }
-    | { type: "history"; focus: "risk" | "cardiac"; label: string };
+    | { type: "history"; focus: "risk" | "cardiac"; label: string }
+    | { type: "edit-dx"; code: string; label: string };
   // guideline provenance shown in "Why?"
   source?: string;
 };

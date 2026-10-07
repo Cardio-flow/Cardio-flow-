@@ -39,7 +39,7 @@ type Trigger = { at: string; label: string; ref: string };
 
 // handled: an episode of this pathway is open, or one was opened after the event
 const handled = (s: PatientState, wizard: string, at: string) =>
-  s.episodes.some((e) => e.wizard === wizard && (e.status === "open" || e.started_at >= at.slice(0, 10)));
+  s.episodes.some((e) => e.wizard === wizard && (e.status === "open" || localDay(e.started_at) >= localDay(at)));
 
 // the event: an open admission/visit, or the latest one, with a matching reason; or a current
 // medicine started for the matching indication

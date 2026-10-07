@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { UserPlus, Stethoscope, Search } from "lucide-react";
 import { api } from "../api";
-import { Drawer, Segmented, DateInput } from "../ui";
+import { Drawer, Segmented, DateInput, useToast } from "../ui";
+import { ONE_OF } from "../../shared/history";
 import { DIAGNOSES, DIAGNOSIS } from "../../shared/catalog";
 import { BirthFields, IdentityFields } from "./History";
 import { civilIdBirthDate } from "../../shared/civil-id";
@@ -21,10 +22,9 @@ export const RISK_GROUPS: { title: string; codes: string[] }[] = [
   { title: "Obesity", codes: ["obesity"] },
   { title: "Kidney", codes: ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5", "dialysis"] },
 ];
-const ONE_OF = [["hfref", "hfmref", "hfpef", "hfimpef"], ["t2dm", "t1dm", "dm-other", "prediabetes"], ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5"]];
 const SHORT: Record<string, string> = { "ckd-1-2": "1–2 (albuminuria)", "ckd-3a": "3a", "ckd-3b": "3b", "ckd-4": "4", "ckd-5": "5", "dm-other": "Other type (LADA, MODY, secondary)", t2dm: "Type 2", t1dm: "Type 1" };
 
-export function DiagnosisPicker({ value, onChange, risk = false }: { value: string[]; onChange(v: string[]): void; risk?: boolean }) {
+export function DiagnosisPicker({ value, onChange, risk = false, existing = [] }: { value: string[]; onChange(v: string[]): void; risk?: boolean; existing?: string[] }) {
   const [q, setQ] = useState("");
   const visible = useMemo(() => DIAGNOSES.filter((d) => !d.hidden), []);
   const cardiacFamilies = useMemo(() => [...new Set(visible.filter((d) => d.family !== "Comorbidity").map((d) => d.family))], [visible]);
@@ -58,8 +58,9 @@ export function DiagnosisPicker({ value, onChange, risk = false }: { value: stri
         </div>
         <div className="dx-chips">
           {codes.map((c) => (
-            <button key={c} type="button" className="dx-pick" aria-pressed={value.includes(c)} onClick={() => toggle(c)}>
+            <button key={c} type="button" className="dx-pick" aria-pressed={value.includes(c)} disabled={existing.includes(c)} title={existing.includes(c) ? "Already on the problem list" : undefined} onClick={() => toggle(c)}>
               {g.title === "Kidney" && c.startsWith("ckd") ? `CKD ${SHORT[c]}` : g.title === "Diabetes" && SHORT[c] ? SHORT[c] : DIAGNOSIS[c].display}
+              {existing.includes(c) && " · recorded"}
             </button>
           ))}
         </div>
@@ -111,14 +112,20 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
   const [fhx, setFhx] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const toast = useToast();
   const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate && (!f.civilId || (/^\d{12}$/.test(f.civilId) && !!civilIdBirthDate(f.civilId)));
   async function save() {
+    if (busy) return;
     setBusy(true);
     try {
       const r = await api("/patients", { body: { ...f, conditions: [...dx, ...rf], sample: test } });
       // smoking and family history are history answers, not diagnoses
       const answers = [smoking && { item: "smoking", answer: smoking }, fhx && { item: "fhx-cad", answer: fhx }].filter(Boolean);
-      if (answers.length) await api(`/patients/${r.id}/history`, { body: { answers } }).catch(() => {});
+      if (answers.length) {
+        // the patient exists already: never ask to save again (a second save would clash on the MRN) — say what is missing
+        const ok = await api(`/patients/${r.id}/history`, { body: { answers } }).then(() => true, () => false);
+        if (!ok) toast({ text: "Patient saved, but smoking / family history did not save — add them under History" });
+      }
       onCreated(r.id);
     } catch (e) {
       setError((e as Error).message);
@@ -202,11 +209,12 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
   );
 }
 
-export function AddDiagnosis({ patientId, onClose, onDone }: { patientId: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function AddDiagnosis({ patientId, existing = [], onClose, onDone }: { patientId: string; existing?: string[]; onClose(): void; onDone(m?: string, r?: any): void }) {
   const [dx, setDx] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function save() {
+    if (busy) return;
     setBusy(true);
     try {
       const r = await api(`/patients/${patientId}/conditions`, { body: { codes: dx } });
@@ -230,7 +238,7 @@ export function AddDiagnosis({ patientId, onClose, onDone }: { patientId: string
       }
     >
       <div className="drawer-body">
-        <DiagnosisPicker value={dx} onChange={setDx} />
+        <DiagnosisPicker value={dx} onChange={setDx} existing={existing} />
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>

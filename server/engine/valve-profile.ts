@@ -55,7 +55,7 @@ export function valveProfile(s: PatientState) {
       echo: echoGrade ? { grade: echoGrade, at: echo!.at } : null,
       since: c?.onset ?? null,
       detail: c?.attributes?.aetiology ?? null,
-      treated: pros ? (proc ? `${proc.summary} · ${proc.performed_at.slice(0, 10)}` : `${pros.attributes?.type ?? "prosthesis"} in the ${pos.toLowerCase()} position`) : null,
+      treated: pros ? (proc ? `${proc.summary} · ${localDay(proc.performed_at)}` : `${pros.attributes?.type ?? "prosthesis"} in the ${pos.toLowerCase()} position`) : null,
     }];
   });
 

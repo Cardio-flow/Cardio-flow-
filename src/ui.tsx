@@ -250,7 +250,8 @@ export function DateInput({
   const [text, setText] = useState(toShown(value));
   const native = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (parseShown(text) !== value) setText(toShown(value));
+    // a half-typed or invalid date is reported as "" — keep the text so the clinician can finish it
+    if (parseShown(text) !== value && !(value === "" && !parseShown(text))) setText(toShown(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
   const iso = parseShown(text);
@@ -263,8 +264,8 @@ export function DateInput({
     t = t.slice(0, 10);
     setText(t);
     const p = parseShown(t);
-    if (!t) onChange({ target: { value: "" } });
-    else if (p && !((min && p < min) || (max && p > max))) onChange({ target: { value: p } });
+    // anything not a complete, allowed date clears the value, so a stale earlier date is never saved
+    onChange({ target: { value: p && !((min && p < min) || (max && p > max)) ? p : "" } });
   }
   return (
     <span className={`date-in ${bad ? "bad" : ""}`} style={style}>

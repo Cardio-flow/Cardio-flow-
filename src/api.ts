@@ -35,6 +35,13 @@ export function useData<T>(path: string | null, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  // a different path (another patient) must never show the previous one's data while loading
+  const [shownFor, setShownFor] = useState(path);
+  if (shownFor !== path) {
+    setShownFor(path);
+    setData(null);
+    setError(null);
+  }
   useEffect(() => {
     if (!path) return;
     let live = true;

@@ -78,6 +78,7 @@ export async function moveToSample(tx: Q, actor: Actor, patientId: string) {
 // keeps the previous values.
 // A Kuwaiti civil ID carries the date of birth: the two must agree (real patients).
 function birthMatchesCivilId(civilId: string | null | undefined, birthDate: string) {
+  if (civilId && !civilIdBirthDate(civilId)) throw new ApiError(400, "This civil ID has no valid birth date in it: check the number");
   const fromId = civilIdBirthDate(civilId);
   if (fromId && fromId !== birthDate) throw new ApiError(400, `The date of birth does not match the civil ID (it gives ${fromId})`);
 }
@@ -102,7 +103,7 @@ export async function updateIdentity(tx: Q, actor: Actor, patientId: string, inp
   if (estimated && civilIdBirthDate(civilNow)) (birth = civilIdBirthDate(civilNow)!), (estimated = false);
   const reg = { name: input.name?.trim() || before.name, mrn, sex: input.sex ?? before.sex, birth_date: birth };
   const regChanged = (Object.keys(reg) as (keyof typeof reg)[]).filter((k) => beforeReg[k] !== reg[k]);
-  if (!before.synthetic) birthMatchesCivilId(civilNow, reg.birth_date);
+  if (!before.synthetic && (input.civilId !== undefined || input.birthDate !== undefined || input.birthDateEstimated !== undefined)) birthMatchesCivilId(civilNow, reg.birth_date);
   if (regChanged.length || estimated !== !!(before as any).birth_date_estimated)
     await tx.query(`UPDATE cf.patient SET name=$2, mrn=$3, sex=$4, birth_date=$5, birth_date_estimated=$6 WHERE id=$1`, [patientId, reg.name, reg.mrn, reg.sex, reg.birth_date, estimated]);
   const next = {
@@ -166,7 +167,7 @@ async function latestCondition(tx: Q, patientId: string, logicalId: string) {
   if (!cur) throw new ApiError(404, "Diagnosis not found");
   return cur;
 }
-async function newConditionVersion(tx: Q, actor: Actor, cur: any, change: { status?: string; onset?: string | null; attributes?: Record<string, unknown> }) {
+export async function newConditionVersion(tx: Q, actor: Actor, cur: any, change: { status?: string; onset?: string | null; attributes?: Record<string, unknown> }) {
   await tx.query(
     `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by,attributes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [
@@ -178,6 +179,13 @@ async function newConditionVersion(tx: Q, actor: Actor, cur: any, change: { stat
 
 export async function setConditionStatus(tx: Q, actor: Actor, patientId: string, logicalId: string, status: "resolved" | "entered_in_error" | "active") {
   const cur = await latestCondition(tx, patientId, logicalId);
+  if (status === "active" && cur.status !== "active" && !MULTIPLE_ALLOWED.has(cur.code)) {
+    const dup = (await tx.query(
+      `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) logical_id,code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active' AND logical_id<>$3`,
+      [patientId, cur.code, logicalId],
+    )).rows[0];
+    if (dup) throw new ApiError(409, `${cur.display} is already active`);
+  }
   await newConditionVersion(tx, actor, cur, { status });
   if (status === "resolved")
     await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "condition-resolved", category: "complication", title: `Resolved · ${cur.display}` });
@@ -194,6 +202,13 @@ export async function changeCondition(tx: Q, actor: Actor, patientId: string, lo
   if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be changed");
   if (!DIAGNOSIS[input.code]) throw new ApiError(400, "Unknown diagnosis");
   if (input.code === cur.code) throw new ApiError(400, "Choose a different diagnosis");
+  if (!MULTIPLE_ALLOWED.has(input.code)) {
+    const dup = (await tx.query(
+      `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active'`,
+      [patientId, input.code],
+    )).rows[0];
+    if (dup) throw new ApiError(409, `${DIAGNOSIS[input.code].display} is already on the list: resolve or remove ${cur.display} instead`);
+  }
   await setConditionStatus(tx, actor, patientId, logicalId, input.mode === "changed" ? "resolved" : "entered_in_error");
   const prevAttrs = (typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes) ?? {};
   const keys = new Set((DIAGNOSIS_ATTRIBUTES[input.code] ?? []).map((f) => f.key));
@@ -387,6 +402,16 @@ export async function correctObservation(tx: Q, actor: Actor, patientId: string,
     [uuid(), Number(latest) + 1, input.value ?? cur.value_num, input.enteredInError ? "entered_in_error" : cur.status, actor.id, observationId],
   );
   await audit(tx, actor, input.enteredInError ? "entered-in-error" : "correct", "observation", observationId, patientId);
+  // a withdrawn result no longer counts for the plan item it completed
+  let reopened = 0;
+  if (input.enteredInError) {
+    const r = await tx.query(
+      `UPDATE cf.plan_action SET status='planned', completed_at=NULL, completed_by_ref=NULL, outcome='', updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND status='completed' AND completed_by_ref IN (SELECT id::text FROM cf.observation WHERE logical_id=$2) RETURNING id`,
+      [patientId, cur.logical_id],
+    );
+    reopened = r.rows.length;
+  }
   // the eGFR calculated from a corrected creatinine follows it (recalculated, or withdrawn with it)
   if (cur.code === "creatinine") {
     const derived = (await tx.query(
@@ -403,12 +428,14 @@ export async function correctObservation(tx: Q, actor: Actor, patientId: string,
         [uuid(), egfr, input.enteredInError ? "entered_in_error" : d.status, actor.id, d.id],
       );
     }
-    return ["creatinine", "egfr"] as Changed;
+    return (reopened ? ["creatinine", "egfr", "plan"] : ["creatinine", "egfr"]) as Changed;
   }
-  return [cur.code] as Changed;
+  return (reopened ? [cur.code, "plan"] : [cur.code]) as Changed;
 }
 
 export async function preferValue(tx: Q, actor: Actor, patientId: string, code: string, observationId: string | null, reason: string) {
+  if (observationId && !(await tx.query(`SELECT 1 FROM cf.observation WHERE id=$1 AND patient_id=$2 AND code=$3`, [observationId, patientId, code])).rows[0])
+    throw new ApiError(400, "That result is not this patient's " + code);
   await tx.query(`UPDATE cf.value_preference SET active=false WHERE patient_id=$1 AND code=$2 AND active`, [patientId, code]);
   if (observationId)
     await tx.query(`INSERT INTO cf.value_preference(id,patient_id,code,observation_id,reason,chosen_by) VALUES($1,$2,$3,$4,$5,$6)`, [
@@ -523,7 +550,7 @@ export async function recordStudy(
     patientId, occurredAt: input.date, kind: input.kind, category: "investigation",
     title: `${def.short} · ${summary || "recorded"}`.slice(0, 200), detail: input.conclusion ?? "", refType: "study", refId: id, contextId: input.contextId,
   });
-  const completed = await completeMatching(tx, actor, patientId, { type: "study", kind: input.kind, at: input.date, ref: id });
+  const completed = await completeMatching(tx, actor, patientId, { type: "study", kind: input.kind, at: input.date, ref: id, detail: attributes });
   if (completed.length) changed.push("plan");
   await audit(tx, actor, "record", "study", id, patientId, { kind: input.kind });
   return { id, changed: [...new Set(changed)], completed };
@@ -788,6 +815,12 @@ export type PlanInput = {
 };
 
 export async function addPlanAction(tx: Q, actor: Actor, patientId: string, input: PlanInput) {
+  // the same item already planned for the same day is not planned twice (two drawers, two medicines, re-save)
+  const same = (await tx.query(
+    `SELECT id FROM cf.plan_action WHERE patient_id=$1 AND status='planned' AND lower(title)=lower($2) AND due_date IS NOT DISTINCT FROM $3::date LIMIT 1`,
+    [patientId, input.title, input.dueDate ?? null],
+  )).rows[0] as { id: string } | undefined;
+  if (same) return { id: same.id, changed: [] as Changed };
   const id = uuid();
   await tx.query(
     `INSERT INTO cf.plan_action(id,patient_id,category,title,reason,due_date,completes_on,status,source_context_id,decision_id,medication_id,created_by,created_at)
@@ -828,7 +861,7 @@ export async function completeMatching(
   tx: Q,
   actor: Actor,
   patientId: string,
-  trigger: { type: "lab"; codes: string[]; at: string; ref: string } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string },
+  trigger: { type: "lab"; codes: string[]; at: string; ref: string } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string; detail?: Record<string, any> },
 ) {
   const open = (
     await tx.query(`SELECT id,title,due_date,completes_on,created_at FROM cf.plan_action WHERE patient_id=$1 AND status='planned'`, [patientId])
@@ -838,6 +871,7 @@ export async function completeMatching(
   // one result closes the earliest waiting action of each kind (a visit closes all that are due)
   open.sort((x, y) => String(x.due_date ?? "9999").localeCompare(String(y.due_date ?? "9999")));
   const used = new Set<string>();
+  const usedDue = new Map<string, string>();
   for (const a of open) {
     const c = a.completes_on ?? {};
     if (c.type !== trigger.type) continue;
@@ -847,11 +881,20 @@ export async function completeMatching(
     const windowDays = trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
     if (a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
     if (trigger.type === "lab" && !(c.codes ?? []).every((code: string) => trigger.codes.includes(code))) continue;
-    // a stress MIBI is a stress test: it completes a planned "stress test"
-    if (trigger.type === "study" && c.kind !== trigger.kind && !(c.kind === "stress" && trigger.kind === "nuclear")) continue;
+    // a stress MIBI is a stress test: it completes a planned "stress test", but not an exercise echo (LVOT
+    // gradient) nor, when pharmacological, an exercise test; an exercise ECG does not complete stress imaging
+    if (trigger.type === "study") {
+      const d = trigger.detail ?? {};
+      const mibiForStress = c.kind === "stress" && trigger.kind === "nuclear" && !/echo|LVOT/i.test(a.title) && !(/exercise/i.test(a.title) && d.stressor !== "Exercise");
+      if (c.kind !== trigger.kind && !mibiForStress) continue;
+      if (c.kind === "stress" && trigger.kind === "stress" && /imaging/i.test(a.title) && d.modality === "Exercise ECG") continue;
+    }
     const signature = JSON.stringify(c);
-    if (trigger.type !== "visit" && used.has(signature)) continue;
+    // one result closes the earliest waiting item of each kind; identical items due the same day close together
+    const due = a.due_date ? String(a.due_date).slice(0, 10) : "";
+    if (trigger.type !== "visit" && used.has(signature) && usedDue.get(signature) !== due) continue;
     used.add(signature);
+    if (!usedDue.has(signature)) usedDue.set(signature, due);
     await tx.query(`UPDATE cf.plan_action SET status='completed', completed_at=$2, completed_by_ref=$3, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1`, [
       a.id, trigger.at, trigger.ref, "Completed automatically when the result was recorded",
     ]);

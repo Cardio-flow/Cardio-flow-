@@ -29,7 +29,8 @@ const recent = (s: PatientState, code: string, days: number) => {
   return c && daysBetween(c.effective_at, s.today) <= days ? c : null;
 };
 const val = (s: PatientState, code: string, days = 3650) => recent(s, code, days)?.value_num ?? null;
-const live = (s: PatientState) => s.meds.filter((m) => m.status === "active");
+// a held medicine is still the patient's therapy (held for a procedure or bleeding): it counts as present
+const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
 const onTag = (s: PatientState, tag: string) => live(s).filter((m) => m.tags.includes(tag));
 const has = (s: PatientState, ...codes: string[]) => s.conditions.some((c) => codes.includes(c.code));
 const fact = (s: PatientState, code: string, days = 3650): Fact | null => {
@@ -513,6 +514,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "2024 ESC AF guidelines: OAC recommended with CHA2DS2-VA ≥2 (class I), considered with score 1 (IIa); DOAC preferred over VKA except mechanical valve or moderate–severe mitral stenosis.",
     evaluate(s) {
       if (!s.tags.has("af")) return [];
+      // a mechanical valve: valve.mechanical-antithrombotic carries the anticoagulation advice (no duplicate red card)
+      if (s.tags.has("mechanical-valve") && !onTag(s, "oac").length) return [];
       const vka = live(s).find((m) => m.code === "warfarin");
       // DOACs are not used with a mechanical valve or moderate–severe mitral stenosis
       const vkaOnly = s.tags.has("mechanical-valve") || s.tags.has("ms-significant");
@@ -619,7 +622,13 @@ export const GUIDELINE_RULES: RuleDef[] = [
     defaultParams: { dapt_days: 365 },
     evidence: "2023 ESC ACS guidelines: DAPT (aspirin + P2Y12 inhibitor) for 12 months by default after ACS (class I); single antiplatelet long-term in CAD unless on OAC.",
     evaluate(s, p) {
-      if (!s.tags.has("cad") || onTag(s, "oac").length) return [];
+      const padOnly = !s.tags.has("cad") && s.tags.has("pad");
+      if ((!s.tags.has("cad") && !padOnly) || onTag(s, "oac").length) return [];
+      if (padOnly) {
+        if (onTag(s, "antiplatelet").length) return [];
+        return [{ key: "no-antiplatelet", signature: "pad", severity: "orange", title: "Peripheral arterial disease without antiplatelet therapy", detail: "Single antiplatelet therapy (aspirin or clopidogrel) in symptomatic PAD unless on anticoagulation or contraindicated",
+          facts: [src("ESC PAD 2024 · Class I")], missing: [], action: { type: "start-med", code: "aspirin", dose: 100, label: "Start aspirin" } }];
+      }
       const acs = s.conditions.find((c) => DIAGNOSIS[c.code]?.tags.includes("acs"));
       const acsDays = acs ? daysBetween(acs.onset ?? acs.recorded_at, s.today) : null;
       const anti = onTag(s, "antiplatelet");

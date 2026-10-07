@@ -3,7 +3,7 @@ import { Eraser, PencilLine } from "lucide-react";
 import { api } from "../api";
 import { Drawer, SingleChoice, DateInput } from "../ui";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
-import { fmtDay } from "../../shared/clinical";
+import { fmtDay, localDay } from "../../shared/clinical";
 
 // Correcting medical data. History is append-only: a wrong entry is marked entered in error (or replaced by a
 // corrected copy); it leaves the record, the alerts are recalculated, and the original stays for the audit.
@@ -137,7 +137,7 @@ export function CorrectMedication({ patientId, med, today, onClose, onDone }: { 
   const [mode, setMode] = useState<string>("");
   const [dose, setDose] = useState<string>(last?.dose_value != null ? String(last.dose_value) : "");
   const [freq, setFreq] = useState<string>(last?.frequency ?? "");
-  const [day, setDay] = useState<string>(last ? String(last.effective_at).slice(0, 10) : today);
+  const [day, setDay] = useState<string>(last ? localDay(String(last.effective_at)) : today);
   const [reason, setReason] = useState("");
   const { busy, error, run } = useSave(onDone);
   if (!last || !def) return null;
@@ -147,7 +147,7 @@ export function CorrectMedication({ patientId, med, today, onClose, onDone }: { 
     ...(events.length > 1 ? [{ value: "undo", label: "Take back the last change", hint: `${KIND[last.kind] ?? last.kind} on ${fmtDay(last.effective_at)} was recorded by mistake` }] : []),
     { value: "void", label: "Remove the medicine", hint: "It should not be on this patient's list at all" },
   ];
-  const sameFix = Number(dose) === last.dose_value && freq === (last.frequency ?? "") && day === String(last.effective_at).slice(0, 10);
+  const sameFix = Number(dose) === last.dose_value && freq === (last.frequency ?? "") && day === localDay(String(last.effective_at));
   const ok = mode === "fix" ? !sameFix && day <= today : mode === "undo" || (mode === "void" && !!reason);
   const at = (d: string) => new Date(`${d}T${new Date(last.effective_at).toISOString().slice(11, 19)}Z`).toISOString();
   function save() {

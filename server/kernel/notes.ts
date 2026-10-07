@@ -1,7 +1,7 @@
 // Documentation is output: structured data in, editable narrative out.
 import type { Q } from "../db/db.js";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
-import { fmtDay } from "../../shared/clinical.js";
+import { fmtDay, localDay } from "../../shared/clinical.js";
 import { ApiError } from "./base.js";
 import { loadState } from "./state.js";
 import { planView } from "./views.js";
@@ -10,7 +10,10 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
   const s = await loadState(tx, patientId);
   const c = s.contexts.find((x) => x.id === contextId);
   if (!c) throw new ApiError(404, "Visit or admission not found");
-  const within = (at: string) => at >= c.started_at && (!c.ended_at || at <= c.ended_at);
+  // values entered earlier on the day the visit or admission started belong to it (vitals taken
+  // at triage before the visit was opened); compare local days, not UTC timestamps
+  const startDay = localDay(c.started_at);
+  const within = (at: string) => localDay(at) >= startDay && (!c.ended_at || at <= c.ended_at || localDay(at) === localDay(c.ended_at));
   const lines: string[] = [];
   const title = c.kind === "admission" ? "Discharge summary" : "Clinic note";
   lines.push(`${title} — ${s.patient.name}, ${s.patient.age} y ${s.patient.sex.toLowerCase()}, MRN ${s.patient.mrn}`);

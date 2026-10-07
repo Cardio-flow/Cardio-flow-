@@ -5,7 +5,7 @@ import { Drawer, Tag, DateInput } from "../ui";
 import { LABS, LAB_PRESETS, MEASURES, formatNumber } from "../../shared/catalog";
 import { egfrCkdEpi2021, flagFor, fmtDay } from "../../shared/clinical";
 
-export function QuickLabs({ patientId, codes, onClose, onDone }: { patientId: string; codes?: string[]; onClose(): void; onDone(msg?: string, r?: any): void }) {
+export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { patientId: string; codes?: string[]; contextId?: string; onClose(): void; onDone(msg?: string, r?: any): void }) {
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const { data: sum } = useData<any>(`/patients/${patientId}/summary`);
   const [preset, setPreset] = useState<string | null>(codes ? null : "renal");
@@ -40,13 +40,13 @@ export function QuickLabs({ patientId, codes, onClose, onDone }: { patientId: st
   const addable = useMemo(() => LABS.filter((l) => !l.derived && !rows.includes(l.code) && (l.display + l.short).toLowerCase().includes(q.toLowerCase())), [rows, q]);
   async function save(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!filled.length || invalid.length) return;
+    if (busy || !filled.length || invalid.length) return;
     setBusy(true);
     setError("");
     try {
       const effectiveAt = date === "today" ? new Date().toISOString() : new Date(`${date}T08:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/observations`, {
-        body: { effectiveAt, items: filled.map((code) => ({ code, value: Number(values[code].replace(",", ".")), unit: units[code] ?? MEASURES[code].unit })) },
+        body: { effectiveAt, contextId: contextId ?? null, items: filled.map((code) => ({ code, value: Number(values[code].replace(",", ".")), unit: units[code] ?? MEASURES[code].unit })) },
       });
       const closed = r.completed?.length ? ` · closed “${r.completed[0].title}”` : "";
       onDone(`${filled.length} result${filled.length === 1 ? "" : "s"} saved${closed}`, r);

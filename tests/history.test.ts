@@ -46,7 +46,8 @@ test("migration 002 is applied once, recorded, and the status history is append-
 });
 
 test("registration: civil ID is unique per site and identity changes are audited", async () => {
-  const civil = "2" + String(Date.now()).slice(-11);
+  // a valid civil ID carries the date of birth (1960-05-01 → 2 600501 …)
+  const civil = "2600501" + String(Date.now()).slice(-5);
   const pid = await newPatient([], { civilId: civil, nationality: "Kuwaiti", mobile: "+965 5000 0000" });
   await assert.rejects(newPatient([], { civilId: civil }), /already registered/);
   await tx((q) => K.updateIdentity(q, doc, pid, { mobile: "+965 6000 0000", allergies: "Penicillin (rash)" }));
@@ -175,8 +176,11 @@ test("rules read structured history: mechanical valve blocks DOACs; an existing 
     await K.recordHistory(q, doc, p2, { effectiveAt: nowIso(), add: [{ code: "prosthetic-valve", attributes: { position: "Aortic", type: "Mechanical" } }] });
     await reassess(q, p2, "sandbox");
   });
-  const af = (await active(p2)).find((r) => r.rule_id === "af.anticoagulation");
-  const action = typeof af.action === "string" ? JSON.parse(af.action) : af.action;
+  // the valve rule carries the anticoagulation advice (red, warfarin); the AF rule does not duplicate it
+  const recs2 = await active(p2);
+  assert.equal(recs2.find((r) => r.rule_id === "af.anticoagulation"), undefined);
+  const mhv = recs2.find((r) => r.rule_id === "valve.mechanical-antithrombotic");
+  const action = typeof mhv.action === "string" ? JSON.parse(mhv.action) : mhv.action;
   assert.equal(action.code, "warfarin");
 
   // HF with LVEF ≤35%: device prompt, gone once an ICD is recorded in the history

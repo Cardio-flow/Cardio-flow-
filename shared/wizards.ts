@@ -330,6 +330,8 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "increase-diuretic", label: "Increase diuretic dose", requires: ["loop"] },
               { value: "hold-nephrotoxin", label: "Stop nephrotoxin" },
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
+              { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "Rise >100%, >310 µmol/L or eGFR <20" },
+              { value: "hold-mra", label: "Hold MRA", requires: ["mra"] },
               { value: "nephrology", label: "Nephrology referral" },
             ],
           },
@@ -536,6 +538,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "continue", label: "Asymptomatic, no block: continue and monitor" },
               { value: "stop-other", label: "Stop other rate-slowing drugs (ivabradine, digoxin, diltiazem)", requires: ["ivabradine", "digoxin", "ndhp-ccb"] },
               { value: "reduce-bb", label: "Reduce the beta-blocker (halve)", requires: ["bb"] },
+              { value: "hold-bb", label: "Stop the beta-blocker", requires: ["bb"] },
               { value: "reduce-bb-other", label: "Reduce the beta-blocker (atenolol, propranolol, labetalol)", requires: ["bb-other"] },
               { value: "ecg", label: "12-lead ECG" },
               { value: "holter", label: "Holter monitor" },
@@ -718,7 +721,12 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   if (wizardId === "renal-function") {
     if (actions.includes("reduce-diuretic")) change("loop", "diureticDose", "decrease");
     if (actions.includes("increase-diuretic")) change("loop", "diureticUp", "increase");
-    if (actions.includes("reduce-raas")) change("raas", "raasDose", "decrease");
+    if (actions.includes("reduce-raas") && !actions.includes("hold-raas")) change("raas", "raasDose", "decrease");
+    for (const [v, tag] of [["hold-raas", "raas"], ["hold-mra", "mra"]] as const)
+      if (actions.includes(v)) {
+        const m = med(tag);
+        if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
+      }
     if (actions.includes("hold-nephrotoxin")) out.push({ kind: "plan", category: "medication", title: "Stop nephrotoxic medication and document", dueDate: today, completesOn: { type: "manual" }, label: "" });
     if (actions.includes("nephrology")) out.push({ kind: "plan", category: "referral", title: "Nephrology referral", dueDate: addDays(today, 7), completesOn: { type: "manual" }, label: "" });
   }
@@ -742,7 +750,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     // only BP-lowering drugs without HF benefit: never RAAS/ARNI (incl. combination pills), hydralazine/ISDN,
     // rate control (diltiazem, verapamil, beta-blockers) or a nitrate for angina
     if (actions.includes("stop-vasodilator")) {
-      const angina = (ctx.dx ?? []).some((d) => d === "cad" || d === "cad-ccs");
+      const angina = (ctx.dx ?? []).some((d) => d === "cad" || d === "cad-ccs" || d === "cad-suspected");
       for (const m of ctx.meds.filter((x) => x.tags.some((t) => t === "vasodilator" || t === "bp-lowering") && !x.tags.some((t) => ["raas", "arni", "rate-slowing"].includes(t))
         && !["hydralazine", "isosorbide-dinitrate"].includes(x.code) && !(angina && x.tags.includes("nitrate"))))
         out.push({ kind: "medication", medicationId: m.id, event: "stop", doseValue: null, label: `${m.name}: stop` });
@@ -754,7 +762,11 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   }
   if (wizardId === "bradycardia") {
     if (actions.includes("stop-other")) stopTagged(["ivabradine", "digoxin", "ndhp-ccb"]);
-    if (actions.includes("reduce-bb")) change("bb", "bbDose", "decrease");
+    if (actions.includes("reduce-bb") && !actions.includes("hold-bb")) change("bb", "bbDose", "decrease");
+    if (actions.includes("hold-bb")) {
+      const m = med("bb");
+      if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
+    }
     if (actions.includes("reduce-bb-other")) change("bb-other", "bbOtherDose", "decrease");
     if (actions.includes("ecg")) plan("investigation", "12-lead ECG", 0, { type: "study", kind: "ecg" });
     if (actions.includes("holter")) plan("investigation", "Holter monitor", 14, { type: "study", kind: "holter" });

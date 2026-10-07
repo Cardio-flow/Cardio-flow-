@@ -20,7 +20,7 @@ export async function seedSynthetic(db: DB, siteId: string) {
   const ids: string[] = [];
   await db.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(431002)");
-    if ((await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 LIMIT 1`, [siteId])).rows[0]) return;
+    if ((await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND synthetic LIMIT 1`, [siteId])).rows[0]) return;
     // ---- 1. The HF slice patient: admission → discharge → labs → rising K → clinic today ----
     const k = await K.createPatient(tx, sys, {
       name: "Khaled Al-Mansour", mrn: "100482317", sex: "Male", birthDate: addDays(T, -(65 * 365 + 120)), allergies: "No known drug allergies",
@@ -167,7 +167,7 @@ export async function enrichSynthetic(db: DB, siteId: string, reassessAfter = tr
     const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
     const seeded = Number(settings.seedVersion ?? 1);
     if (!site || site.mode !== "sandbox" || seeded >= SEED_VERSION) return;
-    const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND mrn IN ($2, 'SYN-' || $2)`, [siteId, mrn])).rows[0]?.id ?? null;
+    const byMrn = async (mrn: string) => (await tx.query<{ id: string }>(`SELECT id FROM cf.patient WHERE site_id=$1 AND synthetic AND mrn IN ($2, 'SYN-' || $2)`, [siteId, mrn])).rows[0]?.id ?? null;
     const obs = async (id: string | null, day: string, items: { code: string; value: number }[], silentEvent = true) => {
       if (!id) return;
       await K.recordObservations(tx, sys, id, { effectiveAt: at(day, "08:30"), items, silentEvent });

@@ -91,6 +91,12 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
         {act.label}
       </button>
     );
+  if (act.type === "edit-dx")
+    return (
+      <button className="go" onClick={() => open({ kind: "dx-edit", code: act.code })}>
+        {act.label ?? "Edit diagnosis"}
+      </button>
+    );
   if (act.type === "history")
     return (
       <button className="go" onClick={() => open({ kind: "history", focus: act.focus })}>

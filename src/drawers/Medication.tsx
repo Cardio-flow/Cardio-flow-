@@ -81,7 +81,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
         body: {
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
           indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
-          effectiveAt: startDay === today ? undefined : new Date(`${startDay}T12:00:00`).toISOString(),
+          effectiveAt: startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
           monitoring: renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
           bookSchedule: schedule.length > 0 && bookSchedule === "yes",
           ...(reds ? { override } : {}),
@@ -380,7 +380,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
       const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action === "frequency" ? "continue" : action;
       const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : action === "frequency" ? `Frequency changed: ${med!.frequency ?? "—"} → ${newFreq}${reason ? " · " + reason.toLowerCase() : ""}` : reason;
       const r = await api(`/patients/${patientId}/medications/${medId}/events`, {
-        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody, effectiveAt: fromDay === today ? undefined : new Date(`${fromDay}T12:00:00`).toISOString() },
+        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody, effectiveAt: fromDay === today ? undefined : new Date(`${fromDay}T12:00:00+03:00`).toISOString() },
       });
       onDone(`${def!.name}: ${LABEL[action] ?? action} recorded`, r);
     } catch (e) {

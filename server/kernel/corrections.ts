@@ -3,8 +3,9 @@
 // rules re-run, and the original stays in the database for the audit.
 import type { Q } from "../db/db.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, uuid, type Actor } from "./base.js";
-import { LIVE_EVENT, LIVE_MED, correctObservation, type Changed } from "./clinical.js";
+import { LIVE_EVENT, LIVE_MED, correctObservation, newConditionVersion, type Changed } from "./clinical.js";
 import { MEDICATION } from "../../shared/catalog.js";
+import { localDay } from "../../shared/clinical.js";
 
 export const CORRECTION_REASONS = ["Wrong patient", "Wrong entry", "Duplicate entry", "Never happened"] as const;
 const KIND_LABEL: Record<string, string> = { start: "Start", restart: "Restart", increase: "Increase", decrease: "Reduction", hold: "Hold", stop: "Stop", continue: "Change", not_taking: "Not taking", resume: "Taken again", planned: "Planned start" };
@@ -31,6 +32,7 @@ export async function voidStudy(tx: Q, actor: Actor, patientId: string, studyId:
   )).rows as any[];
   const changed = new Set<string>(["studies"]);
   for (const o of obs.filter((o) => o.status !== "entered_in_error")) for (const c of await correctObservation(tx, actor, patientId, o.id, { enteredInError: true })) changed.add(c);
+  if (await reopenCompletedBy(tx, patientId, [studyId, ...obs.map((o) => o.id)])) changed.add("plan");
   await audit(tx, actor, "entered-in-error", "study", studyId, patientId, { kind: st.kind, reason: why(reason) });
   return [...changed] as Changed;
 }
@@ -69,13 +71,23 @@ export async function undoLastMedicationChange(tx: Q, actor: Actor, patientId: s
   if (n <= 1) throw new ApiError(409, "This is the first entry: remove the medicine if it was entered in error, or correct its dose and date");
   const last = await lastEvent(tx, medicationId);
   await mark(tx, actor, patientId, "medication_event", last.id, why(reason));
-  await audit(tx, actor, "undo-change", "medication", medicationId, patientId, { kind: last.kind, reason: why(reason) });
+  // taking back a stop brings back the medicine's own dated steps the stop cancelled
+  let reopened = 0;
+  if (last.kind === "stop") {
+    const name = MEDICATION[med.drug]?.name ?? med.drug;
+    reopened = (await tx.query(
+      `UPDATE cf.plan_action SET status='planned', outcome='', updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND medication_id=$2 AND status='cancelled' AND outcome=$3 AND updated_at >= $4 RETURNING id`,
+      [patientId, medicationId, `${name} stopped`, last.recorded_at],
+    )).rows.length;
+  }
+  await audit(tx, actor, "undo-change", "medication", medicationId, patientId, { kind: last.kind, reason: why(reason), reopened });
   await journeyEvent(tx, actor, {
     patientId, occurredAt: nowIso(), kind: "correction", category: "medication",
-    title: `${MEDICATION[med.drug]?.name ?? med.drug}: last change taken back`, detail: `${KIND_LABEL[last.kind] ?? last.kind} of ${new Date(last.effective_at).toISOString().slice(0, 10)} · ${why(reason)}`,
+    title: `${MEDICATION[med.drug]?.name ?? med.drug}: last change taken back`, detail: `${KIND_LABEL[last.kind] ?? last.kind} of ${localDay(new Date(last.effective_at).toISOString())} · ${why(reason)}`,
     refType: "medication", refId: medicationId,
   });
-  return ["meds"] as Changed;
+  return (reopened ? ["meds", "plan"] : ["meds"]) as Changed;
 }
 
 // The last entry with a wrong dose, frequency or date: replaced by a corrected copy (same kind of change).
@@ -122,6 +134,48 @@ export async function correctMedicationEntry(
   return ["meds"] as Changed;
 }
 
+// What a procedure added to the record in its own transaction (same recorded_at): the problem-list entry it
+// created or updated, and the haemodynamic results of a right heart catheter. Taken back with it.
+const PROCEDURE_CODES: Record<string, string[]> = { pci: ["prior-pci"], cabg: ["prior-cabg"], device: ["cied"], valve: ["prosthetic-valve"], rhc: ["ph"] };
+const RHC_RESULTS = ["mpap", "pawp", "pvr", "rap", "svo2"];
+async function undoProcedureEffects(tx: Q, actor: Actor, patientId: string, p: any) {
+  const codes = PROCEDURE_CODES[p.kind] ?? [];
+  if (codes.length) {
+    const touched = (await tx.query(
+      `SELECT logical_id, version FROM cf.condition WHERE patient_id=$1 AND code = ANY($2) AND recorded_at = $3`,
+      [patientId, codes, p.recorded_at],
+    )).rows as { logical_id: string; version: number }[];
+    for (const t of touched) {
+      const rows = (await tx.query(`SELECT * FROM cf.condition WHERE logical_id=$1 ORDER BY version DESC`, [t.logical_id])).rows as any[];
+      const latest = rows[0];
+      if (latest.version !== t.version || latest.status !== "active") continue; // edited since: leave it to the clinician
+      if (t.version === 1) await newConditionVersion(tx, actor, latest, { status: "entered_in_error" });
+      else {
+        const prev = rows.find((r) => r.version === t.version - 1);
+        await newConditionVersion(tx, actor, latest, { status: prev.status, onset: prev.onset, attributes: typeof prev.attributes === "string" ? JSON.parse(prev.attributes) : prev.attributes });
+      }
+    }
+  }
+  if (p.kind === "rhc") {
+    const obs = (await tx.query(
+      `SELECT DISTINCT ON (logical_id) id, status FROM cf.observation WHERE patient_id=$1 AND code = ANY($2) AND effective_at=$3 ORDER BY logical_id, version DESC`,
+      [patientId, RHC_RESULTS, p.performed_at],
+    )).rows as any[];
+    for (const o of obs.filter((o) => o.status !== "entered_in_error")) await correctObservation(tx, actor, patientId, o.id, { enteredInError: true });
+  }
+}
+
+// Plan items a result completed are open again when the result is withdrawn.
+export async function reopenCompletedBy(tx: Q, patientId: string, refs: string[]) {
+  if (!refs.length) return 0;
+  const r = await tx.query(
+    `UPDATE cf.plan_action SET status='planned', completed_at=NULL, completed_by_ref=NULL, outcome='', updated_at=now(), version=version+1
+     WHERE patient_id=$1 AND status='completed' AND completed_by_ref = ANY($2::text[]) RETURNING id`,
+    [patientId, refs],
+  );
+  return r.rows.length;
+}
+
 // A procedure entered in error: a row that replaces it as entered in error (migration 005's own mechanism).
 export async function voidProcedure(tx: Q, actor: Actor, patientId: string, procedureId: string, reason?: string) {
   await patientInSite(tx, actor, patientId);
@@ -134,6 +188,7 @@ export async function voidProcedure(tx: Q, actor: Actor, patientId: string, proc
     `INSERT INTO cf.procedure(id,patient_id,kind,performed_at,attributes,summary,replaces,status,context_id,recorded_by) VALUES($1,$2,$3,$4,'{}',$5,$6,'entered_in_error',$7,$8)`,
     [uuid(), patientId, p.kind, p.performed_at, `Entered in error · ${why(reason)}`, procedureId, p.context_id, actor.id],
   );
+  await undoProcedureEffects(tx, actor, patientId, p);
   await audit(tx, actor, "entered-in-error", "procedure", procedureId, patientId, { kind: p.kind, reason: why(reason) });
   return null; // every rule runs again (antithrombotic durations, device and valve rules read procedures)
 }

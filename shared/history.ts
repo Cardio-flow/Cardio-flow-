@@ -183,6 +183,9 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
 };
 // Diagnoses that can be recorded more than once (e.g. aortic and mitral prostheses, repeat PCI).
 export const MULTIPLE_ALLOWED = new Set(["prosthetic-valve", "prior-pci", "prior-mi"]);
+// mutually exclusive diagnoses: a patient has one HF phenotype, one diabetes type, one CKD stage
+export const ONE_OF = [["hfref", "hfmref", "hfpef", "hfimpef"], ["t2dm", "t1dm", "dm-other", "prediabetes"], ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5"]];
+export const siblingsOf = (code: string) => ONE_OF.find((s) => s.includes(code))?.filter((c) => c !== code) ?? [];
 
 // "Aortic · Mechanical", "LAD, RCA", "STEMI"
 export function attributesText(code: string, attributes: Record<string, unknown> | null | undefined) {
@@ -238,4 +241,4 @@ export function hba1cTarget(attributes: Record<string, unknown> | null | undefin
 
 // Diagnosis codes that are cardiovascular risk factors (shown in the risk-factor row, kept apart from the
 // diagnoses — Ahmed, 7 Oct 2026: "Do not mix between diagnosis and risk factors").
-export const RISK_FACTOR_CODES = new Set<string>(HISTORY_ITEMS.filter((i) => i.section === "risk").flatMap((i) => i.conditions ?? []));
+export const RISK_FACTOR_CODES = new Set<string>([...HISTORY_ITEMS.filter((i) => i.section === "risk").flatMap((i) => i.conditions ?? []), "smoker"]);

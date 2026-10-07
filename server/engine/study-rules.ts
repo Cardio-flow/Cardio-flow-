@@ -140,13 +140,18 @@ export const STUDY_RULES: RuleDef[] = [
       const recent = s.studies.filter((st) => (Date.parse(s.today) - Date.parse(st.performed_at)) / 86400000 <= Number(p.days));
       const newest = (pred: (st: (typeof recent)[number]) => boolean) => [...recent].sort((a, b) => (a.performed_at < b.performed_at ? 1 : -1)).find(pred);
       const cad = newest((st) => !!obstructiveCad(st.kind, st.attributes));
-      if (cad && !s.tags.has("cad"))
+      if (cad && !s.tags.has("cad")) {
+        const suspected = s.conditions.some((c) => c.code === "cad-suspected");
         out.push({
-          key: "cad", signature: cad.id, severity: "blue",
-          title: `${obstructiveCad(cad.kind, cad.attributes)} on ${STUDY_LABEL[cad.kind]} ${fmtDay(cad.performed_at)}: add coronary disease to the problem list`,
+          key: "cad", signature: cad.id, severity: suspected ? "yellow" : "blue",
+          title: suspected
+            ? `${obstructiveCad(cad.kind, cad.attributes)} on ${STUDY_LABEL[cad.kind]} ${fmtDay(cad.performed_at)}: IHD confirmed — change "Suspected IHD" to chronic coronary syndrome`
+            : `${obstructiveCad(cad.kind, cad.attributes)} on ${STUDY_LABEL[cad.kind]} ${fmtDay(cad.performed_at)}: add coronary disease to the problem list`,
           detail: "Once listed, lipid goals, antiplatelet therapy and rehabilitation follow automatically.",
-          facts: [studyFact(cad)], missing: [], action: { type: "history", focus: "cardiac", label: "Update history" },
+          facts: [studyFact(cad)], missing: [],
+          action: suspected ? { type: "edit-dx", code: "cad-suspected", label: "Confirm IHD" } : { type: "history", focus: "cardiac", label: "Update history" },
         });
+      }
       // AF/flutter on an ECG or Holter is offered as the AF-CARE pathway (rhythm.ecg-af-undiagnosed), which also lists it
       const av = newest((st) => HIGH_AV.includes(st.attributes.avBlock));
       if (av && !s.conditions.some((c) => c.code === "av-block"))

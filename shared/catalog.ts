@@ -190,7 +190,8 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "dyslipidaemia", display: "Dyslipidaemia", family: "Comorbidity", tags: ["lipids"] },
   { code: "obesity", display: "Obesity", family: "Comorbidity", tags: ["obesity"] },
   { code: "stroke-tia", display: "Stroke / TIA", family: "Comorbidity", tags: ["ascvd", "stroke"] },
-  { code: "pad", display: "Peripheral arterial disease", family: "Comorbidity", tags: ["cad", "ascvd", "vascular"] },
+  // PAD is atherosclerotic disease but not coronary disease (7 Oct audit): no "cad" tag
+  { code: "pad", display: "Peripheral arterial disease", family: "Comorbidity", tags: ["ascvd", "vascular", "pad"] },
   { code: "copd", display: "COPD", family: "Comorbidity", tags: ["lung"] },
   { code: "ild", display: "Interstitial lung disease", family: "Comorbidity", tags: ["lung"] },
   { code: "osa", display: "Obstructive sleep apnoea", family: "Comorbidity", tags: ["lung"] },
@@ -272,7 +273,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("ferric-carboxymaltose", "Ferric carboxymaltose (IV)", "IV iron", "Heart failure", ["iv-iron"], ["hf"], "mg", [500, 750, 1000], ["Single infusion"], ["haemoglobin", "ferritin", "tsat"], { routes: ["IV"] }),
   m("ferric-derisomaltose", "Ferric derisomaltose (IV)", "IV iron", "Heart failure", ["iv-iron"], ["hf"], "mg", [500, 1000, 1500, 2000], ["Single infusion"], ["haemoglobin", "ferritin", "tsat"], { routes: ["IV"] }),
   m("vericiguat", "Vericiguat", "sGC stimulator", "Heart failure", [], ["hf"], "mg", [2.5, 5, 10], ["OD"], ["sbp"], { target: 10 }),
-  m("aspirin", "Aspirin", "Antiplatelet", "CAD / secondary prevention", ["antiplatelet"], ["cad"], "mg", [75, 81, 100, 300, 500], ["OD", "TID"], ["haemoglobin"]),
+  m("aspirin", "Aspirin", "Antiplatelet", "CAD / secondary prevention", ["antiplatelet", "aspirin"], ["cad", "pad"], "mg", [75, 81, 100, 300, 500], ["OD", "TID"], ["haemoglobin"]),
   m("clopidogrel", "Clopidogrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12"], ["cad"], "mg", [75], ["OD"], ["haemoglobin"]),
   m("ticagrelor", "Ticagrelor", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12", "p2y12-potent"], ["cad"], "mg", [60, 90], ["BID"], ["haemoglobin"]),
   m("prasugrel", "Prasugrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12", "p2y12-potent"], ["cad"], "mg", [5, 10], ["OD"], ["haemoglobin"]),
@@ -345,7 +346,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("perindopril-indapamide", "Perindopril/indapamide", "ACEi + thiazide-like combination", "Blood pressure", ["raas", "acei", "thiazide", "bp-lowering"], ["htn"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/1.25 mg", "10/2.5 mg"] }),
   m("perindopril-amlodipine", "Perindopril/amlodipine", "ACEi + CCB combination", "Blood pressure", ["raas", "acei", "vasodilator", "bp-lowering"], ["htn", "cad"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/5 mg", "10/10 mg"] }),
   // ---- Angina ----
-  m("gtn", "Glyceryl trinitrate (sublingual)", "Short-acting nitrate", "Angina", ["nitrate"], ["cad"], "mg", [0.4, 0.5], ["PRN"], ["sbp"], { routes: ["SL"] }),
+  m("gtn", "Glyceryl trinitrate (sublingual)", "Short-acting nitrate", "Angina", ["nitrate", "nitrate-sl"], ["cad"], "mg", [0.4, 0.5], ["PRN"], ["sbp"], { routes: ["SL"] }),
   m("isosorbide-mononitrate", "Isosorbide mononitrate", "Long-acting nitrate", "Angina", ["nitrate", "vasodilator"], ["cad"], "mg", [20, 30, 60, 120], ["OD", "BID"], ["sbp"]),
   m("nicorandil", "Nicorandil", "K-ATP channel opener", "Angina", ["vasodilator"], ["cad"], "mg", [10, 20], ["BID"], ["sbp"]),
   m("ranolazine", "Ranolazine", "Late sodium-current inhibitor", "Angina", ["qt"], ["cad"], "mg", [375, 500, 750], ["BID"], ["qtc", "creatinine"]),

@@ -13,7 +13,8 @@ export function ccsTestRisk(kind: string, a: Record<string, any>): { risk: TestR
   if (kind === "nuclear") {
     if (["Equivocal", "Non-diagnostic"].includes(a.result)) return { risk: "uncertain", why: `Stress MIBI ${String(a.result).toLowerCase()}` };
     if (a.result === "Normal perfusion") return { risk: "negative", why: "Stress MIBI: normal perfusion" };
-    if (a.result === "Fixed defect (scar)") return { risk: "negative", why: "Stress MIBI: fixed defect (scar) without ischaemia" };
+    // a fixed defect is infarct scar (unless attenuation): evidence of coronary disease, not a negative test
+    if (a.result === "Fixed defect (scar)") return { risk: "positive", why: "Stress MIBI: fixed defect (scar) without ischaemia" };
     if (ischaemiaPct != null && ischaemiaPct >= 10) return { risk: "high", why: `Stress MIBI: ischaemia ${ischaemiaPct}% of the LV (≥10%: high event risk)` };
     return { risk: "positive", why: `Stress MIBI: ${String(a.result).toLowerCase()}${ischaemiaPct != null ? `, ${ischaemiaPct}% of the LV` : a.extent ? `, ${String(a.extent).toLowerCase()} extent (% LV not recorded)` : ""}` };
   }
@@ -33,9 +34,14 @@ export function ccsTestRisk(kind: string, a: Record<string, any>): { risk: TestR
     if (a.cadrads === "N (non-diagnostic)") return { risk: "uncertain", why: "CCTA non-diagnostic" };
     if (v.includes("Left main")) return { risk: "high", why: "CCTA: left main ≥50% stenosis (high event risk)" };
     if (a.cadrads === "4B") return { risk: "high", why: "CCTA: CAD-RADS 4B (left main or three-vessel obstructive disease)" };
+    if (a.twoVesselProxLad === "Yes") return { risk: "high", why: "CCTA: two-vessel ≥70% disease including the proximal LAD (high event risk)" };
     if (["3", "4A", "5"].includes(a.cadrads)) return { risk: "positive", why: `CCTA: CAD-RADS ${a.cadrads}${v.length ? ` (${v.join(", ")})` : ""}` };
     if (["0", "1", "2"].includes(a.cadrads)) return { risk: "negative", why: `CCTA: CAD-RADS ${a.cadrads} (no obstructive stenosis)` };
     return null;
   }
   return null;
 }
+
+// tests that can rule out obstructive CAD in a patient with suspected IHD: imaging (CCTA, perfusion or stress
+// imaging), not a plain exercise ECG
+export const ruleOutCapable = (kind: string, a: Record<string, any>) => kind === "ccta" || kind === "nuclear" || (kind === "stress" && a.modality !== "Exercise ECG");

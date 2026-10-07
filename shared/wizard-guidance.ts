@@ -27,6 +27,11 @@ import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from 
 export type Suggestion = { value: string; why: string };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
 
+const inrRange = (c: any) => {
+  const tg: string | null | undefined = c.valve?.inrTarget;
+  const m = tg ? /\(([\d.]+)–([\d.]+)\)/.exec(tg) : null;
+  return m ? { low: Number(m[1]), high: Number(m[2]), text: tg as string } : { low: 2, high: 3, text: "2.0–3.0" };
+};
 const val = (c: WizardContext, code: string) => c.values?.[code]?.value ?? null;
 const prev = (c: WizardContext, code: string) => c.values?.[code]?.prev ?? null;
 const on = (c: WizardContext, ...tags: string[]) => c.meds.some((m) => m.tags.some((t) => tags.includes(t)));
@@ -36,18 +41,19 @@ const list = (a: Answers, id: string) => ((a[id] as string[] | undefined) ?? [])
 const is = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 const n1 = (x: number) => (Math.round(x * 10) / 10).toString();
 const S = (value: string, why: string): Suggestion => ({ value, why });
-// the MRA is already at its lowest catalogue dose (no "reduce" possible)
-const mraLowest = (c: WizardContext) => {
-  const m = c.meds.find((x) => x.tags.includes("mra"));
+// the medicine with this tag is already at its lowest catalogue dose (no "reduce" possible: hold instead)
+const lowest = (c: WizardContext, tag: string) => {
+  const m = c.meds.find((x) => x.tags.includes(tag));
   return !!m && m.doseValue != null && !(MEDICATION[m.code]?.doses ?? []).some((d) => d < m.doseValue!);
 };
+const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
   // ---------------- Heart failure ----------------
   hyperkalaemia: {
     result: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && k > 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
+      return [k != null && k >= 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
     },
     actions: (a, c) => {
       const k = val(c, "potassium");
@@ -56,10 +62,11 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
         k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
+        k >= 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
         // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold instead (Inspra SmPC: 25 mg every other day, or withhold)
-        k > 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K 5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
-        k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && S("reduce-raas", `K 5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
+        k >= 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K 5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
+        k >= 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `K 5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
+        k >= 5.5 && k <= 6.0 && !on(c, "mra") && lowest(c, "raas") && S("hold-raas", "K 5.5–6.0 on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)"),
         k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
         k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),
         (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and K-containing salt substitutes"),
@@ -68,7 +75,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
     recheck: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k > 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
+      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k >= 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
     },
   },
   "renal-function": {
@@ -82,7 +89,10 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         a.volume === "dry" && on(c, "loop") && S("reduce-diuretic", "Dry: reduce the loop diuretic (ESC HF practical guidance)"),
         (list(a, "contributors").includes("nsaid") || list(a, "contributors").includes("contrast") || on(c, "nsaid")) && S("hold-nephrotoxin", "Stop NSAIDs and other nephrotoxins"),
         rise != null && !big && cr! <= 266 && (egfr == null || egfr >= 25) && S("continue", `Creatinine ${p}→${cr} µmol/L (+${Math.round(rise * 100)}%): a rise ≤50% (and <266 µmol/L, eGFR ≥25) is acceptable — continue (ESC HF practical guidance)`),
-        big && on(c, "raas") && S("reduce-raas", severe ? `Creatinine +${Math.round(rise! * 100)}%${cr! > 310 ? `, ${cr} µmol/L` : ""}: stop the ACEi/ARB/ARNI (rise >100%, >310 µmol/L or eGFR <20)` : `Creatinine +${Math.round(rise! * 100)}%: halve the ACEi/ARB/ARNI dose (rise >50%, ESC HF practical guidance)`),
+        severe && on(c, "raas") && S("hold-raas", `Creatinine${rise != null ? ` +${Math.round(rise * 100)}%` : ""}${cr != null && cr > 310 ? `, ${cr} µmol/L` : ""}${egfr != null && egfr < 20 ? `, eGFR ${egfr}` : ""}: stop the ACEi/ARB/ARNI (rise >100%, >310 µmol/L or eGFR <20; ESC HF practical guidance)`),
+        severe && on(c, "mra") && S("hold-mra", "Severe deterioration: stop the MRA (ESC HF practical guidance)"),
+        big && !severe && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `Creatinine +${Math.round(rise! * 100)}%: halve the ACEi/ARB/ARNI dose (rise >50%, ESC HF practical guidance)`),
+        big && !severe && on(c, "raas") && lowest(c, "raas") && S("hold-raas", `Creatinine +${Math.round(rise! * 100)}% on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)`),
         severe && S("nephrology", "Severe deterioration: specialist / nephrology input"),
       ];
     },
@@ -124,7 +134,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         highGrade && S("pacing", "Mobitz II, high-grade AV block or symptomatic pauses: pacing evaluation (ESC 2021 pacing, I)"),
         a.block === "no-ecg" && S("ecg", "Exclude AV block on a 12-lead ECG"),
         on(c, "ivabradine", "digoxin", "ndhp-ccb") && S("stop-other", "Review other rate-slowing drugs before the beta-blocker (ESC HF practical guidance)"),
-        sym && hr != null && hr < 50 && on(c, "bb") && !highGrade && S("reduce-bb", `HR ${hr} with symptoms: halve the beta-blocker (ESC HF practical guidance)`),
+        sym && hr != null && hr < 50 && on(c, "bb") && !highGrade && !lowest(c, "bb") && S("reduce-bb", `HR ${hr} with symptoms: halve the beta-blocker (ESC HF practical guidance)`),
+        sym && hr != null && hr < 50 && on(c, "bb") && !highGrade && lowest(c, "bb") && S("hold-bb", `HR ${hr} with symptoms on the lowest beta-blocker dose: stop it and review (ESC HF practical guidance)`),
         !sym && !highGrade && a.block && a.block !== "no-ecg" && S("continue", "Asymptomatic sinus bradycardia: no change"),
       ];
     },
@@ -265,7 +276,9 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   inr: {
     direction: (_a, c) => {
       const inr = val(c, "inr");
-      return [inr != null && (inr > 3 ? S("high", `INR ${n1(inr)}`) : inr < 2 ? S("low", `INR ${n1(inr)}`) : null)];
+      // a mechanical valve has its own range (ESC/EACTS 2025 VHD); otherwise the usual 2.0–3.0
+      const r = inrRange(c);
+      return [inr != null && (inr > r.high ? S("high", `INR ${n1(inr)} (target ${r.text})`) : inr < r.low ? S("low", `INR ${n1(inr)} (target ${r.text})`) : null)];
     },
     actions: (a, c) => {
       const inr = val(c, "inr");
@@ -312,11 +325,13 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   diabetes: {
     protect: (_a, c) => {
       const egfr = val(c, "egfr"), uacr = val(c, "uacr"), k = val(c, "potassium");
+      // the cardiorenal recommendations (ESC 2023 CVD-DM) are for type 2 diabetes
+      const t2 = dx(c, "t2dm");
       const ascvd = dx(c, "ascvd", "cad", "stroke", "pad"), hf = dx(c, "hf"), ckd = dx(c, "ckd") || (egfr != null && egfr < 60) || (uacr != null && uacr >= 3);
       const out = [
-        !on(c, "sglt2") && (hf || ckd || ascvd) && (egfr == null || egfr >= 20) && S("sglt2", `${hf ? "HF" : ckd ? "CKD" : "ASCVD"}: SGLT2 inhibitor regardless of HbA1c (ESC 2023 CVD-DM, I A)`),
-        !on(c, "glp1") && ascvd && S("glp1", "ASCVD: GLP-1 RA with proven CV benefit regardless of HbA1c (ESC 2023, I A)"),
-        !onCode(c, "finerenone") && on(c, "raas") && uacr != null && uacr >= 3 && (egfr == null || egfr >= 25) && (k == null || k <= 5.0) && S("finerenone", `UACR ${uacr} mg/mmol on a RAAS inhibitor: finerenone (ESC 2023, I A)`),
+        t2 && !on(c, "sglt2") && (hf || ckd || ascvd) && (egfr == null || egfr >= 20) && S("sglt2", `${hf ? "HF" : ckd ? "CKD" : "ASCVD"}: SGLT2 inhibitor regardless of HbA1c (ESC 2023 CVD-DM, I A)`),
+        t2 && !on(c, "glp1") && ascvd && S("glp1", "ASCVD: GLP-1 RA with proven CV benefit regardless of HbA1c (ESC 2023, I A)"),
+        t2 && !onCode(c, "finerenone") && on(c, "raas") && uacr != null && uacr >= 3 && (egfr == null || egfr >= 25) && (k == null || k <= 4.8) && S("finerenone", `UACR ${uacr} mg/mmol on a RAAS inhibitor: finerenone (ESC 2023, I A)`),
       ].filter(Boolean) as Suggestion[];
       return out.length ? out : [S("covered", "Heart and kidney protection already in place")];
     },
@@ -517,7 +532,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         a.ecg === "not-done" && S("ecg", "ECG within 10 minutes (ESC ACS 2023, I B)"),
         a.troponin === "pending" && S("serial-trop", "hs-troponin 0 h/1 h or 0 h/2 h (ESC ACS 2023, I B)"),
         (a.adherence === "stopped" || a.adherence === "missed") && S("restart-ap", "Interrupted antiplatelet therapy after PCI: restart unless bleeding forbids it"),
-        risk === "stable" && !on(c, "nitrate") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
+        risk === "stable" && !on(c, "nitrate-sl") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
         risk === "stable" && S("antianginal", "Beta-blocker and/or calcium-channel blocker first line (ESC CCS 2024, I B)"),
         risk === "stable" && S("functional", "Recurrent angina after PCI: test for ischaemia or restenosis (ESC CCS 2024)"),
         risk === "atypical" && S("non-cardiac", "Look for a non-cardiac cause"),
@@ -528,7 +543,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     test: (a) => [
       a.likelihood === "very-low" && a.lowExercise !== "yes" && S("defer", "Very low likelihood (≤5%): deferral of further testing should be considered (ESC CCS 2024, IIa B)"),
       (a.likelihood === "low" || a.likelihood === "moderate") && S("ccta", "Low or moderate likelihood (>5–50%): CCTA recommended (ESC CCS 2024, I A)"),
-      a.likelihood === "high" && S("functional", "Moderate or high likelihood (>15–85%): functional imaging recommended (ESC CCS 2024, I B)"),
+      (a.likelihood === "moderate" || a.likelihood === "high") && S("functional", "Moderate or high likelihood (>15–85%): functional imaging recommended (ESC CCS 2024, I B)"),
       (a.likelihood === "very-high" || a.lowExercise === "yes") && S("ica", "Very high likelihood or symptoms at a low level of exercise: ICA with a view to revascularisation (ESC CCS 2024, I C)"),
     ],
   },
@@ -543,7 +558,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         a.symptoms === "low-exercise" && S("ica", "Angina at a low level of exercise: ICA with a view to revascularisation (ESC CCS 2024, I C)"),
         a.symptoms === "persistent" && a.risk !== "negative" && S("ica", "Angina despite medical therapy: revascularisation to improve symptoms (ESC CCS 2024, I A)"),
         (a.risk === "positive" || a.risk === "high") && a.symptoms !== "none" && S("antianginal", "Beta-blocker and/or calcium-channel blocker first line (ESC CCS 2024, I B)"),
-        a.symptoms !== "none" && a.risk !== "negative" && !on(c, "nitrate") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
+        a.symptoms !== "none" && a.risk !== "negative" && !on(c, "nitrate-sl") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
         a.risk !== "negative" && !statin && S("prevention", "Statin for every patient with CCS (ESC CCS 2024, I A)"),
         a.risk === "negative" && a.symptoms === "none" && S("no-further", "Negative test without angina: no further coronary testing now"),
       ];
