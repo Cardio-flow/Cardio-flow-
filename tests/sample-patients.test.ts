@@ -64,10 +64,10 @@ test("a new patient is real by default; search, worklist and registries keep the
 test("a real file number may equal a sample one; SYN- is reserved; civil IDs are unique among real patients only", async () => {
   const sampleMrn = ((await db.query(`SELECT mrn, civil_id FROM cf.patient WHERE synthetic AND civil_id IS NOT NULL LIMIT 1`)).rows[0] as any);
   const raw = sampleMrn.mrn.replace(/^SYN-/, "");
-  const ok = await call("POST", "/patients", { name: "Same Number", mrn: raw, sex: "Female", birthDate: "1970-01-01", civilId: sampleMrn.civil_id });
+  const ok = await call("POST", "/patients", { name: "Same Number", mrn: raw, sex: "Female", civilId: sampleMrn.civil_id });
   assert.equal(ok.status, 201, "the sample patient's MRN and civil ID do not block a real one");
   assert.equal((await call("POST", "/patients", { name: "Bad Prefix", mrn: "SYN-123", sex: "Male", birthDate: "1970-01-01" })).status, 400);
-  const dup = await call("POST", "/patients", { name: "Dup Civil", mrn: "200000777", sex: "Male", birthDate: "1970-01-01", civilId: sampleMrn.civil_id });
+  const dup = await call("POST", "/patients", { name: "Dup Civil", mrn: "200000777", sex: "Male", civilId: sampleMrn.civil_id });
   assert.equal(dup.status, 409, "two real patients cannot share a civil ID");
 });
 
@@ -124,4 +124,82 @@ test("removing a record: it leaves lists and search, is kept with the reason, an
   assert.ok(kept.removed_by);
   // same file number and civil ID can be registered again
   assert.equal((await call("POST", "/patients", { name: "Right Entry", mrn: "500000001", sex: "Male", birthDate: "1960-01-01", civilId: "260010100099" })).status, 201);
+});
+
+test("corrections: a result, a medicine entry, a study and a procedure can be corrected; nothing is erased", async () => {
+  const r = await call("POST", "/patients", { name: "Correct Me", mrn: "600000001", sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"] });
+  const id = r.body.id;
+  const today = new Date().toISOString().slice(0, 10);
+  // result: wrong potassium → corrected
+  const obs = await call("POST", `/patients/${id}/observations`, { effectiveAt: new Date().toISOString(), items: [{ code: "potassium", value: 7.2 }] });
+  assert.equal(obs.status, 200, JSON.stringify(obs.body));
+  const kId = (await db.query(`SELECT id FROM cf.observation WHERE patient_id=$1 AND code='potassium'`, [id])).rows[0] as any;
+  assert.equal((await call("POST", `/patients/${id}/observations/${kId.id}/correct`, { value: 4.2 })).status, 200);
+  assert.equal((await loadState(db, id)).resolved("potassium").current!.value_num, 4.2);
+  // medicine: start bisoprolol 10 (meant 2.5) → fix; increase by mistake → take back; wrong drug → remove
+  const start = await call("POST", `/patients/${id}/medications`, { code: "bisoprolol", doseValue: 10, frequency: "OD", route: "PO", indication: "hf" });
+  assert.equal(start.status, 200, JSON.stringify(start.body));
+  const medId = (await loadState(db, id)).meds.find((m) => m.code === "bisoprolol")!.id;
+  assert.equal((await call("POST", `/patients/${id}/medications/${medId}/undo`, {})).status, 409, "the first entry is fixed or removed, not taken back");
+  assert.equal((await call("POST", `/patients/${id}/medications/${medId}/correct`, { doseValue: 2.5 })).status, 200);
+  assert.equal((await loadState(db, id)).meds.find((m) => m.id === medId)!.doseValue, 2.5);
+  assert.equal((await call("POST", `/patients/${id}/medications/${medId}/events`, { kind: "increase", doseValue: 5 })).status, 200);
+  assert.equal((await call("POST", `/patients/${id}/medications/${medId}/undo`, { reason: "Wrong entry" })).status, 200);
+  assert.equal((await loadState(db, id)).meds.find((m) => m.id === medId)!.doseValue, 2.5);
+  assert.equal((await call("POST", `/patients/${id}/medications/${medId}/void`, { reason: "Wrong patient" })).status, 200);
+  assert.ok(!(await loadState(db, id)).meds.some((m) => m.id === medId));
+  // the drug can be started again afterwards
+  assert.equal((await call("POST", `/patients/${id}/medications`, { code: "bisoprolol", doseValue: 1.25, frequency: "OD", route: "PO", indication: "hf" })).status, 200);
+  // study: echo entered in error takes its LVEF with it
+  const echo = await call("POST", `/patients/${id}/echo`, { date: new Date(Date.now() - 3600_000).toISOString(), quality: "formal", lvef: 25, findings: [] });
+  assert.equal(echo.status, 200, JSON.stringify(echo.body));
+  const st = (await loadState(db, id)).studies.find((x) => x.kind === "echo")!;
+  assert.equal((await call("POST", `/patients/${id}/studies/${st.id}/void`, { reason: "Wrong patient" })).status, 200);
+  const after = await loadState(db, id);
+  assert.ok(!after.studies.some((x) => x.id === st.id));
+  assert.equal(after.resolved("lvef").current, null);
+  assert.equal((await call("POST", `/patients/${id}/studies/${st.id}/void`, { reason: "Wrong patient" })).status, 409);
+  // originals kept
+  assert.equal((await db.query(`SELECT count(*)::int n FROM cf.study WHERE id=$1`, [st.id])).rows[0].n, 1);
+  assert.ok((await db.query(`SELECT count(*)::int n FROM cf.correction WHERE patient_id=$1`, [id])).rows[0].n >= 3);
+  // journey hides the removed echo
+  const j = (await call("GET", `/patients/${id}/journey`)).body;
+  assert.ok(!JSON.stringify(j).includes(st.id));
+});
+
+test("Kuwaiti civil ID gives the date of birth (and so the age); a different date is refused", async () => {
+  const { civilIdBirthDate, civilIdCheckDigitOk } = await import("../shared/civil-id.js");
+  assert.equal(civilIdBirthDate("285120312345"), "1985-12-03");
+  assert.equal(civilIdBirthDate("305021412345"), "2005-02-14");
+  assert.equal(civilIdBirthDate("285133112345"), null, "month 13");
+  assert.equal(civilIdBirthDate("485120312345"), null, "century digit");
+  // check digit (weights 2 1 6 3 7 9 10 5 8 4 2, mod 11)
+  const body = "28512031234";
+  const sum = [2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2].reduce((s, w, i) => s + w * Number(body[i]), 0);
+  const k = 11 - (sum % 11);
+  if (k < 10) assert.equal(civilIdCheckDigitOk(body + k), true);
+  const r = await call("POST", "/patients", { name: "From Civil", mrn: "700000001", sex: "Male", civilId: "285120312345" });
+  assert.equal(r.status, 201);
+  const h = (await call("GET", `/patients/${r.body.id}/summary`)).body.header;
+  assert.equal(h.birthDate, "1985-12-03");
+  assert.equal((await call("POST", "/patients", { name: "Mismatch", mrn: "700000002", sex: "Male", civilId: "285120312346", birthDate: "1985-12-04" })).status, 400);
+  assert.equal((await call("POST", `/patients/${r.body.id}/identity`, { birthDate: "1985-12-04" })).status, 400);
+});
+
+test("stress MIBI and ABPM are recorded as studies; their values join the trends; a MIBI completes a planned stress test", async () => {
+  const r = await call("POST", "/patients", { name: "Studies New", mrn: "800000001", sex: "Female", birthDate: "1965-05-05", conditions: ["htn", "cad-ccs"] });
+  const id = r.body.id;
+  const at = new Date(Date.now() - 3600_000).toISOString();
+  const plan = await call("POST", `/patients/${id}/plan`, { items: [{ category: "investigation", title: "Stress test", dueDate: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10), completesOn: { type: "study", kind: "stress" } }] });
+  assert.equal(plan.status, 200, JSON.stringify(plan.body));
+  const mibi = await call("POST", `/patients/${id}/studies`, { kind: "nuclear", date: new Date().toISOString(), findings: { stressor: "Regadenoson", result: "Reversible defect (ischaemia)", extent: "Moderate", ischaemia: 12, territory: ["LAD"], gatedLvef: 55 } });
+  assert.equal(mibi.status, 200, JSON.stringify(mibi.body));
+  const abpm = await call("POST", `/patients/${id}/studies`, { kind: "abpm", date: at, findings: { duration: "24 h", sbp24: 138, dbp24: 86, sbpNight: 129, dbpNight: 78, dipping: "Non-dipper", conclusion: "Ambulatory hypertension" } });
+  assert.equal(abpm.status, 200, JSON.stringify(abpm.body));
+  const s = await loadState(db, id);
+  assert.deepEqual(s.studies.map((x) => x.kind).sort(), ["abpm", "nuclear"]);
+  assert.equal(s.resolved("mpi-ischaemia").current!.value_num, 12);
+  assert.equal(s.resolved("abpm-24-sbp").current!.value_num, 138);
+  assert.ok(!s.plan.some((p) => p.title === "Stress test" && p.status === "planned"), "the MIBI completed the planned stress test");
+  assert.equal((await call("POST", `/patients/${id}/studies`, { kind: "abpm", date: at, findings: { duration: "24 h", sbp24: 138 } })).status, 400, "diastolic and conclusion are required");
 });

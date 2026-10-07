@@ -4,6 +4,7 @@ import type { Q } from "../db/db.js";
 import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
+import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { PH_SIGNS } from "../../shared/ph.js";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, studySummary, valveFindings } from "../../shared/studies.js";
@@ -11,6 +12,9 @@ import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureS
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
 export type Changed = string[];
+// medicines and medication events not corrected away (migration 008); aliases m and me
+export const LIVE_MED = `NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)`;
+export const LIVE_EVENT = `NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication_event' AND k.entity_id=me.id)`;
 
 // ---------- patients & conditions ----------
 export type Identity = { civilId?: string | null; nationality?: string | null; mobile?: string | null };
@@ -33,7 +37,10 @@ export async function createPatient(
   if (!synthetic && /^SYN-/i.test(mrn)) throw new ApiError(400, "MRNs starting with SYN- are reserved for sample patients");
   const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2 AND removed_at IS NULL", [actor.siteId, mrn])).rows[0];
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
-  if (!synthetic) await civilIdFree(tx, actor.siteId, input.civilId);
+  if (!synthetic) {
+    await civilIdFree(tx, actor.siteId, input.civilId);
+    birthMatchesCivilId(input.civilId, input.birthDate);
+  }
   const id = uuid();
   await tx.query(
     "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile,synthetic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
@@ -66,6 +73,11 @@ export async function moveToSample(tx: Q, actor: Actor, patientId: string) {
 
 // Registration details are not clinical history: they are updated in place, and the audit
 // keeps the previous values.
+// A Kuwaiti civil ID carries the date of birth: the two must agree (real patients).
+function birthMatchesCivilId(civilId: string | null | undefined, birthDate: string) {
+  const fromId = civilIdBirthDate(civilId);
+  if (fromId && fromId !== birthDate) throw new ApiError(400, `The date of birth does not match the civil ID (it gives ${fromId})`);
+}
 export type Registration = { name?: string; mrn?: string; sex?: "Male" | "Female"; birthDate?: string };
 const dayOf = (v: unknown) => String(v instanceof Date ? v.toISOString() : v).slice(0, 10);
 // Name, file number, sex and date of birth are registration details too (updated in place, audited).
@@ -83,6 +95,7 @@ export async function updateIdentity(tx: Q, actor: Actor, patientId: string, inp
   const beforeReg = { name: before.name, mrn: before.mrn, sex: before.sex, birth_date: dayOf(before.birth_date) };
   const reg = { name: input.name?.trim() || before.name, mrn, sex: input.sex ?? before.sex, birth_date: input.birthDate ?? beforeReg.birth_date };
   const regChanged = (Object.keys(reg) as (keyof typeof reg)[]).filter((k) => beforeReg[k] !== reg[k]);
+  if (!before.synthetic) birthMatchesCivilId(input.civilId === undefined ? before.civil_id : input.civilId, reg.birth_date);
   if (regChanged.length) await tx.query(`UPDATE cf.patient SET name=$2, mrn=$3, sex=$4, birth_date=$5 WHERE id=$1`, [patientId, reg.name, reg.mrn, reg.sex, reg.birth_date]);
   const next = {
     civil_id: input.civilId === undefined ? before.civil_id : input.civilId || null,
@@ -592,11 +605,11 @@ export async function startMedication(
   const def = MEDICATION[input.code];
   if (!def) throw new ApiError(400, "Unknown medication");
   const existing = (
-    await tx.query(`SELECT id FROM cf.medication WHERE patient_id=$1 AND drug=$2 ORDER BY created_at DESC LIMIT 1`, [patientId, input.code])
+    await tx.query(`SELECT id FROM cf.medication m WHERE patient_id=$1 AND drug=$2 AND ${LIVE_MED} ORDER BY created_at DESC LIMIT 1`, [patientId, input.code])
   ).rows[0];
   let medicationId = existing?.id as string | undefined;
   if (medicationId) {
-    const last = (await tx.query(`SELECT kind FROM cf.medication_event WHERE medication_id=$1 ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
+    const last = (await tx.query(`SELECT kind FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
     if (last && last.kind !== "stop") throw new ApiError(409, `${def.name} is already on the medication list. Change its dose instead.`);
   } else {
     medicationId = uuid();
@@ -631,13 +644,13 @@ export async function medicationEvent(
   medicationId: string,
   input: { kind: "increase" | "decrease" | "hold" | "restart" | "stop" | "continue" | "not_taking" | "resume"; doseValue?: number | null; frequency?: string | null; reason?: string; effectiveAt: string; contextId?: string | null; decisionId?: string | null },
 ) {
-  const med = (await tx.query(`SELECT * FROM cf.medication WHERE id=$1 AND patient_id=$2`, [medicationId, patientId])).rows[0];
+  const med = (await tx.query(`SELECT * FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0];
   if (!med) throw new ApiError(404, "Medication not found");
   const def = MEDICATION[med.drug];
   const last = (
-    await tx.query(`SELECT * FROM cf.medication_event WHERE medication_id=$1 AND kind IN ('start','restart','increase','decrease') ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])
+    await tx.query(`SELECT * FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} AND kind IN ('start','restart','increase','decrease') ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])
   ).rows[0];
-  const lastAny = (await tx.query(`SELECT kind FROM cf.medication_event WHERE medication_id=$1 ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
+  const lastAny = (await tx.query(`SELECT kind FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
   if (lastAny?.kind === "stop" && input.kind !== "restart") throw new ApiError(409, `${def?.name} has been stopped`);
   if ((input.kind === "increase" || input.kind === "decrease") && input.doseValue == null) throw new ApiError(400, "Choose the new dose");
   // exceptions reported by the patient: only against the current state
@@ -790,7 +803,8 @@ export async function completeMatching(
     const windowDays = trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
     if (a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
     if (trigger.type === "lab" && !(c.codes ?? []).every((code: string) => trigger.codes.includes(code))) continue;
-    if (trigger.type === "study" && c.kind !== trigger.kind) continue;
+    // a stress MIBI is a stress test: it completes a planned "stress test"
+    if (trigger.type === "study" && c.kind !== trigger.kind && !(c.kind === "stress" && trigger.kind === "nuclear")) continue;
     const signature = JSON.stringify(c);
     if (trigger.type !== "visit" && used.has(signature)) continue;
     used.add(signature);

@@ -35,7 +35,7 @@ after(async () => db.close());
 
 test("migration 002 is applied once, recorded, and the status history is append-only", async () => {
   const names = (await db.query(`SELECT name FROM cf.migration ORDER BY name`)).rows.map((r: any) => r.name);
-  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes", "v2-005-procedures", "v2-006-sample-patients", "v2-007-patient-removal"]);
+  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes", "v2-005-procedures", "v2-006-sample-patients", "v2-007-patient-removal", "v2-008-corrections"]);
   const pid = await newPatient();
   const id = uuid();
   await db.query(`INSERT INTO cf.status_event(id,patient_id,kind,status,effective_on,recorded_by) VALUES($1,$2,'vital','alive',$3,'t')`, [id, pid, T]);
@@ -207,7 +207,8 @@ test("API: history and identity routes validate, save and return the view", asyn
     const post = (path: string, body: unknown) => fetch(`${base}/patients/${pid}/${path}`, { method: "POST", headers: h, body: JSON.stringify(body) });
     assert.equal((await post("history", {})).status, 400);
     assert.equal((await post("identity", { civilId: "12345" })).status, 400);
-    assert.equal((await post("identity", { civilId: "289010100123", nationality: "Kuwaiti" })).status, 200);
+    assert.equal((await post("identity", { civilId: "289010100123", nationality: "Kuwaiti" })).status, 400, "date of birth differs from the civil ID");
+    assert.equal((await post("identity", { civilId: "289010100123", nationality: "Kuwaiti", birthDate: "1989-01-01" })).status, 200);
     const ok = await post("history", { answers: [{ item: "alcohol", answer: "never" }, { item: "hypertension", answer: "no" }], add: [{ code: "cied", attributes: { type: "Pacemaker" }, onsetYear: 2020 }] });
     assert.equal(ok.status, 200);
     const got = await (await fetch(`${base}/patients/${pid}/history`, { headers: { cookie } })).json();

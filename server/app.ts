@@ -4,6 +4,8 @@ import { z, ZodError } from "zod";
 import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
+import * as C from "./kernel/corrections.js";
+import { civilIdBirthDate } from "../shared/civil-id.js";
 import { loadState } from "./kernel/state.js";
 import { preStartCheck } from "./engine/med-safety.js";
 import { bookMonitoringAtStart } from "./engine/med-rules.js";
@@ -182,7 +184,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         name: z.string().trim().min(2).max(120),
         mrn: z.string().trim().min(1).max(40),
         sex: z.enum(["Male", "Female"]),
-        birthDate: isoDate,
+        // optional when a Kuwaiti civil ID is given: the date of birth is read from it
+        birthDate: isoDate.optional(),
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
         sample: z.boolean().default(false),
@@ -190,7 +193,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       })
       .parse(req.body);
     const id = await db.transaction(async (tx) => {
-      const id = await K.createPatient(tx, actor(res), { ...input, synthetic: input.sample });
+      const birthDate = input.birthDate ?? civilIdBirthDate(input.civilId);
+      if (!birthDate) throw new ApiError(400, "Give the date of birth or a civil ID");
+      const id = await K.createPatient(tx, actor(res), { ...input, birthDate, synthetic: input.sample });
       await reassess(tx, id, await siteMode(tx, actor(res).siteId));
       return id;
     });
@@ -222,6 +227,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           meds,
           plan: planView(s),
           results: results(s, [...LABS.map((l) => l.code)]),
+          procedures: s.procedures,
           vitals: results(s, VITALS.map((v) => v.code)),
           studies,
           lvefResolution: (() => {
@@ -254,6 +260,35 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z.object({ value: z.number().finite().optional(), enteredInError: z.boolean().optional() }).parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await K.correctObservation(tx, a, id, uuidS.parse(req.params.oid), input) }));
+  }));
+  // ---------- corrections (migration 008): entered in error, or a corrected copy; nothing is erased ----------
+  const reasonS = z.object({ reason: z.string().max(300).optional() });
+  app.post("/api/patients/:id/studies/:sid/void", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { reason } = reasonS.parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await C.voidStudy(tx, a, id, uuidS.parse(req.params.sid), reason) }));
+  }));
+  app.post("/api/patients/:id/procedures/:pid/void", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { reason } = reasonS.parse(req.body);
+    await write(res, id, async (tx, a) => ((await C.voidProcedure(tx, a, id, uuidS.parse(req.params.pid), reason)), {}));
+  }));
+  app.post("/api/patients/:id/medications/:mid/void", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { reason } = reasonS.parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await C.voidMedication(tx, a, id, uuidS.parse(req.params.mid), reason) }));
+  }));
+  app.post("/api/patients/:id/medications/:mid/undo", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { reason } = reasonS.parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await C.undoLastMedicationChange(tx, a, id, uuidS.parse(req.params.mid), reason) }));
+  }));
+  app.post("/api/patients/:id/medications/:mid/correct", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z
+      .object({ doseValue: z.number().positive().nullish(), frequency: z.string().max(60).nullish(), effectiveAt: isoDateTime.optional(), reason: z.string().max(300).optional() })
+      .parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await C.correctMedicationEntry(tx, a, id, uuidS.parse(req.params.mid), input) }));
   }));
   app.post("/api/patients/:id/preferences", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -333,7 +368,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "ccta", "cmr", "cath"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),

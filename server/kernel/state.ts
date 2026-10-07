@@ -111,11 +111,14 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
         (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
-        (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1) AS meds,
-        (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at,decision_id FROM cf.medication_event WHERE patient_id=$1) e) AS events,
+        (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1
+            AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)) AS meds,
+        (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at,decision_id FROM cf.medication_event me WHERE patient_id=$1
+            AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication_event' AND k.entity_id=me.id)) e) AS events,
         (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,decision_id,created_at,version FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1) cc) AS contexts,
-        (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study WHERE patient_id=$1) st) AS studies,
+        (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study sx WHERE patient_id=$1
+            AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='study' AND k.entity_id=sx.id)) st) AS studies,
         (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs,
         (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status,
         (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers,

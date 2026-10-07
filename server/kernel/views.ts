@@ -1,3 +1,4 @@
+import { correctedRefs } from "./corrections.js";
 import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
 import { cadProfile } from "../engine/cad-profile.js";
@@ -432,6 +433,9 @@ export async function journey(tx: Q, patientId: string) {
       [patientId],
     )
   ).rows.map((e: any) => ({ ...e, occurred_at: new Date(e.occurred_at).toISOString(), planned: false }));
+  // entries corrected away (entered in error) leave the journey with them
+  const hidden = await correctedRefs(tx, patientId);
+  events.splice(0, events.length, ...events.filter((e: any) => !(e.ref_id && hidden.has(String(e.ref_id)))));
   const planned = s.plan
     .filter((p) => p.status === "planned" && p.due_date && p.due_date > s.today)
     .map((p) => ({

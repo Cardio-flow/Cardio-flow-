@@ -8,6 +8,8 @@ import { flagFor, fmtDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import type { Open } from "./Patient";
 
+const PROC_LABEL: Record<string, string> = { pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
+
 export function MedicationsTab({ id, version, open }: { id: string; version: number; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/record`, [version]);
   if (!data) return <main className="page" />;
@@ -48,7 +50,10 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
                     <td data-label="Last change">{m.lastChange ? `${({ start: "Started", increase: "Increased", decrease: "Reduced", hold: "Held", restart: "Restarted", not_taking: "Not taking", resume: "Taken again", continue: /^Frequency changed/.test(m.lastChange.reason ?? "") ? "Frequency changed" : "Continued" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} · ${fmtDay(m.lastChange.effective_at)}` : "—"}</td>
                     <td data-label="Status"><Tag sev={m.status === "held" || m.status === "not_taking" ? "orange" : "green"}>{m.status === "held" ? "Held" : m.status === "not_taking" ? "Not taking" : "Active"}</Tag></td>
                     <td data-cell="action" style={{ textAlign: "right" }}>
-                      <button className="btn secondary small" onClick={() => open({ kind: "med-action", medId: m.id })}>Change</button>
+                      <span className="row-actions">
+                        <button className="btn secondary small" onClick={() => open({ kind: "med-action", medId: m.id })}>Change</button>
+                        <button className="btn ghost small" title="Correct a wrong entry" onClick={() => open({ kind: "med-correct", med: m })}>Correct</button>
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -62,7 +67,9 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
           <div className="card-head"><h2>Stopped</h2></div>
           <div className="row wrap" style={{ gap: 8 }}>
             {stopped.map((m: any) => (
-              <span key={m.id} className="chip outline">{m.name} · stopped {fmtDay(m.lastChange?.effective_at)}{m.lastChange?.reason ? ` · ${m.lastChange.reason}` : ""}</span>
+              <button key={m.id} className="chip outline" style={{ cursor: "pointer" }} title="Correct a wrong entry" onClick={() => open({ kind: "med-correct", med: m })}>
+                {m.name} · stopped {fmtDay(m.lastChange?.effective_at)}{m.lastChange?.reason ? ` · ${m.lastChange.reason}` : ""}
+              </button>
             ))}
           </div>
         </section>
@@ -130,6 +137,7 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                       {isCurrent && data.lvefResolution.preferred && (
                         <button className="btn ghost small" disabled={busy} onClick={() => prefer(null, "Return to automatic selection")}>Automatic</button>
                       )}
+                      <button className="btn ghost small" onClick={() => open({ kind: "void", what: `Echo of ${fmtDay(s.performed_at, { year: true })}`, path: `studies/${s.id}/void` })}>Entered in error</button>
                     </td>
                   </tr>
                 );
@@ -151,7 +159,7 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
           <div className="empty">No ECG, Holter, stress test, CT, CMR or angiography recorded yet.</div>
         ) : (
           <table className="data">
-            <thead><tr><th>Date</th><th>Study</th><th>Findings</th><th>Conclusion</th></tr></thead>
+            <thead><tr><th>Date</th><th>Study</th><th>Findings</th><th>Conclusion</th><th /></tr></thead>
             <tbody>
               {others.map((st: any) => (
                 <tr key={st.id}>
@@ -159,17 +167,40 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                   <td data-label="Study"><Tag sev="blue">{STUDY_LABEL[st.kind] ?? st.kind}</Tag></td>
                   <td data-label="Findings"><b>{st.findings[0] ?? "—"}</b></td>
                   <td data-label="Conclusion" className="small muted">{st.conclusion || "—"}</td>
+                  <td data-cell="action" style={{ textAlign: "right" }}>
+                    <button className="btn ghost small" onClick={() => open({ kind: "void", what: `${STUDY_LABEL[st.kind] ?? st.kind} of ${fmtDay(st.performed_at, { year: true })}`, path: `studies/${st.id}/void` })}>Entered in error</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </section>
+      {data.procedures?.length > 0 && (
+        <section className="card pad">
+          <div className="card-head"><h2>Procedures</h2><span className="meta">PCI, CABG, valve, device and ablation</span></div>
+          <table className="data">
+            <thead><tr><th>Date</th><th>Procedure</th><th>Details</th><th /></tr></thead>
+            <tbody>
+              {[...data.procedures].reverse().map((p: any) => (
+                <tr key={p.id}>
+                  <td data-label="Date">{fmtDay(p.performed_at, { year: true })}</td>
+                  <td data-label="Procedure"><Tag sev="blue">{PROC_LABEL[p.kind] ?? p.kind}</Tag></td>
+                  <td data-label="Details" className="small">{p.summary || "—"}</td>
+                  <td data-cell="action" style={{ textAlign: "right" }}>
+                    <button className="btn ghost small" onClick={() => open({ kind: "void", what: `${PROC_LABEL[p.kind] ?? p.kind} of ${fmtDay(p.performed_at, { year: true })}`, path: `procedures/${p.id}/void` })}>Entered in error</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
       <section className="card pad">
         <div className="card-head"><h2>Laboratory</h2><span className="meta">Latest value, trend and previous results</span></div>
         {data.results.length === 0 ? <div className="empty">No results yet.</div> : (
           <table className="data">
-            <thead><tr><th>Test</th><th>Latest</th><th>Date</th><th>Trend</th><th>Previous</th></tr></thead>
+            <thead><tr><th>Test</th><th>Latest</th><th>Date</th><th>Trend</th><th>Previous</th><th /></tr></thead>
             <tbody>
               {data.results.map((r: any) => {
                 const def = MEASURES[r.code];
@@ -181,6 +212,9 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
                     <td data-label="Date">{fmtDay(r.current.at, { year: true })}</td>
                     <td data-label="Trend"><Sparkline values={r.series.map((p: any) => p.value)} tone={flag ? "orange" : "gray"} /></td>
                     <td data-label="Previous" className="small muted">{r.series.slice(0, -1).reverse().slice(0, 3).map((p: any) => `${formatNumber(p.value, r.decimals)} (${fmtDay(p.at)})`).join(" · ") || "—"}</td>
+                    <td data-cell="action" style={{ textAlign: "right" }}>
+                      {!def?.derived && <button className="btn ghost small" onClick={() => open({ kind: "result-correct", result: r })}>Correct</button>}
+                    </td>
                   </tr>
                 );
               })}

@@ -17,6 +17,7 @@ import { AddStudy } from "../drawers/AddStudy";
 import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
+import { CorrectMedication, CorrectResult, VoidEntry } from "../drawers/Corrections";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
@@ -44,7 +45,10 @@ export type Open =
   | { kind: "pathways" }
   | { kind: "documents" }
   | { kind: "after-pci" }
-  | { kind: "checklist"; check?: CheckKind };
+  | { kind: "checklist"; check?: CheckKind }
+  | { kind: "med-correct"; med: any }
+  | { kind: "result-correct"; result: any }
+  | { kind: "void"; what: string; path: string };
 
 const TABS = [
   ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
@@ -233,6 +237,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
+      {open?.kind === "med-correct" && <CorrectMedication patientId={id} med={open.med} today={s.today} onClose={close} onDone={done} />}
+      {open?.kind === "result-correct" && <CorrectResult patientId={id} result={open.result} onClose={close} onDone={done} />}
+      {open?.kind === "void" && <VoidEntry patientId={id} what={open.what} path={open.path} onClose={close} onDone={done} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
     </>
   );

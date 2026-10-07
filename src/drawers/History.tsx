@@ -6,6 +6,7 @@ import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
 import { fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
+import { civilIdBirthDate, civilIdCheckDigitOk } from "../../shared/civil-id";
 
 // One editable diagnosis: new (add) or existing (update).
 type Dx = { key: string; code: string; logicalId?: string; attributes: Record<string, any>; onset: string; onsetYear: string; dirty?: boolean; label?: string; expanded?: boolean };
@@ -439,13 +440,33 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
 // Registration details: civil ID, nationality, mobile, allergies.
 export const NATIONALITIES = ["Kuwaiti", "Egyptian", "Indian", "Saudi", "Syrian", "Jordanian", "Lebanese", "Iraqi", "Iranian", "Pakistani", "Bangladeshi", "Filipino", "Sri Lankan", "Nepali", "Other"];
 
+// Civil ID fills the date of birth (Kuwaiti civil ID carries it); the age is then calculated, never typed.
 export function IdentityFields({ f, setF }: { f: any; setF(f: any): void }) {
-  const civilBad = !!f.civilId && !/^\d{12}$/.test(f.civilId);
+  const civilBad = !!f.civilId && (!/^\d{12}$/.test(f.civilId) || (f.civilId.length === 12 && !civilIdBirthDate(f.civilId)));
+  const born = civilIdBirthDate(f.civilId);
+  const checkOff = !!born && !civilIdCheckDigitOk(f.civilId);
   return (
-    <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
+    <div className="row wrap" style={{ gap: 16, alignItems: "flex-start" }}>
       <label className="field">
         <span>Civil ID</span>
-        <input className={`input ${civilBad ? "bad" : ""}`} inputMode="numeric" placeholder="12 digits" value={f.civilId ?? ""} onChange={(e) => setF({ ...f, civilId: e.target.value.replace(/[^\d]/g, "").slice(0, 12) })} />
+        <input
+          className={`input ${civilBad ? "bad" : ""}`}
+          inputMode="numeric"
+          placeholder="12 digits"
+          value={f.civilId ?? ""}
+          onChange={(e) => {
+            const civilId = e.target.value.replace(/[^\d]/g, "").slice(0, 12);
+            const b = civilIdBirthDate(civilId);
+            setF({ ...f, civilId, ...(b && "birthDate" in f ? { birthDate: b } : {}) });
+          }}
+        />
+        {born ? (
+          <small className={checkOff ? "civil-note warn" : "civil-note"}>
+            {checkOff ? "Check digit does not match: check the number" : `Born ${fmtDay(born, { year: true })} · age from the civil ID`}
+          </small>
+        ) : civilBad && f.civilId.length === 12 ? (
+          <small className="civil-note warn">No valid birth date in this number</small>
+        ) : null}
       </label>
       <label className="field">
         <span>Nationality</span>
@@ -536,6 +557,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
             <input className="input" value={f.mrn} onChange={(e) => setF({ ...f, mrn: e.target.value })} />
           </label>
         </div>
+        <IdentityFields f={f} setF={setF} />
         <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
           <div className="field">
             <span>Sex</span>
@@ -546,7 +568,6 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
             <input type="date" className="input" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
           </label>
         </div>
-        <IdentityFields f={f} setF={setF} />
         <label className="field">
           <span>Allergies</span>
           <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />

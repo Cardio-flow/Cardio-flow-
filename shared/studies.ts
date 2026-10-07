@@ -46,12 +46,47 @@ export const STUDIES: StudyDef[] = [
   {
     kind: "stress", label: "Stress test", short: "Stress", help: "Functional test for ischaemia; the modality decides which fields apply.",
     fields: [
-      { key: "modality", label: "Modality", type: "choice", required: true, options: ["Exercise ECG", "Stress echo", "SPECT", "PET", "Stress CMR"] },
+      // SPECT has its own template (Stress MIBI) since 7 Oct 2026; older SPECT records keep their modality
+      { key: "modality", label: "Modality", type: "choice", required: true, options: ["Exercise ECG", "Stress echo", "PET", "Stress CMR"] },
       { key: "result", label: "Result", type: "choice", required: true, options: ["Negative", "Positive for ischaemia", "Equivocal", "Non-diagnostic"] },
       { key: "extent", label: "Ischaemia extent", type: "choice", options: ["None", "Small", "Moderate", "Large"], when: { field: "modality", notIn: ["Exercise ECG"] } },
       { key: "territory", label: "Territory", type: "multi", options: ["LAD", "LCx", "RCA"], when: { field: "result", in: ["Positive for ischaemia", "Equivocal"] } },
       { key: "mets", label: "Exercise capacity", type: "number", unit: "METs", min: 1, max: 25, decimals: 1, obs: "mets", when: { field: "modality", in: ["Exercise ECG", "Stress echo"] } },
       { key: "symptoms", label: "Symptoms during test", type: "choice", options: ["None", "Typical angina", "Dyspnoea", "Other"] },
+    ],
+  },
+  {
+    kind: "nuclear", label: "Stress MIBI (myocardial perfusion SPECT)", short: "Stress MIBI", help: "Stress and rest perfusion as reported: defect type, extent, territory and gated function.",
+    fields: [
+      { key: "stressor", label: "Stress", type: "choice", required: true, options: ["Exercise", "Regadenoson", "Adenosine", "Dipyridamole", "Dobutamine"] },
+      { key: "result", label: "Perfusion", type: "choice", required: true, options: ["Normal perfusion", "Reversible defect (ischaemia)", "Fixed defect (scar)", "Mixed (ischaemia and scar)", "Equivocal", "Non-diagnostic"] },
+      { key: "extent", label: "Ischaemia extent (as reported)", type: "choice", options: ["Small", "Moderate", "Large"], when: { field: "result", in: ["Reversible defect (ischaemia)", "Mixed (ischaemia and scar)"] } },
+      { key: "ischaemia", label: "Ischaemic myocardium", type: "number", unit: "% LV", min: 0, max: 100, obs: "mpi-ischaemia", when: { field: "result", in: ["Reversible defect (ischaemia)", "Mixed (ischaemia and scar)", "Equivocal"] } },
+      { key: "territory", label: "Territory", type: "multi", options: ["LAD", "LCx", "RCA"], when: { field: "result", notIn: ["Normal perfusion", "Non-diagnostic"] } },
+      { key: "sss", label: "Summed stress score (SSS)", type: "number", unit: "", min: 0, max: 80 },
+      { key: "sds", label: "Summed difference score (SDS)", type: "number", unit: "", min: 0, max: 80 },
+      { key: "tid", label: "Transient ischaemic dilation", type: "choice", options: ["No", "Yes"] },
+      { key: "gatedLvef", label: "Gated LVEF (post-stress)", type: "number", unit: "%", min: 5, max: 90 },
+      { key: "wall", label: "Wall motion", type: "choice", options: ["Normal", "Regional abnormality", "Global hypokinesia"] },
+      { key: "ecg", label: "Stress ECG", type: "choice", options: ["No ischaemic changes", "Ischaemic ST changes", "Non-diagnostic (paced, LBBB, LVH or drug)"] },
+      { key: "symptoms", label: "Symptoms during test", type: "choice", options: ["None", "Typical angina", "Dyspnoea", "Other"] },
+      { key: "mets", label: "Exercise capacity", type: "number", unit: "METs", min: 1, max: 25, decimals: 1, obs: "mets", when: { field: "stressor", in: ["Exercise"] } },
+    ],
+  },
+  {
+    kind: "abpm", label: "Ambulatory BP monitoring (ABPM)", short: "ABPM", help: "Mean pressures as reported for 24 h, day and night; the conclusion is the reporter's.",
+    fields: [
+      { key: "duration", label: "Duration", type: "choice", required: true, options: ["24 h", "48 h"] },
+      { key: "onTreatment", label: "BP-lowering treatment", type: "choice", options: ["Not on treatment", "On treatment"] },
+      { key: "sbp24", label: "24-h mean systolic", type: "number", unit: "mmHg", min: 60, max: 260, obs: "abpm-24-sbp", required: true },
+      { key: "dbp24", label: "24-h mean diastolic", type: "number", unit: "mmHg", min: 30, max: 160, obs: "abpm-24-dbp", required: true },
+      { key: "sbpDay", label: "Daytime mean systolic", type: "number", unit: "mmHg", min: 60, max: 260, obs: "abpm-day-sbp" },
+      { key: "dbpDay", label: "Daytime mean diastolic", type: "number", unit: "mmHg", min: 30, max: 160, obs: "abpm-day-dbp" },
+      { key: "sbpNight", label: "Night-time mean systolic", type: "number", unit: "mmHg", min: 50, max: 260, obs: "abpm-night-sbp" },
+      { key: "dbpNight", label: "Night-time mean diastolic", type: "number", unit: "mmHg", min: 30, max: 160, obs: "abpm-night-dbp" },
+      { key: "dipping", label: "Night-time dipping", type: "choice", options: ["Dipper", "Non-dipper", "Reverse dipper", "Extreme dipper", "Not reported"] },
+      { key: "valid", label: "Valid readings", type: "number", unit: "%", min: 0, max: 100 },
+      { key: "conclusion", label: "Report conclusion", type: "choice", required: true, options: ["Normal ambulatory BP", "Ambulatory hypertension", "White-coat hypertension", "Masked hypertension", "Controlled on treatment", "Uncontrolled on treatment", "Non-diagnostic"] },
     ],
   },
   {
@@ -185,6 +220,10 @@ export function studySummary(kind: string, a: Record<string, any>): string {
         .filter(Boolean).join(" · ");
     case "stress":
       return [a.modality, a.result, a.extent && a.extent !== "None" ? `${a.extent.toLowerCase()} ischaemia` : null, a.territory?.length ? a.territory.join("/") : null, u(a.mets, " METs")].filter(Boolean).join(" · ");
+    case "nuclear":
+      return [`${a.stressor ?? ""} MIBI`.trim(), a.result, a.extent ? `${a.extent.toLowerCase()} ischaemia` : null, a.ischaemia != null ? `${a.ischaemia}% LV` : null, a.territory?.length ? a.territory.join("/") : null, a.tid === "Yes" ? "TID" : null, u(a.gatedLvef, "% gated LVEF")].filter(Boolean).join(" · ");
+    case "abpm":
+      return [a.duration ? `${a.duration} ABPM` : "ABPM", a.sbp24 != null && a.dbp24 != null ? `24-h ${a.sbp24}/${a.dbp24}` : null, a.sbpDay != null && a.dbpDay != null ? `day ${a.sbpDay}/${a.dbpDay}` : null, a.sbpNight != null && a.dbpNight != null ? `night ${a.sbpNight}/${a.dbpNight}` : null, a.dipping && a.dipping !== "Not reported" ? a.dipping.toLowerCase() : null, a.conclusion].filter(Boolean).join(" · ");
     case "ccta":
       return [a.cac != null ? `CAC ${a.cac}` : null, a.cadrads && a.cadrads !== "Calcium score only" ? `CAD-RADS ${a.cadrads}` : null, a.vessels?.length ? a.vessels.join(", ") : null, a.highRiskPlaque === "Yes" ? "high-risk plaque" : null].filter(Boolean).join(" · ");
     case "cmr":

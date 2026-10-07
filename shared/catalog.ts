@@ -80,6 +80,14 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "ve-burden", display: "Ventricular ectopic burden", short: "VE burden", unit: "%", category: "Holter", decimals: 1 },
   { code: "mets", display: "Exercise capacity", short: "METs", unit: "METs", category: "Stress", decimals: 1 },
   { code: "cac", display: "Coronary calcium score", short: "CAC", unit: "Agatston", category: "CT", decimals: 0 },
+  // stress MIBI (myocardial perfusion SPECT) and ambulatory BP monitoring (7 Oct 2026): reported values
+  { code: "mpi-ischaemia", display: "Ischaemic myocardium (perfusion imaging)", short: "Ischaemia %", unit: "% LV", category: "Nuclear", decimals: 0, max: 100 },
+  { code: "abpm-24-sbp", display: "ABPM 24-h mean systolic BP", short: "24-h SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },
+  { code: "abpm-24-dbp", display: "ABPM 24-h mean diastolic BP", short: "24-h DBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 160 },
+  { code: "abpm-day-sbp", display: "ABPM daytime mean systolic BP", short: "Day SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },
+  { code: "abpm-day-dbp", display: "ABPM daytime mean diastolic BP", short: "Day DBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 160 },
+  { code: "abpm-night-sbp", display: "ABPM night-time mean systolic BP", short: "Night SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },
+  { code: "abpm-night-dbp", display: "ABPM night-time mean diastolic BP", short: "Night DBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 160 },
   { code: "rvef", display: "RVEF", short: "RVEF", unit: "%", category: "CMR", decimals: 0 },
   // valve module (Echo): measured values the valve rules read
   { code: "av-vmax", display: "Aortic valve peak velocity", short: "AV Vmax", unit: "m/s", category: "Echo", decimals: 1, max: 8 },

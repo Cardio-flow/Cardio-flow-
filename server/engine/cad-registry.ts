@@ -270,7 +270,7 @@ export const CAD_REGISTRY: Section[] = [
       { key: "Echo_Date", label: "Echo date", get: (x) => { const e = echoOf(x); return e ? { value: day(e.performed_at) } : null; } },
       { key: "LVEF", label: "LVEF (%)", get: (x) => num(series(x, "lvef")[0], 0) },
       { key: "Regional_Wall_Motion_Abnormality", label: "Regional wall motion abnormality" },
-      { key: "Stress_Test_Performed", label: "Stress / functional test", get: (x) => yn(x.s.studies.some((st) => st.kind === "stress" && day(st.performed_at) <= x.to && day(st.performed_at) >= addDays(x.from, -365))) },
+      { key: "Stress_Test_Performed", label: "Stress / functional test", get: (x) => yn(x.s.studies.some((st) => (st.kind === "stress" || st.kind === "nuclear") && day(st.performed_at) <= x.to && day(st.performed_at) >= addDays(x.from, -365))) },
       { key: "CTCA_Performed", label: "CT coronary angiography", get: (x) => yn(x.s.studies.some((st) => st.kind === "ccta" && day(st.performed_at) <= x.to && day(st.performed_at) >= addDays(x.from, -365))) },
       { key: "Sample_Date", label: "Lab sample date", get: (x) => { const o = ["haemoglobin", "creatinine", "hs-troponin", "ldl-c"].map((c) => series(x, c)[0]).filter(Boolean).sort((a, b) => a!.effective_at.localeCompare(b!.effective_at))[0]; return o ? { value: day(o.effective_at) } : null; } },
       { key: "Hemoglobin", label: "Baseline haemoglobin (g/dL)", get: first("haemoglobin", 1) },
