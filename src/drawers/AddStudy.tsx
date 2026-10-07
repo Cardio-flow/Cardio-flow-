@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FileHeart } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, MultiChoice, SingleChoice } from "../ui";
+import { Drawer, MultiChoice, SingleChoice, DateInput } from "../ui";
 import { STUDIES, STUDY, fieldActive, studySummary, type StudyField } from "../../shared/studies";
 
 // One drawer for every study kind: choose the kind, then fill its short template.
@@ -66,21 +66,30 @@ export function AddStudy({ patientId, kind: initialKind, initial, contextId, onC
             <div className="row wrap" style={{ gap: 18, alignItems: "flex-end" }}>
               <label className="field">
                 <span>Study date</span>
-                <input type="date" className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
+                <DateInput className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
               </label>
               {!initialKind && (
                 <button className="btn ghost small" onClick={() => (setKind(""), setValues({}))}>Change study type</button>
               )}
             </div>
-            {groups(active).map((g, i) =>
-              g.length > 1 ? (
-                <div key={i} className="row wrap" style={{ gap: 16 }}>
-                  {g.map((f) => <Field key={f.key} f={f} value={values[f.key]} onChange={(v) => setValues((x) => ({ ...x, [f.key]: v }))} />)}
-                </div>
-              ) : (
-                <Field key={g[0].key} f={g[0]} value={values[g[0].key]} onChange={(v) => setValues((x) => ({ ...x, [g[0].key]: v }))} />
-              ),
-            )}
+            {/* boxed: what the report must say first, then the optional detail */}
+            {[
+              { title: "Result", fields: active.filter((f) => (f as any).required) },
+              { title: "Details", hint: "optional", fields: active.filter((f) => !(f as any).required) },
+            ].filter((b) => b.fields.length).map((b) => (
+              <section key={b.title} className="study-box">
+                <div className="study-box-head"><b>{b.title}</b>{b.hint && <span>{b.hint}</span>}</div>
+                {groups(b.fields).map((g, i) =>
+                  g.length > 1 ? (
+                    <div key={i} className="study-nums">
+                      {g.map((f) => <Field key={f.key} f={f} value={values[f.key]} onChange={(v) => setValues((x) => ({ ...x, [f.key]: v }))} />)}
+                    </div>
+                  ) : (
+                    <Field key={g[0].key} f={g[0]} value={values[g[0].key]} onChange={(v) => setValues((x) => ({ ...x, [g[0].key]: v }))} />
+                  ),
+                )}
+              </section>
+            ))}
             <label className="field">
               <span>Report conclusion (optional)</span>
               <textarea className="input" rows={2} value={conclusion} onChange={(e) => setConclusion(e.target.value)} />
@@ -120,7 +129,7 @@ function Field({ f, value, onChange }: { f: StudyField; value: any; onChange(v: 
             className={`input num study-num ${value !== "" && value != null && (Number(value) < f.min || Number(value) > f.max) ? "bad" : ""}`}
             inputMode="decimal"
             value={value ?? ""}
-            onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, "").slice(0, 6))}
+            onChange={(e) => onChange(e.target.value.replace(f.min < 0 ? /[^\d.-]/g : /[^\d.]/g, "").replace(/(?!^)-/g, "").slice(0, 6))}
             aria-label={f.label}
           />
           {f.unit && <b className="muted">{f.unit}</b>}

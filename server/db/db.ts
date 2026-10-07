@@ -79,6 +79,7 @@ export const MIGRATIONS = [
   { name: "v2-006-sample-patients", file: "./006-sample-patients.sql" },
   { name: "v2-007-patient-removal", file: "./007-patient-removal.sql" },
   { name: "v2-008-corrections", file: "./008-corrections.sql" },
+  { name: "v2-009-birth-date-estimated", file: "./009-birth-date-estimated.sql" },
 ];
 
 export async function migrate(db: DB) {

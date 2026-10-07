@@ -7,7 +7,7 @@ import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type
 import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { PH_SIGNS } from "../../shared/ph.js";
-import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, studySummary, valveFindings } from "../../shared/studies.js";
+import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Rwma } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 
@@ -28,7 +28,7 @@ async function civilIdFree(tx: Q, siteId: string, civilId: string | null | undef
 export async function createPatient(
   tx: Q,
   actor: Actor,
-  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[]; synthetic?: boolean } & Identity,
+  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; birthDateEstimated?: boolean; allergies?: string; conditions?: string[]; synthetic?: boolean } & Identity,
 ) {
   if (input.birthDate > today() || input.birthDate < "1900-01-01") throw new ApiError(400, "Check the date of birth");
   // sample patients (the seed, or a test patient) are kept apart: SYN- MRN, never counted with real patients
@@ -39,12 +39,15 @@ export async function createPatient(
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
   if (!synthetic) {
     await civilIdFree(tx, actor.siteId, input.civilId);
-    birthMatchesCivilId(input.civilId, input.birthDate);
+    if (!input.birthDateEstimated) birthMatchesCivilId(input.civilId, input.birthDate);
   }
+  // an age typed without a date of birth gives an estimated date; a civil ID always gives the real one
+  const fromId = civilIdBirthDate(input.civilId);
+  if (fromId && input.birthDateEstimated) (input.birthDate = fromId), (input.birthDateEstimated = false);
   const id = uuid();
   await tx.query(
-    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile,synthetic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-    [id, actor.siteId, mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null, synthetic],
+    "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile,synthetic,birth_date_estimated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+    [id, actor.siteId, mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null, synthetic, !!input.birthDateEstimated],
   );
   for (const code of input.conditions ?? []) await addCondition(tx, actor, id, { code });
   await audit(tx, actor, "create", "patient", id, id);
@@ -78,7 +81,7 @@ function birthMatchesCivilId(civilId: string | null | undefined, birthDate: stri
   const fromId = civilIdBirthDate(civilId);
   if (fromId && fromId !== birthDate) throw new ApiError(400, `The date of birth does not match the civil ID (it gives ${fromId})`);
 }
-export type Registration = { name?: string; mrn?: string; sex?: "Male" | "Female"; birthDate?: string };
+export type Registration = { name?: string; mrn?: string; sex?: "Male" | "Female"; birthDate?: string; birthDateEstimated?: boolean };
 const dayOf = (v: unknown) => String(v instanceof Date ? v.toISOString() : v).slice(0, 10);
 // Name, file number, sex and date of birth are registration details too (updated in place, audited).
 // Returns null when sex or date of birth changed: every rule reads them, so every rule runs again.
@@ -93,10 +96,15 @@ export async function updateIdentity(tx: Q, actor: Actor, patientId: string, inp
     throw new ApiError(409, "Another patient already has this MRN");
   if (input.birthDate && (input.birthDate > today() || input.birthDate < "1900-01-01")) throw new ApiError(400, "Check the date of birth");
   const beforeReg = { name: before.name, mrn: before.mrn, sex: before.sex, birth_date: dayOf(before.birth_date) };
-  const reg = { name: input.name?.trim() || before.name, mrn, sex: input.sex ?? before.sex, birth_date: input.birthDate ?? beforeReg.birth_date };
+  const civilNow = input.civilId === undefined ? before.civil_id : input.civilId;
+  let estimated = input.birthDateEstimated ?? (input.birthDate ? false : !!(before as any).birth_date_estimated);
+  let birth = input.birthDate ?? beforeReg.birth_date;
+  if (estimated && civilIdBirthDate(civilNow)) (birth = civilIdBirthDate(civilNow)!), (estimated = false);
+  const reg = { name: input.name?.trim() || before.name, mrn, sex: input.sex ?? before.sex, birth_date: birth };
   const regChanged = (Object.keys(reg) as (keyof typeof reg)[]).filter((k) => beforeReg[k] !== reg[k]);
-  if (!before.synthetic) birthMatchesCivilId(input.civilId === undefined ? before.civil_id : input.civilId, reg.birth_date);
-  if (regChanged.length) await tx.query(`UPDATE cf.patient SET name=$2, mrn=$3, sex=$4, birth_date=$5 WHERE id=$1`, [patientId, reg.name, reg.mrn, reg.sex, reg.birth_date]);
+  if (!before.synthetic) birthMatchesCivilId(civilNow, reg.birth_date);
+  if (regChanged.length || estimated !== !!(before as any).birth_date_estimated)
+    await tx.query(`UPDATE cf.patient SET name=$2, mrn=$3, sex=$4, birth_date=$5, birth_date_estimated=$6 WHERE id=$1`, [patientId, reg.name, reg.mrn, reg.sex, reg.birth_date, estimated]);
   const next = {
     civil_id: input.civilId === undefined ? before.civil_id : input.civilId || null,
     nationality: input.nationality === undefined ? before.nationality : input.nationality || null,
@@ -397,6 +405,8 @@ export async function recordEcho(
     valves?: Partial<Record<string, string>>; mrType?: string | null; measures?: Partial<Record<string, number>>;
     // PH module: the additional echo signs of PH (ESC/ERS 2022 categories A–C)
     phSigns?: string[];
+    // wall by wall motion and LV hypertrophy grade/pattern, as reported (7 Oct 2026)
+    rwma?: Rwma; lvh?: { grade?: string; pattern?: string };
   },
 ) {
   await patientInSite(tx, actor, patientId);
@@ -409,9 +419,19 @@ export async function recordEcho(
     if (!(v >= n.min && v <= n.max)) throw new ApiError(400, `${n.label}: ${n.min}–${n.max} ${n.unit}`);
     return { code: n.code, value: v };
   });
-  const findings = [...new Set([...input.findings, ...valveFindings(valves, mrType)])];
+  const rwma = Object.fromEntries(Object.entries(input.rwma ?? {}).filter(([, v]) => v?.motion)) as Rwma;
+  const lvh = input.lvh && (input.lvh.grade || input.lvh.pattern) ? input.lvh : undefined;
+  const findings = [...new Set([
+    ...input.findings,
+    ...(Object.keys(rwma).length ? ["Regional wall motion abnormality", ...rwmaFindings(rwma)] : []),
+    ...(lvh ? [lvhFinding(lvh)!] : []),
+    ...valveFindings(valves, mrType),
+  ])];
   const phSigns = [...new Set((input.phSigns ?? []).filter((k) => PH_SIGNS.some((s) => s.key === k)))];
-  const attributes = { ...(Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {}), ...(phSigns.length ? { phSigns } : {}) };
+  const attributes = {
+    ...(Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {}), ...(phSigns.length ? { phSigns } : {}),
+    ...(Object.keys(rwma).length ? { rwma } : {}), ...(lvh ? { lvh } : {}),
+  };
   await tx.query(
     `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8,$9)`,
     [id, patientId, input.date, input.quality, findings, input.conclusion ?? "", input.contextId ?? null, actor.id, JSON.stringify(attributes)],

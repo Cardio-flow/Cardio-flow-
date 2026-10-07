@@ -1337,3 +1337,67 @@ table.data.meds td.med-compact { display: none; }
 .dx-pick:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 @media (max-width: 760px) { .dx-grid { grid-template-columns: 1fr; } }
 .row-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* date entry: typed or from the calendar (7 Oct) */
+.date-in { position: relative; display: inline-flex; align-items: stretch; max-width: 100%; }
+.date-in .date-text { padding-right: 46px; width: 100%; min-width: 150px; font-variant-numeric: tabular-nums; }
+.date-in .date-cal { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--action); display: grid; place-items: center; cursor: pointer; }
+.date-in .date-cal:hover { background: var(--surface-2); }
+.date-in .date-cal:focus-visible { outline: 2px solid var(--action); }
+.date-in .date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+.date-in.bad .date-text { border-color: var(--orange); background: var(--orange-soft); }
+.date-in .sl-input.date-text { padding-right: 40px; min-width: 140px; }
+
+/* echo: boxed sections, wall-by-wall motion, LVH grade (7 Oct) */
+.ef-box { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: #fff; }
+.ef-panel { border: 1px solid #c9d8ee; background: #f8fbff; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.ef-panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.ef-panel-head b { color: var(--navy); font-size: 15px; }
+.ef-panel-head span { font-size: 12.5px; color: var(--ink-4); }
+.ef-panel-out { font-size: 13.5px; font-weight: 700; color: var(--navy); background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.ef-walls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ef-wall { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.ef-wall.on { border-color: var(--action); box-shadow: inset 3px 0 0 var(--action); }
+.ef-wall-name { font-weight: 700; color: var(--ink-2); display: flex; gap: 8px; align-items: baseline; }
+.ef-wall-name em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--ink-5); }
+.ef-wall-motion, .ef-wall-level { display: flex; flex-wrap: wrap; gap: 4px; }
+.ef-wm, .ef-lv { min-height: 30px; padding: 2px 10px; border-radius: 8px; border: 1px solid var(--control); background: #fff; font: 600 12.5px/1.2 var(--font); color: var(--ink-3); cursor: pointer; }
+.ef-lv { min-height: 26px; font-size: 12px; }
+.ef-wm[aria-checked="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.ef-lv[aria-checked="true"] { background: var(--mist); border-color: var(--action); color: var(--navy); }
+@media (max-width: 760px) { .ef-walls { grid-template-columns: 1fr; } .ef-box { padding: 12px; } }
+.study-box { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: #fff; display: flex; flex-direction: column; gap: 16px; }
+.study-box-head { display: flex; align-items: baseline; gap: 8px; }
+.study-box-head b { font-size: 16px; color: var(--navy); }
+.study-box-head span { font-size: 12.5px; color: var(--ink-4); }
+.study-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px 16px; padding: 12px; border-radius: 12px; background: var(--surface-2); }
+@media (max-width: 640px) { .study-box { padding: 12px; } }
+
+/* several medicines at once (7 Oct) */
+.mb-box { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: #fff; display: flex; flex-direction: column; gap: 12px; }
+.mb-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.mb-head b { font-size: 16px; color: var(--navy); }
+.mb-head span { font-size: 12.5px; color: var(--ink-4); }
+.mb-sugs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.mb-sug { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); border-left: 4px solid var(--c, var(--action)); background: #fff; cursor: pointer; font: inherit; }
+.mb-sug b { font-size: 14px; color: var(--ink); }
+.mb-sug span { font-size: 12.5px; color: var(--ink-3); line-height: 1.35; }
+.mb-sug[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); }
+.mb-sug[aria-pressed="true"] b, .mb-sug[aria-pressed="true"] span { color: #fff; }
+.mb-picks { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow: auto; }
+.mb-row { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2); }
+.mb-row.red { border-color: var(--red-line); background: var(--red-soft); }
+.mb-row-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.mb-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 14px; align-items: end; }
+.mb-book { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; color: var(--ink-2); min-height: 44px; }
+.mb-hits { display: flex; flex-wrap: wrap; gap: 6px; }
+.mb-note { font-size: 13px; font-weight: 600; color: var(--navy); }
+
+/* patient summary (7 Oct) */
+.psum-open { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: var(--navy); }
+.psum-list { margin: 0; display: grid; gap: 8px; }
+.psum-list > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.psum-list dt { font-size: 12.5px; font-weight: 700; color: var(--ink-4); }
+.psum-list dd { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.psum .psum-more { margin-left: 0; margin-top: 10px; color: var(--action); font-size: 13px; }
+@media (max-width: 640px) { .psum-list > div { grid-template-columns: 1fr; gap: 2px; } }

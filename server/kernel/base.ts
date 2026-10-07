@@ -56,6 +56,7 @@ export type PatientRow = {
   nationality: string | null;
   mobile: string | null;
   synthetic: boolean;
+  birth_date_estimated?: boolean;
   created_at: string;
 };
 

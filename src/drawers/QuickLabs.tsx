@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Calendar, FlaskConical, X, Check } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, Tag } from "../ui";
+import { Drawer, Tag, DateInput } from "../ui";
 import { LABS, LAB_PRESETS, MEASURES, formatNumber } from "../../shared/catalog";
 import { egfrCkdEpi2021, flagFor, fmtDay } from "../../shared/clinical";
 
@@ -95,7 +95,7 @@ export function QuickLabs({ patientId, codes, onClose, onDone }: { patientId: st
             <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 10px", fontWeight: 600, color: "var(--ink-3)" }}>
               <Calendar size={16} />
               <span className="sr-only">Other date</span>
-              <input type="date" className="input" style={{ height: 36 }} max={today} value={date === "today" ? "" : date} onChange={(e) => setDate(e.target.value || "today")} />
+              <DateInput className="input" style={{ height: 36 }} max={today} value={date === "today" ? "" : date} onChange={(e) => setDate(e.target.value || "today")} />
             </label>
           </div>
         </div>

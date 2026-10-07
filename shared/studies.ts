@@ -52,6 +52,11 @@ export const STUDIES: StudyDef[] = [
       { key: "extent", label: "Ischaemia extent", type: "choice", options: ["None", "Small", "Moderate", "Large"], when: { field: "modality", notIn: ["Exercise ECG"] } },
       { key: "territory", label: "Territory", type: "multi", options: ["LAD", "LCx", "RCA"], when: { field: "result", in: ["Positive for ischaemia", "Equivocal"] } },
       { key: "mets", label: "Exercise capacity", type: "number", unit: "METs", min: 1, max: 25, decimals: 1, obs: "mets", when: { field: "modality", in: ["Exercise ECG", "Stress echo"] } },
+      // the measures that define high event risk (ESC CCS 2024, Rec. Table 14), as reported
+      { key: "duke", label: "Duke treadmill score", type: "number", unit: "", min: -30, max: 20, decimals: 1, when: { field: "modality", in: ["Exercise ECG"] } },
+      { key: "segmentsEcho", label: "Segments with stress-induced hypo/akinesia", type: "number", unit: "of 16", min: 0, max: 16, when: { field: "modality", in: ["Stress echo"] } },
+      { key: "segmentsCmr", label: "Segments with stress perfusion defects", type: "number", unit: "of 16", min: 0, max: 16, when: { field: "modality", in: ["Stress CMR"] } },
+      { key: "ischaemia", label: "Ischaemic myocardium", type: "number", unit: "% LV", min: 0, max: 100, obs: "mpi-ischaemia", when: { field: "modality", in: ["PET"] } },
       { key: "symptoms", label: "Symptoms during test", type: "choice", options: ["None", "Typical angina", "Dyspnoea", "Other"] },
     ],
   },
@@ -279,4 +284,46 @@ export const ECHO_NUMBERS = [
 export function valveFindings(valves: Record<string, string>, mrType?: string | null) {
   return ECHO_VALVES.filter((v) => valves[v.key] && valves[v.key] !== "None" && valves[v.key] !== "Mild")
     .map((v) => `${valves[v.key]} ${v.key === "mr" && mrType ? `${mrType.toLowerCase()} ` : ""}${v.short}`);
+}
+
+// Regional wall motion (7 Oct 2026): wall by wall, as reported. Walls follow the 16/17-segment model
+// grouped by wall (AHA 2002 / ASE-EACVI 2015); the motion words are the reporter's.
+export const LV_WALLS = [
+  { key: "anterior", label: "Anterior", territory: "LAD" },
+  { key: "anteroseptal", label: "Anteroseptal", territory: "LAD" },
+  { key: "inferoseptal", label: "Inferoseptal", territory: "LAD/RCA" },
+  { key: "inferior", label: "Inferior", territory: "RCA" },
+  { key: "inferolateral", label: "Inferolateral", territory: "LCx" },
+  { key: "anterolateral", label: "Anterolateral", territory: "LCx" },
+  { key: "apex", label: "Apex", territory: "LAD" },
+] as const;
+export const WALL_MOTION = ["Hypokinetic", "Akinetic", "Dyskinetic", "Aneurysmal"] as const;
+export const WALL_LEVELS = ["Basal", "Mid", "Apical", "Whole wall"] as const;
+export type Rwma = Partial<Record<string, { motion: string; level?: string }>>;
+export function rwmaFindings(rwma: Rwma): string[] {
+  const by = new Map<string, string[]>();
+  for (const w of LV_WALLS) {
+    const x = rwma[w.key];
+    if (!x || !(WALL_MOTION as readonly string[]).includes(x.motion)) continue;
+    const name = (x.level && x.level !== "Whole wall" && w.key !== "apex" ? `${x.level.toLowerCase()} ` : "") + w.label.toLowerCase();
+    by.set(x.motion, [...(by.get(x.motion) ?? []), name]);
+  }
+  return [...by.entries()].map(([m, walls]) => `${m}: ${walls.join(", ")}`);
+}
+
+// LV hypertrophy as reported: grade and pattern. The wall-thickness partition values shown beside a measured
+// wall are the ASE/EAE chamber quantification ones (Lang 2006, septal/posterior wall, cm), a hint only.
+export const LVH_GRADES = ["Mild", "Moderate", "Severe"] as const;
+export const LVH_PATTERNS = ["Concentric", "Asymmetric septal", "Apical", "Concentric remodelling"] as const;
+export function wallThicknessHint(mm: number, sex: "Male" | "Female" | undefined): string | null {
+  if (!Number.isFinite(mm) || !sex) return null;
+  const cm = mm / 10;
+  const [n, mild, mod] = sex === "Male" ? [1.0, 1.3, 1.6] : [0.9, 1.2, 1.5];
+  const g = cm <= n ? "within reference" : cm <= mild ? "mildly increased" : cm <= mod ? "moderately increased" : "severely increased";
+  return `${mm} mm: ${g} for a ${sex === "Male" ? "man" : "woman"} (ASE/EAE partition values)`;
+}
+export function lvhFinding(lvh: { grade?: string; pattern?: string } | undefined): string | null {
+  if (!lvh?.grade && !lvh?.pattern) return null;
+  if (lvh.pattern === "Concentric remodelling") return "Concentric remodelling";
+  return `${lvh.grade ? `${lvh.grade} ` : ""}LV hypertrophy${lvh.pattern ? ` (${lvh.pattern.toLowerCase()})` : ""}`;
 }

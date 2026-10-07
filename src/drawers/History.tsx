@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, Segmented, SingleChoice, navigate, useToast } from "../ui";
+import { Drawer, Segmented, SingleChoice, navigate, useToast, DateInput } from "../ui";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
-import { fmtDay, localDay } from "../../shared/clinical";
+import { ageOn, fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 import { civilIdBirthDate, civilIdCheckDigitOk } from "../../shared/civil-id";
 
@@ -413,7 +413,7 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
           <div className="row wrap" style={{ gap: 14, alignItems: "flex-end" }}>
             <label className="field">
               <span>Date</span>
-              <input type="date" className="input" value={d.onset} max={localDay(new Date().toISOString())} onChange={(e) => upd(d.key, { onset: e.target.value, onsetYear: e.target.value ? "" : d.onsetYear })} />
+              <DateInput className="input" value={d.onset} max={localDay(new Date().toISOString())} onChange={(e) => upd(d.key, { onset: e.target.value, onsetYear: e.target.value ? "" : d.onsetYear })} />
             </label>
             <span className="small muted" style={{ fontWeight: 700, paddingBottom: 14 }}>or</span>
             <label className="field">
@@ -440,6 +440,41 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
 // Registration details: civil ID, nationality, mobile, allergies.
 export const NATIONALITIES = ["Kuwaiti", "Egyptian", "Indian", "Saudi", "Syrian", "Jordanian", "Lebanese", "Iraqi", "Iranian", "Pakistani", "Bangladeshi", "Filipino", "Sri Lankan", "Nepali", "Other"];
 
+// Date of birth, or the age when the date is not known (the date is then estimated and flagged).
+// With a valid civil ID both come from it.
+export function BirthFields({ f, setF }: { f: any; setF(f: any): void }) {
+  const today = localDay(new Date().toISOString());
+  const fromId = civilIdBirthDate(f.civilId);
+  const age = f.birthDate ? ageOn(f.birthDate, today) : null;
+  const [ageText, setAgeText] = useState<string>(age != null ? String(age) : "");
+  useEffect(() => {
+    if (age != null && String(age) !== ageText) setAgeText(String(age));
+    if (age == null && !f.birthDateEstimated && ageText && !f.birthDate) setAgeText("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.birthDate]);
+  function typedAge(v: string) {
+    const t = v.replace(/[^\d]/g, "").slice(0, 3);
+    setAgeText(t);
+    const n = Number(t);
+    if (t && n >= 0 && n <= 120) {
+      const y = Number(today.slice(0, 4)) - n;
+      setF({ ...f, birthDate: `${y}${today.slice(4)}`.replace(/-02-29$/, "-02-28"), birthDateEstimated: true });
+    }
+  }
+  return (
+    <>
+      <label className="field">
+        <span>Date of birth{f.birthDateEstimated ? " · estimated" : ""}</span>
+        <DateInput className="input" max={today} value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value, birthDateEstimated: false })} />
+      </label>
+      <label className="field" style={{ width: 110 }}>
+        <span>Age</span>
+        <input className="input" inputMode="numeric" placeholder="years" disabled={!!fromId} value={ageText} onChange={(e) => typedAge(e.target.value)} title={fromId ? "From the civil ID" : "Type the age when the date of birth is not known"} />
+      </label>
+    </>
+  );
+}
+
 // Civil ID fills the date of birth (Kuwaiti civil ID carries it); the age is then calculated, never typed.
 export function IdentityFields({ f, setF }: { f: any; setF(f: any): void }) {
   const civilBad = !!f.civilId && (!/^\d{12}$/.test(f.civilId) || (f.civilId.length === 12 && !civilIdBirthDate(f.civilId)));
@@ -457,7 +492,7 @@ export function IdentityFields({ f, setF }: { f: any; setF(f: any): void }) {
           onChange={(e) => {
             const civilId = e.target.value.replace(/[^\d]/g, "").slice(0, 12);
             const b = civilIdBirthDate(civilId);
-            setF({ ...f, civilId, ...(b && "birthDate" in f ? { birthDate: b } : {}) });
+            setF({ ...f, civilId, ...(b && "birthDate" in f ? { birthDate: b, birthDateEstimated: false } : {}) });
           }}
         />
         {born ? (
@@ -491,7 +526,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
   const sample = !!identity.sample;
   const shownMrn = (identity.mrn ?? "").replace(sample ? /^SYN-/ : /^$/, "");
   const [f, setF] = useState({
-    name: identity.name ?? "", mrn: shownMrn, sex: identity.sex ?? "", birthDate: identity.birthDate ?? "",
+    name: identity.name ?? "", mrn: shownMrn, sex: identity.sex ?? "", birthDate: identity.birthDate ?? "", birthDateEstimated: !!identity.birthDateEstimated,
     civilId: identity.civilId ?? "", nationality: identity.nationality ?? "", mobile: identity.mobile ?? "", allergies: identity.allergies === "Not recorded" ? "" : identity.allergies ?? "",
   });
   const [busy, setBusy] = useState(false);
@@ -563,10 +598,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
             <span>Sex</span>
             <Segmented label="Sex" options={[{ value: "Male", label: "Male" }, { value: "Female", label: "Female" }]} value={f.sex} onChange={(v) => setF({ ...f, sex: v })} />
           </div>
-          <label className="field">
-            <span>Date of birth</span>
-            <input type="date" className="input" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
-          </label>
+          <BirthFields f={f} setF={setF} />
         </div>
         <label className="field">
           <span>Allergies</span>

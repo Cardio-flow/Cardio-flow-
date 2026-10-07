@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HeartPulse } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, MultiChoice, Segmented, SingleChoice } from "../ui";
+import { Drawer, MultiChoice, Segmented, SingleChoice, DateInput } from "../ui";
 import {
   ABLATION_ENERGY, ABLATION_RESULT, ABLATION_TARGETS, ACCESS, CABG_GRAFTS, COMPLEX_FEATURES, CV_METHOD, CV_PREP, CV_RESULT, CV_RHYTHM,
   DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, VALVE_POSITIONS, VALVE_PROCEDURES, VALVE_PROSTHESES, VALVE_ACCESS, MECH_DESIGNS, PCI_COMPLICATIONS, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, RHC_NUMBERS, VASOREACTIVITY, cleanProcedure, procedureSummary, rhcClass, rhcPvr, type ProcedureKind,
@@ -75,7 +75,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
           {group !== "valve" && group !== "ph" && <Segmented label="Procedure" options={(group === "rhythm" ? (["device", "ablation", "cardioversion"] as ProcedureKind[]) : (["pci", "cabg"] as ProcedureKind[])).map((k) => ({ value: k, label: PROCEDURE_LABEL[k] }))} value={kind} onChange={(x) => setKind(x as ProcedureKind)} />}
           <label className="field">
             <span>Date</span>
-            <input type="date" className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateInput className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
         </div>
         {kind === "pci" ? (

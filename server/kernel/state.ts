@@ -76,7 +76,7 @@ export type StudyRow = { id: string; kind: string; performed_at: string; quality
 export type BarrierRow = { id: string; drug_class: string; category: string; detail: string; drug: string | null; cleared: boolean; recommendation_id: string | null; effective_at: string; recorded_by: string };
 
 export type PatientState = {
-  patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null; synthetic: boolean };
+  patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null; synthetic: boolean; birth_date_estimated: boolean };
   today: string;
   conditions: ConditionRow[];
   tags: Set<string>;
@@ -107,7 +107,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const bundle = (
     await tx.query<any>(
       `SELECT
-        (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile,synthetic FROM cf.patient WHERE id=$1) pt) AS patient,
+        (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile,synthetic,birth_date_estimated FROM cf.patient WHERE id=$1) pt) AS patient,
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
         (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
@@ -212,7 +212,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   return {
     patient: {
       id: p.id, name: p.name, mrn: p.mrn, sex: p.sex, birth_date: p.birth_date, age: ageOn(p.birth_date, today), allergies: p.allergies,
-      civil_id: p.civil_id ?? null, nationality: p.nationality ?? null, mobile: p.mobile ?? null, synthetic: p.synthetic === true,
+      civil_id: p.civil_id ?? null, nationality: p.nationality ?? null, mobile: p.mobile ?? null, synthetic: p.synthetic === true, birth_date_estimated: p.birth_date_estimated === true,
     },
     today,
     conditions,

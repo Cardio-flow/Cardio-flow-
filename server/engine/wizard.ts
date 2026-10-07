@@ -18,6 +18,7 @@ import { interventionFor } from "../../shared/wizards-valve.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { preStartCheck } from "./med-safety.js";
 import { latestPhEcho } from "./ph-profile.js";
+import { latestCcsTest } from "./cad-tests.js";
 
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
@@ -167,7 +168,9 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if (cause.length) base.detected.cause = cause;
   }
   const cabg = [...s.procedures].reverse().find((p) => p.kind === "cabg");
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph };
+  const ccsTest = latestCcsTest(s);
+  if (wizardId === "ccs-test-result" && ccsTest && !base.detected.risk) base.detected.risk = [ccsTest.risk];
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

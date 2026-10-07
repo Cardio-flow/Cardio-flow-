@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Eraser, PencilLine } from "lucide-react";
 import { api } from "../api";
-import { Drawer, SingleChoice } from "../ui";
+import { Drawer, SingleChoice, DateInput } from "../ui";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
 
@@ -198,7 +198,7 @@ export function CorrectMedication({ patientId, med, today, onClose, onDone }: { 
             )}
             <label className="field">
               <span>Date</span>
-              <input type="date" className="input" max={today} value={day} onChange={(e) => setDay(e.target.value)} />
+              <DateInput className="input" max={today} value={day} onChange={(e) => setDay(e.target.value)} />
             </label>
           </div>
         )}

@@ -186,6 +186,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         sex: z.enum(["Male", "Female"]),
         // optional when a Kuwaiti civil ID is given: the date of birth is read from it
         birthDate: isoDate.optional(),
+        birthDateEstimated: z.boolean().optional(),
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
         sample: z.boolean().default(false),
@@ -307,6 +308,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         mrType: z.enum(["Primary", "Secondary"]).nullish(),
         measures: z.partialRecord(z.enum(["av-vmax", "av-mg", "ava", "mva", "lvesd", "lvedd", "spap", "trv", "mwt", "la-diam", "lvot-rest", "lvot-provoked"]), z.number().min(0).max(250)).optional(),
         phSigns: z.array(z.enum(["rv-lv", "septum", "rvot", "pr", "pa", "ivc", "ra"])).max(7).optional(),
+        rwma: z.partialRecord(z.enum(["anterior", "anteroseptal", "inferoseptal", "inferior", "inferolateral", "anterolateral", "apex"]), z.object({ motion: z.enum(["Hypokinetic", "Akinetic", "Dyskinetic", "Aneurysmal"]), level: z.enum(["Basal", "Mid", "Apical", "Whole wall"]).optional() })).optional(),
+        lvh: z.object({ grade: z.enum(["Mild", "Moderate", "Severe"]).optional(), pattern: z.enum(["Concentric", "Asymmetric septal", "Apical", "Concentric remodelling"]).optional() }).optional(),
         conclusion: z.string().max(2000).optional(),
         contextId: uuidS.nullish(),
       })
@@ -389,6 +392,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         mrn: z.string().trim().min(1).max(40).optional(),
         sex: z.enum(["Male", "Female"]).optional(),
         birthDate: isoDate.optional(),
+        birthDateEstimated: z.boolean().optional(),
       })
       .parse(req.body);
     // sex or date of birth changed → null → every rule runs again
@@ -455,40 +459,52 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       return { hits: preStartCheck(s, def.code, def), start };
     }));
   }));
-  app.post("/api/patients/:id/medications", clinician, route(async (req, res) => {
-    const id = uuidS.parse(req.params.id);
-    const input = z
-      .object({
-        code: z.string().max(60),
-        doseValue: z.number().positive().nullable(),
-        frequency: z.string().max(60),
-        route: z.string().max(20),
-        indication: z.string().max(80),
-        reason: z.string().max(300).optional(),
-        effectiveAt: isoDateTime.optional(),
-        contextId: uuidS.nullish(),
-        monitoring: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
-        bookSchedule: z.boolean().optional(),
-        // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
-        override: z.string().trim().min(3).max(300).optional(),
-      })
-      .parse(req.body);
+  const medStartS = z.object({
+    code: z.string().max(60),
+    doseValue: z.number().positive().nullable(),
+    frequency: z.string().max(60),
+    route: z.string().max(20),
+    indication: z.string().max(80),
+    reason: z.string().max(300).optional(),
+    effectiveAt: isoDateTime.optional(),
+    contextId: uuidS.nullish(),
+    monitoring: z.object({ dueDate: isoDate, title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
+    bookSchedule: z.boolean().optional(),
+    // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
+    override: z.string().trim().min(3).max(300).optional(),
+  });
+  async function startOne(tx: Q, a: Actor, id: string, input: z.infer<typeof medStartS>) {
     const def = MEDICATION[input.code];
     if (!def) throw new ApiError(400, "Unknown medicine");
     if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The start date cannot be in the future. Add a plan item to start it later.");
+    // the check reads the record as it is now, including medicines started earlier in the same batch
+    const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red");
+    if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title.startsWith(def.name) ? "" : `${def.name}: `}${reds[0].title}. Record a reason to start it anyway.`);
+    const reason = reds.length ? [input.reason, `Started despite: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
+    const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
+    // the medicine's monitoring schedule (label / guideline)
+    if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null);
+    if (input.monitoring)
+      await K.addPlanAction(tx, a, id, {
+        category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
+        completesOn: { type: "lab", codes: input.monitoring.codes }, contextId: input.contextId, medicationId: r.medicationId,
+      });
+    return r;
+  }
+  app.post("/api/patients/:id/medications", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = medStartS.parse(req.body);
+    await write(res, id, async (tx, a) => ({ ...(await startOne(tx, a, id, input)), changed: ["meds", "plan"] }));
+  }));
+  // several medicines at once (clinic visit, 7 Oct 2026): one transaction — all start, or none
+  app.post("/api/patients/:id/medications/batch", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { items } = z.object({ items: z.array(medStartS).min(1).max(15) }).parse(req.body);
+    if (new Set(items.map((i) => i.code)).size !== items.length) throw new ApiError(400, "The same medicine is listed twice");
     await write(res, id, async (tx, a) => {
-      const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red");
-      if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title}. Record a reason to start it anyway.`);
-      const reason = reds.length ? [input.reason, `Started despite: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
-      const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
-      // the medicine's monitoring schedule (label / guideline)
-      if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null);
-      if (input.monitoring)
-        await K.addPlanAction(tx, a, id, {
-          category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
-          completesOn: { type: "lab", codes: input.monitoring.codes }, contextId: input.contextId, medicationId: r.medicationId,
-        });
-      return { ...r, changed: ["meds", "plan"] };
+      const started: string[] = [];
+      for (const item of items) started.push((await startOne(tx, a, id, item)).medicationId);
+      return { started, changed: ["meds", "plan"] };
     });
   }));
   app.post("/api/patients/:id/medications/:mid/events", clinician, route(async (req, res) => {

@@ -456,7 +456,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               <div className="label">Plan</div>
               <div className="row wrap">
                 <button className="btn secondary" onClick={() => open({ kind: "plan-add" })}>Add plan item</button>
-                <button className="btn secondary" onClick={() => open({ kind: "med-add" })}>Start a medication</button>
+                <button className="btn secondary" onClick={() => open({ kind: "med-batch" })}>Add medicines</button>
                 <button className="btn secondary" onClick={() => open({ kind: "labs" })}>Add labs</button>
               </div>
             </div>

@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { UserPlus, Stethoscope, Search } from "lucide-react";
 import { api } from "../api";
-import { Drawer, Segmented } from "../ui";
+import { Drawer, Segmented, DateInput } from "../ui";
 import { DIAGNOSES, DIAGNOSIS } from "../../shared/catalog";
-import { IdentityFields } from "./History";
+import { BirthFields, IdentityFields } from "./History";
 import { civilIdBirthDate } from "../../shared/civil-id";
 
 // Diagnoses grouped as clinicians think of them: cardiac families, then comorbidities in small groups.
@@ -96,7 +96,7 @@ function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: str
 
 export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): void; onCreated(id: string): void; sample?: boolean }) {
   const [test, setTest] = useState(sample);
-  const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", allergies: "", civilId: "", nationality: "", mobile: "" });
+  const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", birthDateEstimated: false, allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -141,10 +141,7 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
             <span>Sex</span>
             <Segmented label="Sex" options={[{ value: "Male", label: "Male" }, { value: "Female", label: "Female" }]} value={f.sex} onChange={(v) => setF({ ...f, sex: v })} />
           </div>
-          <label className="field">
-            <span>Date of birth</span>
-            <input type="date" className="input" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
-          </label>
+          <BirthFields f={f} setF={setF} />
           <label className="field grow">
             <span>Allergies</span>
             <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />

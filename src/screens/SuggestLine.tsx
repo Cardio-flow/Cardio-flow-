@@ -1,3 +1,4 @@
+import { DateInput } from "../ui";
 // The editable suggestion line (workflow redesign, slice 2): a guideline suggestion opens inline as one line —
 // medicine, dose, start date and the check that follows — each prefilled and each changeable, with the
 // pre-start safety check underneath. Confirm records it; "More options" opens the full medicine drawer.
@@ -32,7 +33,7 @@ export function DateField({ label, value, onChange, today, quick, max }: { label
             <button key={q.label} type="button" className="sl-q" aria-pressed={value === d} onClick={() => onChange(d)}>{q.label}</button>
           );
         })}
-        <input type="date" className="sl-input" aria-label={label} value={value} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} />
+        <DateInput className="sl-input" aria-label={label} value={value} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} />
       </span>
     </span>
   );

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HeartPulse } from "lucide-react";
 import { api } from "../api";
-import { Drawer, Segmented, SingleChoice } from "../ui";
+import { Drawer, Segmented, SingleChoice, DateInput } from "../ui";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS } from "../../shared/encounters";
 
 // Vital status (alive / died) is kept apart from follow-up status (active, lost, transferred…).
@@ -56,7 +56,7 @@ export function StatusDrawer({ patientId, today, current, onClose, onDone }: { p
         </div>
         <label className="field">
           <span>{died ? "Date of death" : "Date"}</span>
-          <input type="date" className="input" style={{ maxWidth: 220 }} max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateInput className="input" style={{ maxWidth: 220 }} max={today} value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
         {died && (
           <>

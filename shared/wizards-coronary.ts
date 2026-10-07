@@ -622,3 +622,84 @@ CORONARY_WIZARDS["after-cabg"].assess = (a: Answers, ctx: WizardContext): Assess
   if (!rec.length) rec.push("All guideline steps after CABG are in place.");
   return { heading: "After CABG", rows, recommendations: rec };
 };
+
+// Non-invasive test result in chronic coronary syndromes (7 Oct 2026, Ahmed: "suggestions for decisions,
+// like for stress MIBI results according to guidelines with the integrated pathways"). Sources — 2024 ESC CCS:
+//  - Rec. Table 14 (I B): high event risk on non-invasive testing (see shared/ccs-tests.ts).
+//  - Rec. Table 22 (I B): revascularisation is recommended in CCS patients with high-risk findings on
+//    non-invasive testing; ICA with invasive functional assessment to guide it.
+//  - Rec. Table 11 (I B): ICA with the availability of invasive functional assessment to confirm or exclude
+//    obstructive CAD (or ANOCA/INOCA) when the non-invasive diagnosis is uncertain.
+//  - Rec. Table 13 (I C): symptoms highly suggestive of obstructive CAD at a low level of exercise → ICA
+//    with a view to revascularisation.
+//  - Anti-anginal therapy: short-acting nitrate for immediate relief (I B); beta-blocker and/or
+//    calcium-channel blocker first line (I B). Revascularisation of functionally significant obstructive CAD
+//    when angina persists despite guideline-directed medical therapy (I A).
+//  - Heart Team for complex (left main / multivessel) disease (I C). Statin for every CCS patient (I A).
+// No doses here: medicines are started from their own screens.
+CORONARY_WIZARDS["ccs-test-result"] = {
+  id: "ccs-test-result", title: "Non-invasive test result (CCS)", tone: "orange", group: "Coronary", episode: false,
+  source: "ESC CCS 2024 (Rec. Tables 11, 13, 14, 22)",
+  note: "The latest stress MIBI, stress test or CT coronary angiography decides the next step: high-risk findings lead to invasive angiography with a view to revascularisation; an uncertain result to invasive (or further) testing; otherwise medical therapy, with revascularisation if angina persists.",
+  facts: ["ldl-c", "egfr", "sbp", "hr"],
+  steps: [
+    {
+      id: "result", title: "Result",
+      questions: [
+        {
+          id: "risk", label: "Test result", type: "single", required: true,
+          options: [
+            { value: "high", label: "High event risk", hint: "SPECT/PET ischaemia ≥10% LV · stress echo ≥3/16 segments · stress CMR ≥2/16 · CCTA left main / three-vessel · Duke <−10" },
+            { value: "positive", label: "Ischaemia or obstructive disease, not high risk" },
+            { value: "uncertain", label: "Equivocal or non-diagnostic" },
+            { value: "negative", label: "Negative / no obstructive disease" },
+          ],
+        },
+        {
+          id: "symptoms", label: "Angina now", type: "single", required: true,
+          options: [
+            { value: "none", label: "No angina" },
+            { value: "controlled", label: "Controlled on medical therapy" },
+            { value: "persistent", label: "Persistent despite medical therapy" },
+            { value: "low-exercise", label: "At a low level of exercise" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "plan", title: "Decision",
+      questions: [
+        {
+          id: "actions", label: "What will you do?", type: "multi", required: true,
+          options: [
+            { value: "ica", label: "Invasive coronary angiography with functional assessment, with a view to revascularisation", effects: { plan: [{ category: "procedure", title: "Invasive coronary angiography with functional assessment (FFR/iFR)", days: 14, completesOn: { type: "study", kind: "cath" } }] } },
+            { value: "heart-team", label: "Heart Team discussion", hint: "Left main or multivessel disease", effects: { plan: [{ category: "referral", title: "Heart Team discussion (coronary revascularisation)", days: 14, completesOn: { type: "manual" } }] } },
+            { value: "second-test", label: "A second non-invasive test", hint: "Functional after anatomical, or the reverse", effects: { plan: [{ category: "investigation", title: "Second non-invasive test (uncertain result)", days: 28, completesOn: { type: "manual" } }] } },
+            { value: "antianginal", label: "Optimise anti-anginal therapy", effects: { plan: [{ category: "medication", title: "Optimise anti-anginal therapy (beta-blocker and/or calcium-channel blocker, then long-acting nitrate)", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "sl-nitrate", label: "Sublingual nitrate for relief", unless: ["nitrate"], effects: { plan: [{ category: "medication", title: "Prescribe sublingual GTN for angina relief", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "prevention", label: "Secondary prevention review", hint: "Statin, antiplatelet, risk factors", effects: { plan: [{ category: "medication", title: "Secondary prevention review (statin for all CCS, antiplatelet, risk factors)", days: 0, completesOn: { type: "manual" } }] } },
+            { value: "no-further", label: "No further coronary testing now" },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};
+CORONARY_WIZARDS["ccs-test-result"].assess = (a: Answers, ctx: WizardContext): Assessment => {
+  const t = ctx.ccsTest;
+  const acts = (a.actions as string[]) ?? [];
+  const rows: Assessment["rows"] = [
+    { label: "Test", value: t ? `${t.label} · ${fmtDay(t.at, { year: true })}${t.summary ? ` · ${t.summary}` : ""}` : "No test recorded" },
+    { label: "Risk", value: t ? t.why : String(a.risk ?? "—"), tone: a.risk === "high" ? "orange" : a.risk === "negative" ? "green" : undefined },
+  ];
+  const rec: string[] = [];
+  if (a.risk === "high" && !acts.includes("ica")) rec.push("High-risk findings: invasive coronary angiography with functional assessment and revascularisation are recommended (ESC CCS 2024, I B).");
+  if (a.risk === "uncertain" && !acts.includes("ica") && !acts.includes("second-test")) rec.push("Uncertain non-invasive result: ICA with invasive functional assessment to confirm or exclude obstructive CAD (ESC CCS 2024, I B).");
+  if (a.symptoms === "low-exercise" && !acts.includes("ica")) rec.push("Angina at a low level of exercise: ICA with a view to revascularisation (ESC CCS 2024, I C).");
+  if (a.symptoms === "persistent" && !acts.includes("ica")) rec.push("Angina despite medical therapy: revascularisation of functionally significant disease to improve symptoms (ESC CCS 2024, I A).");
+  if (t?.ccta && a.risk === "high" && !acts.includes("heart-team")) rec.push("Left main or multivessel disease: discuss in the Heart Team (I C).");
+  if (!ctx.meds.some((m) => m.tags.includes("statin")) && a.risk !== "negative") rec.push("No statin on the list: statin for every patient with CCS (ESC CCS 2024, I A).");
+  if (!rec.length) rec.push("The plan matches the guideline for this result.");
+  return { heading: "After the non-invasive test", rows, recommendations: rec };
+};

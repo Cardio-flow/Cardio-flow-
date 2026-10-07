@@ -14,6 +14,7 @@ import { DIABETES_RULES } from "./diabetes-rules.js";
 import { HF_RULES } from "./hf-rules.js";
 import { EPISODE_RULES } from "./episode-rules.js";
 import { CAD_RULES } from "./cad-rules.js";
+import { CAD_TEST_RULES } from "./cad-tests.js";
 import { RHYTHM_RULES } from "./rhythm-rules.js";
 import { VALVE_RULES } from "./valve-rules.js";
 import { CMP_RULES } from "./cmp-rules.js";
@@ -288,6 +289,7 @@ export const RULES: RuleDef[] = [
   ...HF_RULES,
   ...EPISODE_RULES,
   ...CAD_RULES,
+  ...CAD_TEST_RULES,
   ...RHYTHM_RULES,
   ...VALVE_RULES,
   ...CMP_RULES,
@@ -296,7 +298,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-06.3";
+export const RULESET = "2026-10-07.1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

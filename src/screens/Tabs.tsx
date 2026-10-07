@@ -22,9 +22,12 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
           <h1 style={{ fontSize: 22 }}>Medications</h1>
           <p>Grouped by clinical purpose. Select a medication for dose change, hold, stop or history.</p>
         </div>
-        <button className="btn primary" onClick={() => open({ kind: "med-add" })}>
-          <Plus size={18} /> Add medication
-        </button>
+        <span className="row wrap" style={{ gap: 8 }}>
+          <button className="btn secondary" onClick={() => open({ kind: "med-batch" })}>Add several</button>
+          <button className="btn primary" onClick={() => open({ kind: "med-add" })}>
+            <Plus size={18} /> Add medication
+          </button>
+        </span>
       </div>
       {PURPOSE_ORDER.map((purpose) => {
         const meds = live.filter((m: any) => m.purpose === purpose);

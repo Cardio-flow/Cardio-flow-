@@ -203,3 +203,59 @@ test("stress MIBI and ABPM are recorded as studies; their values join the trends
   assert.ok(!s.plan.some((p) => p.title === "Stress test" && p.status === "planned"), "the MIBI completed the planned stress test");
   assert.equal((await call("POST", `/patients/${id}/studies`, { kind: "abpm", date: at, findings: { duration: "24 h", sbp24: 138 } })).status, 400, "diastolic and conclusion are required");
 });
+
+test("stress MIBI with ≥10% ischaemia → high-risk finding opens the CCS test pathway with ICA suggested; normal perfusion → no alert", async () => {
+  const { ccsTestRisk } = await import("../shared/ccs-tests.js");
+  assert.equal(ccsTestRisk("nuclear", { result: "Reversible defect (ischaemia)", ischaemia: 12 })!.risk, "high");
+  assert.equal(ccsTestRisk("nuclear", { result: "Reversible defect (ischaemia)", ischaemia: 6 })!.risk, "positive");
+  assert.equal(ccsTestRisk("nuclear", { result: "Equivocal" })!.risk, "uncertain");
+  assert.equal(ccsTestRisk("stress", { modality: "Stress echo", result: "Positive for ischaemia", segmentsEcho: 3 })!.risk, "high");
+  assert.equal(ccsTestRisk("stress", { modality: "Exercise ECG", result: "Positive for ischaemia", duke: -11 })!.risk, "high");
+  assert.equal(ccsTestRisk("ccta", { cadrads: "4B" })!.risk, "high");
+  assert.equal(ccsTestRisk("ccta", { cadrads: "2" })!.risk, "negative");
+  const r = await call("POST", "/patients", { name: "Mibi High", mrn: "900000001", sex: "Male", birthDate: "1958-01-01", conditions: ["cad-ccs", "htn"] });
+  const id = r.body.id;
+  const at = new Date(Date.now() - 3600_000).toISOString();
+  await call("POST", `/patients/${id}/studies`, { kind: "nuclear", date: at, findings: { stressor: "Exercise", result: "Reversible defect (ischaemia)", ischaemia: 14, territory: ["LAD"] } });
+  const recs = (await db.query(`SELECT title, action FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id='cad.test-result'`, [id])).rows as any[];
+  assert.equal(recs.length, 1);
+  assert.match(recs[0].title, /high-risk/);
+  const w = (await call("GET", `/patients/${id}/wizards/ccs-test-result`)).body;
+  const sugg = JSON.stringify(w);
+  assert.ok(sugg.includes("ica"), "ICA suggested");
+  const r2 = await call("POST", "/patients", { name: "Mibi Normal", mrn: "900000002", sex: "Female", birthDate: "1960-01-01", conditions: ["htn"] });
+  await call("POST", `/patients/${r2.body.id}/studies`, { kind: "nuclear", date: at, findings: { stressor: "Regadenoson", result: "Normal perfusion" } });
+  assert.equal((await db.query(`SELECT count(*)::int n FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id='cad.test-result'`, [r2.body.id])).rows[0].n, 0);
+});
+
+test("age typed without a date of birth gives an estimated date; a civil ID replaces it", async () => {
+  const y = new Date().getFullYear() - 70;
+  const r = await call("POST", "/patients", { name: "Age Only", mrn: "910000001", sex: "Male", birthDate: `${y}-06-15`, birthDateEstimated: true });
+  assert.equal(r.status, 201);
+  const h = (await call("GET", `/patients/${r.body.id}/summary`)).body.header;
+  assert.equal(h.birthDateEstimated, true);
+  assert.equal((await call("POST", `/patients/${r.body.id}/identity`, { civilId: "255061512345", birthDateEstimated: true })).status, 200);
+  const h2 = (await call("GET", `/patients/${r.body.id}/summary`)).body.header;
+  assert.deepEqual([h2.birthDate, h2.birthDateEstimated], ["1955-06-15", false]);
+});
+
+test("several medicines start together (all or none); patient summary lists them", async () => {
+  const r = await call("POST", "/patients", { name: "Batch Meds", mrn: "920000001", sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"] });
+  const id = r.body.id;
+  const ok = await call("POST", `/patients/${id}/medications/batch`, { items: [
+    { code: "bisoprolol", doseValue: 1.25, frequency: "OD", route: "PO", indication: "hf" },
+    { code: "dapagliflozin", doseValue: 10, frequency: "OD", route: "PO", indication: "hf" },
+  ] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const s = await loadState(db, id);
+  assert.deepEqual(s.meds.map((m) => m.code).sort(), ["bisoprolol", "dapagliflozin"]);
+  const bad = await call("POST", `/patients/${id}/medications/batch`, { items: [
+    { code: "ramipril", doseValue: 2.5, frequency: "BID", route: "PO", indication: "hf" },
+    { code: "bisoprolol", doseValue: 1.25, frequency: "OD", route: "PO", indication: "hf" },
+  ] });
+  assert.equal(bad.status, 409, "bisoprolol already listed: the whole batch is refused");
+  assert.ok(!(await loadState(db, id)).meds.some((m) => m.code === "ramipril"), "none started");
+  const sum = (await call("GET", `/patients/${id}/summary`)).body.clinicalSummary;
+  assert.match(sum.text, /Bisoprolol/);
+  assert.match(sum.opening, /year-old man/);
+});

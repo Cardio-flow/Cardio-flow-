@@ -113,6 +113,8 @@ export type WizardContext = {
   device?: { type: string | null; checkAt: string | null; check: Record<string, any> | null } | null;
   // the latest CABG (the after-CABG pathway counts from here)
   cabgAt?: string | null;
+  // the latest non-invasive coronary test (stress MIBI, stress test, CCTA) and its risk class (ESC CCS 2024)
+  ccsTest?: { kind: string; label: string; at: string; summary: string; risk: "high" | "positive" | "uncertain" | "negative"; why: string; ccta: boolean } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
   planned?: string[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found

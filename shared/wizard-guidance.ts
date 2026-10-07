@@ -524,6 +524,23 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ];
     },
   },
+  "ccs-test-result": {
+    risk: (_a, c) => [c.ccsTest ? S(c.ccsTest.risk, c.ccsTest.why) : null],
+    actions: (a, c) => {
+      const statin = on(c, "statin");
+      return [
+        a.risk === "high" && S("ica", "High-risk findings on non-invasive testing: ICA with functional assessment, revascularisation recommended (ESC CCS 2024, I B)"),
+        a.risk === "high" && c.ccsTest?.ccta && S("heart-team", "Left main or multivessel disease: Heart Team (I C)"),
+        a.risk === "uncertain" && S("ica", "Uncertain non-invasive result: ICA with invasive functional assessment (ESC CCS 2024, I B)"),
+        a.symptoms === "low-exercise" && S("ica", "Angina at a low level of exercise: ICA with a view to revascularisation (ESC CCS 2024, I C)"),
+        a.symptoms === "persistent" && a.risk !== "negative" && S("ica", "Angina despite medical therapy: revascularisation to improve symptoms (ESC CCS 2024, I A)"),
+        (a.risk === "positive" || a.risk === "high") && a.symptoms !== "none" && S("antianginal", "Beta-blocker and/or calcium-channel blocker first line (ESC CCS 2024, I B)"),
+        a.symptoms !== "none" && a.risk !== "negative" && !on(c, "nitrate") && S("sl-nitrate", "Short-acting nitrate for immediate relief (ESC CCS 2024, I B)"),
+        a.risk !== "negative" && !statin && S("prevention", "Statin for every patient with CCS (ESC CCS 2024, I A)"),
+        a.risk === "negative" && a.symptoms === "none" && S("no-further", "Negative test without angina: no further coronary testing now"),
+      ];
+    },
+  },
   "acs-discharge": {
     type: (_a, c) => {
       const t = c.coronary?.acs ? c.coronary.indexTitle : "";

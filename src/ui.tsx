@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { AlertTriangle, Activity, Clock, Info, CheckCircle2, X } from "lucide-react";
 
 // ---------- routing ----------
@@ -230,3 +230,80 @@ export const useToast = () => useContext(ToastCtx);
 // Holds the signed-in session and site for every screen
 export const SessionCtx = createContext<{ name: string; role: string; siteMode: string }>({ name: "", role: "", siteMode: "sandbox" });
 export const useSession = () => useContext(SessionCtx);
+
+// Dates: typed (dd/mm/yyyy, slashes added as you type) or picked from the calendar button. The value stays
+// ISO (yyyy-mm-dd) and onChange receives { target: { value } } like a native date input, so it drops in for one.
+const toShown = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
+function parseShown(t: string): string | null {
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (y < 1900 || dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return dt.toISOString().slice(0, 10);
+}
+export function DateInput({
+  value, onChange, min, max, className = "input", style, autoFocus, ...rest
+}: {
+  value: string; onChange(e: { target: { value: string } }): void; min?: string; max?: string; className?: string; style?: CSSProperties; autoFocus?: boolean; "aria-label"?: string;
+}) {
+  const [text, setText] = useState(toShown(value));
+  const native = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (parseShown(text) !== value) setText(toShown(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const iso = parseShown(text);
+  const out = !!iso && ((min && iso < min) || (max && iso > max));
+  const bad = (text.length >= 10 && !iso) || out;
+  function typed(raw: string) {
+    let t = raw.replace(/[^\d/]/g, "");
+    // add the slashes while typing digits only: 0703 → 07/03, 07031960 → 07/03/1960
+    if (!t.includes("/") && /^\d+$/.test(t)) t = [t.slice(0, 2), t.slice(2, 4), t.slice(4, 8)].filter(Boolean).join("/");
+    t = t.slice(0, 10);
+    setText(t);
+    const p = parseShown(t);
+    if (!t) onChange({ target: { value: "" } });
+    else if (p && !((min && p < min) || (max && p > max))) onChange({ target: { value: p } });
+  }
+  return (
+    <span className={`date-in ${bad ? "bad" : ""}`} style={style}>
+      <input
+        className={`${className} date-text`}
+        inputMode="numeric"
+        placeholder="dd/mm/yyyy"
+        value={text}
+        autoFocus={autoFocus}
+        aria-label={rest["aria-label"] ?? "Date (day/month/year)"}
+        aria-invalid={bad || undefined}
+        onChange={(e) => typed(e.target.value)}
+      />
+      <button
+        type="button"
+        className="date-cal"
+        aria-label="Choose from calendar"
+        title={bad ? (out ? `Outside the allowed dates${min ? ` (from ${toShown(min)})` : ""}${max ? ` (until ${toShown(max)})` : ""}` : "Not a valid date") : "Choose from calendar"}
+        onClick={() => {
+          const n = native.current;
+          if (!n) return;
+          try { (n as any).showPicker ? (n as any).showPicker() : n.click(); } catch { n.focus(); }
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+        </svg>
+      </button>
+      <input
+        ref={native}
+        type="date"
+        className="date-native"
+        tabIndex={-1}
+        aria-hidden="true"
+        min={min}
+        max={max}
+        value={value || ""}
+        onChange={(e) => { setText(toShown(e.target.value)); onChange({ target: { value: e.target.value } }); }}
+      />
+    </span>
+  );
+}

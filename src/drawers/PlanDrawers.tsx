@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CalendarPlus, CalendarCheck, FlaskConical } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
+import { Drawer, SingleChoice, Segmented, Tag, DateInput } from "../ui";
 import { PLAN_TEMPLATES } from "../../shared/catalog";
 import { addDays, fmtDay } from "../../shared/clinical";
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
@@ -82,7 +82,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
                   value={dates[id]}
                   onChange={(v) => setDates({ ...dates, [id]: v })}
                 />
-                <input type="date" className="input" style={{ height: 40 }} aria-label={`${t.title} exact date`} min={today} value={dates[id]?.includes("-") ? dates[id] : ""} onChange={(e) => setDates({ ...dates, [id]: e.target.value || String(t.offsets[0]) })} />
+                <DateInput className="input" style={{ height: 40 }} aria-label={`${t.title} exact date`} min={today} value={dates[id]?.includes("-") ? dates[id] : ""} onChange={(e) => setDates({ ...dates, [id]: e.target.value || String(t.offsets[0]) })} />
               </div>
             </div>
           );
@@ -94,7 +94,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
             <select className="input" value={custom.category} onChange={(e) => setCustom({ ...custom, category: e.target.value })} aria-label="Category">
               {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <input type="date" className="input" min={today} value={custom.date} onChange={(e) => setCustom({ ...custom, date: e.target.value })} aria-label="Due date" />
+            <DateInput className="input" min={today} value={custom.date} onChange={(e) => setCustom({ ...custom, date: e.target.value })} aria-label="Due date" />
           </div>
         </div>
         {error && <div className="error-box">{error}</div>}
@@ -166,7 +166,7 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
             {action === "reschedule" && (
               <label className="field">
                 <span>New date</span>
-                <input type="date" className="input" style={{ width: 220 }} min={rec.today} value={date} onChange={(e) => setDate(e.target.value)} />
+                <DateInput className="input" style={{ width: 220 }} min={rec.today} value={date} onChange={(e) => setDate(e.target.value)} />
               </label>
             )}
             {action && (

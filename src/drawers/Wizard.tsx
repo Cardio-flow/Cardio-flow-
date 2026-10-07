@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pill } from "lucide-react";
 import { api } from "../api";
-import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline } from "../ui";
+import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline, DateInput } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
 import { JOIN, joinFor, prefill } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
@@ -335,7 +335,7 @@ export function WizardDrawer({
                   <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={answers[q.id] as string} onChange={(v) => set(q.id, v)} rec={recVals} />
                 ))}
                 {q.type === "date" && (
-                  <input type="date" className="input" style={{ maxWidth: 220 }} aria-label={q.label} min={ctx.today} value={(answers[q.id] as string) ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                  <DateInput className="input" style={{ maxWidth: 220 }} aria-label={q.label} min={ctx.today} value={(answers[q.id] as string) ?? ""} onChange={(e) => set(q.id, e.target.value)} />
                 )}
                 {q.type === "dose" && (() => {
                   const { med, options } = doseChoices(ctx, q);
@@ -426,7 +426,7 @@ export function WizardDrawer({
                         {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
                         <span className="grow">{o.label}</span>
                         {o.kind === "plan" && o.dueDate && (
-                          <input type="date" className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => e.target.value && setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
+                          <DateInput className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => e.target.value && setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
                         )}
                       </div>
                       {o.kind === "start" && hits.length > 0 && (

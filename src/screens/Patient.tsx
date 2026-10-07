@@ -18,6 +18,7 @@ import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { CorrectMedication, CorrectResult, VoidEntry } from "../drawers/Corrections";
+import { AddMedications } from "../drawers/MedicationBatch";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
 import { Pathways } from "../drawers/Pathways";
@@ -47,6 +48,7 @@ export type Open =
   | { kind: "after-pci" }
   | { kind: "checklist"; check?: CheckKind }
   | { kind: "med-correct"; med: any }
+  | { kind: "med-batch" }
   | { kind: "result-correct"; result: any }
   | { kind: "void"; what: string; path: string };
 
@@ -88,11 +90,11 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             <div className="pt-name">
               <h1>{h.name}</h1>
               <span className="id">
-                {h.age} y · {h.sex} · MRN {h.mrn}
+                {h.birthDateEstimated ? "~" : ""}{h.age} y · {h.sex} · MRN {h.mrn}
               </span>
               <button
                 className="pt-edit"
-                onClick={() => setOpen({ kind: "identity", identity: { name: h.name, mrn: h.mrn, sex: h.sex, birthDate: h.birthDate, civilId: h.civilId, nationality: h.nationality, mobile: h.mobile, allergies: h.allergies, sample: h.sample } })}
+                onClick={() => setOpen({ kind: "identity", identity: { name: h.name, mrn: h.mrn, sex: h.sex, birthDate: h.birthDate, birthDateEstimated: h.birthDateEstimated, civilId: h.civilId, nationality: h.nationality, mobile: h.mobile, allergies: h.allergies, sample: h.sample } })}
               >
                 <Pencil size={14} /> Edit details
               </button>
@@ -237,6 +239,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}
+      {open?.kind === "med-batch" && <AddMedications patientId={id} summary={s} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "med-correct" && <CorrectMedication patientId={id} med={open.med} today={s.today} onClose={close} onDone={done} />}
       {open?.kind === "result-correct" && <CorrectResult patientId={id} result={open.result} onClose={close} onDone={done} />}
       {open?.kind === "void" && <VoidEntry patientId={id} what={open.what} path={open.path} onClose={close} onDone={done} />}

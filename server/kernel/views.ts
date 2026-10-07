@@ -1,3 +1,4 @@
+import { clinicalSummary } from "./clinical-summary.js";
 import { correctedRefs } from "./corrections.js";
 import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
@@ -67,6 +68,7 @@ export function header(s: PatientState) {
     mrn: s.patient.mrn,
     sample: s.patient.synthetic,
     birthDate: String(s.patient.birth_date).slice(0, 10),
+    birthDateEstimated: s.patient.birth_date_estimated,
     sex: s.patient.sex,
     age: s.patient.age,
     allergies: s.patient.allergies,
@@ -174,7 +176,7 @@ export function historyView(s: PatientState) {
     items,
     bmi: b,
     comorbidities,
-    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic, name: s.patient.name, mrn: s.patient.mrn, sex: s.patient.sex, birthDate: String(s.patient.birth_date).slice(0, 10) },
+    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic, name: s.patient.name, mrn: s.patient.mrn, sex: s.patient.sex, birthDate: String(s.patient.birth_date).slice(0, 10), birthDateEstimated: s.patient.birth_date_estimated },
     missing: items.filter((i) => i.status === "not-recorded").map((i) => i.label),
   };
 }
@@ -356,9 +358,11 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const surveillanceLive = (siteMode === "sandbox" && s.patient.synthetic) || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);
   const valve = valveProfile(s);
   if (valve && !surveillanceLive) valve.surveillance = [];
+  const head = header(s);
   return {
-    header: header(s),
+    header: head,
     today: s.today,
+    clinicalSummary: clinicalSummary(s, head, attention as any),
     overview: overview(s, attention, plan, changes),
     attention,
     changes,

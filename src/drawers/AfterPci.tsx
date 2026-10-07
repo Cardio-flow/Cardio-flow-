@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, HeartPulse } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer } from "../ui";
+import { Drawer, DateInput } from "../ui";
 import { fmtDay, addDays } from "../../shared/clinical";
 import { DAPT_OPTIONS, DUAL_OPTIONS, P2Y12, TAT_OPTIONS, defaultChoice, extras as extrasFor, highIschaemic, phases, type Choice, type PciContext } from "../../shared/after-pci";
 
@@ -215,7 +215,7 @@ function Timeline({ c, phases: ph, onEnd }: { c: PciContext; phases: ReturnType<
         {ph.filter((p) => p.stop && p.to).map((p) => (
           <label key={p.key} className="ap-end">
             <span><b>{p.label} ends</b><em>{p.stop!.title}</em></span>
-            <input type="date" className="sl-input" min={start} value={p.to!} onChange={(e) => e.target.value && onEnd(p.key, e.target.value)} aria-label={`${p.label} end date`} />
+            <DateInput className="sl-input" min={start} value={p.to!} onChange={(e) => e.target.value && onEnd(p.key, e.target.value)} aria-label={`${p.label} end date`} />
           </label>
         ))}
       </div>

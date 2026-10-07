@@ -7,7 +7,7 @@ import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
 import { DateField } from "../screens/SuggestLine";
 
-function patientTags(summary: any) {
+export function patientTags(summary: any) {
   return new Set<string>(summary.header.diagnoses.flatMap((d: any) => DIAGNOSIS[d.code]?.tags ?? []));
 }
 
@@ -236,7 +236,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   );
 }
 
-function tagLabel(t: string, summary: any) {
+export function tagLabel(t: string, summary: any) {
   if (t.startsWith("dx:")) return DIAGNOSIS[t.slice(3)]?.display ?? t;
   const dx = summary.header.diagnoses.find((d: any) => DIAGNOSIS[d.code]?.tags.includes(t));
   return dx?.label ?? { hf: "Heart failure", cad: "Coronary disease", af: "Atrial fibrillation", htn: "Hypertension", dm: "Diabetes", ckd: "CKD", lipids: "Dyslipidaemia" }[t] ?? t;
