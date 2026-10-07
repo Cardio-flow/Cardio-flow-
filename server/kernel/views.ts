@@ -10,7 +10,7 @@ import { phProfile } from "../engine/ph-profile.js";
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
-import { ANSWER_LABEL, HISTORY_ITEMS, attributesText, historyCode } from "../../shared/history.js";
+import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
 import { WIZARDS } from "../../shared/wizards.js";
 import { checklistForPlan } from "../../shared/procedures.js";
@@ -83,6 +83,7 @@ export function header(s: PatientState) {
       family: DIAGNOSIS[c.code]?.family ?? "Other",
       onset: c.onset,
       attributes: c.attributes ?? {},
+      riskFactor: RISK_FACTOR_CODES.has(c.code),
     })),
     riskFactors: riskRow(s),
     deceased: s.deceased,

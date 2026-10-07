@@ -15,6 +15,37 @@ export function latestCcsTest(s: PatientState) {
 
 export const CAD_TEST_RULES: RuleDef[] = [
   {
+    id: "cad.suspected-workup",
+    kind: "clinical",
+    title: "Suspected IHD: first test",
+    inputs: ["conditions", "studies", "procedures", "pathways", "plan"],
+    defaultParams: {},
+    evidence:
+      "2024 ESC CCS: estimate the clinical likelihood of obstructive CAD and choose the first test — CCTA for low/moderate likelihood (I A), functional imaging for moderate/high (I B), ICA when symptoms occur at a low level of exercise (I C), deferral when very low (IIa B). A negative test with the working diagnosis still listed asks whether IHD is ruled out.",
+    evaluate(s) {
+      const c = s.conditions.find((x) => x.code === "cad-suspected");
+      if (!c) return [];
+      if (s.conditions.some((x) => ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"].includes(x.code))) return [];
+      const since = c.onset ? String(c.onset).slice(0, 10) : localDay(c.recorded_at);
+      const t = latestCcsTest(s);
+      const tested = (t && t.at >= since) || s.studies.some((x) => x.kind === "cath" && localDay(x.performed_at) >= since);
+      if (tested) {
+        if (t && t.risk === "negative" && t.at >= since)
+          return [{ key: "negative", signature: t.id, severity: "yellow", title: "Suspected IHD: test negative — rule it out?", detail: `${t.why}. Resolve the working diagnosis from the header, or plan the next step.`, facts: [{ label: "Test", value: t.label, date: t.at }], missing: [], action: { type: "wizard", wizard: "ccs-test-result" } }];
+        return [];
+      }
+      if (s.pathwaysDone["suspected-ihd"] && localDay(s.pathwaysDone["suspected-ihd"]) >= since) return [];
+      if (s.plan.some((p) => p.status === "planned" && /coronary angiography|stress|ct coronary|mibi/i.test(p.title))) return [];
+      return [{
+        key: "workup", signature: since, severity: "yellow",
+        title: "Suspected IHD: choose the first test",
+        detail: "Clinical likelihood decides: CCTA (low–moderate), functional imaging (moderate–high), ICA (very high or symptoms at low exercise).",
+        facts: [{ label: "Working diagnosis", value: "Suspected IHD (to rule out)", date: since }, { label: "Guideline", value: "ESC CCS 2024" }],
+        missing: [], action: { type: "wizard", wizard: "suspected-ihd" },
+      }];
+    },
+  },
+  {
     id: "cad.test-result",
     kind: "clinical",
     title: "Non-invasive coronary test result needs a decision",

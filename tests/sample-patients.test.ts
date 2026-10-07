@@ -276,3 +276,20 @@ test("a diagnosis is edited, changed over time (old one resolved) or corrected (
   assert.ok(dx.some((d) => d.code === "hfpef") && !dx.some((d) => d.code === "hfref"));
   assert.equal((await call("POST", `/patients/${id}/conditions/${hf.id}/change`, { code: "hfpef", mode: "error" })).status, 409, "an inactive diagnosis cannot be changed again");
 });
+
+test("risk factors are flagged apart from diagnoses; suspected IHD asks for the first test and a negative test asks to rule it out", async () => {
+  const r = await call("POST", "/patients", { name: "Rule Out", mrn: "940000001", sex: "Male", birthDate: "1966-01-01", conditions: ["cad-suspected", "htn", "t2dm", "copd"] });
+  const id = r.body.id;
+  const h = (await call("GET", `/patients/${id}/summary`)).body.header;
+  const flag = Object.fromEntries(h.diagnoses.map((d: any) => [d.code, d.riskFactor]));
+  assert.deepEqual([flag["htn"], flag["t2dm"], flag["copd"], flag["cad-suspected"]], [true, true, false, false]);
+  const active = async (rule: string) => (await db.query(`SELECT title FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2`, [id, rule])).rows as any[];
+  assert.match((await active("cad.suspected-workup"))[0].title, /choose the first test/);
+  assert.equal((await active("cad.acs-bundle")).length, 0, "a working diagnosis is not established CAD");
+  assert.equal((await call("GET", `/patients/${id}/wizards/suspected-ihd`)).status, 200);
+  const { suggest } = await import("../shared/wizard-guidance.js");
+  const sug = suggest("suspected-ihd", "test", { likelihood: "moderate", lowExercise: "no" }, { today: "", meds: [], facts: [], detected: {} } as any);
+  assert.ok(sug.some((x: any) => x.value === "ccta"));
+  await call("POST", `/patients/${id}/studies`, { kind: "ccta", date: new Date(Date.now() - 3600_000).toISOString(), findings: { cac: 0, cadrads: "1" } });
+  assert.match((await active("cad.suspected-workup"))[0].title, /negative — rule it out/);
+});

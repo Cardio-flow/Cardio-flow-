@@ -80,6 +80,8 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   if (error) return <main className="page"><div className="error-box">{error}</div></main>;
   if (!s) return <main className="page" aria-busy="true" />;
   const h = s.header;
+  // diagnoses only: risk factors (hypertension, diabetes, dyslipidaemia, obesity, CKD) have their own row
+  const dxOnly = h.diagnoses.filter((d: any) => !d.riskFactor);
   const ctx = h.openContext;
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (
@@ -116,15 +118,15 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             {/* phones: diagnoses and risk factors fold into one line so the actions stay near the top */}
             <button type="button" className="pt-more-toggle" aria-expanded={more} onClick={() => setMore(!more)}>
               <span className="grow">
-                {h.diagnoses.length ? h.diagnoses.slice(0, 2).map((d: any) => d.label).join(", ") : "No diagnoses listed"}
-                {h.diagnoses.length > 2 && <b> +{h.diagnoses.length - 2}</b>}
+                {dxOnly.length ? dxOnly.slice(0, 2).map((d: any) => d.label).join(", ") : "No diagnoses listed"}
+                {dxOnly.length > 2 && <b> +{dxOnly.length - 2}</b>}
                 {h.riskFactors?.present?.length ? <em> · {h.riskFactors.present.length} risk factor{h.riskFactors.present.length === 1 ? "" : "s"}</em> : null}
               </span>
               <span aria-hidden>{more ? "Hide ▴" : "All ▾"}</span>
             </button>
             <div className="pt-more" data-open={more}>
               <div className="row wrap" style={{ gap: 8 }}>
-                {h.diagnoses.map((d: any) => (
+                {dxOnly.map((d: any) => (
                   <button key={d.id} type="button" className="chip dx dx-edit" title="Edit, change or remove" onClick={() => setOpen({ kind: "dx-edit", dx: d })}>{d.label}</button>
                 ))}
                 <button className="chip outline" style={{ cursor: "pointer" }} onClick={() => setOpen({ kind: "dx" })}>

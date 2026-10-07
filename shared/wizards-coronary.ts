@@ -703,3 +703,49 @@ CORONARY_WIZARDS["ccs-test-result"].assess = (a: Answers, ctx: WizardContext): A
   if (!rec.length) rec.push("The plan matches the guideline for this result.");
   return { heading: "After the non-invasive test", rows, recommendations: rec };
 };
+
+// Suspected IHD — choosing the first test (7 Oct 2026, Ahmed: "add to rule out IHD in diagnosis").
+// Sources — 2024 ESC CCS: clinical likelihood of obstructive CAD by the risk factor-weighted clinical likelihood
+// model, categories very low ≤5%, low >5–15%, moderate >15–50%, high >50–85%, very high >85% (Rec. Table 3);
+// very low: deferral of further testing should be considered (IIa B); low or moderate (>5–50%): CCTA is
+// recommended (Rec. Table 8, I A); moderate or high (>15–85%): functional imaging (stress echo, SPECT/PET,
+// stress CMR) is recommended (Rec. Table 9, I B); symptoms highly suggestive of obstructive CAD at a low level
+// of exercise: ICA with a view to revascularisation as the first test (Rec. Table 13, I C).
+// The likelihood is the clinician's estimate with the model; CardioFlow does not compute it.
+CORONARY_WIZARDS["suspected-ihd"] = {
+  id: "suspected-ihd", title: "Suspected IHD: first test", tone: "blue", group: "Coronary", episode: false,
+  source: "ESC CCS 2024 (Rec. Tables 3, 8, 9, 13)",
+  note: "Estimate the clinical likelihood of obstructive CAD (ESC 2024 risk factor-weighted model: age, sex, symptoms, risk factors), then choose the first test. The test result then opens the non-invasive test pathway.",
+  facts: ["ldl-c", "hba1c", "egfr", "sbp"],
+  steps: [
+    {
+      id: "likelihood", title: "Likelihood",
+      questions: [
+        {
+          id: "likelihood", label: "Clinical likelihood of obstructive CAD", type: "single", required: true,
+          options: [
+            { value: "very-low", label: "Very low · ≤5%" }, { value: "low", label: "Low · >5–15%" }, { value: "moderate", label: "Moderate · >15–50%" },
+            { value: "high", label: "High · >50–85%" }, { value: "very-high", label: "Very high · >85%" },
+          ],
+        },
+        { id: "lowExercise", label: "Symptoms at a low level of exercise", type: "single", required: true, options: [{ value: "no", label: "No" }, { value: "yes", label: "Yes" }] },
+      ],
+    },
+    {
+      id: "test", title: "First test",
+      questions: [
+        {
+          id: "test", label: "Choose", type: "multi", required: true,
+          options: [
+            { value: "defer", label: "Defer further testing", hint: "Very low likelihood" },
+            { value: "ccta", label: "CT coronary angiography", effects: { plan: [{ category: "investigation", title: "CT coronary angiography (suspected IHD)", days: 28, completesOn: { type: "study", kind: "ccta" } }] } },
+            { value: "functional", label: "Functional imaging (stress echo, stress MIBI, PET or stress CMR)", effects: { plan: [{ category: "investigation", title: "Stress imaging (suspected IHD)", days: 28, completesOn: { type: "study", kind: "stress" } }] } },
+            { value: "ica", label: "Invasive coronary angiography with a view to revascularisation", effects: { plan: [{ category: "procedure", title: "Invasive coronary angiography (suspected IHD, high likelihood)", days: 14, completesOn: { type: "study", kind: "cath" } }] } },
+            { value: "sl-nitrate", label: "Sublingual nitrate for relief", unless: ["nitrate"], effects: { plan: [{ category: "medication", title: "Prescribe sublingual GTN for angina relief", days: 0, completesOn: { type: "manual" } }] } },
+          ],
+        },
+        { id: "review", label: "Review", type: "single", options: REVIEW, required: true },
+      ],
+    },
+  ],
+};

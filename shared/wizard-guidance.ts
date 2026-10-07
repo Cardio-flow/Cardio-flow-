@@ -524,6 +524,14 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       ];
     },
   },
+  "suspected-ihd": {
+    test: (a) => [
+      a.likelihood === "very-low" && a.lowExercise !== "yes" && S("defer", "Very low likelihood (≤5%): deferral of further testing should be considered (ESC CCS 2024, IIa B)"),
+      (a.likelihood === "low" || a.likelihood === "moderate") && S("ccta", "Low or moderate likelihood (>5–50%): CCTA recommended (ESC CCS 2024, I A)"),
+      a.likelihood === "high" && S("functional", "Moderate or high likelihood (>15–85%): functional imaging recommended (ESC CCS 2024, I B)"),
+      (a.likelihood === "very-high" || a.lowExercise === "yes") && S("ica", "Very high likelihood or symptoms at a low level of exercise: ICA with a view to revascularisation (ESC CCS 2024, I C)"),
+    ],
+  },
   "ccs-test-result": {
     risk: (_a, c) => [c.ccsTest ? S(c.ccsTest.risk, c.ccsTest.why) : null],
     actions: (a, c) => {

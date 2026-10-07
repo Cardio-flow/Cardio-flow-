@@ -143,6 +143,9 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "hfpef", display: "HFpEF", family: "Heart failure", tags: ["hf"] },
   { code: "hfimpef", display: "HF with improved EF", family: "Heart failure", tags: ["hf"] },
   { code: "cad-ccs", display: "Chronic coronary syndrome", family: "Coronary", tags: ["cad", "ascvd"] },
+  // a working diagnosis, not established CAD: no secondary-prevention rules; the work-up rule and the CCS
+  // test pathway decide; confirmed → change to "Chronic coronary syndrome", excluded → resolve it (7 Oct 2026)
+  { code: "cad-suspected", display: "Suspected IHD (to rule out)", family: "Coronary", tags: ["cad-suspected"] },
   { code: "prior-mi", display: "Previous MI", family: "Coronary", tags: ["cad", "ascvd"] },
   { code: "prior-pci", display: "Previous PCI", family: "Coronary", tags: ["cad", "ascvd"] },
   { code: "prior-cabg", display: "Previous CABG", family: "Coronary", tags: ["cad", "ascvd"] },

@@ -8,25 +8,33 @@ import { civilIdBirthDate } from "../../shared/civil-id";
 
 // Diagnoses grouped as clinicians think of them: cardiac families, then comorbidities in small groups.
 // Mutually exclusive sets pick one (HF phenotype, diabetes type, CKD stage); search narrows every group.
+// Diagnoses and risk factors are kept apart (Ahmed, 7 Oct 2026): risk factors are their own section.
 const COMORBIDITY_GROUPS: { title: string; codes: string[] }[] = [
-  { title: "Risk factors and metabolic", codes: ["htn", "dyslipidaemia", "fh", "statin-intolerance", "obesity"] },
-  { title: "Diabetes", codes: ["t2dm", "t1dm", "dm-other", "prediabetes"] },
-  { title: "Kidney", codes: ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5", "dialysis"] },
   { title: "Vascular and thrombosis", codes: ["stroke-tia", "pad", "pe", "aps"] },
   { title: "Lung and sleep", codes: ["copd", "ild", "osa"] },
-  { title: "Other", codes: ["anaemia", "thyroid", "liver-disease", "cancer"] },
+  { title: "Other", codes: ["anaemia", "thyroid", "liver-disease", "cancer", "prediabetes", "statin-intolerance"] },
+];
+export const RISK_GROUPS: { title: string; codes: string[] }[] = [
+  { title: "Hypertension", codes: ["htn"] },
+  { title: "Diabetes", codes: ["t2dm", "t1dm", "dm-other"] },
+  { title: "Lipids", codes: ["dyslipidaemia", "fh"] },
+  { title: "Obesity", codes: ["obesity"] },
+  { title: "Kidney", codes: ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5", "dialysis"] },
 ];
 const ONE_OF = [["hfref", "hfmref", "hfpef", "hfimpef"], ["t2dm", "t1dm", "dm-other", "prediabetes"], ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5"]];
 const SHORT: Record<string, string> = { "ckd-1-2": "1–2 (albuminuria)", "ckd-3a": "3a", "ckd-3b": "3b", "ckd-4": "4", "ckd-5": "5", "dm-other": "Other type (LADA, MODY, secondary)", t2dm: "Type 2", t1dm: "Type 1" };
 
-function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: string[]): void }) {
+export function DiagnosisPicker({ value, onChange, risk = false }: { value: string[]; onChange(v: string[]): void; risk?: boolean }) {
   const [q, setQ] = useState("");
   const visible = useMemo(() => DIAGNOSES.filter((d) => !d.hidden), []);
   const cardiacFamilies = useMemo(() => [...new Set(visible.filter((d) => d.family !== "Comorbidity").map((d) => d.family))], [visible]);
-  const groups = [
-    ...cardiacFamilies.map((f) => ({ title: f, codes: visible.filter((d) => d.family === f).map((d) => d.code), cardiac: true })),
-    ...COMORBIDITY_GROUPS.map((g) => ({ ...g, cardiac: false })),
-  ];
+  // risk = the risk-factor picker; otherwise diagnoses (cardiac and other comorbidities) only
+  const groups = risk
+    ? RISK_GROUPS.map((g) => ({ ...g, cardiac: false }))
+    : [
+        ...cardiacFamilies.map((f) => ({ title: f, codes: visible.filter((d) => d.family === f).map((d) => d.code), cardiac: true })),
+        ...COMORBIDITY_GROUPS.map((g) => ({ ...g, cardiac: false })),
+      ];
   const match = (code: string) => {
     const d = DIAGNOSIS[code];
     return !!d && (!q || (d.display + " " + d.family).toLowerCase().includes(q.toLowerCase()));
@@ -64,7 +72,7 @@ function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: str
     <div className="col" style={{ gap: 14 }}>
       <label className="row dx-search">
         <Search size={18} color="var(--ink-4)" />
-        <input className="grow" placeholder="Search diagnoses and comorbidities" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search diagnoses" />
+        <input className="grow" placeholder={risk ? "Search risk factors" : "Search diagnoses"} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search diagnoses" />
         {q && <button type="button" className="btn ghost small" onClick={() => setQ("")}>Clear</button>}
       </label>
       {value.length > 0 && (
@@ -85,7 +93,7 @@ function DiagnosisPicker({ value, onChange }: { value: string[]; onChange(v: str
       )}
       {other.length > 0 && (
         <>
-          <div className="dx-section">Comorbidities</div>
+          {!risk && <div className="dx-section">Other comorbidities</div>}
           <div className="dx-grid">{other}</div>
         </>
       )}
@@ -98,13 +106,19 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
   const [test, setTest] = useState(sample);
   const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", birthDateEstimated: false, allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
+  const [rf, setRf] = useState<string[]>([]);
+  const [smoking, setSmoking] = useState("");
+  const [fhx, setFhx] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate && (!f.civilId || (/^\d{12}$/.test(f.civilId) && !!civilIdBirthDate(f.civilId)));
   async function save() {
     setBusy(true);
     try {
-      const r = await api("/patients", { body: { ...f, conditions: dx, sample: test } });
+      const r = await api("/patients", { body: { ...f, conditions: [...dx, ...rf], sample: test } });
+      // smoking and family history are history answers, not diagnoses
+      const answers = [smoking && { item: "smoking", answer: smoking }, fhx && { item: "fhx-cad", answer: fhx }].filter(Boolean);
+      if (answers.length) await api(`/patients/${r.id}/history`, { body: { answers } }).catch(() => {});
       onCreated(r.id);
     } catch (e) {
       setError((e as Error).message);
@@ -148,9 +162,32 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
           </label>
         </div>
         <div className="q">
-          <div className="label">Diagnoses and comorbidities</div>
-          <div className="help">Tap what applies. Smoking, family history and details such as MI type or valve prosthesis follow in the patient's History.</div>
+          <div className="label">Diagnoses</div>
+          <div className="help">Cardiac diagnoses and other comorbidities. Details such as MI type or valve prosthesis follow in the patient's History.</div>
           <DiagnosisPicker value={dx} onChange={setDx} />
+        </div>
+        <div className="q">
+          <div className="label">Risk factors</div>
+          <div className="help">Kept apart from the diagnoses; shown in the patient's risk-factor row.</div>
+          <section className="dx-grid">
+            <div className={`dx-group ${smoking ? "has" : ""}`}>
+              <div className="dx-group-head"><span>Smoking</span></div>
+              <div className="dx-chips">
+                {[["never", "Never"], ["ex", "Ex-smoker"], ["current", "Current smoker"]].map(([v, l]) => (
+                  <button key={v} type="button" className="dx-pick" aria-pressed={smoking === v} onClick={() => setSmoking(smoking === v ? "" : v)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div className={`dx-group ${fhx ? "has" : ""}`}>
+              <div className="dx-group-head"><span>Family history of premature CAD</span></div>
+              <div className="dx-chips">
+                {[["yes", "Yes"], ["no", "No"]].map(([v, l]) => (
+                  <button key={v} type="button" className="dx-pick" aria-pressed={fhx === v} onClick={() => setFhx(fhx === v ? "" : v)}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </section>
+          <DiagnosisPicker value={rf} onChange={setRf} risk />
         </div>
         <label className="check-line">
           <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />

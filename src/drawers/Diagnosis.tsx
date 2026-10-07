@@ -5,7 +5,7 @@ import { Stethoscope } from "lucide-react";
 import { api } from "../api";
 import { DateInput, Drawer, Segmented, SingleChoice } from "../ui";
 import { DIAGNOSES, DIAGNOSIS } from "../../shared/catalog";
-import { DIAGNOSIS_ATTRIBUTES, fieldShown } from "../../shared/history";
+import { DIAGNOSIS_ATTRIBUTES, RISK_FACTOR_CODES, fieldShown } from "../../shared/history";
 import { localDay } from "../../shared/clinical";
 
 type Dx = { id: string; code: string; label: string; family: string; onset: string | null; attributes: Record<string, any> };
@@ -25,7 +25,7 @@ export function EditDiagnosis({ patientId, dx, onClose, onDone }: { patientId: s
   const family = DIAGNOSIS[dx.code]?.family;
   // same family first (CKD stage, HF phenotype, valve lesion…), then every other diagnosis by search
   const [q, setQ] = useState("");
-  const others = DIAGNOSES.filter((d) => !d.hidden && d.code !== dx.code && (q ? d.display.toLowerCase().includes(q.toLowerCase()) : d.family === family));
+  const others = DIAGNOSES.filter((d) => !d.hidden && d.code !== dx.code && !RISK_FACTOR_CODES.has(d.code) && (q ? d.display.toLowerCase().includes(q.toLowerCase()) : d.family === family));
   async function save() {
     setBusy(true);
     setError("");

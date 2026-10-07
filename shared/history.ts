@@ -235,3 +235,7 @@ export function hba1cTarget(attributes: Record<string, unknown> | null | undefin
   const m = /^<(\d+(?:\.\d+)?)%$/.exec(String(attributes?.target ?? ""));
   return m ? Number(m[1]) : null;
 }
+
+// Diagnosis codes that are cardiovascular risk factors (shown in the risk-factor row, kept apart from the
+// diagnoses — Ahmed, 7 Oct 2026: "Do not mix between diagnosis and risk factors").
+export const RISK_FACTOR_CODES = new Set<string>(HISTORY_ITEMS.filter((i) => i.section === "risk").flatMap((i) => i.conditions ?? []));
