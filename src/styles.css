@@ -1306,3 +1306,11 @@ table.data.meds td.med-compact { display: none; }
   .topbar .sample-switch button { flex: 1; }
   .topbar:has(.sample-switch) .spacer { display: none; }
 }
+
+/* patient details: edit from the header; removing a record (7 Oct) */
+.pt-edit { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font: 700 12.5px/1 var(--font); color: var(--action); cursor: pointer; }
+.pt-edit:hover { background: var(--surface-2); }
+.pt-edit:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.remove-box { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
+.remove-btn { background: var(--ink-2); color: #fff; border-color: var(--ink-2); }
+.remove-btn:disabled { opacity: 0.45; }

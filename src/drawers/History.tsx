@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, SingleChoice } from "../ui";
+import { Drawer, Segmented, SingleChoice, navigate, useToast } from "../ui";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
 import { fmtDay, localDay } from "../../shared/clinical";
@@ -462,12 +462,25 @@ export function IdentityFields({ f, setF }: { f: any; setF(f: any): void }) {
   );
 }
 
+const REMOVAL_REASONS = ["Registered in error", "Duplicate record", "Test or practice record"];
+
+// Patient details: name, file number, sex, date of birth, identifiers, contact and allergies — all audited.
+// Also: move a mistaken test patient to the sample patients, or remove a record registered in error.
 export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patientId: string; identity: any; onClose(): void; onDone(m?: string, r?: any): void }) {
-  const [f, setF] = useState({ civilId: identity.civilId ?? "", nationality: identity.nationality ?? "", mobile: identity.mobile ?? "", allergies: identity.allergies === "Not recorded" ? "" : identity.allergies ?? "" });
+  const sample = !!identity.sample;
+  const shownMrn = (identity.mrn ?? "").replace(sample ? /^SYN-/ : /^$/, "");
+  const [f, setF] = useState({
+    name: identity.name ?? "", mrn: shownMrn, sex: identity.sex ?? "", birthDate: identity.birthDate ?? "",
+    civilId: identity.civilId ?? "", nationality: identity.nationality ?? "", mobile: identity.mobile ?? "", allergies: identity.allergies === "Not recorded" ? "" : identity.allergies ?? "",
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const toast = useToast();
   const civilBad = !!f.civilId && !/^\d{12}$/.test(f.civilId);
+  const valid = !civilBad && f.name.trim().length > 1 && !!f.mrn.trim() && !!f.sex && !!f.birthDate;
   const [confirmSample, setConfirmSample] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [reason, setReason] = useState("");
   async function toSample() {
     setBusy(true);
     try {
@@ -478,11 +491,22 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
       setBusy(false);
     }
   }
+  async function remove() {
+    setBusy(true);
+    try {
+      await api(`/patients/${patientId}/remove`, { body: { reason } });
+      toast({ text: `${identity.name ?? "Patient"} removed (${reason.toLowerCase()})` });
+      navigate("/");
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
   async function save() {
     setBusy(true);
     try {
       const r = await api(`/patients/${patientId}/identity`, { body: f });
-      onDone("Registration details saved", r);
+      onDone("Patient details saved", r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -490,24 +514,45 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
   }
   return (
     <Drawer
-      title="Registration details"
-      subtitle="Identifiers and contact. Changes are audited."
+      title="Patient details"
+      subtitle="Registration, identifiers and contact. Every change is audited with the previous value."
       icon={<IdCard size={22} />}
       onClose={onClose}
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={civilBad || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+          <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
         </span>
       }
     >
       <div className="drawer-body">
+        <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
+          <label className="field grow">
+            <span>Full name</span>
+            <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>File number (MRN){sample ? " · saved as SYN-…" : ""}</span>
+            <input className="input" value={f.mrn} onChange={(e) => setF({ ...f, mrn: e.target.value })} />
+          </label>
+        </div>
+        <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
+          <div className="field">
+            <span>Sex</span>
+            <Segmented label="Sex" options={[{ value: "Male", label: "Male" }, { value: "Female", label: "Female" }]} value={f.sex} onChange={(v) => setF({ ...f, sex: v })} />
+          </div>
+          <label className="field">
+            <span>Date of birth</span>
+            <input type="date" className="input" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
+          </label>
+        </div>
         <IdentityFields f={f} setF={setF} />
         <label className="field">
           <span>Allergies</span>
           <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />
         </label>
-        {!identity.sample && (
+        {error && <div className="error-box">{error}</div>}
+        {!sample && (
           <div className="sample-move">
             <b>Registered only to try the app?</b>
             <span className="muted small">Move this record to the sample patients. It leaves the real worklist and registries and its file number gets the SYN- prefix. This cannot be undone.</span>
@@ -521,7 +566,21 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
             )}
           </div>
         )}
-        {error && <div className="error-box">{error}</div>}
+        <div className="remove-box">
+          <b>Remove this record</b>
+          <span className="muted small">For a record that should not exist. Nothing is erased: it leaves every list, search, count and registry, and stays in the database with who removed it, when and why. Its file number and civil ID can be used again.</span>
+          {removing ? (
+            <>
+              <SingleChoice label="Why remove it" options={REMOVAL_REASONS.map((r) => ({ value: r, label: r }))} value={reason} onChange={setReason} />
+              <span className="row wrap" style={{ gap: 8 }}>
+                <button className="btn small remove-btn" disabled={!reason || busy} onClick={remove}>Remove {identity.name ?? "record"}</button>
+                <button className="btn ghost small" onClick={() => (setRemoving(false), setReason(""))}>Keep the record</button>
+              </span>
+            </>
+          ) : (
+            <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => setRemoving(true)}>Remove record…</button>
+          )}
+        </div>
       </div>
     </Drawer>
   );

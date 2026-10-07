@@ -94,3 +94,34 @@ test("sandbox-only rules run on sample patients only", async () => {
   const sandbox = await activeRuleVersions(db, "sandbox"), production = await activeRuleVersions(db, "production");
   assert.ok(production.size <= sandbox.size);
 });
+
+test("patient details: name, file number, sex and date of birth can be corrected (audited); duplicates and SYN- refused", async () => {
+  const r = await call("POST", "/patients", { name: "Typo Nmae", mrn: "400000001", sex: "Male", birthDate: "1950-01-01", conditions: ["af"] });
+  const id = r.body.id;
+  const ok = await call("POST", `/patients/${id}/identity`, { name: "Typo Name", mrn: "400000002", sex: "Female", birthDate: "1951-02-03" });
+  assert.equal(ok.status, 200);
+  const s = (await call("GET", `/patients/${id}/summary`)).body.header;
+  assert.deepEqual([s.name, s.mrn, s.sex, s.birthDate], ["Typo Name", "400000002", "Female", "1951-02-03"]);
+  const a = (await db.query(`SELECT detail FROM cf.audit WHERE action='update-identity' AND entity_id=$1 ORDER BY at DESC LIMIT 1`, [id])).rows[0] as any;
+  assert.equal((typeof a.detail === "string" ? JSON.parse(a.detail) : a.detail).before.name, "Typo Nmae");
+  await call("POST", "/patients", { name: "Other", mrn: "400000003", sex: "Male", birthDate: "1950-01-01" });
+  assert.equal((await call("POST", `/patients/${id}/identity`, { mrn: "400000003" })).status, 409);
+  assert.equal((await call("POST", `/patients/${id}/identity`, { mrn: "SYN-1" })).status, 400);
+  assert.equal((await call("POST", `/patients/${id}/identity`, { birthDate: "2999-01-01" })).status, 400);
+});
+
+test("removing a record: it leaves lists and search, is kept with the reason, and frees its file number", async () => {
+  const r = await call("POST", "/patients", { name: "Wrong Entry", mrn: "500000001", sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"], civilId: "260010100099" });
+  const id = r.body.id;
+  assert.equal((await call("POST", `/patients/${id}/remove`, { reason: "Because" })).status, 400);
+  assert.equal((await call("POST", `/patients/${id}/remove`, { reason: "Registered in error" })).status, 200);
+  assert.ok(!(await call("GET", "/worklist")).body.rows.some((x: any) => x.id === id));
+  assert.equal((await call("GET", "/patients?q=Wrong")).body.length, 0);
+  assert.ok(!(await call("GET", "/registries/hf")).body.patients.some((p: any) => p.mrn === "500000001"));
+  assert.equal((await call("GET", `/patients/${id}/summary`)).status, 404);
+  const kept = (await db.query(`SELECT removed_reason, removed_by FROM cf.patient WHERE id=$1`, [id])).rows[0] as any;
+  assert.equal(kept.removed_reason, "Registered in error");
+  assert.ok(kept.removed_by);
+  // same file number and civil ID can be registered again
+  assert.equal((await call("POST", "/patients", { name: "Right Entry", mrn: "500000001", sex: "Male", birthDate: "1960-01-01", civilId: "260010100099" })).status, 201);
+});

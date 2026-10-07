@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route, FileText } from "lucide-react";
+import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route, FileText, Pencil } from "lucide-react";
 import { useData } from "../api";
 import { Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
@@ -86,6 +86,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               <span className="id">
                 {h.age} y · {h.sex} · MRN {h.mrn}
               </span>
+              <button
+                className="pt-edit"
+                onClick={() => setOpen({ kind: "identity", identity: { name: h.name, mrn: h.mrn, sex: h.sex, birthDate: h.birthDate, civilId: h.civilId, nationality: h.nationality, mobile: h.mobile, allergies: h.allergies, sample: h.sample } })}
+              >
+                <Pencil size={14} /> Edit details
+              </button>
               {h.sample && <span className="chip sample-chip">Sample patient · synthetic</span>}
               <span className={`chip ${h.deceased ? "deceased" : "gray"}`}>{h.where}</span>
               {h.readmission?.hfReadmission && h.readmission.days <= 30 && <span className="chip sev sev-orange"><span className="dot" />HF readmission · day {h.readmission.days}</span>}

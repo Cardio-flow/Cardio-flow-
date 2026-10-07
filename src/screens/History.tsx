@@ -51,7 +51,7 @@ export function HistoryTab({ id, version, open }: { id: string; version: number;
           <section className="card pad">
             <div className="card-head">
               <h2>Registration</h2>
-              <button className="btn ghost small" onClick={() => open({ kind: "identity", identity: idn })}><IdCard size={14} /> Edit</button>
+              <button className="btn ghost small" onClick={() => open({ kind: "identity", identity: idn })}><IdCard size={14} /> Edit details</button>
             </div>
             <dl className="kv">
               <dt>Civil ID</dt><dd>{idn.civilId ?? <span className="muted">Not recorded</span>}</dd>

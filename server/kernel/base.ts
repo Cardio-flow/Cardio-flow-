@@ -39,7 +39,7 @@ export async function journeyEvent(tx: Q, actor: Actor, e: EventInput) {
 }
 
 export async function patientInSite(tx: Q, actor: Actor, patientId: string) {
-  const row = (await tx.query("SELECT * FROM cf.patient WHERE id=$1 AND site_id=$2", [patientId, actor.siteId])).rows[0];
+  const row = (await tx.query("SELECT * FROM cf.patient WHERE id=$1 AND site_id=$2 AND removed_at IS NULL", [patientId, actor.siteId])).rows[0];
   if (!row) throw new ApiError(404, "Patient not found");
   return row as PatientRow;
 }

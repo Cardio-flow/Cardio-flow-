@@ -17,7 +17,7 @@ export type Identity = { civilId?: string | null; nationality?: string | null; m
 
 async function civilIdFree(tx: Q, siteId: string, civilId: string | null | undefined, exceptPatient?: string) {
   if (!civilId) return;
-  const other = (await tx.query(`SELECT name, mrn FROM cf.patient WHERE site_id=$1 AND civil_id=$2 AND NOT synthetic AND id IS DISTINCT FROM $3`, [siteId, civilId, exceptPatient ?? null])).rows[0];
+  const other = (await tx.query(`SELECT name, mrn FROM cf.patient WHERE site_id=$1 AND civil_id=$2 AND NOT synthetic AND removed_at IS NULL AND id IS DISTINCT FROM $3`, [siteId, civilId, exceptPatient ?? null])).rows[0];
   if (other) throw new ApiError(409, `This civil ID is already registered to ${other.name} (MRN ${other.mrn})`);
 }
 
@@ -31,7 +31,7 @@ export async function createPatient(
   const synthetic = input.synthetic === true || actor.id === "system:synthetic-seed";
   const mrn = synthetic && !/^SYN-/.test(input.mrn) ? `SYN-${input.mrn}` : input.mrn;
   if (!synthetic && /^SYN-/i.test(mrn)) throw new ApiError(400, "MRNs starting with SYN- are reserved for sample patients");
-  const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2", [actor.siteId, mrn])).rows[0];
+  const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2 AND removed_at IS NULL", [actor.siteId, mrn])).rows[0];
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
   if (!synthetic) await civilIdFree(tx, actor.siteId, input.civilId);
   const id = uuid();
@@ -44,22 +44,46 @@ export async function createPatient(
   return id;
 }
 
+// Removing a record: never erased (append-only history). It leaves every list, search, count, registry and the
+// nightly run; who, when and why are kept on the row and in the audit; the file number and civil ID are free again.
+export const REMOVAL_REASONS = ["Registered in error", "Duplicate record", "Test or practice record"] as const;
+export async function removePatient(tx: Q, actor: Actor, patientId: string, reason: (typeof REMOVAL_REASONS)[number]) {
+  const p = await patientInSite(tx, actor, patientId);
+  await tx.query(`UPDATE cf.patient SET removed_at=now(), removed_by=$2, removed_reason=$3 WHERE id=$1`, [patientId, actor.id, reason]);
+  await audit(tx, actor, "remove-patient", "patient", patientId, patientId, { reason, mrn: p.mrn, name: p.name });
+}
+
 // A real patient registered by mistake for testing moves to the sample patients (one way only: sample data
 // never becomes a real record). The MRN gains the SYN- prefix so the real MRN is free again.
 export async function moveToSample(tx: Q, actor: Actor, patientId: string) {
   const p = await patientInSite(tx, actor, patientId);
   if (p.synthetic) return;
   const mrn = /^SYN-/.test(p.mrn) ? p.mrn : `SYN-${p.mrn}`;
-  if ((await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2`, [actor.siteId, mrn])).rows[0]) throw new ApiError(409, "A sample patient already has this MRN");
+  if ((await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2 AND removed_at IS NULL`, [actor.siteId, mrn])).rows[0]) throw new ApiError(409, "A sample patient already has this MRN");
   await tx.query(`UPDATE cf.patient SET synthetic=true, mrn=$2 WHERE id=$1`, [patientId, mrn]);
   await audit(tx, actor, "move-to-sample", "patient", patientId, patientId, { mrn: p.mrn });
 }
 
 // Registration details are not clinical history: they are updated in place, and the audit
 // keeps the previous values.
-export async function updateIdentity(tx: Q, actor: Actor, patientId: string, input: Identity & { allergies?: string }) {
+export type Registration = { name?: string; mrn?: string; sex?: "Male" | "Female"; birthDate?: string };
+const dayOf = (v: unknown) => String(v instanceof Date ? v.toISOString() : v).slice(0, 10);
+// Name, file number, sex and date of birth are registration details too (updated in place, audited).
+// Returns null when sex or date of birth changed: every rule reads them, so every rule runs again.
+export async function updateIdentity(tx: Q, actor: Actor, patientId: string, input: Identity & Registration & { allergies?: string }) {
   const before = await patientInSite(tx, actor, patientId);
   if (!before.synthetic) await civilIdFree(tx, actor.siteId, input.civilId, patientId);
+  let mrn = input.mrn === undefined ? before.mrn : input.mrn.trim();
+  if (!mrn) throw new ApiError(400, "The file number is required");
+  if (before.synthetic && !/^SYN-/.test(mrn)) mrn = `SYN-${mrn}`;
+  if (!before.synthetic && /^SYN-/i.test(mrn)) throw new ApiError(400, "MRNs starting with SYN- are reserved for sample patients");
+  if (mrn !== before.mrn && (await tx.query(`SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2 AND removed_at IS NULL AND id<>$3`, [actor.siteId, mrn, patientId])).rows[0])
+    throw new ApiError(409, "Another patient already has this MRN");
+  if (input.birthDate && (input.birthDate > today() || input.birthDate < "1900-01-01")) throw new ApiError(400, "Check the date of birth");
+  const beforeReg = { name: before.name, mrn: before.mrn, sex: before.sex, birth_date: dayOf(before.birth_date) };
+  const reg = { name: input.name?.trim() || before.name, mrn, sex: input.sex ?? before.sex, birth_date: input.birthDate ?? beforeReg.birth_date };
+  const regChanged = (Object.keys(reg) as (keyof typeof reg)[]).filter((k) => beforeReg[k] !== reg[k]);
+  if (regChanged.length) await tx.query(`UPDATE cf.patient SET name=$2, mrn=$3, sex=$4, birth_date=$5 WHERE id=$1`, [patientId, reg.name, reg.mrn, reg.sex, reg.birth_date]);
   const next = {
     civil_id: input.civilId === undefined ? before.civil_id : input.civilId || null,
     nationality: input.nationality === undefined ? before.nationality : input.nationality || null,
@@ -68,7 +92,11 @@ export async function updateIdentity(tx: Q, actor: Actor, patientId: string, inp
   };
   await tx.query(`UPDATE cf.patient SET civil_id=$2, nationality=$3, mobile=$4, allergies=$5 WHERE id=$1`, [patientId, next.civil_id, next.nationality, next.mobile, next.allergies]);
   const changedFields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => (before as any)[k] !== next[k]);
-  await audit(tx, actor, "update-identity", "patient", patientId, patientId, { fields: changedFields, before: Object.fromEntries(changedFields.map((k) => [k, (before as any)[k]])) });
+  await audit(tx, actor, "update-identity", "patient", patientId, patientId, {
+    fields: [...regChanged, ...changedFields],
+    before: { ...Object.fromEntries(regChanged.map((k) => [k, beforeReg[k]])), ...Object.fromEntries(changedFields.map((k) => [k, (before as any)[k]])) },
+  });
+  if (regChanged.includes("sex") || regChanged.includes("birth_date")) return null;
   return [] as Changed;
 }
 

@@ -12,7 +12,7 @@ export async function nightlyReassess(db: DB, opts: { minHours?: number } = {}) 
   const last = settings.nightly?.at ? Date.parse(settings.nightly.at) : 0;
   if (opts.minHours && Date.now() - last < opts.minHours * 3600_000) return { ran: false, reason: "ran recently", lastRun: settings.nightly?.at ?? null };
   const started = Date.now();
-  const ids = (await db.query(`SELECT id FROM cf.patient WHERE site_id=$1`, [SITE_ID])).rows as { id: string }[];
+  const ids = (await db.query(`SELECT id FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL`, [SITE_ID])).rows as { id: string }[];
   let created = 0, resolved = 0, failed = 0;
   for (const { id } of ids) {
     try {

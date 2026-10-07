@@ -65,6 +65,7 @@ export function header(s: PatientState) {
     name: s.patient.name,
     mrn: s.patient.mrn,
     sample: s.patient.synthetic,
+    birthDate: String(s.patient.birth_date).slice(0, 10),
     sex: s.patient.sex,
     age: s.patient.age,
     allergies: s.patient.allergies,
@@ -172,7 +173,7 @@ export function historyView(s: PatientState) {
     items,
     bmi: b,
     comorbidities,
-    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic },
+    identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic, name: s.patient.name, mrn: s.patient.mrn, sex: s.patient.sex, birthDate: String(s.patient.birth_date).slice(0, 10) },
     missing: items.filter((i) => i.status === "not-recorded").map((i) => i.label),
   };
 }
@@ -486,7 +487,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
          SELECT count(*) FILTER (WHERE due_date < $2::date) overdue, count(*) FILTER (WHERE due_date = $2::date) due_today
          FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned'
        ) pc ON true
-       WHERE p.site_id=$1 AND p.synthetic = $3
+       WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic = $3
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
       [siteId, today, sample],
     )
@@ -542,7 +543,7 @@ export async function attentionCount(q: Q, siteId: string, sample = false) {
   const r = (
     await q.query<{ n: number }>(
       `SELECT count(DISTINCT r.patient_id)::int n FROM cf.recommendation r JOIN cf.patient p ON p.id=r.patient_id
-       WHERE p.site_id=$1 AND p.synthetic = $2 AND r.status='active' AND r.severity IN ('red','orange')
+       WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic = $2 AND r.status='active' AND r.severity IN ('red','orange')
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
       [siteId, sample],
     )
