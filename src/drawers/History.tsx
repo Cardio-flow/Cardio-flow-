@@ -4,7 +4,7 @@ import { api, useData } from "../api";
 import { Drawer, SingleChoice } from "../ui";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, type HistoryItem } from "../../shared/history";
-import { fmtDay } from "../../shared/clinical";
+import { fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 
 // One editable diagnosis: new (add) or existing (update).
@@ -412,7 +412,7 @@ function DiagnosisEditor({ item, dx, onChange }: { item: HistoryItem; dx: Dx[]; 
           <div className="row wrap" style={{ gap: 14, alignItems: "flex-end" }}>
             <label className="field">
               <span>Date</span>
-              <input type="date" className="input" value={d.onset} max={new Date().toISOString().slice(0, 10)} onChange={(e) => upd(d.key, { onset: e.target.value, onsetYear: e.target.value ? "" : d.onsetYear })} />
+              <input type="date" className="input" value={d.onset} max={localDay(new Date().toISOString())} onChange={(e) => upd(d.key, { onset: e.target.value, onsetYear: e.target.value ? "" : d.onsetYear })} />
             </label>
             <span className="small muted" style={{ fontWeight: 700, paddingBottom: 14 }}>or</span>
             <label className="field">

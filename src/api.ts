@@ -17,7 +17,14 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
     credentials: "same-origin",
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // a gateway error page (HTML) instead of JSON: say what happened in plain words
+    if (!response.ok) throw new HttpError(response.status, response.status >= 500 ? "The server did not answer. Nothing was saved — try again." : `Request failed (${response.status})`);
+    throw new HttpError(response.status, "Unexpected answer from the server");
+  }
   if (!response.ok) throw new HttpError(response.status, data?.error ?? "Request failed");
   return data as T;
 }

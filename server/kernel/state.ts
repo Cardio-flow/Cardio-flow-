@@ -163,8 +163,9 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       switch (e.kind) {
         case "start":
         case "restart":
+          // the current course starts again after a stop (a hold → resume keeps it)
+          if (startedAt == null || status === "stopped") startedAt = e.effective_at;
           status = "active";
-          startedAt ??= e.effective_at;
           if (e.dose_value != null) dose = e;
           break;
         case "increase":

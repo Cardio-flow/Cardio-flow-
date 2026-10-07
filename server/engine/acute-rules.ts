@@ -239,7 +239,8 @@ export const ACUTE_RULES: RuleDef[] = [
       const dig = on(s, "digoxin")[0];
       const lvl = within(s, "digoxin-level", 30);
       const k = within(s, "potassium", 30), egfr = within(s, "egfr", 90);
-      const inter = on(s, "qt", "ndhp-ccb");
+      // drugs that raise digoxin levels (P-gp), by name: not the QT tag
+      const inter = s.meds.filter((m) => (m.status === "active" || m.status === "held") && ["amiodarone", "dronedarone", "verapamil", "diltiazem", "clarithromycin", "propafenone"].includes(m.code));
       const risks = [
         k && k.value_num! < Number(p.k_below) && f(k, "orange"),
         ((egfr && egfr.value_num! < Number(p.egfr_below)) || s.tags.has("ckd")) && (egfr ? f(egfr, "orange") : { label: "Kidney", value: "Chronic kidney disease" }),

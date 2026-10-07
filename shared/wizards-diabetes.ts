@@ -73,7 +73,7 @@ export const DIABETES_WIZARDS: Record<string, WizardDef> = {
                 effects: todo("medication", `Start an SGLT2 inhibitor: ${b("empagliflozin")} or ${b("dapagliflozin")}`) },
               { value: "glp1", label: `GLP-1 RA with proven benefit: ${b("semaglutide")}, ${b("dulaglutide")} or ${b("liraglutide")}`, hint: "ASCVD, CKD, or obesity with HFpEF", unless: ["glp1"],
                 effects: todo("medication", `Start a GLP-1 RA with proven benefit: ${b("semaglutide")}, ${b("dulaglutide")} or ${b("liraglutide")}`) },
-              { value: "finerenone", label: `Finerenone: ${b("finerenone")}`, hint: "T2DM with albuminuria on ACEi/ARB, eGFR ≥25, K ≤5.0", requires: ["raas"], unless: ["mra"],
+              { value: "finerenone", label: `Finerenone: ${b("finerenone")}`, hint: "T2DM with albuminuria on ACEi/ARB, eGFR ≥25, K ≤4.8 (SmPC)", requires: ["raas"], unless: ["mra"],
                 effects: todo("medication", `Start finerenone (${brand("finerenone")}); potassium at 4 weeks`) },
             ],
           },

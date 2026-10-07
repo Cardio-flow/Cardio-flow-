@@ -522,7 +522,7 @@ VALVE_WIZARDS["valve-heart-team"].assess = (a: Answers, ctx: WizardContext): Ass
   }
   if (a.lesion === "mr-primary") {
     if (sym) rec.push("Symptomatic severe primary MR: surgery, repair preferred (I).");
-    if (a.lv !== "gt60" || ((a.mrFeatures as string[]) ?? []).includes("lvesd")) rec.push("LVEF ≤60%, LVESD ≥40 mm or LVESDi ≥20 mm/m²: surgery (I).");
+    if ((a.lv != null && a.lv !== "gt60") || ((a.mrFeatures as string[]) ?? []).includes("lvesd")) rec.push("LVEF ≤60%, LVESD ≥40 mm or LVESDi ≥20 mm/m²: surgery (I).");
     else if (!sym && low && mrRepairFeatures(a) >= 3) rec.push(`Asymptomatic, low risk, LVEF >60%, LVESD <40 mm with ${mrRepairFeatures(a)} of AF, SPAP >50, LA dilatation, TR ≥ moderate: repair (I B).`);
     if (a.risk === "high" || a.risk === "prohibitive") rec.push("High surgical risk: TEER should be considered (IIa B).");
   }

@@ -5,7 +5,7 @@
 // follow-up visit 1–2 weeks after an HF hospitalisation to check congestion and drug tolerance and
 // to start/up-titrate therapy; residual congestion at discharge marks high risk. HF readmission
 // within 30 days is the registry quality measure. (Confirm the 2026 wording in review.)
-import { daysBetween, fmtDay } from "../../shared/clinical.js";
+import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
@@ -32,7 +32,7 @@ export const ENCOUNTER_RULES: RuleDef[] = [
       if (seen) return [];
       const congested = (last.summary as any)?.dischargeStatus === "Still congested";
       const window = Number(p.review_days);
-      const byDay = new Date(Date.parse(last.ended_at) + window * 86400000).toISOString().slice(0, 10);
+      const byDay = addDays(localDay(last.ended_at), window);
       // a booked review inside the window is enough (if it is missed, the plan's own overdue alert fires)
       const visits = s.plan.filter((a) => a.status === "planned" && a.completes_on?.type === "visit" && a.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!));
       if (visits.some((a) => a.due_date! <= byDay)) return [];

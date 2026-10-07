@@ -370,8 +370,12 @@ function ActivePlan({ s, open }: { s: any; open(o: Open): void }) {
 
 function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const clear = async (cls: string) => {
-    await api(`/patients/${s.header.id}/barriers/${encodeURIComponent(cls)}/clear`, { body: {} });
-    done("Reason removed · suggestions for this drug class can return");
+    try {
+      await api(`/patients/${s.header.id}/barriers/${encodeURIComponent(cls)}/clear`, { body: {} });
+      done("Reason removed · suggestions for this drug class can return");
+    } catch (e) {
+      done(`Not removed: ${(e as Error).message}`);
+    }
   };
   return (
     <section className="card pad" style={{ paddingBottom: 14 }}>

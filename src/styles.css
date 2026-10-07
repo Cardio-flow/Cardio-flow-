@@ -1260,3 +1260,17 @@ details.lane > .lane-rows { padding: 0 18px 8px; }
 
 .hx-dx-line.new { background: var(--blue-soft); border-color: var(--blue-line); }
 .hx-year { width: 84px; height: 36px; }
+
+/* medication list on phones: one compact row per medicine (audit 7 Oct) */
+table.data.meds td.med-compact { display: none; }
+@media (max-width: 640px) {
+  table.data.meds tr { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 12px 0; }
+  table.data.meds td[data-label="Dose"], table.data.meds td[data-label="Frequency"], table.data.meds td[data-label="Since"], table.data.meds td[data-label="Last change"] { display: none; }
+  table.data.meds td:first-child { grid-column: 1; grid-row: 1; }
+  table.data.meds td.med-compact { display: block; grid-column: 1; grid-row: 2; font-size: 13.5px; color: var(--ink-3); }
+  table.data.meds td[data-label="Status"] { grid-column: 2; grid-row: 1; align-self: start; }
+  table.data.meds td[data-cell="action"] { grid-column: 2; grid-row: 2; }
+  table.data.meds td[data-label="Status"]::before, table.data.meds td.med-compact::before { content: none; }
+}
+.chip { max-width: 100%; }
+.chip.outline { white-space: normal; height: auto; min-height: 28px; line-height: 1.35; padding-top: 4px; padding-bottom: 4px; }

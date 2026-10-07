@@ -9,7 +9,7 @@ import { api } from "../api";
 import { Drawer, MultiChoice, Segmented } from "../ui";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, VALVE_GRADES, valveFindings } from "../../shared/studies";
 import { PH_SIGNS, PROBABILITY_LABEL, phEchoProbability } from "../../shared/ph";
-import { fmtDay } from "../../shared/clinical";
+import { fmtDay, isoDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 
 const COMMON = ["Regional wall motion abnormality", "Dilated LV", "LV hypertrophy", "RV dysfunction", "Pericardial effusion", "LV thrombus"];
@@ -30,7 +30,7 @@ function Fold({ title, hint, open, children }: { title: string; hint?: string; o
 }
 
 export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { patientId: string; contextId?: string; summary?: any; onClose(): void; onDone(m?: string, r?: any): void }) {
-  const today: string = summary?.today ?? new Date().toISOString().slice(0, 10);
+  const today: string = summary?.today ?? isoDay();
   const [date, setDate] = useState(today);
   const [quality, setQuality] = useState("formal");
   const [lvef, setLvef] = useState("");

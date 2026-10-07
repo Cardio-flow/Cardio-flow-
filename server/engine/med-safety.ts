@@ -217,6 +217,44 @@ export const SAFETY_ROWS: SafetyRow[] = [
     source: "SmPC clopidogrel (Plavix) 4.4/4.5",
     check: pair(["clopidogrel"], ["omeprazole", "esomeprazole"]),
   },
+  // audit finish (7 Oct): common label interactions with a dose condition
+  {
+    id: "ticagrelor-aspirin-high", kind: "interaction", severity: "orange",
+    title: (h) => `${h.meds[0].name} with ${h.meds[1].name} above 100 mg: not recommended`,
+    detail: "With ticagrelor, maintenance aspirin above 100 mg daily is not recommended (reduced effectiveness). Use aspirin 75–100 mg.",
+    source: "SmPC ticagrelor (Brilique) 4.2/4.4",
+    check: (_s, f) => {
+      const t = pick(f, ["ticagrelor"]), a = pick(f, ["aspirin"]).filter((m) => (m.doseValue ?? 0) > 100);
+      return t.length && a.length ? [{ meds: [...t, ...a], reason: "" }] : [];
+    },
+  },
+  {
+    id: "simvastatin-amiodarone", kind: "interaction", severity: "orange",
+    title: (h) => `${h.meds[0].name} above 20 mg with ${h.meds[1].name}: not recommended`,
+    detail: "With amiodarone, simvastatin should not exceed 20 mg daily (myopathy). Reduce the dose or switch to atorvastatin or rosuvastatin.",
+    source: "SmPC simvastatin 4.2/4.4",
+    check: (_s, f) => {
+      const sv = pick(f, ["simvastatin"]).filter((m) => (m.doseValue ?? 0) > 20), am = pick(f, ["amiodarone"]);
+      return sv.length && am.length ? [{ meds: [...sv, ...am], reason: "" }] : [];
+    },
+  },
+  {
+    id: "digoxin-amiodarone", kind: "interaction", severity: "orange",
+    title: withPartner("", "halve the digoxin dose"),
+    detail: "Amiodarone and dronedarone raise digoxin levels: reduce the digoxin dose by half and check the digoxin level and ECG.",
+    source: "SmPC amiodarone 4.5; dronedarone (Multaq) 4.5",
+    check: pair(["digoxin"], ["amiodarone", "dronedarone"]),
+  },
+  {
+    id: "dabigatran-verapamil", kind: "interaction", severity: "yellow",
+    title: withPartner("", "dabigatran 110 mg twice daily"),
+    detail: "With verapamil the dabigatran dose for AF is 110 mg twice daily, verapamil taken at the same time.",
+    source: "SmPC dabigatran (Pradaxa) 4.2/4.5",
+    check: (_s, f) => {
+      const d = pick(f, ["dabigatran"]).filter((m) => m.doseValue !== 110), v = pick(f, ["verapamil"]);
+      return d.length && v.length ? [{ meds: [...d, ...v], reason: "" }] : [];
+    },
+  },
   {
     id: "doac-inducer", kind: "interaction", severity: "orange",
     title: withPartner("strong inducer", "lower anticoagulant effect"),

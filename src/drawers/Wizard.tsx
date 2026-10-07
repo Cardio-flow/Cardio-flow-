@@ -27,6 +27,7 @@ export function WizardDrawer({
   const [answers, setAnswers] = useState<Answers>({});
   const [step, setStep] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [declining, setDeclining] = useState(false);
@@ -40,8 +41,11 @@ export function WizardDrawer({
   const [overrides, setOverrides] = useState<Record<string, string>>(resume?.overrides ?? {});
   const [startHits, setStartHits] = useState<Record<string, Hit[]>>({});
   const loaded = useRef(false);
+  const opened = useRef<string | null>(null);
   useEffect(() => {
-    api(`/patients/${patientId}/wizards/${wizard}`).then((r) => {
+    // a later part of a joined pathway reads the record as it will be after the earlier parts
+    const before = carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides }));
+    (before.length ? api(`/patients/${patientId}/wizards/${wizard}/context`, { body: { before } }) : api(`/patients/${patientId}/wizards/${wizard}`)).then((r) => {
       setCtx(r.context);
       setEpisode(r.episode ?? null);
       // a review starts from the episode's last answers (a newer draft wins); going back in a joined pathway
@@ -66,11 +70,18 @@ export function WizardDrawer({
         setAutoFilled(pre.suggested);
       }
       loaded.current = true;
+      opened.current = null;
     }, (e) => setError(e.message));
   }, [patientId, wizard, def]);
   // keep a draft so an accidental close loses nothing
   useEffect(() => {
     if (!loaded.current) return;
+    // opening a pathway is not an edit: no draft until the clinician changes something, so the next open
+    // is prefilled again from the record as it is then
+    const key = JSON.stringify([answers, step]);
+    if (opened.current == null) { opened.current = key; return; }
+    if (opened.current === key) return;
+    setDirty(true);
     setSaved(false);
     const t = setTimeout(() => api(`/patients/${patientId}/wizards/${wizard}/draft`, { method: "PUT", body: { answers, step, recommendationId: recommendationId ?? null } }).then(() => setSaved(true)).catch(() => {}), 500);
     return () => clearTimeout(t);
@@ -88,7 +99,7 @@ export function WizardDrawer({
   useEffect(() => {
     if (!isReview || !startKey) { setStartHits({}); return; }
     let live = true;
-    api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers } }).then((r) => live && setStartHits(r.hits ?? {}), () => {});
+    api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers, before: carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides })) } }).then((r) => live && setStartHits(r.hits ?? {}), () => {});
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReview, startKey, patientId, wizard]);
@@ -195,7 +206,7 @@ export function WizardDrawer({
         ) : (
           <>
             <span className="note">
-              {saved ? <><Check size={16} color="var(--green)" strokeWidth={2.6} /> Draft saved</> : "Saving draft…"}
+              {saved ? <><Check size={16} color="var(--green)" strokeWidth={2.6} /> Draft saved</> : dirty ? "Saving draft…" : "Nothing recorded until you confirm"}
             </span>
             {recommendationId && step === 0 && (
               <button className="btn ghost small" style={{ color: "var(--ink-3)" }} onClick={() => setDeclining(true)}>No action needed</button>

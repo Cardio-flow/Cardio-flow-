@@ -220,7 +220,9 @@ export function Fold({ k, hot, children }: { k: string; hot: boolean; children: 
       const v = localStorage.getItem(key);
       if (v != null) return v === "1";
     } catch {}
-    return hot;
+    // phones: module panels start folded (Today already lists what needs doing) so the page stays short
+    const phone = typeof window !== "undefined" && window.matchMedia?.("(max-width: 640px)").matches;
+    return hot && !phone;
   });
   const ref = useRef<HTMLDivElement>(null);
   const toggle = () =>

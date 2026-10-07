@@ -32,7 +32,8 @@ export type HostedAuth = {
   authenticate(req: Request, res: Response): Promise<Session | null>;
 };
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// a real calendar day (2026-02-30 is refused with a 400, not a 500)
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => { const d = new Date(v + "T00:00:00Z"); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v; }, "Not a real date");
 const isoDateTime = z.string().refine((v) => !Number.isNaN(Date.parse(v)), "Invalid date");
 const uuidS = z.string().uuid();
 // Kuwaiti civil ID: 12 digits
@@ -472,7 +473,10 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       })
       .parse(req.body);
     await write(res, id, async (tx, a) => {
-      for (const item of input.items) await K.addPlanAction(tx, a, id, { ...item, contextId: input.contextId });
+      for (const item of input.items) {
+        if (item.dueDate && item.dueDate < today()) throw new ApiError(400, `${item.title}: choose today or a later date`);
+        await K.addPlanAction(tx, a, id, { ...item, contextId: input.contextId });
+      }
       return { changed: ["plan"] };
     });
   }));
@@ -513,7 +517,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         dischargeWeight: z.number().min(20).max(350).nullish(),
         note: z.string().max(4000).optional(),
         plan: z
-          .array(z.object({ category: z.string(), title: z.string().max(160), dueDate: isoDate.nullable(), completesOn: z.record(z.string(), z.unknown()).optional(), reason: z.string().max(200).optional() }))
+          .array(z.object({ category: z.enum(["medication", "investigation", "monitoring", "follow_up", "referral", "procedure", "education", "other"]), title: z.string().max(160), dueDate: isoDate.nullable(), completesOn: z.record(z.string(), z.unknown()).optional(), reason: z.string().max(200).optional() }))
           .max(20),
       })
       .parse(req.body);
@@ -622,6 +626,28 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), getWizard(tx, id, String(req.params.wizard)))));
   }));
+  // A joined pathway's later part is read as the record will be once the earlier parts are recorded: they are
+  // applied inside a transaction that is always rolled back (nothing is saved here)
+  const partS = z.object({ wizard: z.string().max(60), answers: z.record(z.string(), z.any()), overrides: z.record(z.string(), z.string().max(300)).optional() });
+  class Rollback { constructor(public value: unknown) {} }
+  async function afterParts<T>(a: Actor, id: string, parts: z.infer<typeof partS>[], fn: (tx: Q) => Promise<T>): Promise<T> {
+    try {
+      await db.transaction(async (tx) => {
+        await patientInSite(tx, a, id);
+        for (const p of parts) await completeWizard(tx, a, id, p.wizard, { answers: p.answers, overrides: p.overrides });
+        throw new Rollback(await fn(tx));
+      });
+    } catch (e) {
+      if (e instanceof Rollback) return e.value as T;
+      throw e;
+    }
+    throw new ApiError(500, "Simulation did not complete");
+  }
+  app.post("/api/patients/:id/wizards/:wizard/context", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ before: z.array(partS).max(4) }).parse(req.body);
+    res.json(await afterParts(actor(res), id, input.before, (tx) => getWizard(tx, id, String(req.params.wizard))));
+  }));
   app.put("/api/patients/:id/wizards/:wizard/draft", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z.object({ answers: z.record(z.string(), z.any()), step: z.number().int().min(0).max(20), recommendationId: uuidS.nullish() }).parse(req.body);
@@ -647,11 +673,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/wizards/:wizard/start-check", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ answers: z.record(z.string(), z.any()) }).parse(req.body);
-    res.json(await db.transaction(async (tx) => {
-      await patientInSite(tx, actor(res), id);
-      return { hits: await wizardStartCheck(tx, id, String(req.params.wizard), input.answers) };
-    }));
+    const input = z.object({ answers: z.record(z.string(), z.any()), before: z.array(partS).max(4).optional() }).parse(req.body);
+    res.json({ hits: await afterParts(actor(res), id, input.before ?? [], (tx) => wizardStartCheck(tx, id, String(req.params.wizard), input.answers)) });
   }));
   app.post("/api/patients/:id/episodes/:eid/resolve", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

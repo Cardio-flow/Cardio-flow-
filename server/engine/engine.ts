@@ -1,7 +1,7 @@
 import type { Q } from "../db/db.js";
 import { uuid } from "../kernel/base.js";
 import { activeBarrier, loadState, type PatientState } from "../kernel/state.js";
-import { drugClassOf } from "../../shared/catalog.js";
+import { MEASURES, drugClassOf } from "../../shared/catalog.js";
 import { RULES, type Finding, type RuleDef } from "./rules.js";
 import { NEEDS_REVIEW, POLICY_PUBLISHER, noteFor, publishedByPolicy, publisherFor } from "./publication.js";
 
@@ -47,7 +47,11 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   const result: ReassessResult = { created: [], resolved: 0, superseded: 0 };
   // a deceased patient leaves every reminder list: all rules run and find nothing
   // a new visit or admission can end a "until next review" reason: then every rule runs
-  const shouldRun = (rule: RuleDef) => s.deceased || !changed || rule.inputs.some((i) => changed.includes(i)) || (changed.includes("contexts") && s.barriers.length > 0);
+  // "observations" (and "studies") as an input means any result: a rule that reads labs generically
+  // (medicine monitoring, guideline targets) re-runs whenever any measurement is recorded or corrected
+  const anyResult = !!changed && changed.some((c) => c in MEASURES || c === "observations");
+  const shouldRun = (rule: RuleDef) =>
+    s.deceased || !changed || rule.inputs.some((i) => changed.includes(i)) || (anyResult && rule.inputs.includes("observations")) || (changed.includes("contexts") && s.barriers.length > 0);
   // Two reads for the whole patient instead of per rule (the database may be far away).
   const existing = (
     await tx.query<{ id: string; rule_id: string; fingerprint: string; rule_status: string; rule_version: number; status: string }>(

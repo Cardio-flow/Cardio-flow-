@@ -56,7 +56,7 @@ export const STUDY_RULES: RuleDef[] = [
         signature: `${iva.id}:${r?.study.id ?? "perm"}`,
         severity: "orange",
         title: `Ivabradine with ${inAf ? r!.rhythm.toLowerCase() : "permanent AF"}: stop`,
-        detail: "Ivabradine works only in sinus rhythm. Control rate with a beta-blocker (± digoxin) instead.",
+        detail: inAf && /Paced/i.test(r!.rhythm) ? "Ivabradine works only on the sinus node: in a paced rhythm it has no effect. Stop it." : "Ivabradine works only in sinus rhythm. Control rate with a beta-blocker (± digoxin) instead.",
         facts: [{ label: "Current", value: `${iva.name} ${doseLabel(MEDICATION[iva.code], iva.doseValue, iva.doseUnit)} ${iva.frequency ?? ""}` }, ...(r ? [studyFact(r.study)] : []), ...(permanent ? [{ label: "History", value: "Permanent AF" }] : []), { label: "Guideline", value: "Ivabradine label · ESC HF 2026" }],
         missing: [],
         action: { type: "med-action", medicationId: iva.id, action: "stop", label: "Stop ivabradine" },

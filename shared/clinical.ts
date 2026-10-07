@@ -18,6 +18,16 @@ export function cockcroftGault(creatinineUmol: number, ageYears: number, weightK
   return (((140 - ageYears) * weightKg) / (72 * scr)) * (sex === "Female" ? 0.85 : 1);
 }
 
+// apixaban for AF (EU SmPC 4.2): 2.5 mg twice daily with ≥2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L,
+// or with CrCl 15–29 mL/min; not recommended below CrCl 15. dose null = not recommended.
+export function apixabanAfDose(age: number, weightKg: number, creatinineUmol: number, sex: "Male" | "Female"): { dose: number | null; why: string } {
+  const crcl = cockcroftGault(creatinineUmol, age, weightKg, sex);
+  if (crcl != null && crcl < 15) return { dose: null, why: `CrCl ${Math.round(crcl)} mL/min: apixaban not recommended below 15` };
+  if (crcl != null && crcl < 30) return { dose: 2.5, why: `CrCl ${Math.round(crcl)} mL/min (15–29)` };
+  const n = [age >= 80, weightKg <= 60, creatinineUmol >= 133].filter(Boolean).length;
+  return { dose: n >= 2 ? 2.5 : 5, why: `${n} of 3 reduction criteria (age ${age}, weight ${weightKg} kg, creatinine ${creatinineUmol} µmol/L)` };
+}
+
 export const bmi = (weightKg: number, heightCm: number) => weightKg / (heightCm / 100) ** 2;
 export const bsaMosteller = (weightKg: number, heightCm: number) => Math.sqrt((weightKg * heightCm) / 3600);
 

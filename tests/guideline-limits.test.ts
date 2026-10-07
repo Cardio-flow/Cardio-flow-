@@ -47,9 +47,20 @@ test("creatinine: ≤50% rise acceptable, >50% review, >100% stop (ESC HF); base
   assert.match(s.title, /stop RAAS\/MRA/);
   // the absolute limit: 266 µmol/L is reached before +50% when the baseline is high
   const p2 = await newPatient(["hfref"]);
+  await start(p2, "spironolactone", 25, "OD", addDays(T, -60));
   await obs(p2, [{ code: "creatinine", value: 200 }], at(addDays(T, -20)));
   await obs(p2, [{ code: "creatinine", value: 270 }]);
   assert.equal((await rec(p2, "hf.worsening-renal-function")).severity, "orange", "270 > 266 although only +35%");
+  // the rule is about RAAS/MRA: no finding without one; a baseline already above 266 needs a real (+50%) rise
+  const p3 = await newPatient(["hfref"]);
+  await obs(p3, [{ code: "creatinine", value: 200 }], at(addDays(T, -20)));
+  await obs(p3, [{ code: "creatinine", value: 270 }]);
+  assert.equal(await rec(p3, "hf.worsening-renal-function"), undefined, "no RAAS/MRA");
+  const p4 = await newPatient(["hfref"]);
+  await start(p4, "spironolactone", 25, "OD", addDays(T, -60));
+  await obs(p4, [{ code: "creatinine", value: 320 }], at(addDays(T, -20)));
+  await obs(p4, [{ code: "creatinine", value: 340 }]);
+  assert.equal(await rec(p4, "hf.worsening-renal-function"), undefined, "320 → 340 (+6%) from a baseline already above the limits");
 });
 
 test("mechanical valve INR: recorded target wins, suggestion from design/position/risk, unset target asks for it", async () => {

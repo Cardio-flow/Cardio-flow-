@@ -75,7 +75,7 @@ test("Hamad: AF on today's ECG, not on the problem list → AF-CARE suggests the
   assert.deepEqual(suggest("af-care", "oac", {}, ctx).map((x) => x.value), ["apixaban"]);
   assert.ok(suggest("af-care", "rate", { pattern: "first" }, ctx).length === 1, "rate 118: one rate-control suggestion");
   assert.ok(suggest("af-care", "comorb", {}, ctx).some((x) => x.value === "hf") || ctx.meds.some((m) => m.tags.includes("sglt2")));
-  const done = await run(pid, "af-care", { pattern: "first", comorb: ["none"], oac: "apixaban", bleed: ["none"], rate: ["digoxin"], rhythm: ["none"], tests: ["bloods"], review: "none" }, r.id);
+  const done = await run(pid, "af-care", { pattern: "first", comorb: ["none"], oac: "apixaban", bleed: ["none"], symptoms: "2", rate: ["digoxin"], rhythm: ["none"], tests: ["bloods"], review: "none" }, r.id);
   assert.ok(done.assessment!.recommendations.some((x: string) => /6 months/.test(x)));
   const s = await loadState(db, pid);
   const af = s.conditions.find((c) => c.code === "af" && c.status === "active")!;
@@ -102,7 +102,7 @@ test("aspirin alone for AF without vascular disease: AF-CARE suggests stopping i
   await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "aspirin", doseValue: 100, frequency: "OD", route: "PO", indication: "af", effectiveAt: at(addDays(T, -100)) }); await reassess(q, pid, "sandbox"); });
   const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
   assert.ok(suggest("af-care", "bleed", {}, ctx).some((x) => x.value === "stop-asa"));
-  await run(pid, "af-care", { pattern: "paroxysmal", comorb: ["none"], oac: "other-doac", bleed: ["stop-asa"], rate: ["none"], rhythm: ["ablation"], tests: ["none"], review: "none" });
+  await run(pid, "af-care", { pattern: "paroxysmal", comorb: ["none"], oac: "other-doac", bleed: ["stop-asa"], symptoms: "2", rate: ["none"], rhythm: ["ablation"], tests: ["none"], review: "none" });
   const s = await loadState(db, pid);
   assert.equal(s.meds.find((m) => m.code === "aspirin")!.status, "stopped");
   assert.ok(s.plan.some((p) => p.title === "Referral for AF catheter ablation"));
@@ -149,7 +149,7 @@ test("AF ablation: dated with uninterrupted anticoagulation and 2 months after; 
 
 test("a cardioversion planned with no anticoagulant is flagged until anticoagulation covers 3 weeks", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Cv3 " + Date.now(), mrn: "C3" + Date.now(), sex: "Female", birthDate: "1962-01-01", conditions: ["af"] }));
-  await run(pid, "af-care", { pattern: "persistent", comorb: ["none"], oac: "declined", bleed: ["none"], rate: ["none"], rhythm: ["cardioversion"], tests: ["none"], review: "none" });
+  await run(pid, "af-care", { pattern: "persistent", comorb: ["none"], oac: "declined", bleed: ["none"], symptoms: "2", rate: ["none"], rhythm: ["cardioversion"], tests: ["none"], review: "none" });
   const r = await rec(pid, "rhythm.cardioversion-before-3w");
   assert.ok(r && r.severity === "yellow");
   assert.match(r.title, /no anticoagulant$/);

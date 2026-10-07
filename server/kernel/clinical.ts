@@ -26,6 +26,7 @@ export async function createPatient(
   actor: Actor,
   input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; allergies?: string; conditions?: string[] } & Identity,
 ) {
+  if (input.birthDate > today() || input.birthDate < "1900-01-01") throw new ApiError(400, "Check the date of birth");
   const exists = (await tx.query("SELECT 1 FROM cf.patient WHERE site_id=$1 AND mrn=$2", [actor.siteId, input.mrn])).rows[0];
   if (exists) throw new ApiError(409, "A patient with this MRN already exists");
   await civilIdFree(tx, actor.siteId, input.civilId);
@@ -131,6 +132,12 @@ export async function updateCondition(tx: Q, actor: Actor, patientId: string, lo
 // ---------- structured history ----------
 export type HistoryAnswer = { item: string; answer: string; packYears?: number | null; quitYear?: number | null; resolveAs?: "resolved" | "entered_in_error" | null };
 
+// a clinical record is dated today or earlier (day-level, Kuwait time): a future date would become the
+// "current" value until that day and hide the real results in between
+export function notFuture(iso: string | null | undefined, what: string) {
+  if (iso && iso > nowIso() && isoDay(new Date(iso)) > today()) throw new ApiError(400, `${what} cannot be dated in the future`);
+}
+
 export async function recordHistory(
   tx: Q,
   actor: Actor,
@@ -144,6 +151,7 @@ export async function recordHistory(
   },
 ) {
   await patientInSite(tx, actor, patientId);
+  notFuture(input.effectiveAt, "History");
   const active = (
     await tx.query(
       `SELECT * FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE status='active'`,
@@ -216,11 +224,13 @@ export async function recordObservations(
   },
 ) {
   const patient = await patientInSite(tx, actor, patientId);
+  notFuture(input.effectiveAt, "A result");
   const ids: string[] = [];
   const saved: { code: string; value: number | null; text: string | null; id: string }[] = [];
   for (const item of input.items) {
     const def = MEASURES[item.code];
     const isText = item.text != null && item.value == null;
+    if (item.value == null && item.text == null) throw new ApiError(400, `${MEASURES[item.code]?.display ?? item.code}: enter a value`);
     if (!def && !isText) throw new ApiError(400, `Unknown measurement: ${item.code}`);
     if (def?.derived) throw new ApiError(400, `${def.display} is calculated automatically`);
     let value = item.value ?? null;
@@ -277,6 +287,11 @@ export async function recordObservations(
 export async function correctObservation(tx: Q, actor: Actor, patientId: string, observationId: string, input: { value?: number; enteredInError?: boolean }) {
   const cur = (await tx.query(`SELECT * FROM cf.observation WHERE id=$1 AND patient_id=$2`, [observationId, patientId])).rows[0];
   if (!cur) throw new ApiError(404, "Result not found");
+  if (input.value == null && !input.enteredInError) throw new ApiError(400, "Give the corrected value, or mark the result entered in error");
+  const def = MEASURES[cur.code];
+  if (def?.derived) throw new ApiError(400, `${def.display} is calculated: correct the value it is calculated from`);
+  if (input.value != null && !(Number.isFinite(input.value) && input.value >= 0 && input.value < 1e6 && (def?.max == null || input.value <= def.max)))
+    throw new ApiError(400, `${def?.display ?? cur.code}: value out of range`);
   const latest = (await tx.query(`SELECT max(version) v FROM cf.observation WHERE logical_id=$1`, [cur.logical_id])).rows[0].v;
   await tx.query(
     `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,method,derived_from,study_id,context_id,recorded_by)
@@ -284,6 +299,24 @@ export async function correctObservation(tx: Q, actor: Actor, patientId: string,
     [uuid(), Number(latest) + 1, input.value ?? cur.value_num, input.enteredInError ? "entered_in_error" : cur.status, actor.id, observationId],
   );
   await audit(tx, actor, input.enteredInError ? "entered-in-error" : "correct", "observation", observationId, patientId);
+  // the eGFR calculated from a corrected creatinine follows it (recalculated, or withdrawn with it)
+  if (cur.code === "creatinine") {
+    const derived = (await tx.query(
+      `SELECT DISTINCT ON (logical_id) * FROM cf.observation WHERE patient_id=$1 AND code='egfr' AND $2 = ANY(derived_from) ORDER BY logical_id, version DESC`,
+      [patientId, cur.logical_id],
+    )).rows as any[];
+    const patient = await patientInSite(tx, actor, patientId);
+    const on = new Date(cur.effective_at).toISOString();
+    for (const d of derived) {
+      const egfr = input.enteredInError ? d.value_num : egfrCkdEpi2021(input.value ?? cur.value_num, ageOn(patient.birth_date, on), patient.sex);
+      await tx.query(
+        `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,method,derived_from,study_id,context_id,recorded_by)
+         SELECT $1,logical_id,version+1,patient_id,code,$2,value_text,unit,original_value,original_unit,effective_at,$3,quality,source,method,derived_from,study_id,context_id,$4 FROM cf.observation WHERE id=$5`,
+        [uuid(), egfr, input.enteredInError ? "entered_in_error" : d.status, actor.id, d.id],
+      );
+    }
+    return ["creatinine", "egfr"] as Changed;
+  }
   return [cur.code] as Changed;
 }
 
@@ -311,6 +344,7 @@ export async function recordEcho(
   },
 ) {
   await patientInSite(tx, actor, patientId);
+  notFuture(input.date, "An echo");
   const id = uuid();
   const valves = Object.fromEntries(Object.entries(input.valves ?? {}).filter(([k, v]) => ECHO_VALVES.some((x) => x.key === k) && (VALVE_GRADES as readonly string[]).includes(String(v)))) as Record<string, string>;
   const mrType = valves.mr && valves.mr !== "None" && input.mrType && (MR_TYPES as readonly string[]).includes(input.mrType) ? input.mrType : null;
@@ -593,6 +627,16 @@ export async function medicationEvent(
     });
   }
   await audit(tx, actor, input.kind, "medication", medicationId, patientId, { dose });
+  // a stopped medicine takes its own dated medication steps with it (titration reviews, a planned stop);
+  // monitoring checks linked to it stay (e.g. thyroid after amiodarone)
+  if (input.kind === "stop") {
+    const gone = (await tx.query(
+      `UPDATE cf.plan_action SET status='cancelled', outcome=$3, updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND medication_id=$2 AND status='planned' AND category IN ('medication','follow_up') RETURNING id`,
+      [patientId, medicationId, `${def?.name ?? med.drug} stopped`],
+    )).rows;
+    if (gone.length) return ["meds", "plan"] as Changed;
+  }
   return ["meds"] as Changed;
 }
 
@@ -729,6 +773,7 @@ export type AdmissionInput = {
 
 export async function startAdmission(tx: Q, actor: Actor, patientId: string, input: AdmissionInput) {
   await patientInSite(tx, actor, patientId);
+  notFuture(input.startedAt, "An admission");
   await notDeceased(tx, patientId);
   const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='open'`, [patientId])).rows[0];
   if (open) throw new ApiError(409, "This patient already has an open admission");
@@ -778,6 +823,7 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
   if (!ctx || ctx.kind !== "admission") throw new ApiError(404, "Admission not found");
   if (ctx.status !== "open") throw new ApiError(409, "This admission is already closed");
   if (new Date(input.endedAt) < new Date(ctx.started_at)) throw new ApiError(400, "Discharge cannot be before admission");
+  notFuture(input.endedAt, "A discharge");
   const died = input.outcome === "died";
   if (died && input.plan.length) throw new ApiError(400, "No follow-up plan for a patient who died in hospital");
   if (died && !input.causeGroup) throw new ApiError(400, "Cause of death group is required");
@@ -862,6 +908,7 @@ export async function startVisit(
   input: { startedAt: string; reasons: string[]; service: string; location?: string; symptoms?: string[] },
 ) {
   await patientInSite(tx, actor, patientId);
+  notFuture(input.startedAt, "A visit");
   await notDeceased(tx, patientId);
   const prev = (
     await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND status='closed' ORDER BY coalesce(ended_at,started_at) DESC LIMIT 1`, [patientId])
@@ -885,6 +932,7 @@ export async function startVisit(
 export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string }) {
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
+  if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "" })]);
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;

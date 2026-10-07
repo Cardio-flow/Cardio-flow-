@@ -91,11 +91,20 @@ export async function applyAfterPci(tx: Q, actor: Actor, patientId: string, s: P
     p2Id = null;
   }
   if (!p2Id) p2Id = await start(input.p2y12, P2Y12[input.p2y12].dose(c), P2Y12[input.p2y12].frequency, "cad");
-  // dated stops, linked to the medicine they stop
+  // dated stops, linked to the medicine they stop; saving the sheet again replaces the earlier stops
+  // instead of adding a second set
+  if (input.stops.length)
+    await tx.query(
+      `UPDATE cf.plan_action SET status='cancelled', outcome='Replaced by the after-PCI plan', updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND status='planned' AND category='medication' AND medication_id = ANY($2::uuid[]) AND completes_on->>'type'='manual' AND title ~* '(stop|DAPT|triple)'`,
+      [patientId, [aspirinId, p2Id].filter(Boolean)],
+    );
   for (const st of input.stops) {
     if (st.dueDate < c.pci.at) throw new Refused("A stop date cannot be before the PCI");
+    // a date already passed (PCI entered late) becomes today, and says so
+    const late = st.dueDate < s.today;
     await K.addPlanAction(tx, actor, patientId, {
-      category: "medication", title: st.title, reason, dueDate: st.dueDate, completesOn: { type: "manual" },
+      category: "medication", title: late ? `${st.title} (due ${st.dueDate})` : st.title, reason, dueDate: late ? s.today : st.dueDate, completesOn: { type: "manual" },
       contextId: ctxId, medicationId: st.target === "aspirin" ? aspirinId : p2Id,
     });
   }

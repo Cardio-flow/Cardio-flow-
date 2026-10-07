@@ -51,7 +51,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
         k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
         k > 5.5 && k <= 6.0 && on(c, "mra") && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
-        k > 5.5 && !on(c, "mra") && on(c, "raas") && S("reduce-raas", `K >5.5: halve the ACEi/ARB/ARNI dose; stop if K >6.0 (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && S("reduce-raas", `K 5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
+        k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
         k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),
         (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and K-containing salt substitutes"),
         k > 5.0 && S("diet-advice", "Limit high-potassium foods and salt substitutes"),
@@ -424,7 +425,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         macrolide && on(c, "qt") && S("qt", "Macrolide with a QT-prolonging drug: check QTc"),
         macrolide && on(c, "statin") && S("statin", "Clarithromycin: pause simvastatin / review atorvastatin (CYP3A4)"),
-        macrolide && on(c, "doac", "p2y12") && S("doac", "Clarithromycin raises DOAC/ticagrelor levels: prefer doxycycline"),
+        macrolide && (on(c, "doac") || onCode(c, "ticagrelor")) && S("doac", onCode(c, "ticagrelor") ? "Ticagrelor with clarithromycin: contraindicated — prefer doxycycline" : "Clarithromycin raises DOAC levels: prefer doxycycline"),
         on(c, "vka") && S("warfarin", "On warfarin: INR in 3–5 days on antibiotics"),
         (val(c, "sbp") ?? 999) < 90 && S("sickday", "Hypotensive: sick-day holds"),
         dx(c, "hf") && on(c, "loop") && S("hf", "HF: daily weight and fluid balance"),
@@ -592,6 +593,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         !sym && a.lv !== "lt50" && !low && a.lowflow !== "yes" && S("surveillance", "Asymptomatic, LVEF ≥50%, not low risk: close surveillance"),
       ];
       if (a.lesion === "mr-primary") return [
+        a.risk !== "high" && a.risk !== "prohibitive" && (sym || (a.lv != null && a.lv !== "gt60") || ((a.mrFeatures as string[]) ?? []).includes("lvesd")) &&
+          S("mv-surgery", sym ? "Symptomatic severe primary MR: surgery, repair preferred (ESC/EACTS 2025, I)" : "LVEF ≤60%, LVESD ≥40 mm or LVESDi ≥20 mm/m²: surgery (ESC/EACTS 2025, I)"),
         !sym && low && a.lv === "gt60" && mrRepairFeatures(a) >= 3 && S("mv-surgery", `${mrRepairFeatures(a)} of AF, SPAP >50, LA dilatation, TR ≥ moderate: repair (ESC/EACTS 2025, I B)`),
         (a.risk === "high" || a.risk === "prohibitive") && S("teer", "High surgical risk: TEER (ESC/EACTS 2025, IIa B)"),
       ];
@@ -901,12 +904,13 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     oac: (_a, c) => {
       const sc = c.af?.score ?? null;
       const valve = dx(c, "mechanical-valve", "ms-significant");
+      if (on(c, "doac") && valve) return [S("doac-to-vka", "DOAC with a mechanical valve or moderate–severe MS: contraindicated — switch to a VKA (ESC/EACTS 2025, III)")];
       if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated: continue, check the dose")];
       // HCM or cardiac amyloidosis: anticoagulation whatever the score (ESC cardiomyopathies 2023, I B)
-      if (c.dx?.includes("hcm") || c.dx?.includes("amyloid")) return [S(valve ? "other-doac" : "apixaban", "HCM or cardiac amyloidosis with AF: oral anticoagulation whatever the CHA₂DS₂-VA score (ESC cardiomyopathies 2023, I B)")];
+      if (c.dx?.includes("hcm") || c.dx?.includes("amyloid")) return [S(valve ? "warfarin" : "apixaban", "HCM or cardiac amyloidosis with AF: oral anticoagulation whatever the CHA₂DS₂-VA score (ESC cardiomyopathies 2023, I B)")];
       if (sc == null) return [];
-      if (sc >= 2) return [S(valve ? "other-doac" : "apixaban", `CHA₂DS₂-VA ${sc}: oral anticoagulation recommended (ESC AF 2024, I); DOAC preferred`)];
-      if (sc === 1) return [S(valve ? "other-doac" : "apixaban", "CHA₂DS₂-VA 1: oral anticoagulation should be considered (ESC AF 2024, IIa)")];
+      if (sc >= 2) return [valve ? S("warfarin", `CHA₂DS₂-VA ${sc} with a mechanical valve or moderate–severe MS: a VKA — DOACs are contraindicated`) : S("apixaban", `CHA₂DS₂-VA ${sc}: oral anticoagulation recommended (ESC AF 2024, I); DOAC preferred`)];
+      if (sc === 1) return [S(valve ? "warfarin" : "apixaban", "CHA₂DS₂-VA 1: oral anticoagulation should be considered (ESC AF 2024, IIa)")];
       return [S("not-indicated", "CHA₂DS₂-VA 0: no anticoagulation for stroke prevention")];
     },
     bleed: (_a, c) => {
@@ -930,10 +934,13 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
     rhythm: (a, c) => {
       const lvef = val(c, "lvef");
+      // rhythm control is for symptoms (ESC AF 2024); without symptoms only a suspected tachycardia-induced cardiomyopathy
+      const sym = a.symptoms != null && a.symptoms !== "1";
+      if (a.symptoms === "1" && !(lvef != null && lvef <= 40)) return [a.pattern !== "permanent" && S("none", "No AF symptoms: rate control and stroke prevention; rhythm control is for symptoms")];
       return [
-        a.pattern === "paroxysmal" && S("ablation", "Paroxysmal AF: catheter ablation is a first-line rhythm-control option (ESC AF 2024, I A)"),
+        sym && a.pattern === "paroxysmal" && S("ablation", "Symptomatic paroxysmal AF: catheter ablation is a first-line rhythm-control option (ESC AF 2024, I A)"),
         a.pattern !== "permanent" && lvef != null && lvef <= 40 && S("ablation", `LVEF ${lvef}%: ablation when tachycardia-induced cardiomyopathy is suspected (ESC AF 2024)`),
-        (a.pattern === "persistent" || a.pattern === "first") && S("cardioversion", "Symptomatic persistent or first AF: cardioversion as part of rhythm control (after ≥3 weeks OAC or TOE)"),
+        sym && (a.pattern === "persistent" || a.pattern === "first") && S("cardioversion", "Symptomatic persistent or first AF: cardioversion as part of rhythm control (after ≥3 weeks OAC or TOE)"),
         a.pattern === "permanent" && S("none", "Permanent AF: no further rhythm control"),
       ];
     },

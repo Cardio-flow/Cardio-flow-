@@ -23,6 +23,8 @@ export type Effect = {
 };
 export type Option = {
   value: string; label: string; hint?: string; requires?: string[]; unless?: string[];
+  // shown only with / hidden with one of these diagnoses (codes or tags), e.g. no DOAC with a mechanical valve
+  requiresDx?: string[]; unlessDx?: string[];
   effects?: Effect;
   // prefilled (AUTO) when the patient takes a drug with one of these tags
   detectTag?: string[];
@@ -232,6 +234,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "reduce-mra", label: "Reduce MRA dose", requires: ["mra"] },
               { value: "hold-mra", label: "Hold MRA", requires: ["mra"] },
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
+              { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "K >6.0 (ESC HF practical guidance)" },
               { value: "stop-supplement", label: "Stop potassium supplements" },
               { value: "diet-advice", label: "Dietary potassium advice" },
               { value: "binder", label: "Consider potassium binder" },
@@ -458,7 +461,7 @@ export const WIZARDS: Record<string, WizardDef> = {
             id: "actions", label: "What will you do? (in this order)", type: "multi", required: true,
             options: [
               { value: "continue", label: "Asymptomatic: continue therapy and recheck" },
-              { value: "stop-vasodilator", label: "1 · Stop non-HF BP-lowering drugs", requires: ["vasodilator", "bp-lowering"] },
+              { value: "stop-vasodilator", label: "1 · Stop non-HF BP-lowering drugs", requires: ["vasodilator", "bp-lowering"], hint: "CCB (non-rate-control), alpha-blockers, centrally acting drugs; not RAAS, hydralazine/ISDN, rate control or angina nitrates" },
               { value: "reduce-loop", label: "2 · Reduce diuretic (not congested)", requires: ["loop"] },
               { value: "stagger", label: "Stagger the timing of doses" },
               { value: "reduce-raas", label: "3 · Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
@@ -603,9 +606,12 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
 };
 
 // Options that fit this patient's current medicines.
-export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds">) {
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds"> & { dx?: string[] }) {
   const tags = new Set(ctx.meds.flatMap((m) => m.tags));
-  return (q.options ?? []).filter((o) => (!o.requires || o.requires.some((t) => tags.has(t))) && (!o.unless || !o.unless.some((t) => tags.has(t))));
+  const dx = new Set(ctx.dx ?? []);
+  return (q.options ?? []).filter((o) =>
+    (!o.requires || o.requires.some((t) => tags.has(t))) && (!o.unless || !o.unless.some((t) => tags.has(t))) &&
+    (!o.requiresDx || o.requiresDx.some((t) => dx.has(t))) && (!o.unlessDx || !o.unlessDx.some((t) => dx.has(t))));
 }
 
 export function visibleQuestions(step: Step, answers: Answers) {
@@ -680,7 +686,11 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       const m = med("mra");
       if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
     }
-    if (actions.includes("reduce-raas")) change("raas", "raasDose", "decrease");
+    if (actions.includes("reduce-raas") && !actions.includes("hold-raas")) change("raas", "raasDose", "decrease");
+    if (actions.includes("hold-raas")) {
+      const m = med("raas");
+      if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
+    }
     if (actions.includes("diet-advice")) out.push({ kind: "plan", category: "education", title: "Dietary potassium advice", dueDate: today, completesOn: { type: "manual" }, label: "" });
     if (actions.includes("binder")) out.push({ kind: "plan", category: "medication", title: "Potassium binder decision", dueDate: today, completesOn: { type: "manual" }, label: "" });
     if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit" }, label: "" });
@@ -709,7 +719,14 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("self-care")) plan("education", "Daily weights, flexible diuretic, salt and fluid advice", 0);
   }
   if (wizardId === "hypotension") {
-    if (actions.includes("stop-vasodilator")) stopTagged(["vasodilator", "bp-lowering"]);
+    // only BP-lowering drugs without HF benefit: never RAAS/ARNI (incl. combination pills), hydralazine/ISDN,
+    // rate control (diltiazem, verapamil, beta-blockers) or a nitrate for angina
+    if (actions.includes("stop-vasodilator")) {
+      const angina = (ctx.dx ?? []).some((d) => d === "cad" || d === "cad-ccs");
+      for (const m of ctx.meds.filter((x) => x.tags.some((t) => t === "vasodilator" || t === "bp-lowering") && !x.tags.some((t) => ["raas", "arni", "rate-slowing"].includes(t))
+        && !["hydralazine", "isosorbide-dinitrate"].includes(x.code) && !(angina && x.tags.includes("nitrate"))))
+        out.push({ kind: "medication", medicationId: m.id, event: "stop", doseValue: null, label: `${m.name}: stop` });
+    }
     if (actions.includes("reduce-loop")) change("loop", "loopDose", "decrease");
     if (actions.includes("reduce-raas")) change("raas", "raasDose", "decrease");
     if (actions.includes("stagger")) plan("education", "Stagger dose timing (spread BP-lowering drugs through the day)", 0);

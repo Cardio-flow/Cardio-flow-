@@ -32,7 +32,7 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
             <div className="card-head">
               <h2>{purpose}</h2>
             </div>
-            <table className="data">
+            <table className="data meds">
               <thead>
                 <tr><th>Medication</th><th>Dose</th><th>Frequency</th><th>Since</th><th>Last change</th><th>Status</th><th /></tr>
               </thead>
@@ -40,6 +40,8 @@ export function MedicationsTab({ id, version, open }: { id: string; version: num
                 {meds.map((m: any) => (
                   <tr key={m.id}>
                     <td data-label="Medication"><b>{m.name}</b><div className="small muted">{m.drugClass}{MEDICATION[m.code]?.brands?.length ? ` · ${MEDICATION[m.code].brands!.join(", ")}` : ""}</div></td>
+                    {/* phones: dose, frequency and start on one line under the name */}
+                    <td className="med-compact">{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)} · {m.frequency} {m.route}{m.startedAt ? ` · since ${fmtDay(m.startedAt, { year: true })}` : ""}</td>
                     <td data-label="Dose">{doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}</td>
                     <td data-label="Frequency">{m.frequency} {m.route}</td>
                     <td data-label="Since">{m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}</td>

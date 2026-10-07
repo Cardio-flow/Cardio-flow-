@@ -21,7 +21,7 @@
 //    6 months then at least yearly.
 // CardioFlow never doses acute drugs: rate-control and antiarrhythmic choices become plan items;
 // only apixaban is started from here, at the label dose computed from age, weight and creatinine.
-import { addDays, fmtDay, localDay } from "./clinical.js";
+import { addDays, apixabanAfDose, fmtDay, localDay } from "./clinical.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -30,13 +30,12 @@ const REVIEW = [
   { value: "clinic-90", label: "Clinic · 3 months" },
 ];
 
-// apixaban label dose (ESC AF 2024 / EHRA): 2.5 mg twice daily with ≥2 of age ≥80, weight ≤60 kg,
-// creatinine ≥133 µmol/L; otherwise 5 mg twice daily. Null when weight or creatinine is missing.
-export function apixabanDose(ctx: WizardContext): { dose: number; why: string } | null {
+// apixaban label dose for AF (EU SmPC 4.2, shared/clinical.ts): dose null = not recommended (CrCl <15).
+// Null when age, weight or creatinine is missing.
+export function apixabanDose(ctx: WizardContext): { dose: number | null; why: string } | null {
   const age = ctx.profile?.age ?? null, wt = ctx.values?.weight?.value ?? null, cr = ctx.values?.creatinine?.value ?? null;
   if (age == null || wt == null || cr == null) return null;
-  const n = [age >= 80, wt <= 60, cr >= 133].filter(Boolean).length;
-  return { dose: n >= 2 ? 2.5 : 5, why: `${n} of 3 reduction criteria (age ${age}, weight ${wt} kg, creatinine ${cr} µmol/L)` };
+  return apixabanAfDose(age, wt, cr, ctx.profile?.sex ?? "Male");
 }
 
 // Anticoagulation around cardioversion and AF ablation (rhythm module, slice 3). Sources: 2024 ESC/EACTS
@@ -68,7 +67,7 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
           },
           { id: "when", label: "Planned date (earliest)", type: "date", required: true },
           {
-            id: "onset", label: "AF duration", type: "single", showIf: { question: "proc", includes: "cardioversion" },
+            id: "onset", label: "AF duration", type: "single", required: true, showIf: { question: "proc", includes: "cardioversion" },
             options: [
               { value: "lt24", label: "Known onset <24 h", hint: "Early cardioversion without TOE is possible" },
               { value: "ge24", label: "≥24 h or unknown", hint: "≥3 weeks of anticoagulation or TOE first" },
@@ -88,14 +87,14 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
             ],
           },
           {
-            id: "start", label: "Start", type: "single", showIf: { question: "oacNow", includes: "none" },
+            id: "start", label: "Start", type: "single", required: true, showIf: { question: "oacNow", includes: "none" },
             options: [
-              { value: "apixaban", label: "Apixaban at the label dose", hint: "Dose from age, weight and creatinine" },
-              { value: "other", label: "Another anticoagulant (dose by renal function)" },
+              { value: "apixaban", label: "Apixaban at the label dose", unlessDx: ["mechanical-valve", "ms-significant"], hint: "Dose from age, weight, creatinine and CrCl" },
+              { value: "other", label: "Another anticoagulant (dose by renal function; warfarin with a mechanical valve or MS)" },
             ],
           },
           {
-            id: "prep", label: "Before the cardioversion", type: "single", showIf: { question: "proc", includes: "cardioversion" },
+            id: "prep", label: "Before the cardioversion", type: "single", required: true, showIf: { question: "proc", includes: "cardioversion" },
             options: [
               { value: "wait", label: "After ≥3 weeks of effective anticoagulation" },
               { value: "toe", label: "TOE-guided cardioversion" },
@@ -159,9 +158,11 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
             id: "oac", label: "Anticoagulation", type: "single", required: true,
             options: [
               { value: "continue", label: "Continue the current anticoagulant", requires: ["oac"] },
-              { value: "apixaban", label: "Start apixaban at the label dose", unless: ["oac"], hint: "Dose from age, weight and creatinine" },
-              { value: "other-doac", label: "Start another DOAC (dose by renal function)", unless: ["oac"] },
-              { value: "vka-to-doac", label: "Switch warfarin to a DOAC", requires: ["vka"], hint: "Not with a mechanical valve or moderate–severe mitral stenosis" },
+              { value: "apixaban", label: "Start apixaban at the label dose", unless: ["oac"], unlessDx: ["mechanical-valve", "ms-significant"], hint: "Dose from age, weight, creatinine and CrCl" },
+              { value: "other-doac", label: "Start another DOAC (dose by renal function)", unless: ["oac"], unlessDx: ["mechanical-valve", "ms-significant"] },
+              { value: "warfarin", label: "Start warfarin (INR-guided)", unless: ["oac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "Mechanical valve or moderate–severe mitral stenosis: a VKA, not a DOAC" },
+              { value: "vka-to-doac", label: "Switch warfarin to a DOAC", requires: ["vka"], unlessDx: ["mechanical-valve", "ms-significant"] },
+              { value: "doac-to-vka", label: "Switch the DOAC to warfarin", requires: ["doac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "DOACs are contraindicated with a mechanical valve and not used in moderate–severe MS" },
               { value: "not-indicated", label: "Not indicated (CHA₂DS₂-VA 0)" },
               { value: "declined", label: "Contraindicated or declined" },
             ],
@@ -182,6 +183,13 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
       {
         id: "r", title: "Reduce symptoms: rate & rhythm",
         questions: [
+          {
+            id: "symptoms", label: "Symptoms (EHRA class)", type: "single", required: true,
+            options: [
+              { value: "1", label: "EHRA 1: none" }, { value: "2", label: "EHRA 2: mild–moderate", hint: "Daily activity not affected" },
+              { value: "3", label: "EHRA 3: severe", hint: "Daily activity affected" }, { value: "4", label: "EHRA 4: disabling" },
+            ],
+          },
           {
             id: "rate", label: "Rate control", type: "multi", required: true,
             options: [
@@ -241,10 +249,16 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
   for (const v of pick(a, "comorb")) if (C[v] && !has(new RegExp(C[v][1].replace(/[()]/g, ".")))) out.push(plan(C[v][0], C[v][1]));
   if (a.oac === "apixaban") {
     const d = apixabanDose(ctx);
-    if (d) out.push({ kind: "start", code: "apixaban", doseValue: d.dose, frequency: "BID", indication: "af", label: `Apixaban ${d.dose} mg twice daily: start (${d.why})` });
+    if (d?.dose) out.push({ kind: "start", code: "apixaban", doseValue: d.dose, frequency: "BID", indication: "af", label: `Apixaban ${d.dose} mg twice daily: start (${d.why})` });
+    else if (d) out.push(plan("medication", `Anticoagulant choice: ${d.why}`));
     else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose"));
   }
   if (a.oac === "other-doac") out.push(plan("medication", "Start a DOAC at the label dose (renal function, age, weight)"));
+  if (a.oac === "warfarin") out.push(plan("medication", "Start warfarin with INR monitoring (target for the valve or mitral stenosis)", t, { type: "lab", codes: ["inr"] }));
+  if (a.oac === "doac-to-vka") {
+    const d = ctx.meds.find((m) => m.tags.includes("doac"));
+    out.push(plan("medication", `Switch ${d?.name.toLowerCase() ?? "the DOAC"} to warfarin (INR-guided; stop the DOAC per the label switching rule)`, t, { type: "lab", codes: ["inr"] }, d?.id ?? null));
+  }
   if (a.oac === "vka-to-doac") {
     const w = ctx.meds.find((m) => m.tags.includes("vka"));
     out.push(plan("medication", "Switch warfarin to a DOAC (start when INR <2)", t, { type: "manual" }, w?.id ?? null));
@@ -313,19 +327,22 @@ RHYTHM_WIZARDS["peri-af-procedure"].outcome = (a: Answers, ctx: WizardContext): 
   let oacFrom: string | null = oac?.startedAt ? localDay(oac.startedAt) : null;
   if (a.oacNow === "none" && a.start === "apixaban") {
     const d = apixabanDose(ctx);
-    if (d) {
+    if (d?.dose) {
       out.push({ kind: "start", code: "apixaban", doseValue: d.dose, frequency: "BID", indication: "af", label: `Apixaban ${d.dose} mg twice daily: start (${d.why})` });
       link = { ref: "code:apixaban" }; oacFrom = t;
-    } else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose", t));
+    } else if (d) out.push(plan("medication", `Anticoagulant choice: ${d.why}`, t));
+    else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose", t));
   } else if (a.oacNow === "none" && a.start === "other") { out.push(plan("medication", "Start an anticoagulant at the label dose (renal function, age, weight)", t)); oacFrom = t; }
   if (a.oacNow === "3w") oacFrom = null; // already covered
   const when = String(a.when ?? t);
   const later = (x: string, y: string) => (x > y ? x : y);
   if (a.proc === "cardioversion") {
-    const needs3w = a.prep === "wait" && a.oacNow !== "3w";
+    // "early" is only for a known onset <24 h: otherwise the 3 weeks apply (or TOE)
+    const early = a.prep === "early" && a.onset === "lt24";
+    const needs3w = (a.prep === "wait" || (a.prep === "early" && !early)) && a.oacNow !== "3w";
     const day = needs3w ? later(when, addDays(oacFrom ?? t, 21)) : when;
     if (a.prep === "toe") out.push(plan("investigation", "TOE before cardioversion (exclude LA appendage thrombus)", day));
-    out.push(plan("procedure", `Cardioversion${needs3w ? " (after 3 weeks of effective anticoagulation)" : a.prep === "toe" ? " (TOE-guided)" : a.prep === "early" ? " (onset <24 h)" : ""}`, day));
+    out.push(plan("procedure", `Cardioversion${needs3w ? " (after 3 weeks of effective anticoagulation)" : a.prep === "toe" ? " (TOE-guided)" : early ? " (onset <24 h)" : ""}`, day));
     if (((a.post as string[]) ?? []).includes("oac")) out.push(plan("medication", "Anticoagulation for at least 4 weeks after cardioversion, then by CHA₂DS₂-VA", addDays(day, 28), { type: "manual" }, link));
     if (((a.post as string[]) ?? []).includes("ecg")) out.push(plan("investigation", "12-lead ECG after cardioversion", addDays(day, 7), { type: "study", kind: "ecg" }));
     if (((a.post as string[]) ?? []).includes("holter")) out.push(plan("investigation", "Ambulatory ECG after cardioversion (recurrence)", addDays(day, 90), { type: "study", kind: "holter" }));

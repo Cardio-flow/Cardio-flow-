@@ -101,9 +101,11 @@ test("closed loop: alert → wizard → dose change + dated tasks → result clo
   // a same-day result does not satisfy a check planned for 3 days later…
   await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: new Date().toISOString(), items: [{ code: "potassium", value: 5.4 }, { code: "creatinine", value: 122 }] }));
   assert.equal((await tx((q) => loadState(q, pid))).plan.find((p) => p.id === check.id)!.status, "planned");
-  // …but the planned result does, and a new abnormal value raises a fresh alert
+  // …but the planned result does, and a new abnormal value raises a fresh alert (results cannot be dated in the
+  // future, so the check's day is brought to today to stand for "3 days later")
+  await db.query(`UPDATE cf.plan_action SET due_date=$2 WHERE id=$1`, [check.id, T]);
   await tx(async (q) => {
-    const r = await K.recordObservations(q, doc, pid, { effectiveAt: iso(addDays(T, 3)), items: [{ code: "potassium", value: 6.0 }, { code: "creatinine", value: 130 }] });
+    const r = await K.recordObservations(q, doc, pid, { effectiveAt: new Date().toISOString(), items: [{ code: "potassium", value: 6.0 }, { code: "creatinine", value: 130 }] });
     assert.equal(r.completed.length, 1);
     await reassess(q, pid, "sandbox", r.changed);
   });

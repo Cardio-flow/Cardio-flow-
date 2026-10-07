@@ -202,7 +202,7 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
               { value: "bb", label: "Beta-blocker: bisoprolol 1.25 mg", unless: ["bb"] },
               { value: "acei", label: "ACE inhibitor: ramipril 2.5 mg twice daily", unless: ["raas"] },
               { value: "mra", label: "MRA: eplerenone 25 mg", unless: ["mra"] },
-              { value: "colchicine", label: "Colchicine 0.5 mg daily" },
+              { value: "colchicine", label: "Colchicine 0.5 mg daily", unless: ["colchicine"] },
             ],
           },
         ],
@@ -359,7 +359,8 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
 CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): OutcomeItem[] => {
   const out: OutcomeItem[] = [];
   const i0 = localDay(ctx.coronary?.pciAt ?? ctx.coronary?.indexAt ?? ctx.today);
-  const due = (days: number) => addDays(i0, days);
+  // a stop date already passed (event entered late) is planned for today
+  const due = (days: number) => { const d = addDays(i0, days); return d < ctx.today ? ctx.today : d; };
   const aspirin = ctx.meds.find((m) => m.code === "aspirin");
   const p2y12 = ctx.meds.find((m) => m.tags.includes("p2y12"));
   const switching = ((a.now as string[]) ?? []).includes("to-clopidogrel") && p2y12?.tags.includes("p2y12-potent");

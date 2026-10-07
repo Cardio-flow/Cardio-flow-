@@ -109,6 +109,8 @@ export const RULES: RuleDef[] = [
     defaultParams: { review_rise: 0.5, review_cr_umol: 266, review_egfr: 25, stop_rise: 1.0, stop_cr_umol: 310, stop_egfr: 20 },
     evidence: "ESC HF practical guidance (2021, retained 2023/2026) for ACEi/ARB/ARNI and MRA: a creatinine rise of up to 50% above baseline, or to 266 µmol/L (3.0 mg/dL) / eGFR 25, whichever is smaller, is acceptable; above that, halve the dose and recheck; a rise >100% or to >310 µmol/L (3.5 mg/dL) / eGFR <20: stop and seek advice. Baseline = the last creatinine before the most recent start or dose increase of these drugs (else the previous result).",
     evaluate(s, p) {
+      // the rule is about RAAS/ARNI/MRA dosing: only while one is taken
+      if (!s.meds.some((m) => m.status === "active" && m.tags.some((t) => t === "raas" || t === "mra"))) return [];
       const cr = s.resolved("creatinine");
       const cur = cr.current;
       if (!cur || cur.value_num == null) return [];
@@ -127,8 +129,12 @@ export const RULES: RuleDef[] = [
       if (rise <= 0) return [];
       const egfr = s.resolved("egfr");
       const e = egfr.current && egfr.current.effective_at === cur.effective_at ? egfr.current.value_num : null;
-      const stop = rel > Number(p.stop_rise) || cur.value_num > Number(p.stop_cr_umol) || (e != null && e < Number(p.stop_egfr));
-      const review = stop || cur.value_num > Math.min(baseline.value_num! * (1 + Number(p.review_rise)), Number(p.review_cr_umol)) || (e != null && e < Number(p.review_egfr));
+      // absolute limits apply to a creatinine that crosses them, not to one that was already beyond them
+      const stop = rel > Number(p.stop_rise) || (baseline.value_num! < Number(p.stop_cr_umol) && cur.value_num > Number(p.stop_cr_umol)) || (baseline.value_num! < Number(p.review_cr_umol) && e != null && e < Number(p.stop_egfr));
+      // a baseline already above 266 µmol/L: the 50% rise is the threshold (any small rise would otherwise count)
+      const reviewAt = baseline.value_num! >= Number(p.review_cr_umol) ? baseline.value_num! * (1 + Number(p.review_rise)) : Math.min(baseline.value_num! * (1 + Number(p.review_rise)), Number(p.review_cr_umol));
+      const eBase = baseline.value_num! >= Number(p.review_cr_umol);
+      const review = stop || cur.value_num > reviewAt || (!eBase && e != null && e < Number(p.review_egfr));
       if (!review) return [];
       const wt = series(s, "weight");
       const facts: Fact[] = [

@@ -16,7 +16,7 @@
 //  - 2024 ESC hypertension guidelines (SBP target 120–129 mmHg if tolerated)
 //  - 2023 ESC ACS guidelines (DAPT 12 months by default)
 import { BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, doseLabel, drugClassOf, formatNumber } from "../../shared/catalog.js";
-import { bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.js";
+import { apixabanAfDose, bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.js";
 import { activeBarrier, type MedState, type PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
 import { DIABETES_RULES, diabetesRecord, glycaemicTarget } from "./diabetes-rules.js";
@@ -91,13 +91,23 @@ export function doacDoseCheck(s: PatientState): { med: MedState; right: number; 
   const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
   const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
   for (const m of onTag(s, "oac")) {
+    // apixaban (EU SmPC 4.2): 2.5 mg with ≥2 of age/weight/creatinine criteria or CrCl 15–29; below 15 not recommended (no dose)
     if (m.code === "apixaban" && cr != null && wt != null) {
-      const n = [age >= 80, wt <= 60, cr >= 133].filter(Boolean).length;
-      out.push({ med: m, right: n >= 2 ? 2.5 : 5, why: `${n} of 3 dose-reduction criteria (age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L)` });
+      const d = apixabanAfDose(age, wt, cr, s.patient.sex);
+      if (d.dose != null) out.push({ med: m, right: d.dose, why: d.why });
     }
     if (m.code === "rivaroxaban" && crcl != null && crcl >= 15) out.push({ med: m, right: crcl < 50 ? 15 : 20, why: `CrCl ${Math.round(crcl)} mL/min` });
-    if (m.code === "edoxaban" && crcl != null && wt != null && crcl >= 15) out.push({ med: m, right: crcl <= 50 || wt <= 60 ? 30 : 60, why: `CrCl ${Math.round(crcl)} mL/min · weight ${formatNumber(wt, 0)} kg` });
-    if (m.code === "dabigatran") out.push({ med: m, right: age >= 80 ? 110 : 150, why: `Age ${age}` });
+    // edoxaban (EU SmPC 4.2): 30 mg with CrCl 15–50, weight ≤60 kg, or a P-gp inhibitor (dronedarone, ciclosporin, erythromycin, ketoconazole)
+    const pgp = s.meds.some((x) => (x.status === "active" || x.status === "held") && ["dronedarone", "ciclosporin", "erythromycin", "ketoconazole"].includes(x.code));
+    if (m.code === "edoxaban" && crcl != null && wt != null && crcl >= 15)
+      out.push({ med: m, right: crcl <= 50 || wt <= 60 || pgp ? 30 : 60, why: `CrCl ${Math.round(crcl)} mL/min · weight ${formatNumber(wt, 0)} kg${pgp ? " · P-gp inhibitor" : ""}` });
+    // dabigatran (EU SmPC 4.2): 110 mg at age ≥80 or with verapamil; 150 mg otherwise, except that age 75–80, CrCl 30–50
+    // or a high bleeding risk leave 110 or 150 to the clinician (no alert then)
+    if (m.code === "dabigatran") {
+      const verapamil = s.meds.some((x) => x.status === "active" && x.code === "verapamil");
+      if (age >= 80 || verapamil) out.push({ med: m, right: 110, why: age >= 80 ? `Age ${age}` : "With verapamil" });
+      else if (age < 75 && crcl != null && crcl > 50) out.push({ med: m, right: 150, why: `Age ${age} · CrCl ${Math.round(crcl)} mL/min` });
+    }
   }
   return out;
 }
@@ -127,7 +137,8 @@ type Pillar = { key: string; label: string; tags: string[]; start: { code: strin
 const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[] => {
   const phen = use === "panel" && hfImprovedEf(s) ? "HFrEF" : hfPhenotype(s);
   const egfr = val(s, "egfr", 90);
-  const sglt2: Pillar = { key: "sglt2", label: "SGLT2 inhibitor", tags: ["sglt2"], start: { code: "dapagliflozin", dose: 10 } };
+  // dapagliflozin is not started below eGFR 25 (Forxiga SmPC 4.2); empagliflozin can be started from eGFR 20 (Jardiance SmPC 4.2)
+  const sglt2: Pillar = { key: "sglt2", label: "SGLT2 inhibitor", tags: ["sglt2"], start: { code: egfr != null && egfr < 25 ? "empagliflozin" : "dapagliflozin", dose: 10 } };
   if (phen === "HFpEF")
     return [sglt2, { key: "mra", label: "MRA (finerenone preferred)", tags: ["mra"], start: { code: "finerenone", dose: egfr != null && egfr < 60 ? 10 : 20 } }];
   return [
@@ -154,6 +165,8 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
     if (sbp == null) missing.push("Blood pressure (last 60 days)");
     if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, missing };
     if (sbp != null && sbp < (mode === "start" ? 90 : 100)) return { block: `SBP ${sbp} mmHg`, missing };
+    // sacubitril/valsartan is not initiated with SBP <100 mmHg (Entresto SmPC 4.2/4.4): an ACE inhibitor or ARB instead
+    if (mode === "start" && sbp != null && sbp < 100 && !onTag(s, "raas").length) return { block: `SBP ${sbp} mmHg: below 100 for sacubitril/valsartan — consider an ACE inhibitor or ARB`, missing };
   }
   if (key === "bb") {
     if (hr == null) missing.push("Heart rate (last 60 days)");
@@ -276,7 +289,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const out: Finding[] = [];
       for (const m of live(s)) {
         const def = MEDICATION[m.code];
-        if (!def?.target || m.doseValue == null || m.doseValue >= def.target) continue;
+        // the patient's own target (finerenone: by eGFR and indication, SmPC Kerendia 4.2)
+        const target = def ? targetDose(s, m.code, def.target) : undefined;
+        if (!def || !target || m.doseValue == null || m.doseValue >= target) continue;
         const key = m.tags.includes("bb") ? "bb" : m.tags.includes("mra") ? "mra" : m.tags.includes("raas") ? "raas" : null;
         if (!key) continue;
         // a beta-blocker is not uptitrated on top of diltiazem / verapamil (the label contraindication row comes first)
@@ -285,15 +300,15 @@ export const GUIDELINE_RULES: RuleDef[] = [
         if (last && daysBetween(last.effective_at, s.today) < Number(p.min_days_since_change)) continue;
         const gate = pillarGate(s, key, "increase");
         if (gate.block || gate.missing.length) continue;
-        const next = def.doses.find((d) => d > m.doseValue!);
+        const next = def.doses.find((d) => d > m.doseValue! && d <= target);
         if (next == null) continue;
         out.push({
           key: "titrate-" + m.id,
           signature: `${m.id}:${m.doseValue}`,
           severity: "blue",
           title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} → ${doseLabel(def, next)}`,
-          detail: `Target ${doseLabel(def, def.target)} · ${Math.round((m.doseValue / def.target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
-          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, def.target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
+          detail: `Target ${doseLabel(def, target)} · ${Math.round((m.doseValue / target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
+          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
             src("ESC HF 2026 · uptitrate every 1–2 weeks to target/maximally tolerated dose · Class I")),
           missing: [],
           action: { type: "titrate", medicationId: m.id, dose: next, direction: "increase", label: `Increase to ${doseLabel(def, next)}` },
@@ -322,10 +337,19 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const f = fer.value_num!, t = ts.value_num!;
       const id = f < Number(p.ferritin_low) || (f < Number(p.ferritin_mid) && t < Number(p.tsat_low));
       if (!id || onTag(s, "iv-iron").some((m) => daysBetween(m.startedAt ?? s.today, s.today) < 90)) return [];
+      // IV iron evidence is in symptomatic HF with LVEF <50% (ESC 2023 focused update); in HFpEF look for the cause
+      if (hfPhenotype(s) === "HFpEF")
+        return [{
+          key: "iron-deficiency-hfpef", signature: `${fer.id}:${ts.id}`, severity: "yellow",
+          title: `Iron deficiency: ferritin ${formatNumber(f, 0)}, TSAT ${formatNumber(t, 0)}%`,
+          detail: "Look for the cause (blood loss, malabsorption). IV iron is recommended in symptomatic HF with LVEF <50%; its benefit in HFpEF is not established.",
+          facts: facts(fact(s, "ferritin", 365), fact(s, "tsat", 365), fact(s, "haemoglobin", 365), src("ESC HF 2023 focused update")),
+          missing: [], action: { type: "add-labs", codes: ["haemoglobin"], label: "Recheck haemoglobin" },
+        }];
       return [{
         key: "iron-deficiency", signature: `${fer.id}:${ts.id}`, severity: "orange",
         title: `Iron deficiency: ferritin ${formatNumber(f, 0)}, TSAT ${formatNumber(t, 0)}%`,
-        detail: "Consider IV iron (ferric carboxymaltose or ferric derisomaltose)",
+        detail: "Consider IV iron (ferric carboxymaltose or ferric derisomaltose); total dose by weight and haemoglobin (SmPC)",
         facts: facts(fact(s, "ferritin", 365), fact(s, "tsat", 365), fact(s, "haemoglobin", 365), src("ESC HF · IV iron in symptomatic HF with iron deficiency")),
         missing: [], action: { type: "start-med", code: "ferric-derisomaltose", dose: 1000, label: "Plan IV iron" },
       }];
@@ -359,9 +383,15 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const intolerant = has(s, "statin-intolerance");
       if (!statin && !intolerant) { step = "start high-intensity statin"; action = { type: "start-med", code: "atorvastatin", dose: 40, label: "Start atorvastatin 40 mg" }; }
       else if (statin && statinIntensity(statin) !== "high" && !intolerant) {
-        const next = statin.code === "rosuvastatin" ? 20 : 40;
-        step = `increase ${statin.name.toLowerCase()} to high intensity`;
-        action = { type: "titrate", medicationId: statin.id, dose: next, direction: "increase", label: `Increase to ${next} mg` };
+        if (statin.code === "atorvastatin" || statin.code === "rosuvastatin") {
+          const next = statin.code === "rosuvastatin" ? 20 : 40;
+          step = `increase ${statin.name.toLowerCase()} to high intensity`;
+          action = { type: "titrate", medicationId: statin.id, dose: next, direction: "increase", label: `Increase to ${next} mg` };
+        } else {
+          // simvastatin / pravastatin / fluvastatin cannot reach high intensity: change the statin
+          step = `change ${statin.name.toLowerCase()} to a high-intensity statin (atorvastatin 40–80 mg or rosuvastatin 20–40 mg)`;
+          action = { type: "start-med", code: "atorvastatin", dose: 40, label: "Change to atorvastatin 40 mg" };
+        }
       } else if (!onTag(s, "ezetimibe").length) { step = "add ezetimibe"; action = { type: "start-med", code: "ezetimibe", dose: 10, label: "Add ezetimibe 10 mg" }; }
       else if (intolerant && !live(s).some((m) => m.code === "bempedoic-acid")) { step = "add bempedoic acid"; action = { type: "start-med", code: "bempedoic-acid", dose: 180, label: "Add bempedoic acid" }; }
       else if (!onTag(s, "pcsk9").length) { step = "add a PCSK9 inhibitor (evolocumab, alirocumab or inclisiran)"; action = { type: "start-med", code: "evolocumab", dose: 140, label: "Add PCSK9 therapy" }; }
@@ -370,7 +400,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
         key: "ldl-goal", signature: `${ldl.id}:${live(s).filter((m) => m.tags.includes("lipid")).map((m) => m.code + m.doseValue).join(",")}`,
         severity: "orange",
         title: `LDL-C ${formatNumber(v, 2)} mmol/L above goal <${goal}`,
-        detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · next step: ${step}` + (risk.recentAcs ? " · recurrent event within 2 years: goal <1.0 may be considered" : ""),
+        detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · next step: ${step}` + (risk.recentAcs ? " · a second vascular event within 2 years on maximum statin: goal <1.0 may be considered (IIb)" : ""),
         facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${goal} mmol/L and ≥${risk.reduction}% reduction` },
           ...live(s).filter((m) => m.tags.includes("lipid")).map((m) => ({ label: "Therapy", value: medLine(m) })),
           src("ESC/EAS dyslipidaemia 2019/2025 · LDL-C goals · Class I")),
@@ -412,7 +442,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "metabolic.diabetes-cv-protection",
     kind: "clinical",
     title: "Type 2 diabetes: agents with proven CV benefit",
-    inputs: ["conditions", "meds", "egfr"],
+    inputs: ["conditions", "meds", "egfr", "uacr", "hba1c"],
     defaultParams: {},
     evidence: "2023 ESC diabetes & CVD: in T2DM with ASCVD, SGLT2i and GLP-1 RA with proven CV benefit are recommended independent of HbA1c (class I); in T2DM with CKD (eGFR ≥20) SGLT2i (class I). 2026 ESC-ERA CVD–CKD §5.5.4: GLP-1 RA in T2DM with CKD (FLOW).",
     evaluate(s) {
@@ -468,7 +498,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evaluate(s, p) {
       if (!s.tags.has("t2dm") || onTag(s, "mra").length || !onTag(s, "raas").length) return [];
       const egfr = val(s, "egfr", 180), uacr = val(s, "uacr", 365), k = val(s, "potassium", 90);
-      if (egfr == null || uacr == null || egfr < Number(p.egfr_min) || uacr < Number(p.uacr_min) || (k != null && k > 5.0)) return [];
+      if (egfr == null || uacr == null || egfr < Number(p.egfr_min) || uacr < Number(p.uacr_min) || (k != null && k > 4.8)) return [];
       return [{ key: "finerenone", signature: `${cur(s, "uacr")?.id}`, severity: "blue", title: `T2DM + albuminuric CKD (UACR ${formatNumber(uacr, 1)} mg/mmol): consider finerenone`,
         detail: `eGFR ${Math.round(egfr)} · start ${egfr < 60 ? "10" : "20"} mg OD · recheck K at 4 weeks`, facts: facts(fact(s, "egfr", 180), fact(s, "uacr", 365), fact(s, "potassium", 90), src("ESC 2023 / ESC-ERA 2026 · Class I")), missing: k == null ? ["Potassium"] : [],
         action: { type: "start-med", code: "finerenone", dose: egfr < 60 ? 10 : 20, label: "Start finerenone" } }];
@@ -492,14 +522,22 @@ export const GUIDELINE_RULES: RuleDef[] = [
           facts: facts({ label: "Current", value: medLine(vka) }, fact(s, "inr", 90), fact(s, "creatinine", 180), src("ESC AF 2024 · DOAC in preference to VKA · Class I")),
           missing: [], action: { type: "start-med", code: "apixaban", dose: 5, label: "Plan DOAC switch" } }];
       if (onTag(s, "oac").length) return [];
+      // HCM or cardiac amyloidosis: cmp.af-oac carries it (anticoagulation whatever the score)
+      if (s.conditions.some((x) => (x.code === "hcm" || x.code === "amyloid") && x.status === "active")) return [];
       const c = cha2ds2va(s);
       if (c.score < 1) return [];
-      return [{ key: "af-oac", signature: `score:${c.score}`, severity: c.score >= 2 ? "red" : "blue",
+      // the apixaban label dose when age, weight and creatinine are known (EU SmPC 4.2)
+      const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365);
+      const apx = cr != null && wt != null ? apixabanAfDose(s.patient.age, wt, cr, s.patient.sex) : null;
+      // an omission (not a harm happening now): orange like the other untreated-indication findings; red stays for safety
+      return [{ key: "af-oac", signature: `score:${c.score}`, severity: c.score >= 2 ? "orange" : "blue",
         title: `AF with CHA2DS2-VA ${c.score}: ${c.score >= 2 ? "oral anticoagulation recommended" : "consider oral anticoagulation"}`,
         detail: c.items.map((i) => i.label).join(" · "),
         facts: facts({ label: "CHA2DS2-VA", value: String(c.score) }, fact(s, "creatinine", 180), fact(s, "haemoglobin", 180), fact(s, "weight", 365), src(`ESC AF 2024 · ${c.score >= 2 ? "Class I" : "IIa"}`)),
         missing: s.conditions.some((x) => x.code === "ms" && (!x.attributes?.severity || x.attributes.severity === "Unknown")) ? ["Mitral stenosis severity"] : [],
-        action: vkaOnly ? { type: "start-med", code: "warfarin", label: "Start warfarin (INR-guided)" } : { type: "start-med", code: "apixaban", dose: 5, label: "Start a DOAC" },
+        action: vkaOnly ? { type: "start-med", code: "warfarin", label: "Start warfarin (INR-guided)" }
+          : apx && apx.dose == null ? { type: "wizard", wizard: "af-care", label: "Choose the anticoagulant" }
+          : { type: "start-med", code: "apixaban", dose: apx?.dose ?? 5, label: apx ? `Start apixaban ${apx.dose} mg` : "Start a DOAC" },
         ...(vkaOnly ? { detail: `${c.items.map((i) => i.label).join(" · ")} · ${s.tags.has("mechanical-valve") ? "mechanical valve" : "moderate–severe mitral stenosis"}: VKA, not a DOAC` } : {}) }];
     },
   },
