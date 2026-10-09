@@ -169,8 +169,8 @@ async function undoProcedureEffects(tx: Q, actor: Actor, patientId: string, p: a
 export async function reopenCompletedBy(tx: Q, patientId: string, refs: string[]) {
   if (!refs.length) return 0;
   const r = await tx.query(
-    `UPDATE cf.plan_action SET status='planned', completed_at=NULL, completed_by_ref=NULL, outcome='', updated_at=now(), version=version+1
-     WHERE patient_id=$1 AND status='completed' AND completed_by_ref = ANY($2::text[]) RETURNING id`,
+    `UPDATE cf.plan_action SET status='planned', progress='planned', completed_at=NULL, completed_by_ref=NULL, completion_refs='{}', reviewed_at=NULL, reviewed_by=NULL, outcome='', updated_at=now(), version=version+1
+     WHERE patient_id=$1 AND status='completed' AND (completed_by_ref = ANY($2::text[]) OR completion_refs && $2::text[]) RETURNING id`,
     [patientId, refs],
   );
   return r.rows.length;

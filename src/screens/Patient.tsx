@@ -1,13 +1,14 @@
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route, FileText, Pencil } from "lucide-react";
 import { useData } from "../api";
-import { Link, Tag, initials, useToast } from "../ui";
+import { Drawer, Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
 import { triage } from "../../shared/triage";
 import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
 import { QuickLabs } from "../drawers/QuickLabs";
-import { WizardDrawer, type PathwayPart } from "../drawers/Wizard";
+import type { PathwayPart } from "../drawers/Wizard";
+const WizardDrawer = lazy(() => import("../drawers/Wizard").then(m => ({ default: m.WizardDrawer })));
 import type { CheckKind } from "../../shared/procedures";
 import { ProcedureDrawer } from "../drawers/Procedure";
 import { AddMedication, MedicationAction } from "../drawers/Medication";
@@ -22,7 +23,7 @@ import { AddMedications } from "../drawers/MedicationBatch";
 import { EditDiagnosis } from "../drawers/Diagnosis";
 import { HistoryTab } from "./History";
 import { StatusDrawer } from "../drawers/Status";
-import { Pathways } from "../drawers/Pathways";
+const Pathways = lazy(() => import("../drawers/Pathways").then(m => ({ default: m.Pathways })));
 import { DocumentsDrawer } from "../drawers/Documents";
 import { AfterPci } from "../drawers/AfterPci";
 import { ChecklistDrawer } from "../drawers/Checklist";
@@ -213,6 +214,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "plan" && <PlanTab id={id} version={version} open={setOpen} />}
       {tab === "registries" && <RegistriesTab id={id} version={version} />}
 
+      <Suspense fallback={open ? <Drawer title="Loading action" subtitle={h.name} icon={<Route size={22} />} onClose={close}><div className="drawer-body" role="status">Loading…</div></Drawer> : null}>
       {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "wizard" && (
         <WizardDrawer
@@ -251,6 +253,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "result-correct" && <CorrectResult patientId={id} result={open.result} onClose={close} onDone={done} />}
       {open?.kind === "void" && <VoidEntry patientId={id} what={open.what} path={open.path} onClose={close} onDone={done} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
+      </Suspense>
     </>
   );
 }

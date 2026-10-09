@@ -2,6 +2,16 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-09 · Reliability release and results awaiting review
+
+- **Completion evidence:** plan actions retain every supporting result, limited to the results the action requires. Withdrawing one reopens the action, including checks supported by derived eGFR. Correcting a reviewed value keeps performance complete but requires clinical review again. Preliminary results never complete checks. Lab/study actions require their recorded evidence rather than a manual “done”. Legacy single-reference completion is handled conservatively when a required result from the same batch is withdrawn.
+- **Follow-up:** the existing plan action remains the only task. It gains an owner (defaults to the clinician), progress (planned → ordered → booked → performed → reviewed) and review metadata. A result/study still completes performance automatically, preserving the constitution's closed loop; clinical review remains outstanding as a view of that action. Overview, Plan and Worklist surface outstanding reviews; no parallel task table. Booking is a clinician-recorded state, not an external booking integration.
+- **Concurrent edits:** clinical API writes and reassessment lock the patient; plan edits lock the action before checking the supplied version. Stale edits return 409. Governance version allocation is serialized with boot publication.
+- **Published rules:** changed build-authored content creates a new version and a publication event under the existing owner's automatic publication policy. Published content is immutable at the database level. Each recommendation records a hash of the evaluated logic, governed parameters, evidence and release. Supersession preserves the earlier recommendation. Historical content overwritten before this release cannot be reconstructed by this migration.
+- **Medication substitution:** a documented switch with an active same-pillar replacement does not count as reduced prognostic therapy. A genuine intolerance/adverse-effect reason remains a marker; restart or restored therapy clears an obsolete reduction marker. Clinical thresholds are unchanged. Ruleset 2026-10-09.1.
+- **Hosted logout:** signs out through Neon and clears token/cache cookies before the UI presents sign-in; failures keep the workspace signed in with a visible retry message. Sample mode and patient navigation reset on successful logout.
+- **Overview:** dated safety results and relevant medicines appear beside the action lanes; urgent actions precede the review queue. Heavy screens and pathway drawers load on demand. Browser walkthrough uses current sample switching and Overview labels, and checks explicit result review.
+
 ## 2026-10-02 · Medication exceptions instead of full reconciliation
 
 - **Decision (Ahmed):** no per-visit reconciliation. Every medicine counts as taken as prescribed; the clinician records only exceptions.

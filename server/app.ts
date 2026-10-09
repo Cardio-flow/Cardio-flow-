@@ -32,6 +32,7 @@ export type HostedAuth = {
   origin: string;
   mount(app: express.Express): void;
   authenticate(req: Request, res: Response): Promise<Session | null>;
+  signOut(req: Request, res: Response): Promise<void>;
 };
 
 // a real calendar day (2026-02-30 is refused with a 400, not a 500)
@@ -133,6 +134,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const a = actor(res);
     const out = await db.transaction(async (tx) => {
       await patientInSite(tx, a, patientId);
+      await tx.query("SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE", [patientId]);
       const r = await op(tx, a);
       const engine = await reassess(tx, patientId, await siteMode(tx, a.siteId), r.changed ?? null);
       return { ...r, engine };
@@ -142,12 +144,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   const route = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
 
   app.get("/api/session", (_req, res) => res.json(publicSession(res.locals.session)));
-  app.post("/api/logout", (req, res) => {
+  app.post("/api/logout", route(async (req, res) => {
+    if (hosted) await hosted.signOut(req, res);
     const token = req.headers.cookie?.split(/;\s*/).find((v) => v.startsWith("cf_session="))?.split("=")[1];
     if (token) sessions.delete(token);
     res.clearCookie("cf_session");
     res.json({ ok: true });
-  });
+  }));
   app.get("/api/site", route(async (_req, res) => {
     const siteId = actor(res).siteId;
     const site = (await db.query(`SELECT id,name,mode FROM cf.site WHERE id=$1`, [siteId])).rows[0];
@@ -564,6 +567,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
               category: z.enum(["medication", "investigation", "monitoring", "follow_up", "referral", "procedure", "education", "other"]),
               title: z.string().trim().min(2).max(160),
               reason: z.string().max(300).optional(),
+              owner: z.string().trim().min(1).max(120).optional(),
               dueDate: isoDate.nullable(),
               completesOn: z.record(z.string(), z.unknown()).optional(),
               medicationId: uuidS.nullish(),
@@ -585,7 +589,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.post("/api/patients/:id/plan/:pid", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z
-      .object({ action: z.enum(["complete", "defer", "cancel", "reschedule"]), outcome: z.string().max(300).optional(), dueDate: isoDate.optional(), version: z.number().int() })
+      .object({ action: z.enum(["complete", "defer", "cancel", "reschedule", "ordered", "booked", "performed", "reviewed", "assign"]), owner: z.string().trim().min(1).max(120).optional(), outcome: z.string().max(300).optional(), dueDate: isoDate.optional(), version: z.number().int().positive() })
       .parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await K.updatePlanAction(tx, a, id, uuidS.parse(req.params.pid), input) }));
   }));

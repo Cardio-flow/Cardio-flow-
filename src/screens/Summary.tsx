@@ -154,6 +154,7 @@ export function WhyPanel({ a, patientId, done }: { a: any; patientId?: string; d
           <BookOpen size={14} /> {v}
         </div>
       ))}
+      {sources.filter((x: any) => x.ruleEvidence).map((x: any) => <details className="small muted" key={x.id}><summary>Evidence for {x.rule_id} · v{x.rule_version}</summary><p>{x.ruleEvidence}</p></details>)}
       {a.also?.length > 0 && (
         <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>
           Merged with {a.also.length} other suggestion{a.also.length === 1 ? "" : "s"} for the same drug class: {a.also.map((x: any) => x.title).join(" · ")}
@@ -221,9 +222,9 @@ function Changes({ changes }: { changes: any }) {
   );
 }
 
-export const VIEW_SEV: Record<string, Sev> = { done: "green", overdue: "red", due: "yellow", planned: "blue", deferred: "gray", cancelled: "gray", superseded: "gray" };
+export const VIEW_SEV: Record<string, Sev> = { review: "orange", done: "green", overdue: "red", due: "yellow", planned: "blue", deferred: "gray", cancelled: "gray", superseded: "gray" };
 export const VIEW_LABEL = (p: any, today: string) =>
-  p.view === "done" ? "Completed" : p.view === "overdue" ? `Overdue ${Math.max(1, Math.round((Date.parse(today) - Date.parse(p.dueDate)) / 86400000))} d` : p.view === "due" ? "Due today" : p.view === "planned" ? "Planned" : p.view[0].toUpperCase() + p.view.slice(1);
+  p.view === "review" ? "Awaiting review" : p.view === "done" ? "Completed" : p.view === "overdue" ? `Overdue ${Math.max(1, Math.round((Date.parse(today) - Date.parse(p.dueDate)) / 86400000))} d` : p.view === "due" ? "Due today" : p.view === "planned" ? (p.progress === "ordered" ? "Ordered" : p.progress === "booked" ? "Booked" : "Planned") : p.view[0].toUpperCase() + p.view.slice(1);
 
 export function PlanMark({ view }: { view: string }) {
   const sev = VIEW_SEV[view] ?? "gray";
@@ -355,15 +356,16 @@ function ActivePlan({ s, open }: { s: any; open(o: Open): void }) {
             <span className="title">
               {p.title}
               {p.reason && <small>{p.reason}</small>}
+              {p.owner && <small>Owner: {p.owner}{["ordered", "booked"].includes(p.progress) ? ` · ${p.progress}` : ""}</small>}
             </span>
             <span className="when">{p.dueDate ? fmtDay(p.dueDate, { weekday: true }) : "No date"}</span>
             <span>
               <Tag sev={VIEW_SEV[p.view]}>{VIEW_LABEL(p, s.today)}</Tag>
             </span>
             <span>
-              {p.status === "planned" && (
+              {(p.status === "planned" || p.awaitingReview) && (
                 <button className="btn ghost small" onClick={() => open({ kind: "plan-item", planId: p.id })}>
-                  Update
+                  {p.awaitingReview ? "Review" : "Update"}
                 </button>
               )}
             </span>

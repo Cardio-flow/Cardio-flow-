@@ -212,6 +212,28 @@ h1, h2, h3 { margin: 0; }
 .tabs .n { margin-left: 6px; font-size: 11.5px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: var(--red-bg); color: var(--red-ink); }
 
 .grid-main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+.decision-context { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.context-head, .review-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.context-head h3 { margin: 0; font-size: 14px; }
+.context-results { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+.context-results dt { font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.context-results dd { margin: 4px 0; font-weight: 800; overflow-wrap: anywhere; }
+.context-results dd small { font-size: 10px; font-weight: 500; color: var(--ink-3); }
+.context-medicines summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.context-med-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; margin-top: 10px; }
+.context-med { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--mist); text-align: left; color: var(--ink); min-width: 0; }
+.context-med b, .context-med span, .review-row .muted { display: block; overflow-wrap: anywhere; }
+.context-med span { font-size: 11px; margin-top: 3px; }
+.review-queue { border-color: var(--orange); }
+.review-row { padding: 10px; border-bottom: 1px solid var(--line); }
+.review-row b { font-size: 13px; }
+.review-row > div { min-width: 0; }
+@media (max-width: 640px) {
+  .context-head { flex-wrap: wrap; gap: 4px; }
+  .context-results { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .context-med-list { grid-template-columns: 1fr; }
+  .review-row { flex-wrap: wrap; }
+}
 .stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 
 /* attention */

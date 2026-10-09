@@ -380,7 +380,7 @@ export async function recordObservations(
         .join(" · ");
     await journeyEvent(tx, actor, { patientId, occurredAt: input.effectiveAt, kind: "labs", category: "investigation", title, refType: "observation", refId: labs[0].id, contextId: input.contextId });
   }
-  const completed = await completeMatching(tx, actor, patientId, { type: "lab", codes: saved.map((s) => s.code), at: input.effectiveAt, ref: ids[0] });
+  const completed = input.status === "preliminary" ? [] : await completeMatching(tx, actor, patientId, { type: "lab", codes: saved.map((s) => s.code), at: input.effectiveAt, ref: ids[0], results: saved.map((s) => ({ code: s.code, id: s.id })) });
   await audit(tx, actor, "record", "observation", ids.join(","), patientId, { codes: saved.map((s) => s.code) });
   const changed = [...new Set(saved.map((s) => s.code))];
   if (completed.length) changed.push("plan");
@@ -406,8 +406,21 @@ export async function correctObservation(tx: Q, actor: Actor, patientId: string,
   let reopened = 0;
   if (input.enteredInError) {
     const r = await tx.query(
-      `UPDATE cf.plan_action SET status='planned', completed_at=NULL, completed_by_ref=NULL, outcome='', updated_at=now(), version=version+1
-       WHERE patient_id=$1 AND status='completed' AND completed_by_ref IN (SELECT id::text FROM cf.observation WHERE logical_id=$2) RETURNING id`,
+      `UPDATE cf.plan_action SET status='planned', progress='planned', completed_at=NULL, completed_by_ref=NULL, completion_refs='{}', reviewed_at=NULL, reviewed_by=NULL, outcome='', updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND status='completed' AND (
+         completed_by_ref IN (SELECT id::text FROM cf.observation WHERE logical_id=$2)
+         OR completion_refs && ARRAY(SELECT id::text FROM cf.observation WHERE logical_id=$2 OR $2 = ANY(derived_from))
+         OR (cardinality(completion_refs)=1 AND completes_on->>'type'='lab'
+           AND (completes_on->'codes') ? $3 AND completed_at=$4)) RETURNING id`,
+      [patientId, cur.logical_id, cur.code, cur.effective_at],
+    );
+    reopened = r.rows.length;
+  } else {
+    const r = await tx.query(
+      `UPDATE cf.plan_action SET progress='performed', reviewed_at=NULL, reviewed_by=NULL, updated_at=now(), version=version+1
+       WHERE patient_id=$1 AND status='completed' AND completes_on->>'type' IN ('lab','study')
+         AND (completed_by_ref IN (SELECT id::text FROM cf.observation WHERE logical_id=$2)
+           OR completion_refs && ARRAY(SELECT id::text FROM cf.observation WHERE logical_id=$2 OR $2 = ANY(derived_from))) RETURNING id`,
       [patientId, cur.logical_id],
     );
     reopened = r.rows.length;
@@ -812,6 +825,7 @@ export type PlanInput = {
   decisionId?: string | null;
   medicationId?: string | null;
   createdAt?: string;
+  owner?: string;
 };
 
 export async function addPlanAction(tx: Q, actor: Actor, patientId: string, input: PlanInput) {
@@ -823,9 +837,9 @@ export async function addPlanAction(tx: Q, actor: Actor, patientId: string, inpu
   if (same) return { id: same.id, changed: [] as Changed };
   const id = uuid();
   await tx.query(
-    `INSERT INTO cf.plan_action(id,patient_id,category,title,reason,due_date,completes_on,status,source_context_id,decision_id,medication_id,created_by,created_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7,'planned',$8,$9,$10,$11,$12)`,
-    [id, patientId, input.category, input.title, input.reason ?? "", input.dueDate, JSON.stringify(input.completesOn ?? { type: "manual" }), input.contextId ?? null, input.decisionId ?? null, input.medicationId ?? null, actor.id, input.createdAt ?? nowIso()],
+    `INSERT INTO cf.plan_action(id,patient_id,category,title,reason,due_date,completes_on,status,source_context_id,decision_id,medication_id,created_by,created_at,owner)
+     VALUES($1,$2,$3,$4,$5,$6,$7,'planned',$8,$9,$10,$11,$12,$13)`,
+    [id, patientId, input.category, input.title, input.reason ?? "", input.dueDate, JSON.stringify(input.completesOn ?? { type: "manual" }), input.contextId ?? null, input.decisionId ?? null, input.medicationId ?? null, actor.id, input.createdAt ?? nowIso(), input.owner?.trim() || actor.name],
   );
   await audit(tx, actor, "plan", "plan_action", id, patientId, { title: input.title, due: input.dueDate });
   return { id, changed: ["plan"] as Changed };
@@ -836,20 +850,40 @@ export async function updatePlanAction(
   actor: Actor,
   patientId: string,
   planId: string,
-  input: { action: "complete" | "defer" | "cancel" | "reschedule"; outcome?: string; dueDate?: string; version: number },
+  input: { action: "complete" | "defer" | "cancel" | "reschedule" | "ordered" | "booked" | "performed" | "reviewed" | "assign"; outcome?: string; dueDate?: string; owner?: string; version: number },
 ) {
-  const cur = (await tx.query(`SELECT * FROM cf.plan_action WHERE id=$1 AND patient_id=$2`, [planId, patientId])).rows[0];
+  // Row locking makes the version/status check and the write one operation on hosted Postgres too.
+  const cur = (await tx.query(`SELECT * FROM cf.plan_action WHERE id=$1 AND patient_id=$2 FOR UPDATE`, [planId, patientId])).rows[0];
   if (!cur) throw new ApiError(404, "Plan action not found");
   if (cur.version !== input.version) throw new ApiError(409, "This plan item was changed by someone else. Reload and try again.");
-  if (cur.status !== "planned") throw new ApiError(409, "This plan item is already closed");
+  const pendingReview = cur.status === "completed" && cur.progress === "performed";
+  if (cur.status !== "planned" && !(pendingReview && ["reviewed", "assign"].includes(input.action))) throw new ApiError(409, "This plan item is already closed");
   const at = nowIso();
-  if (input.action === "complete") {
-    await tx.query(`UPDATE cf.plan_action SET status='completed', outcome=$2, completed_at=$3, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.outcome ?? "", at]);
+  if (input.action === "assign") {
+    if (!input.owner?.trim()) throw new ApiError(400, "Choose the person or team responsible");
+    await tx.query(`UPDATE cf.plan_action SET owner=$2, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.owner.trim()]);
+  } else if (["ordered", "booked", "performed", "reviewed"].includes(input.action)) {
+    if (input.action === "reviewed" && !pendingReview) throw new ApiError(409, "Record the result or completion before reviewing it");
+    if (input.action === "ordered" && cur.progress === "booked") throw new ApiError(409, "This item is already booked");
+    if (input.action === "performed" && !input.outcome?.trim()) throw new ApiError(400, "Record what was performed and where the result can be found");
+    if (input.action === "performed" && ["lab", "study"].includes(cur.completes_on?.type)) throw new ApiError(400, "Add the result or study to the patient record so this item closes with its evidence");
+    await tx.query(`UPDATE cf.plan_action SET progress=$2, status=CASE WHEN $2 IN ('performed','reviewed') THEN 'completed' ELSE status END,
+      completed_at=CASE WHEN $2='performed' THEN $3 ELSE completed_at END,
+      reviewed_at=CASE WHEN $2='reviewed' THEN $3 ELSE reviewed_at END,
+      reviewed_by=CASE WHEN $2='reviewed' THEN $4 ELSE reviewed_by END,
+      outcome=coalesce(NULLIF($5,''),outcome), updated_at=now(), version=version+1 WHERE id=$1`,
+      [planId, input.action, at, actor.id, input.outcome ?? ""]);
+    await journeyEvent(tx, actor, { patientId, occurredAt: at, kind: "plan-progress", category: "plan", title: `${input.action === "performed" ? "Performed" : input.action === "reviewed" ? "Reviewed" : input.action === "booked" ? "Booked" : "Ordered"} · ${cur.title}`, detail: input.outcome ?? "", refType: "plan_action", refId: planId });
+  } else if (input.action === "complete") {
+    if (["lab", "study"].includes(cur.completes_on?.type)) throw new ApiError(400, "Add the result or study to the patient record before completing this check");
+    await tx.query(`UPDATE cf.plan_action SET status='completed', progress='reviewed', outcome=$2, completed_at=$3, reviewed_at=$3, reviewed_by=$4, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.outcome ?? "", at, actor.id]);
     await journeyEvent(tx, actor, { patientId, occurredAt: at, kind: "task-complete", category: "plan", title: `Completed · ${cur.title}`, detail: input.outcome ?? "", refType: "plan_action", refId: planId });
   } else if (input.action === "reschedule" || input.action === "defer") {
     if (!input.dueDate) throw new ApiError(400, "Choose the new date");
+    if (input.dueDate < today()) throw new ApiError(400, "Choose today or a later date");
     await tx.query(`UPDATE cf.plan_action SET due_date=$2, outcome=$3, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.dueDate, input.outcome ?? cur.outcome]);
   } else {
+    if (!input.outcome?.trim()) throw new ApiError(400, "Record why this item is cancelled");
     await tx.query(`UPDATE cf.plan_action SET status='cancelled', outcome=$2, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.outcome ?? ""]);
   }
   await audit(tx, actor, input.action, "plan_action", planId, patientId, input);
@@ -861,7 +895,7 @@ export async function completeMatching(
   tx: Q,
   actor: Actor,
   patientId: string,
-  trigger: { type: "lab"; codes: string[]; at: string; ref: string } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string; detail?: Record<string, any> },
+  trigger: { type: "lab"; codes: string[]; at: string; ref: string; results?: { code: string; id: string }[] } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string; detail?: Record<string, any> },
 ) {
   const open = (
     await tx.query(`SELECT id,title,due_date,completes_on,created_at FROM cf.plan_action WHERE patient_id=$1 AND status='planned'`, [patientId])
@@ -895,10 +929,13 @@ export async function completeMatching(
     if (trigger.type !== "visit" && used.has(signature) && usedDue.get(signature) !== due) continue;
     used.add(signature);
     if (!usedDue.has(signature)) usedDue.set(signature, due);
-    await tx.query(`UPDATE cf.plan_action SET status='completed', completed_at=$2, completed_by_ref=$3, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1`, [
-      a.id, trigger.at, trigger.ref, "Completed automatically when the result was recorded",
+    const refs = trigger.type === "lab" && trigger.results
+      ? trigger.results.filter((r) => (c.codes ?? []).includes(r.code)).map((r) => r.id)
+      : [trigger.ref];
+    await tx.query(`UPDATE cf.plan_action SET status='completed', progress=$5, completed_at=$2, completed_by_ref=$3, completion_refs=$6, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1 AND status='planned'`, [
+      a.id, trigger.at, refs[0] ?? trigger.ref, "Completed automatically when the result was recorded", trigger.type === "visit" ? "reviewed" : "performed", refs,
     ]);
-    await journeyEvent(tx, actor, { patientId, occurredAt: trigger.at, kind: "task-complete", category: "plan", title: `Completed · ${a.title}`, detail: "Closed by the new result", refType: "plan_action", refId: a.id });
+    await journeyEvent(tx, actor, { patientId, occurredAt: trigger.at, kind: "task-complete", category: "plan", title: `${trigger.type === "visit" ? "Completed" : "Result recorded"} · ${a.title}`, detail: trigger.type === "visit" ? "Closed by the visit" : "Recorded evidence · awaiting clinical review", refType: "plan_action", refId: a.id });
     done.push({ id: a.id, title: a.title });
   }
   return done;

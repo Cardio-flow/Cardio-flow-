@@ -40,11 +40,11 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
         <h2 id="att-h">Today</h2>
         <Brief o={s.overview} />
       </div>
-      {total === 0 ? (
+      {total === 0 && !s.plan.some((p: any) => p.awaitingReview) ? (
         <div className="tb-clear">
           <CheckCircle2 size={22} /> Nothing needs attention. Every plan item is on track.
         </div>
-      ) : (
+      ) : total > 0 ? (
         <div className="flowbar" role="list" aria-label="Open items by lane">
           {LANES.filter((l) => t.count(l.key) > 0).map((l) => (
             <button key={l.key} role="listitem" className={`seg lane-${l.key}`} style={{ flexGrow: Math.max(1, Math.min(4, t.count(l.key))) }} onClick={() => go("lane-" + l.key)}>
@@ -53,14 +53,21 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
             </button>
           ))}
         </div>
-      )}
+      ) : null}
       {draft && <p className="tb-draft">Items marked “in review” come from rules still in clinical review. They run on this sandbox only.</p>}
+      <DecisionContext context={s.reviewContext} open={open} />
+
 
       {t.by("act").length > 0 && (
         <LaneBox lane="act">
           {t.by("act").map((c) => <CardRow key={c.key} c={c} {...row} />)}
         </LaneBox>
       )}
+      {s.plan.some((p: any) => p.awaitingReview) && <div className="lane review-queue" aria-label="Results awaiting review">
+        <div className="lane-head"><span className="lane-title">Results to review</span><span className="lane-hint">Recorded evidence, awaiting your decision</span></div>
+        <div className="lane-rows">{s.plan.filter((p: any) => p.awaitingReview).map((p: any) => <div className="review-row" key={p.id}><div><b>{p.title}</b><span className="small muted">{p.owner ? `Owner: ${p.owner} · ` : ""}{p.completedAt ? fmtDay(p.completedAt) : "Result recorded"}</span></div><button className="btn secondary small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Review result</button></div>)}</div>
+      </div>}
+
       {t.by("decide").length > 0 && (
         <LaneBox lane="decide">
           {t.by("decide").map((c) => <CardRow key={c.key} c={c} {...row} />)}
@@ -79,6 +86,15 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
       )}
     </section>
   );
+}
+
+function DecisionContext({ context, open }: { context: any; open(o: Open): void }) {
+  if (!context) return null;
+  return <section className="decision-context" aria-label="Latest results and medicines">
+    <div className="context-head"><h3>For today's decisions</h3><span className="small muted">Latest recorded · dates shown</span></div>
+    <dl className="context-results">{context.results.map((r: any) => <div key={r.code}><dt>{r.label}</dt><dd>{r.value == null ? "Not recorded" : <>{Number(r.value).toLocaleString("en-GB", { maximumFractionDigits: r.code === "potassium" ? 1 : 0 })}<small> {r.unit}</small></>}</dd><span className="small muted">{r.at ? fmtDay(r.at) : "Missing"}</span></div>)}</dl>
+    <details className="context-medicines"><summary>Relevant medicines · {context.medicines.length}</summary><div className="context-med-list">{context.medicines.map((m: any) => <button key={m.id} className="context-med" onClick={() => open({ kind: "med-action", medId: m.id })}><b>{m.name}</b><span>{m.dose} {m.frequency ?? ""}{m.status === "held" ? " · ON HOLD" : m.status === "not_taking" ? " · NOT TAKING" : ""}</span></button>)}{context.medicines.length === 0 && <span className="small muted">No relevant medicines recorded.</span>}</div></details>
+  </section>;
 }
 
 function LaneBox({ lane, children, extra }: { lane: Lane; children: ReactNode; extra?: ReactNode }) {
@@ -196,7 +212,7 @@ function Brief({ o }: { o: any }) {
   const parts: [string, string][] = [
     ["Why here", o.why.text + (o.why.sub ? ` · ${o.why.sub}` : "")],
     ["Changed", o.changed.since ? `${o.changed.count} since ${o.changed.label?.toLowerCase().replace(/^since /, "") ?? "last review"}` : "No earlier review"],
-    ["Unfinished", o.unfinished.overdue + o.unfinished.due === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`].filter(Boolean).join(", ")],
+    ["Unfinished", o.unfinished.overdue + o.unfinished.due + (o.unfinished.review ?? 0) === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`, o.unfinished.review && `${o.unfinished.review} to review`].filter(Boolean).join(", ")],
     ["Next", o.next[0] ? `${o.next[0].title} · ${fmtDay(o.next[0].dueDate, { weekday: true })}` : "Nothing booked"],
   ];
   return (

@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BarChart3, ListChecks, LogOut, Search, ShieldCheck, Users, Bell } from "lucide-react";
 import { api, setCsrf, setSampleMode, useSampleMode, withSample, type Session } from "./api";
 import { Link, Logo, SessionCtx, ToastHost, initials, navigate, usePath } from "./ui";
 import { SignIn } from "./SignIn";
 import { Worklist } from "./screens/Worklist";
-import { PatientPage } from "./screens/Patient";
 import { Patients } from "./screens/Patients";
-import { Registries } from "./screens/Registries";
-import { Governance } from "./screens/Governance";
+const PatientPage = lazy(() => import("./screens/Patient").then(m => ({ default: m.PatientPage })));
+const Registries = lazy(() => import("./screens/Registries").then(m => ({ default: m.Registries })));
+const Governance = lazy(() => import("./screens/Governance").then(m => ({ default: m.Governance })));
 import { fmtDay } from "../shared/clinical";
 
 type Site = { name: string; mode: string; patients?: { real: number; sample: number } };
@@ -40,13 +40,27 @@ export function App() {
   return (
     <SessionCtx.Provider value={{ name: session.name, role: session.role, siteMode: site?.mode ?? "sandbox" }}>
       <ToastHost>
-        <Shell session={session} site={site} refreshSite={refreshSite} onLogout={async () => (await api("/logout", { body: {} }), setSession(null))} />
+        <Shell session={session} site={site} refreshSite={refreshSite} onLogout={async () => {
+          await api("/logout", { body: {} });
+          setCsrf("");
+          setSampleMode(false);
+          setSite(null);
+          setSession(null);
+          navigate("/");
+        }} />
       </ToastHost>
     </SessionCtx.Provider>
   );
 }
 
-function Shell({ session, site, refreshSite, onLogout }: { session: Session; site: Site | null; refreshSite(): void; onLogout(): void }) {
+function Shell({ session, site, refreshSite, onLogout }: { session: Session; site: Site | null; refreshSite(): void; onLogout(): Promise<void> }) {
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+  const signOut = async () => {
+    setLoggingOut(true);
+    setLogoutError("");
+    try { await onLogout(); } catch { setLogoutError("Sign-out failed. You are still signed in. Try again."); setLoggingOut(false); }
+  };
   const path = usePath();
   const [today, setToday] = useState<string>("");
   const [attention, setAttention] = useState(0);
@@ -99,12 +113,13 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
             <b>{session.name}</b>
             <span>{session.role}</span>
           </div>
-          <button aria-label="Sign out" title="Sign out" onClick={onLogout}>
+          <button aria-label="Sign out" title="Sign out" disabled={loggingOut} onClick={signOut}>
             <LogOut size={18} />
           </button>
         </div>
       </aside>
       <div className="main">
+        {logoutError && <div className="error-box" role="alert">{logoutError}</div>}
         <header className="topbar">
           <PatientSearch />
           <span className="spacer" />
@@ -145,11 +160,12 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
             <ShieldCheck size={20} />
             <span>Rules</span>
           </Link>
-          <button onClick={onLogout} aria-label="Sign out">
+          <button onClick={signOut} disabled={loggingOut} aria-label="Sign out">
             <LogOut size={20} />
             <span>Sign out</span>
           </button>
         </nav>
+        <Suspense fallback={<main className="page" role="status">Loading workspace…</main>}>
         {patientMatch ? (
           <PatientPage key={patientMatch[1]} id={patientMatch[1]} tab={patientMatch[2] ?? "summary"} />
         ) : section === "patients" ? (
@@ -161,6 +177,7 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
         ) : (
           <Worklist />
         )}
+        </Suspense>
       </div>
     </div>
   );

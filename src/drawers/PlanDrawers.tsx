@@ -19,6 +19,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
   const [custom, setCustom] = useState<{ title: string; category: string; date: string }>({ title: "", category: "follow_up", date: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [owner, setOwner] = useState("");
   if (!today) return null;
   const toggle = (id: string) => {
     if (picked.includes(id)) setPicked(picked.filter((p) => p !== id));
@@ -39,7 +40,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
   async function save() {
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/plan`, { body: { items, contextId: contextId ?? null } });
+      const r = await api(`/patients/${patientId}/plan`, { body: { items: items.map((item) => ({ ...item, owner: owner.trim() || undefined })), contextId: contextId ?? null } });
       onDone(`${items.length} plan item${items.length === 1 ? "" : "s"} added`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -60,6 +61,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
       }
     >
       <div className="drawer-body">
+        <label className="field"><span>Responsible person or team</span><input className="input" value={owner} maxLength={120} onChange={(e) => setOwner(e.target.value)} placeholder="Defaults to you" /></label>
         <div className="q">
           <div className="label">Common actions</div>
           <div className="choices">
@@ -110,6 +112,7 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
   const [date, setDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [owner, setOwner] = useState<string | null>(null);
   const p = rec?.plan.find((x: any) => x.id === planId);
   if (!rec) return null;
   if (!p) return null;
@@ -117,8 +120,9 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
   async function save() {
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/plan/${planId}`, { body: { action, outcome, dueDate: date || undefined, version: p.version } });
-      onDone(action === "complete" ? `Completed · ${p.title}` : action === "cancel" ? "Plan item cancelled" : `Moved to ${fmtDay(date, { weekday: true })}`, r);
+      const r = await api(`/patients/${patientId}/plan/${planId}`, { body: { action, outcome, owner: action === "assign" ? owner ?? p.owner : undefined, dueDate: date || undefined, version: p.version } });
+      const message = action === "complete" ? `Completed · ${p.title}` : action === "cancel" ? "Plan item cancelled" : action === "reschedule" ? `Moved to ${fmtDay(date, { weekday: true })}` : action === "assign" ? "Responsible person updated" : action === "reviewed" ? `Reviewed · ${p.title}` : action === "performed" ? "Performed · awaiting clinical review" : action === "booked" ? "Booking recorded" : "Order recorded";
+      onDone(message, r);
     } catch (e) {
       // changed elsewhere (another tab, a result that closed it): load the current version so Save works again
       if ((e as any).status === 409) {
@@ -138,8 +142,8 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Close</button>
-          {p.status === "planned" && (
-            <button className="btn primary" disabled={!action || busy || ((action === "reschedule") && !date) || (action === "cancel" && outcome.trim().length < 3)} onClick={save}>
+          {(p.status === "planned" || p.awaitingReview) && (
+            <button className="btn primary" disabled={!action || busy || ((action === "reschedule") && !date) || (["cancel", "performed"].includes(action) && outcome.trim().length < 3) || (action === "assign" && !(owner ?? p.owner)?.trim())} onClick={save}>
               {busy ? "Saving…" : "Confirm"}
             </button>
           )}
@@ -151,21 +155,29 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
           <Tag sev={VIEW_SEV[p.view]}>{VIEW_LABEL(p, rec.today)}</Tag>
           {p.reason && <span className="muted" style={{ fontWeight: 600 }}>{p.reason}</span>}
         </div>
+        <p className="small muted">Owner: {p.owner || "Not assigned"}{p.progress === "ordered" ? " · Ordered" : p.progress === "booked" ? " · Booked" : ""}</p>
         {lab && p.status === "planned" && (
           <div className="infobox" style={{ alignItems: "center" }}>
             <FlaskConical size={20} color="var(--action)" style={{ flexShrink: 0 }} />
             <span className="grow">
-              <b>Closes itself when the result is recorded</b>
-              Add the {(p.completesOn.codes ?? []).join(" and ")} result and this item completes automatically.
+              <b>Record the result, then review it</b>
+              Add the {(p.completesOn.codes ?? []).join(" and ")} result. It will stay visible until clinical review is recorded.
             </span>
             <button className="btn secondary small" onClick={() => open({ kind: "labs", codes: [...new Set(["creatinine", "potassium", ...(p.completesOn.codes ?? [])])] })}>Add result</button>
           </div>
         )}
-        {p.status === "planned" ? (
+        {p.completesOn?.type === "study" && p.status === "planned" && <button className="btn secondary" onClick={() => open(p.completesOn.kind === "echo" ? { kind: "echo" } : { kind: "study", studyKind: p.completesOn.kind })}>Add study result</button>}
+        {p.awaitingReview && <div className="infobox"><div><b>Result recorded · awaiting review</b><p>Review the evidence and record any next step in the plan before confirming.</p>{p.evidence?.map((e: any) => <p key={e.id}>{e.label}{e.value != null ? `: ${e.value} ${e.unit ?? ""}` : ""}{e.at ? ` · ${fmtDay(e.at, { year: true })}` : ""}</p>)}</div></div>}
+        {(p.status === "planned" || p.awaitingReview) ? (
           <>
             <div className="q">
               <div className="label">Update</div>
-              <SingleChoice label="Update plan item" options={[{ value: "complete", label: "Mark done" }, { value: "reschedule", label: "Change date" }, { value: "cancel", label: "Cancel" }]} value={action} onChange={setAction} />
+              <SingleChoice label="Update plan item" options={p.awaitingReview ? [{ value: "reviewed", label: "Mark reviewed" }, { value: "assign", label: "Change owner" }] : [
+                ...(p.progress === "planned" ? [{ value: "ordered", label: "Order sent" }] : []),
+                ...(p.progress !== "booked" ? [{ value: "booked", label: "Booked" }] : []),
+                ...(!["lab", "study"].includes(p.completesOn?.type) ? [{ value: "performed", label: "Performed · needs review" }, { value: "complete", label: "Done and reviewed" }] : []),
+                { value: "assign", label: "Change owner" }, { value: "reschedule", label: "Change date" }, { value: "cancel", label: "Cancel" },
+              ]} value={action} onChange={setAction} />
             </div>
             {action === "reschedule" && (
               <label className="field">
@@ -173,6 +185,7 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
                 <DateInput className="input" style={{ width: 220 }} min={rec.today} value={date} onChange={(e) => setDate(e.target.value)} />
               </label>
             )}
+            {action === "assign" && <label className="field"><span>Responsible person or team</span><input className="input" value={owner ?? p.owner} maxLength={120} onChange={(e) => setOwner(e.target.value)} /></label>}
             {action && (
               <label className="field">
                 <span>{action === "cancel" ? "Reason (required)" : "Outcome / note"}</span>
