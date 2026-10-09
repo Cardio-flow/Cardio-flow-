@@ -276,7 +276,7 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
   );
 }
 
-export function VisitsTab({ id, version, open }: { id: string; version: number; open(o: Open): void }) {
+export function VisitsTab({ id, version, summary, open }: { id: string; version: number; summary: any; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/journey`, [version]);
   const [note, setNote] = useState<Record<string, string>>({});
   if (!data) return <main className="page" />;
@@ -285,10 +285,16 @@ export function VisitsTab({ id, version, open }: { id: string; version: number; 
     <main className="page">
       <div className="page-head">
         <div>
-          <h1 style={{ fontSize: 22 }}>Visits & admissions</h1>
+          <h1 style={{ fontSize: 22 }}>Admissions & visits</h1>
           <p>Admissions, clinic visits and follow-up belong to one journey.</p>
         </div>
+        {!summary.header.deceased && <span className="row wrap" style={{ gap: 8 }}>
+          <button className="btn secondary" disabled={!!summary.header.openContext} onClick={() => open({ kind: "admit" })}><BedDouble size={18} />New admission</button>
+          {!summary.header.openContext && <button className="btn primary" onClick={() => open({ kind: "visit" })}><Stethoscope size={18} />Start clinic visit</button>}
+        </span>}
       </div>
+      {summary.header.openContext?.kind === "clinic_visit" && <p className="infobox">A clinic visit is open. Use Continue visit to finish it before starting a new admission.</p>}
+      {summary.header.openContext?.kind === "admission" && <p className="infobox">An admission is open. Record decisions and results below, then discharge when ready.</p>}
       {contexts.length === 0 && <div className="empty">No visits or admissions yet.</div>}
       {contexts.map((c: any) => (
         <section key={c.id} className="card pad">
@@ -309,7 +315,13 @@ export function VisitsTab({ id, version, open }: { id: string; version: number; 
               {c.actions.map((a: any) => <Tag key={a.id} sev={VIEW_SEV[a.view]}>{a.title} · {fmtDay(a.dueDate)}</Tag>)}
             </div>
           )}
-          <div className="row" style={{ marginTop: 12 }}>
+          <div className="row wrap" style={{ marginTop: 12, gap: 8 }}>
+            {c.status === "open" && c.kind === "admission" && <>
+              <button className="btn secondary small" onClick={() => open({ kind: "pathways" })}>Review pathways</button>
+              <button className="btn secondary small" onClick={() => open({ kind: "labs" })}>Add labs</button>
+              <button className="btn secondary small" onClick={() => open({ kind: "med-batch" })}>Add medicines</button>
+              <button className="btn secondary small" onClick={() => open({ kind: "plan-add" })}>Add plan item</button>
+            </>}
             {c.status === "open" && c.kind === "admission" && <button className="btn primary small" onClick={() => open({ kind: "discharge", contextId: c.id })}>Discharge</button>}
             {c.status === "open" && c.kind === "clinic_visit" && <button className="btn primary small" onClick={() => open({ kind: "visit", contextId: c.id })}>Continue visit</button>}
             {c.status === "closed" && (

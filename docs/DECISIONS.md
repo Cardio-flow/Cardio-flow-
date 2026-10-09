@@ -2,6 +2,13 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · Admissions navigation and catalog pathway decisions
+
+- Rename the existing Visits tab to Admissions & visits and place it beside Overview. The same care-context records and route remain in use. The page exposes admission/clinic entry, explains why an open visit blocks the UI admission action, and offers pathways, labs, medicines and plan actions from an active admission.
+- Opening a pathway from the catalog carries its matching active recommendation ID, so confirming it records the same decision link as opening the alert action. No clinical thresholds or pathway content change.
+- Use a relative past medication start in the stop/undo regression fixture; the prior same-day morning fixture could land in the future after Kuwait midnight.
+- Add synthetic admission and clinic integration checks for decision/context links, dose changes, dated tasks, Journey, generated notes and results awaiting review, plus joined-flow rollback.
+
 ## 2026-10-09 · Reliability release and results awaiting review
 
 - **Completion evidence:** plan actions retain every supporting result, limited to the results the action requires. Withdrawing one reopens the action, including checks supported by derived eGFR. Correcting a reviewed value keeps performance complete but requires clinical review again. Preliminary results never complete checks. Lab/study actions require their recorded evidence rather than a manual “done”. Legacy single-reference completion is handled conservatively when a required result from the same batch is withdrawn.

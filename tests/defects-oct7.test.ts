@@ -102,7 +102,7 @@ test("INR pathway: a mechanical valve's own range decides low/high (2.4 is low f
 
 test("taking back a stop brings back the medicine's titration review; a result entered in error reopens its check", async () => {
   const pid = await newPatient(["hfref"]);
-  const r: any = await tx((q) => K.startMedication(q, doc, pid, { code: "bisoprolol", doseValue: 1.25, frequency: "OD", route: "PO", indication: "hfref", effectiveAt: at(T) }));
+  const r: any = await tx((q) => K.startMedication(q, doc, pid, { code: "bisoprolol", doseValue: 1.25, frequency: "OD", route: "PO", indication: "hfref", effectiveAt: new Date(Date.now() - 60_000).toISOString() }));
   const medId = r?.medicationId ?? ((await db.query(`SELECT id FROM cf.medication WHERE patient_id=$1`, [pid])).rows[0] as any).id;
   await tx((q) => K.addPlanAction(q, doc, pid, { category: "medication", title: "Bisoprolol titration review", dueDate: addDays(T, 14), medicationId: medId } as any));
   await tx((q) => K.medicationEvent(q, doc, pid, medId, { kind: "stop", reason: "test", effectiveAt: new Date().toISOString() }));
