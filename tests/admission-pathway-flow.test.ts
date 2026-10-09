@@ -7,7 +7,12 @@ import { loadState } from "../server/kernel/state.js";
 import { draftNote } from "../server/kernel/notes.js";
 import { summary, journey } from "../server/kernel/views.js";
 import { reassess } from "../server/engine/engine.js";
-import { completeWizard } from "../server/engine/wizard.js";
+import {
+  completeWizard,
+  declineRecommendation,
+} from "../server/engine/wizard.js";
+import { addDays } from "../shared/clinical.js";
+import { existingClinicReview } from "../shared/follow-up.js";
 import { nowIso, today, type Actor } from "../server/kernel/base.js";
 let db: DB;
 const actor: Actor = {
@@ -190,5 +195,178 @@ test("a failed second joined pathway rolls back the first decision and its medic
     (await db.query("SELECT id FROM cf.decision WHERE patient_id=$1", [pid]))
       .rows.length,
     0,
+  );
+});
+
+test("discharge reuses an earlier general clinic booking, preserves its decision, and allows a separate review", async () => {
+  for (const separate of [false, true]) {
+    const pid = await db.transaction((q) =>
+      K.createPatient(q, actor, {
+        name: "Synthetic follow-up",
+        mrn: "FOLLOWUP-" + separate,
+        sex: "Male",
+        birthDate: "1960-01-01",
+        conditions: ["hfref"],
+      }),
+    );
+    const ctx = await db.transaction((q) =>
+      K.startAdmission(q, actor, pid, {
+        startedAt: nowIso(),
+        location: "CCU",
+        reasons: ["Acute decompensated HF"],
+      }),
+    );
+    const original = await db.transaction((q) =>
+      K.addPlanAction(q, actor, pid, {
+        title: "Clinic review",
+        category: "follow_up",
+        dueDate: addDays(today(), 7),
+        completesOn: { type: "visit" },
+        contextId: ctx.id,
+        reason: "Original pathway review",
+      }),
+    );
+    await db.transaction((q) =>
+      K.discharge(q, actor, pid, ctx.id, {
+        endedAt: nowIso(),
+        status: "Euvolaemic",
+        plan: [
+          {
+            title: "HF clinic review",
+            category: "follow_up",
+            dueDate: addDays(today(), 14),
+            completesOn: { type: "visit" },
+          },
+        ],
+        reuseClinicFollowUp: !separate,
+        handover: "Repeat renal profile with the named clinic team",
+      }),
+    );
+    const plan = (await loadState(db, pid)).plan;
+    assert.equal(plan.length, separate ? 2 : 1);
+    assert.equal(
+      plan.find((p) => p.id === original.id)!.reason,
+      "Original pathway review",
+    );
+    assert.equal(
+      plan.find((p) => p.id === original.id)!.due_date,
+      addDays(today(), 7),
+    );
+    assert.match(
+      (await draftNote(db, pid, ctx.id)).text,
+      /Handover \/ outstanding issues: Repeat renal profile/,
+    );
+    const discharge = (await journey(db, pid)).events.find(
+      (e: any) => e.kind === "discharge",
+    )!;
+    assert.match(
+      discharge.title,
+      separate ? /1 plan action created/ : /0 plan actions created/,
+    );
+  }
+});
+
+test("follow-up reuse excludes overdue, later, specialist and serial appointments", () => {
+  const booking = {
+    id: "booking",
+    title: "Clinic review",
+    status: "planned",
+    category: "follow_up",
+    dueDate: addDays(today(), 7),
+    completesOn: { type: "visit" },
+  };
+  assert.equal(
+    existingClinicReview(
+      [booking],
+      "HF clinic review",
+      addDays(today(), 14),
+      today(),
+    )?.id,
+    "booking",
+  );
+  for (const change of [
+    { dueDate: addDays(today(), -1) },
+    { dueDate: addDays(today(), 28) },
+    { title: "Device clinic review" },
+    { title: "Myocarditis follow-up · 6 months" },
+    { status: "completed" },
+    { completesOn: { type: "manual" } },
+  ]) {
+    assert.equal(
+      existingClinicReview(
+        [{ ...booking, ...change }],
+        "HF clinic review",
+        addDays(today(), 14),
+        today(),
+      ),
+      undefined,
+    );
+  }
+  assert.equal(
+    existingClinicReview(
+      [booking],
+      "Myocarditis follow-up · 12 months",
+      addDays(today(), 365),
+      today(),
+    ),
+    undefined,
+  );
+});
+
+test("deferred decision and its reason belong to the open admission narrative, not another encounter", async () => {
+  const pid = await db.transaction((q) =>
+    K.createPatient(q, actor, {
+      name: "Synthetic deferred decision",
+      mrn: "FLOW-DEFER",
+      sex: "Male",
+      birthDate: "1960-01-01",
+      conditions: ["hfref"],
+    }),
+  );
+  const earlier = await db.transaction((q) =>
+    K.startVisit(q, actor, pid, {
+      startedAt: nowIso(),
+      reasons: ["Routine cardiology"],
+      service: "Cardiology",
+    }),
+  );
+  await db.transaction((q) =>
+    K.closeVisit(q, actor, pid, earlier.id, { note: "Earlier visit" }),
+  );
+  const ctx = await db.transaction((q) =>
+    K.startAdmission(q, actor, pid, {
+      startedAt: nowIso(),
+      location: "CCU",
+      reasons: ["Acute decompensated HF"],
+    }),
+  );
+  await db.transaction(async (q) => {
+    await K.recordObservations(q, actor, pid, {
+      effectiveAt: nowIso(),
+      contextId: ctx.id,
+      items: [{ code: "potassium", value: 5.8 }],
+    });
+    await reassess(q, pid, "production");
+  });
+  const rec = (await summary(db, pid)).attention.find(
+    (a: any) => a.action?.wizard === "hyperkalaemia",
+  )!;
+  await db.transaction((q) =>
+    declineRecommendation(q, actor, pid, rec.id, {
+      outcome: "deferred",
+      reason: "Waiting for a repeat sample",
+    }),
+  );
+  const note = await draftNote(db, pid, ctx.id);
+  assert.match(note.text, /Decisions:/);
+  assert.match(note.text, /deferred — Waiting for a repeat sample/);
+  assert.doesNotMatch(
+    (await draftNote(db, pid, earlier.id)).text,
+    /Waiting for a repeat sample/,
+  );
+  assert.equal(
+    (await journey(db, pid)).events.find((e: any) => e.kind === "decision")!
+      .context_id,
+    ctx.id,
   );
 });

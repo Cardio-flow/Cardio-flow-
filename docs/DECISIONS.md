@@ -2,6 +2,15 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · Finish existing admission and entry workflows before adding modules
+
+- Admissions stay focused on recorded milestones/events, labs, medication changes and discharge documentation. No daily admission review or new clinical pathways/modules in this iteration, per Ahmed's request.
+- Keep the clinic visit mounted while a child action is open; hide its drawer and deactivate focus handling. Save/cancel returns to the same step, scroll and entries, with refreshed decision data. Use the Overview triage grouping in visits, retaining distinct actions within medicine bundles.
+- Discharge can reuse an existing general Clinic review/HF clinic review only when planned, not overdue, and due no later than the requested review. Preserve the original task, date, reason and decision linkage. Offer an explicit separate-review choice; specialist/serial appointments remain distinct. Audit reuse and count only newly created tasks in the discharge milestone.
+- Show unresolved urgent findings and results awaiting clinical review in the existing discharge form. An optional handover is stored in the context summary and included in the generated narrative. No automatic discharge-readiness judgement.
+- Encounter notes include recorded acted/declined/deferred decisions. Decline/defer records link to the current open context and Journey; notes select by context ID rather than approximate dates.
+- Drawers constrain keyboard focus. Lab entry focuses the first result; Tab moves between results and Alt+U accesses units; changing panels retains filled tests. Closing/removing unsaved results and closing unsaved visit edits requires a discard choice. Registration separates required fields from expandable optional identity, diagnoses and risk factors.
+
 ## 2026-10-10 · Admissions navigation and catalog pathway decisions
 
 - Rename the existing Visits tab to Admissions & visits and place it beside Overview. The same care-context records and route remain in use. The page exposes admission/clinic entry, explains why an open visit blocks the UI admission action, and offers pathways, labs, medicines and plan actions from an active admission.

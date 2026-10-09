@@ -32,10 +32,15 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
   const egfr = cr && sum ? egfrCkdEpi2021(cr, sum.header.age, sum.header.sex) : null;
   const filled = rows.filter((c) => num(c) != null);
   const invalid = rows.filter((c) => Number.isNaN(num(c) as number));
+  const close = () => {
+    if (busy) return;
+    if (Object.values(values).some((v) => v.trim()) && !window.confirm("Discard the unsaved lab results?")) return;
+    onClose();
+  };
   const choosePreset = (id: string) => {
     const p = LAB_PRESETS.find((x) => x.id === id)!;
     setPreset(id);
-    setRows(p.codes);
+    setRows([...new Set([...p.codes, ...rows.filter((c) => values[c]?.trim())])]);
   };
   const addable = useMemo(() => LABS.filter((l) => !l.derived && !rows.includes(l.code) && (l.display + l.short).toLowerCase().includes(q.toLowerCase())), [rows, q]);
   async function save(e?: React.FormEvent) {
@@ -60,14 +65,13 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
       title="Add results"
       subtitle="One date, one save"
       icon={<FlaskConical size={22} />}
-      onClose={onClose}
+      onClose={close}
       head={
         <div className="row wrap" style={{ gap: 8 }}>
-          {LAB_PRESETS.map((p) => (
-            <button key={p.id} type="button" className="choice" style={{ minHeight: 38 }} aria-pressed={preset === p.id} onClick={() => choosePreset(p.id)}>
-              {p.label}
-            </button>
-          ))}
+          <select className="input" style={{ width: "auto", minHeight: 38 }} aria-label="Lab panel" value={preset ?? "custom"} onChange={(e) => choosePreset(e.target.value)}>
+            <option value="custom" disabled>Selected tests</option>
+            {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
           <button type="button" className="choice" style={{ minHeight: 38, borderStyle: "dashed" }} aria-pressed={false} onClick={() => setAdding(true)}>
             + Any test
           </button>
@@ -75,9 +79,9 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
       }
       footer={
         <>
-          <span className="note">Tab moves to the next result · Enter saves</span>
+          <span className="note">Tab: next result · Alt+U: units · Enter: save</span>
           <span className="end">
-            <button className="btn ghost" onClick={onClose} style={{ color: "var(--ink-3)" }}>Cancel</button>
+            <button className="btn ghost" onClick={close} style={{ color: "var(--ink-3)" }}>Cancel</button>
             <button className="btn primary" form="labs-form" disabled={busy || !filled.length || invalid.length > 0}>
               {busy ? "Saving…" : `Save ${filled.length || ""} result${filled.length === 1 ? "" : "s"}`}
             </button>
@@ -134,8 +138,19 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
                     className={`input num ${flag ? "bad" : ""}`}
                     inputMode="decimal"
                     autoFocus={i === 0}
+                    data-autofocus={i === 0 || undefined}
                     value={values[code] ?? ""}
                     onChange={(e) => setValues({ ...values, [code]: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.altKey && e.key.toLowerCase() === "u") {
+                        const unit = e.currentTarget.parentElement?.querySelector("select");
+                        if (unit) { e.preventDefault(); unit.focus(); }
+                      }
+                      if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+                        const next = rows[i + (e.shiftKey ? -1 : 1)];
+                        if (next) { e.preventDefault(); document.getElementById(`lab-${next}`)?.focus(); }
+                      }
+                    }}
                     aria-invalid={Number.isNaN(v as number)}
                   />
                   {def.convert ? (
@@ -149,7 +164,11 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
                     {p ? `${formatNumber(p.value, def.decimals)} · ${fmtDay(p.at)}` : "—"}
                     {flag && <> <Tag sev={flag === "high" ? "red" : "orange"}>{flag.toUpperCase()}</Tag></>}
                   </span>
-                  <button type="button" className="icon-btn" style={{ width: 32, height: 32, border: 0 }} aria-label={`Remove ${def.display}`} onClick={() => setRows(rows.filter((c) => c !== code))}>
+                  <button type="button" className="icon-btn" style={{ width: 32, height: 32, border: 0 }} aria-label={`Remove ${def.display}`} onClick={() => {
+                    if (values[code]?.trim() && !window.confirm(`Discard the unsaved ${def.display} result?`)) return;
+                    setRows(rows.filter((c) => c !== code));
+                    setValues((v) => { const next = { ...v }; delete next[code]; return next; });
+                  }}>
                     <X size={16} />
                   </button>
                 </div>

@@ -20,14 +20,16 @@ The proposed change labels the existing tab Admissions & visits and places it ne
 
 The catalog previously opened a pathway without the active alert ID. The proposed change supplies the matching recommendation ID, consistent with opening the alert's action button.
 
-## Remaining integration findings
+## Scope and corrections
 
-1. **Daily inpatient review:** admissions have recording and discharge actions, but no dedicated daily review combining today's vitals, weight/fluid balance, relevant results, medication changes, active decisions and progress note. This should be the first workflow addition.
-2. **Discharge readiness:** show unresolved urgent findings, evidence still awaiting review, pending investigations, medicine changes and responsible follow-up owners before discharge. Clinicians should explicitly document how outstanding issues are handled; do not silently assume readiness.
-3. **Overlapping follow-up:** the browser example created a pathway clinic review for 17 October and an HF discharge clinic review for 24 October. Current discharge matching uses exact task titles. Consolidate by purpose and clinically appropriate timing, while preserving reasons and decision links; distinct visits can still be intentionally retained.
-4. **Decision merging:** Overview merges related suggestions, but the visit decision screen renders individual recommendations. Use consistent grouping while retaining each source and decision link.
-5. **Return to encounter:** pathway/actions replace the visit drawer. Preserve the prior step and scroll position, then return directly to the encounter.
-6. **Decision narrative:** generated notes summarize medication changes and plans, but do not provide a complete section of acted/declined/deferred decisions and reasons. Add that section from recorded decisions rather than inferred text.
+Ahmed deferred daily inpatient review and all new clinical modules. This iteration improves the existing admission milestones/events, labs, medications and discharge summary.
+
+- Admission cards expose recorded encounter events and medication changes.
+- The existing discharge form shows unresolved urgent findings and results awaiting review, with an optional handover included in the summary. It makes no automatic readiness judgement.
+- General clinic follow-up reuse checks timing, preserves the original task and provenance, and allows an intentionally separate review. Overdue/later bookings and specialist or serial appointments are not reused.
+- Visits use the same recommendation grouping as Overview and return directly to the prior step after actions, preserving draft entries and scroll.
+- Generated notes include recorded decision outcomes and reasons, tied to the encounter.
+- Lab entry fixes focus, keyboard progression and accidental draft loss; filled results remain when the panel changes. Registration makes optional sections expandable.
 
 ## Current pathway coverage
 
@@ -46,13 +48,12 @@ The catalog previously opened a pathway without the active alert ID. The propose
 
 Eight procedural checklists are exposed separately: angiography/PCI, cardioversion, AF ablation, device implantation, valve intervention, right-heart catheterisation, CABG and pericardiocentesis.
 
-## Priority additions or extensions
+## Deferred additions or extensions
 
 These are workflow candidates, not newly validated treatment algorithms. Each requires current guideline references, a clinical owner, explicit missing-data handling and review of every decision branch before publication.
 
 | Priority | Candidate | Existing coverage to reuse |
 |---|---|---|
-| First | Daily inpatient review and discharge readiness | Admission record, all existing complication pathways, task review, discharge templates |
 | High | Comprehensive HF initiation, optimisation and follow-up | Existing HF drug/target/advanced-HF/device rules; four HF complication pathways |
 | High | First-presentation acute chest pain/ACS | Recurrent post-ACS/PCI pathway and stable suspected-IHD testing exist; extend the entry assessment and acute disposition rather than duplicating discharge care |
 | High | Syncope assessment and disposition | Bradycardia, HCM risk and device pathways cover subsets only |
@@ -73,7 +74,7 @@ Validation uses local synthetic data. It does not establish real-world clinician
 
 | Admission reason offered by the UI | Workflow assessment |
 |---|---|
-| Acute decompensated HF | Congestion and shock pathways; daily review/discharge readiness still fragmented |
+| Acute decompensated HF | Congestion and shock pathways; admission milestones, medication reconciliation and discharge handover |
 | STEMI / NSTE-ACS / ACS to exclude | Recurrent chest-pain and ACS discharge care exist; dedicated first-presentation routing remains a priority |
 | AF / flutter | AF-CARE exists; flutter-specific decisions need explicit branch coverage |
 | VT / VF / ICD shock | ICD/ventricular-arrhythmia pathway exists; assess arrest and no-device scenarios separately |
@@ -86,3 +87,7 @@ Validation uses local synthetic data. It does not establish real-world clinician
 | Chest infection / bleeding | Dedicated pathways exist |
 | Elective procedure | Procedure checklists and pre-procedure assessment exist |
 | Other | Explicit unsupported-scenario routing and responsible clinician/team are needed |
+
+## Validation of the workflow fixes
+
+All 277 tests pass, including follow-up reuse/separate booking, exclusion of overdue/later/specialist appointments, and encounter-linked deferred decisions and handover narrative. Standard and hosted builds pass. Chromium passes the existing clinic walkthrough, admission/catalog decision/discharge with a single reused clinic booking, and the entry regression covering initial focus, Tab progression and focus containment, retained filled tests, discard protection, save/cancel return to the same visit step, assessment/scroll retention, phone overflow and note completion. CI runs all three browser checks. Checks use synthetic records; human data-entry timing has not been measured.

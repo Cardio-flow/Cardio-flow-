@@ -110,6 +110,9 @@ try {
   await p
     .getByRole("heading", { name: "Admissions & visits", exact: true })
     .waitFor();
+  await p
+    .getByText("Medication changes during admission", { exact: true })
+    .waitFor();
   await p.screenshot({ path: `${out}/04-admission-plan.png` });
   await p
     .getByRole("heading", { name: "Admission", exact: true })
@@ -120,6 +123,16 @@ try {
     .click();
   await p.getByRole("dialog", { name: "Discharge", exact: true }).waitFor();
   await p.getByRole("radio", { name: "Improved", exact: true }).click();
+  await p.getByText(/Already booked · Clinic review/).waitFor();
+  if (
+    !(await p
+      .getByLabel("Reuse the existing clinic booking", { exact: false })
+      .isChecked())
+  )
+    throw Error("Existing clinic booking was not reused");
+  await p
+    .getByRole("textbox", { name: /Handover \/ outstanding issues/ })
+    .fill("Repeat renal profile with HF clinic team");
   await p.screenshot({ path: `${out}/05-discharge.png` });
   await p
     .getByRole("button", { name: "Confirm discharge", exact: true })
@@ -132,6 +145,21 @@ try {
   const note = await p.locator("pre").textContent();
   if (!note.includes("Hyperkalaemia review") || !note.includes("12.5 mg"))
     throw Error("Discharge summary lost pathway changes");
+  if (
+    !note.includes("Decisions:") ||
+    !note.includes("Repeat renal profile with HF clinic team")
+  )
+    throw Error("Discharge summary lost recorded decisions or handover");
+  const current = await p.evaluate(
+    async (id) => await (await fetch(`/api/patients/${id}/summary`)).json(),
+    pat.id,
+  );
+  if (
+    current.plan.filter(
+      (t) => /^(HF )?clinic review$/i.test(t.title) && t.status === "planned",
+    ).length !== 1
+  )
+    throw Error("Discharge duplicated clinic follow-up");
   if (errors.length) throw Error(errors.join(";"));
   console.log(
     "Admission/catalog pathway/alert/decision/plan/discharge integration passed",

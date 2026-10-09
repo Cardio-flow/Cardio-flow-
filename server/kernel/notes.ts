@@ -36,6 +36,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
   if (sm.symptoms?.length) lines.push("Presenting symptoms: " + sm.symptoms.join(", "));
   if (c.kind === "admission" && sm.events?.length) lines.push("In-hospital events: " + sm.events.join(", "));
   if (c.kind === "admission" && sm.dischargeStatus) lines.push(`At discharge: ${sm.dischargeStatus}${sm.destination ? ` · to ${sm.destination.toLowerCase()}` : ""}`);
+  if (c.kind === "admission" && sm.handover) lines.push(`Handover / outstanding issues: ${sm.handover}`);
   lines.push("");
   lines.push("Diagnoses: " + (s.conditions.map((d) => d.display).join(", ") || "none recorded"));
   const ef = s.resolved("lvef").current;
@@ -58,6 +59,15 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     m.events.filter((e) => within(e.effective_at) && e.kind !== "continue").map((e) => `${m.name}: ${e.kind}${e.dose_value != null ? " " + doseLabel(MEDICATION[m.code], e.dose_value) : ""}${e.reason ? ` (${e.reason})` : ""}`),
   );
   if (changes.length) lines.push("Medication changes: " + changes.join("; "));
+  const decisions = (await tx.query(`SELECT d.outcome,d.reason,r.title AS recommendation_title,e.title AS event_title,e.detail AS event_detail
+    FROM cf.decision d LEFT JOIN cf.recommendation r ON r.id=d.recommendation_id
+    LEFT JOIN cf.clinical_event e ON e.ref_type='decision' AND e.ref_id=d.id
+    WHERE d.patient_id=$1 AND d.context_id=$2 ORDER BY d.decided_at,d.id`, [patientId, contextId])).rows;
+  if (decisions.length) {
+    lines.push("", "Decisions:");
+    for (const d of decisions) lines.push(`- ${(d.outcome === "acted" ? d.event_title : d.recommendation_title) ?? d.recommendation_title ?? "Clinical decision"} · ${d.outcome}${d.reason || d.event_detail ? ` — ${d.reason || d.event_detail}` : ""}`);
+    lines.push("");
+  }
   lines.push(
     "Current medications: " +
       (s.meds
