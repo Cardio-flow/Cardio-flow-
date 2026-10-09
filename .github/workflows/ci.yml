@@ -22,6 +22,8 @@ jobs:
           CARDIO_DATA_DIR=memory npx tsx server/index.ts > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:4310/api/health && break; sleep 1; done
           mkdir -p screenshots && node scripts/shots.mjs screenshots
+          node scripts/admission-shots.mjs screenshots/admission
+          node scripts/entry-fixes.mjs screenshots/entry-fixes
       - uses: actions/upload-artifact@v4
         if: always()
         with:

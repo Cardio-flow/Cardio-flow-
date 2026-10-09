@@ -2,7 +2,7 @@
 // engine only re-runs rules that read them.
 import type { Q } from "../db/db.js";
 import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
-import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay } from "../../shared/clinical.js";
+import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
@@ -10,6 +10,7 @@ import { PH_SIGNS } from "../../shared/ph.js";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Rwma } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
+import { existingClinicReview } from "../../shared/follow-up.js";
 
 export type Changed = string[];
 // medicines and medication events not corrected away (migration 008); aliases m and me
@@ -995,6 +996,8 @@ export type DischargeInput = {
   events?: string[];
   causeGroup?: string | null;
   dischargeWeight?: number | null;
+  reuseClinicFollowUp?: boolean;
+  handover?: string;
   plan: PlanInput[];
   note?: string;
 };
@@ -1012,17 +1015,27 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
   const los = daysBetween(new Date(ctx.started_at).toISOString(), input.endedAt);
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [
     contextId, input.endedAt,
-    JSON.stringify({ outcome: died ? "died" : "alive", dischargeStatus: input.status, destination: died ? null : input.destination ?? null, events, los, note: input.note ?? "" }),
+    JSON.stringify({ outcome: died ? "died" : "alive", dischargeStatus: input.status, destination: died ? null : input.destination ?? null, events, los, note: input.note ?? "", handover: input.handover ?? "" }),
   ]);
   const changed: Changed = ["contexts", "plan"];
   if (input.dischargeWeight != null && !died) {
     const r = await recordObservations(tx, actor, patientId, { effectiveAt: input.endedAt, items: [{ code: "weight", value: input.dischargeWeight }], contextId, source: "discharge weight", silentEvent: true });
     changed.push(...r.changed);
   }
-  for (const p of input.plan) await addPlanAction(tx, actor, patientId, { ...p, contextId, createdAt: input.endedAt });
+  let created = 0;
+  for (const p of input.plan) {
+    const planned = (await tx.query(`SELECT id,title,status,category,due_date::text AS "dueDate",completes_on AS "completesOn" FROM cf.plan_action WHERE patient_id=$1 AND status='planned'`, [patientId])).rows as any[];
+    const existing = input.reuseClinicFollowUp !== false && p.category === "follow_up" && p.completesOn?.type === "visit" && existingClinicReview(planned, p.title, p.dueDate, localDay(input.endedAt));
+    if (existing) {
+      await audit(tx, actor, "reuse-discharge-follow-up", "plan_action", existing.id, patientId, { contextId, requestedTitle: p.title, requestedDueDate: p.dueDate });
+      continue;
+    }
+    const added = await addPlanAction(tx, actor, patientId, { ...p, contextId, createdAt: input.endedAt });
+    if (added.changed.length) created++;
+  }
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.endedAt, kind: "discharge", category: "visit",
-    title: died ? `Died in hospital · day ${los}` : `Discharged · day ${los} · ${input.plan.length} plan action${input.plan.length === 1 ? "" : "s"} created`,
+    title: died ? `Died in hospital · day ${los}` : `Discharged · day ${los} · ${created} plan action${created === 1 ? "" : "s"} created`,
     detail: [input.status, input.destination, events.length ? "Events: " + events.join(", ") : null].filter(Boolean).join(" · "), refType: "care_context", refId: contextId, contextId,
   });
   if (died)

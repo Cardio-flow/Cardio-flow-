@@ -146,6 +146,7 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
       }
     >
       <div className="drawer-body">
+        <div className="help">Required: full name, file number, sex and date of birth. Other details can be added later.</div>
         <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
           <label className="field grow">
             <span>Full name</span>
@@ -156,7 +157,6 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
             <input className="input" value={f.mrn} onChange={(e) => setF({ ...f, mrn: e.target.value })} />
           </label>
         </div>
-        <IdentityFields f={f} setF={setF} />
         <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
           <div className="field">
             <span>Sex</span>
@@ -164,17 +164,21 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
           </div>
           <BirthFields f={f} setF={setF} />
           <label className="field grow">
-            <span>Allergies</span>
+            <span>Allergies (optional)</span>
             <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />
           </label>
         </div>
-        <div className="q">
-          <div className="label">Diagnoses</div>
+        <details className="q">
+          <summary className="label" style={{ cursor: "pointer" }}>Optional identity & contact details</summary>
+          <IdentityFields f={f} setF={setF} />
+        </details>
+        <details className="q">
+          <summary className="label" style={{ cursor: "pointer" }}>Diagnoses · optional{dx.length ? ` · ${dx.length} selected` : ""}</summary>
           <div className="help">Cardiac diagnoses and other comorbidities. Details such as MI type or valve prosthesis follow in the patient's History.</div>
           <DiagnosisPicker value={dx} onChange={setDx} />
-        </div>
-        <div className="q">
-          <div className="label">Risk factors</div>
+        </details>
+        <details className="q">
+          <summary className="label" style={{ cursor: "pointer" }}>Risk factors · optional{rf.length ? ` · ${rf.length} selected` : ""}</summary>
           <div className="help">Kept apart from the diagnoses; shown in the patient's risk-factor row.</div>
           <section className="dx-grid">
             <div className={`dx-group ${smoking ? "has" : ""}`}>
@@ -195,7 +199,7 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
             </div>
           </section>
           <DiagnosisPicker value={rf} onChange={setRf} risk />
-        </div>
+        </details>
         <label className="check-line">
           <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />
           <span>

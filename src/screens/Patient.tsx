@@ -56,17 +56,23 @@ export type Open =
   | { kind: "void"; what: string; path: string };
 
 const TABS = [
-  ["summary", "Overview"], ["history", "History"], ["journey", "Journey"], ["visits", "Visits"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
+  ["summary", "Overview"], ["visits", "Admissions & visits"], ["history", "History"], ["journey", "Journey"], ["medications", "Medications"], ["investigations", "Investigations"], ["plan", "Plan & follow-up"], ["registries", "Registries"],
 ] as const;
 
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const { data: s, error, reload } = useData<any>(`/patients/${id}/summary`);
   const [open, setOpen] = useState<Open | null>(null);
+  const [suspendedVisit, setSuspendedVisit] = useState<Extract<Open, { kind: "visit" }> | null>(null);
+  const visitAction = (action: Open) => {
+    if (open?.kind === "visit") setSuspendedVisit(open);
+    setOpen(action);
+  };
   const [version, setVersion] = useState(0);
   const toast = useToast();
   const done = useCallback(
     (message?: string, result?: any) => {
-      setOpen(null);
+      setOpen(suspendedVisit);
+      setSuspendedVisit(null);
       reload();
       setVersion((v) => v + 1);
       const created = result?.engine?.created ?? [];
@@ -74,9 +80,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       if (red) toast({ text: `${message ?? "Saved"}. New alert: ${red.title}` });
       else if (message) toast({ text: message });
     },
-    [reload, toast],
+    [reload, toast, suspendedVisit],
   );
-  const close = useCallback(() => setOpen(null), []);
+  const close = useCallback(() => { setOpen(suspendedVisit); setSuspendedVisit(null); }, [suspendedVisit]);
   const [more, setMore] = useState(false);
   if (error) return <main className="page"><div className="error-box">{error}</div></main>;
   if (!s) return <main className="page" aria-busy="true" />;
@@ -208,7 +214,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "summary" && <SummaryTab s={s} open={setOpen} done={done} />}
       {tab === "history" && <HistoryTab id={id} version={version} open={setOpen} />}
       {tab === "journey" && <JourneyTab id={id} version={version} />}
-      {tab === "visits" && <VisitsTab id={id} version={version} open={setOpen} />}
+      {tab === "visits" && <VisitsTab id={id} version={version} summary={s} open={setOpen} />}
       {tab === "medications" && <MedicationsTab id={id} version={version} open={setOpen} />}
       {tab === "investigations" && <InvestigationsTab id={id} version={version} open={setOpen} done={done} />}
       {tab === "plan" && <PlanTab id={id} version={version} open={setOpen} />}
@@ -236,12 +242,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "study" && <AddStudy patientId={id} kind={open.studyKind} initial={open.initial} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
-      {open?.kind === "visit" && <ClinicVisit patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} open={setOpen} onStarted={reload} />}
+      {(open?.kind === "visit" || suspendedVisit) && <ClinicVisit patientId={id} summary={s} contextId={(open?.kind === "visit" ? open : suspendedVisit)?.contextId} active={open?.kind === "visit"} onClose={close} onDone={done} open={visitAction} onStarted={() => { reload(); setVersion((v) => v + 1); }} />}
       {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} onAfter={(w) => setOpen({ kind: "wizard", wizard: w })} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} existing={h.diagnoses.map((d: any) => d.code)} onClose={close} onDone={done} />}
       {open?.kind === "history" && <HistoryDrawer patientId={id} focus={open.focus} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "identity" && <IdentityDrawer patientId={id} identity={open.identity} onClose={close} onDone={done} />}
-      {open?.kind === "pathways" && <Pathways summary={s} onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w })} onChecklist={(c) => setOpen({ kind: "checklist", check: c })} />}
+      {open?.kind === "pathways" && <Pathways summary={s} onClose={close} onPick={(w) => setOpen({ kind: "wizard", wizard: w, recommendationId: s.attention.find((a: any) => a.action?.type === "wizard" && a.action.wizard === w)?.id })} onChecklist={(c) => setOpen({ kind: "checklist", check: c })} />}
       {open?.kind === "after-pci" && <AfterPci patientId={id} contextId={ctx?.id} onClose={close} onDone={done} onBundle={() => setOpen({ kind: "wizard", wizard: "acs-discharge" })} />}
       {open?.kind === "checklist" && <ChecklistDrawer patientId={id} initial={open.check} onClose={close} open={setOpen} />}
       {open?.kind === "documents" && <DocumentsDrawer patientId={id} onClose={close} />}

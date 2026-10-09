@@ -621,6 +621,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         events: z.array(z.enum(IN_HOSPITAL_EVENTS as [string, ...string[]])).max(20).optional(),
         causeGroup: z.enum(["hf", "sudden_cardiac", "other_cv", "non_cv", "unknown"]).nullish(),
         dischargeWeight: z.number().min(20).max(350).nullish(),
+        reuseClinicFollowUp: z.boolean().optional(),
+        handover: z.string().max(4000).optional(),
         note: z.string().max(4000).optional(),
         plan: z
           .array(z.object({ category: z.enum(["medication", "investigation", "monitoring", "follow_up", "referral", "procedure", "education", "other"]), title: z.string().max(160), dueDate: isoDate.nullable(), completesOn: z.record(z.string(), z.unknown()).optional(), reason: z.string().max(200).optional() }))

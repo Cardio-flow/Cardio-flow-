@@ -333,9 +333,15 @@ export async function declineRecommendation(tx: Q, actor: Actor, patientId: stri
   const rec = (await tx.query(`SELECT * FROM cf.recommendation WHERE id=$1 AND patient_id=$2 AND status='active'`, [recommendationId, patientId])).rows[0];
   if (!rec) throw new ApiError(404, "This alert is no longer active");
   if (!input.reason.trim()) throw new ApiError(400, "Give a short reason");
-  await tx.query(`INSERT INTO cf.decision(id,patient_id,recommendation_id,outcome,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6)`, [
-    uuid(), patientId, recommendationId, input.outcome, input.reason, actor.id,
+  const context = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND status='open' ORDER BY started_at DESC LIMIT 1`, [patientId])).rows[0];
+  const decisionId = uuid();
+  await tx.query(`INSERT INTO cf.decision(id,patient_id,recommendation_id,outcome,reason,decided_by,context_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, [
+    decisionId, patientId, recommendationId, input.outcome, input.reason, actor.id, context?.id ?? null,
   ]);
+  await journeyEvent(tx, actor, {
+    patientId, occurredAt: nowIso(), kind: "decision", category: "complication", title: `${rec.title} · ${input.outcome}`,
+    detail: input.reason, refType: "decision", refId: decisionId, contextId: context?.id ?? null,
+  });
   await tx.query(`UPDATE cf.recommendation SET status='decided', closed_at=now() WHERE id=$1`, [recommendationId]);
   await audit(tx, actor, input.outcome, "recommendation", recommendationId, patientId, { reason: input.reason });
 }

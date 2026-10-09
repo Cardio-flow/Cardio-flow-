@@ -87,31 +87,44 @@ export const initials = (name: string) => {
 
 // ---------- drawer ----------
 export function Drawer({
-  title, subtitle, icon, tone = "blue", wide, onClose, children, footer, head,
+  title, subtitle, icon, tone = "blue", wide, onClose, children, footer, head, active = true,
 }: {
-  title: string; subtitle?: string; icon: ReactNode; tone?: Sev; wide?: boolean; onClose(): void; children: ReactNode; footer?: ReactNode; head?: ReactNode;
+  title: string; subtitle?: string; icon: ReactNode; tone?: Sev; wide?: boolean; onClose(): void; children: ReactNode; footer?: ReactNode; head?: ReactNode; active?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const lastFocus = useRef<HTMLElement | null>(null);
   // keep the latest onClose without re-running the mount effect (which would steal focus on every keystroke)
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>("input,button:not([aria-label='Close']),select,textarea");
+    const first = (lastFocus.current && ref.current?.contains(lastFocus.current) ? lastFocus.current : null) ?? ref.current?.querySelector<HTMLElement>("[data-autofocus], input[autofocus], textarea[autofocus]") ?? ref.current?.querySelector<HTMLElement>("input,button:not([aria-label='Close']),select,textarea");
     first?.focus();
-    const key = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
+      if (e.key !== "Tab") return;
+      const nodes = Array.from(ref.current?.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]") ?? []).filter((n) => n.tabIndex >= 0 && !n.hasAttribute("disabled") && n.getClientRects().length > 0);
+      const first = nodes[0], last = nodes[nodes.length - 1];
+      if (!first) return;
+      if (!ref.current?.contains(document.activeElement) || (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+        e.preventDefault(); (e.shiftKey ? last : first).focus();
+      }
+    };
     window.addEventListener("keydown", key);
+    const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      if (ref.current?.contains(document.activeElement)) lastFocus.current = document.activeElement as HTMLElement;
       window.removeEventListener("keydown", key);
-      document.body.style.overflow = "";
+      document.body.style.overflow = overflow;
       prev?.focus?.();
     };
-  }, []);
+  }, [active]);
   return (
     <>
-      <div className="scrim" onClick={() => closeRef.current()} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={`drawer ${wide ? "wide" : ""}`}>
+      <div className="scrim" style={!active ? { display: "none" } : undefined} onClick={() => closeRef.current()} />
+      <div ref={ref} onFocusCapture={(e) => { lastFocus.current = e.target as HTMLElement; }} role="dialog" aria-modal={active || undefined} aria-label={title} style={!active ? { display: "none" } : undefined} className={`drawer ${wide ? "wide" : ""}`}>
         <div className="drawer-head">
           <div className={`drawer-title sev-${tone}`}>
             <div className="ic">{icon}</div>

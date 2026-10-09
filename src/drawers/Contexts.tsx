@@ -8,6 +8,8 @@ import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
 import type { Open } from "../screens/Patient";
+import { triage } from "../../shared/triage";
+import { existingClinicReview } from "../../shared/follow-up";
 
 const LOCATIONS = ["CCU", "Ward 3A", "Ward 3B", "Step-down"];
 
@@ -128,13 +130,15 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [events, setEvents] = useState<string[]>([]);
   const [cause, setCause] = useState<string>("");
   const [weight, setWeight] = useState<string>("");
+  const [reuseClinicFollowUp, setReuseClinicFollowUp] = useState(true);
+  const [handover, setHandover] = useState("");
   // an item already booked (open in the plan) is not preselected again — it would be a duplicate task
-  const booked = (title: string) => (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
+  const booked = (title: string, days = 14) => /^(HF )?clinic review$/i.test(title) ? existingClinicReview(summary.plan ?? [], title, addDays(summary.today, days), summary.today) : (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
   const [picked, setPicked] = useState<Record<string, number | null>>(() => {
     const base: Record<string, number | null> = hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 };
     for (const id of Object.keys(base)) {
       const t = PLAN_TEMPLATES.find((x) => x.id === id);
-      if (t && booked(t.title)) base[id] = null;
+      if (t && booked(t.title, base[id]!)) base[id] = null;
     }
     return base;
   });
@@ -156,10 +160,10 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
         body: {
           endedAt: new Date().toISOString(), outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
-          causeGroup: died ? cause : null, dischargeWeight: !died && weight ? Number(weight) : null, plan: died ? [] : plan,
+          causeGroup: died ? cause : null, dischargeWeight: !died && weight ? Number(weight) : null, plan: died ? [] : plan, reuseClinicFollowUp, handover,
         },
       });
-      onDone(died ? "Death in hospital recorded" : `Discharged · ${plan.length} plan actions created`, r);
+      onDone(died ? "Death in hospital recorded" : "Discharged · follow-up plan saved", r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -201,8 +205,17 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         ) : (
         <>
         <div className="q">
+          <div className="label">Outstanding decisions & results</div>
+          {(summary.attention ?? []).filter((a: any) => a.severity === "red" || a.severity === "orange").map((a: any) => <div key={a.id}><SevChip sev={a.severity}>{a.title}</SevChip></div>)}
+          {(summary.plan ?? []).filter((p: any) => p.awaitingReview).map((p: any) => <div key={p.id} className="help">Result awaiting review · {p.title}</div>)}
+          <label className="field">
+            <span>Handover / outstanding issues <em className="muted" style={{ fontStyle: "normal" }}>(optional)</em></span>
+            <textarea className="input" rows={3} value={handover} onChange={(e) => setHandover(e.target.value)} placeholder="Record how outstanding issues will be handled and by whom." />
+          </label>
+        </div>
+        <div className="q">
           <div className="label">Condition at discharge</div>
-          <SingleChoice label="Condition at discharge" options={DISCHARGE_CONDITION.map((s) => ({ value: s, label: s }))} value={status} onChange={(v) => { setStatus(v); if (v === "Still congested" && hf) setPicked((p) => ({ ...p, "hf-clinic": 7 })); }} />
+          <SingleChoice label="Condition at discharge" options={DISCHARGE_CONDITION.map((s) => ({ value: s, label: s }))} value={status} onChange={(v) => { setStatus(v); if (v === "Still congested" && hf) setPicked((p) => ({ ...p, "hf-clinic": reuseClinicFollowUp && existingClinicReview(summary.plan ?? [], "HF clinic review", addDays(summary.today, 7), summary.today) ? null : 7 })); }} />
           {status === "Still congested" && <div className="infobox warn">Residual congestion at discharge is high risk: the HF clinic review is moved to 7 days.</div>}
         </div>
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
@@ -247,12 +260,19 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         <div className="q">
           <div className="label">Follow-up plan</div>
           <div className="help">Each item becomes a dated task. Unfinished items carry forward to the next visit automatically.</div>
+          {booked("HF clinic review", status === "Still congested" ? 7 : 14) && <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={reuseClinicFollowUp} onChange={(e) => {
+              setReuseClinicFollowUp(e.target.checked);
+              setPicked((p) => ({ ...p, "hf-clinic": e.target.checked ? null : status === "Still congested" ? 7 : 14 }));
+            }} />
+            Reuse the existing clinic booking (uncheck for a separate review)
+          </label>}
           {PLAN_TEMPLATES.filter((t) => ["renal-k", "hf-clinic", "titration", "echo", "device", "rehab", "education", "lipids", "phone"].includes(t.id)).map((t) => {
             const on = picked[t.id] != null;
             return (
               <div key={t.id} className="row wrap" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 8 }}>
                 <button type="button" className="choice" aria-pressed={on} onClick={() => setPicked({ ...picked, [t.id]: on ? null : t.offsets[0] })}>{t.title}</button>
-                {!on && booked(t.title) && <span className="help">Already booked{booked(t.title).dueDate ? ` · ${fmtDay(booked(t.title).dueDate, { weekday: true })}` : ""}</span>}
+                {!on && (() => { const existing = booked(t.title, status === "Still congested" && t.id === "hf-clinic" ? 7 : 14); return existing ? <span className="help">Already booked · {existing.title}{existing.dueDate ? ` · ${fmtDay(existing.dueDate, { weekday: true })}` : ""}</span> : null; })()}
                 {on && (
                   <Segmented
                     label={`${t.title} date`}
@@ -275,7 +295,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
 
 const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Prosthetic valve problem", "Arrhythmia", "Device", "ICD shock", "Pre-operative assessment", "Chest pain", "Bleeding", "Chest infection", "Myocarditis", "Pericarditis", "Routine cardiology"];
 
-export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
+export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted, active = true }: { patientId: string; summary: any; contextId?: string; active?: boolean; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
   const [step, setStep] = useState(contextId ? 1 : 0);
   // resuming an open visit keeps the reasons chosen when it was started
@@ -289,6 +309,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [hfa, setHfa] = useState<Record<string, string>>({});
   const isHf = !!summary.hf || reasons.includes("Heart failure");
   const [note, setNote] = useState("");
+  const generatedNote = useRef("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
@@ -318,9 +339,9 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   }, [patientId]);
   useEffect(() => {
     // the draft note is fetched once; going Back and returning keeps the clinician's edits
-    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => setNote((x) => x || n.text)).catch((e) => setError((e as Error).message));
-    if (step === 2) api(`/patients/${patientId}/summary`).then(setLive);
-  }, [step, visitId, patientId]);
+    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => { generatedNote.current = n.text; setNote((x) => x || n.text); }).catch((e) => setError((e as Error).message));
+    if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch((e) => setError((e as Error).message));
+  }, [step, visitId, patientId, active]);
   const previous = summary.plan;
   async function start() {
     setBusy(true);
@@ -369,9 +390,16 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     <Drawer
       wide
       title={visitId ? "Clinic visit" : "Start clinic visit"}
+      active={active}
       subtitle={`${summary.header.name} · ${summary.header.where}`}
       icon={<Stethoscope size={22} />}
-      onClose={() => (visitId && step > 0 ? onDone() : onClose())}
+      onClose={() => {
+        if (busy) return;
+        const numeric = { ...vit, ...(isHf ? hfa : {}) };
+        const unsaved = Object.entries(numeric).some(([code, v]) => v.trim() && savedRef.current[code] !== JSON.stringify({ code, value: Number(v) })) || (nyha && savedRef.current.nyha !== JSON.stringify({ code: "nyha", text: nyha })) || (cong && savedRef.current.congestion !== JSON.stringify({ code: "congestion", text: cong }));
+        if ((unsaved || note !== generatedNote.current) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
+        visitId && step > 0 ? onDone() : onClose();
+      }}
       head={
         <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           {steps.map((t, i) => (
@@ -481,15 +509,19 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             <div className="q">
               <div className="label">Needs a decision</div>
               {live.attention.length === 0 && <div className="help">Nothing open.</div>}
-              {live.attention.map((a: any) => (
-                <div key={a.id} className="row wrap visit-dec" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 10, gap: 8 }}>
-                  <SevChip sev={a.severity}>{a.title}</SevChip>
-                  <span className={`alert sev-${a.severity}`} style={{ all: "unset" }}>
-                    <ActionButton a={a} open={open} />
+              {triage(live.attention).map((card) => (
+                <div key={card.key} className="col visit-dec" style={{ borderBottom: "1px solid var(--line-2)", paddingBottom: 10, gap: 8 }}>
+                  <SevChip sev={card.severity}>{card.title}</SevChip>
+                  {card.key.startsWith("wiz-") && <span className="help">Also covers: {card.items.filter((a) => a !== card.lead).map((a) => a.title).join(" · ")}</span>}
+                  {(card.key.startsWith("wiz-") ? [card.lead] : card.items).map((a) => (
+                  <span key={a.id} className={`alert sev-${a.severity}`} style={{ all: "unset" }}>
+                    <ActionButton key={a.id} a={a} open={open} />
                   </span>
+                  ))}
+                  {card.note && <span className="help">{card.note}</span>}
                 </div>
               ))}
-              <div className="help">Opening a decision keeps this visit open. Return with “Continue visit”.</div>
+              <div className="help">After saving or closing an action, you return here with your place and entries kept.</div>
             </div>
             <div className="q">
               <div className="label">Medications now</div>
