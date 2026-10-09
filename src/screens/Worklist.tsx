@@ -8,11 +8,11 @@ import { NewPatient } from "../drawers/NewPatient";
 type Row = {
   id: string; name: string; mrn: string; age: number; sex: string; where: string; inpatient: boolean; postDischarge: boolean; problem: string;
   alert: { severity: Sev; title: string; draft: boolean } | null; alertCounts: Record<string, number>;
-  next: { title: string; dueDate: string; view: string } | null; overdue: number; dueToday: number;
+  next: { title: string; dueDate: string; view: string } | null; overdue: number; dueToday: number; awaitingReview: number;
 };
 
 const FILTERS = [
-  ["all", "All"], ["attention", "Needs attention"], ["inpatients", "Inpatients"], ["opd", "OPD"], ["today", "Due today"], ["overdue", "Overdue"], ["post", "Post-discharge"],
+  ["all", "All"], ["attention", "Needs attention"], ["review", "Results to review"], ["inpatients", "Inpatients"], ["opd", "OPD"], ["today", "Due today"], ["overdue", "Overdue"], ["post", "Post-discharge"],
 ] as const;
 
 export function Worklist() {
@@ -29,6 +29,7 @@ export function Worklist() {
     : filter === "opd" ? !r.inpatient
     : filter === "today" ? r.dueToday > 0
     : filter === "overdue" ? r.overdue > 0
+    : filter === "review" ? r.awaitingReview > 0
     : r.postDischarge,
   );
   return (
@@ -90,6 +91,7 @@ export function Worklist() {
             <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-2)" }}>{r.problem}</span>
             <span style={{ minWidth: 0 }}>
               {r.alert ? <SevChip sev={r.alert.severity}>{r.alert.title}</SevChip> : <span className="muted small" style={{ fontWeight: 600 }}>No open alerts</span>}
+                {r.awaitingReview > 0 && <span className="small" style={{ display: "block", color: "var(--orange-ink)", marginTop: 4 }}>{r.awaitingReview} result{r.awaitingReview === 1 ? "" : "s"} to review</span>}
             </span>
             <span className="next">
               {r.next ? (

@@ -233,13 +233,13 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
   const { data } = useData<any>(`/patients/${id}/record`, [version]);
   const [showClosed, setShowClosed] = useState(false);
   if (!data) return <main className="page" />;
-  const plan = data.plan.filter((p: any) => showClosed || p.status === "planned");
+  const plan = data.plan.filter((p: any) => showClosed || p.status === "planned" || p.awaitingReview);
   return (
     <main className="page">
       <div className="page-head">
         <div>
           <h1 style={{ fontSize: 22 }}>Plan & follow-up</h1>
-          <p>Each action has a real date and closes itself when the result, visit or study is recorded.</p>
+          <p>Track the owner, booking, recorded evidence and clinical review of each action.</p>
         </div>
         <button className="btn primary" onClick={() => open({ kind: "plan-add" })}><Plus size={18} /> Add to plan</button>
       </div>
@@ -258,13 +258,15 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
                   {p.source ? `${p.source.label} · ${fmtDay(p.source.at)}` : p.category.replace("_", " ")}
                   {p.completesOn?.type === "lab" ? " · closes on result" : p.completesOn?.type === "visit" ? " · closes at visit" : p.completesOn?.type === "study" ? " · closes on Echo" : ""}
                   {p.outcome ? ` · ${p.outcome}` : ""}
+                  {p.owner ? ` · Owner: ${p.owner}` : ""}
+                  {["ordered", "booked"].includes(p.progress) ? ` · ${p.progress}` : ""}
                 </small>
               </span>
               <span className="when">{p.dueDate ? fmtDay(p.dueDate, { weekday: true, year: true }) : "No date"}</span>
               <span><Tag sev={VIEW_SEV[p.view]}>{VIEW_LABEL(p, data.today)}</Tag></span>
               <span className="row" style={{ gap: 4, justifyContent: "flex-end" }}>
                 {p.checklist && <button className="btn ghost small" onClick={() => open({ kind: "checklist", check: p.checklist })}>Checklist</button>}
-                {p.status === "planned" && <button className="btn ghost small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Update</button>}
+                {(p.status === "planned" || p.awaitingReview) && <button className="btn ghost small" onClick={() => open({ kind: "plan-item", planId: p.id })}>{p.awaitingReview ? "Review" : "Update"}</button>}
               </span>
             </div>
           ))}

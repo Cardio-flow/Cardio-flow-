@@ -80,7 +80,17 @@ export function advancedHfMarkers(s: PatientState, p: { lvef_max: number; sbp_be
   const recovered = !!hfImprovedEf(s);
   const reduced = recovered ? undefined : s.meds
     .filter((m) => m.tags.some((t) => PROGNOSTIC.includes(t)))
-    .flatMap((m) => m.events.filter((e) => (e.kind === "decrease" || e.kind === "hold" || e.kind === "stop") && within(e.effective_at) && !PATIENT_REPORTED.test(e.reason)).map((e) => ({ m, e })))
+    .flatMap((m) => {
+      const e = [...m.events].reverse().find((e) => !["continue", "planned"].includes(e.kind));
+      if (!e || !["decrease", "hold", "stop"].includes(e.kind) || !within(e.effective_at) || PATIENT_REPORTED.test(e.reason)) return [];
+      // A documented therapeutic substitution is not inability to tolerate prognostic therapy.
+      // Require a replacement in the same pillar actually started after this stop.
+      const pillar = (tags: string[]) => tags.some((t) => t === "raas" || t === "arni") ? "raas" : tags.find((t) => PROGNOSTIC.includes(t));
+      const replaced = e.kind === "stop" && /switch|replac|substitut/i.test(e.reason) && !/intoler|adverse|side effect|hypotension|renal|hyperk|brady/i.test(e.reason) && s.meds.some((other) =>
+        other.id !== m.id && other.status === "active" && pillar(other.tags) === pillar(m.tags) &&
+        other.events.some((start) => ["start", "restart"].includes(start.kind) && start.effective_at >= e.effective_at));
+      return replaced ? [] : [{ m, e }];
+    })
     .pop();
   const intolerant = recovered ? undefined : s.barriers.filter((b) => b.category === "intolerance" && PROGNOSTIC.includes(b.drug_class.replace(/^up:/, ""))).pop();
   if (reduced)

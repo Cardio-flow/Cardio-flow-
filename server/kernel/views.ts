@@ -31,7 +31,9 @@ export function mergeKey(r: { action?: any }) {
 export async function recommendations(tx: Q, patientId: string) {
   const rows = (
     await tx.query(
-      `SELECT id,rule_id,rule_version,rule_status,severity,title,detail,facts,missing,action,created_at FROM cf.recommendation WHERE patient_id=$1 AND status='active'`,
+      `SELECT r.id,r.rule_id,r.rule_version,r.rule_status,r.rule_content_hash,r.severity,r.title,r.detail,r.facts,r.missing,r.action,r.created_at,v.evidence AS "ruleEvidence"
+       FROM cf.recommendation r LEFT JOIN cf.rule_version v ON v.rule_id=r.rule_id AND v.version=r.rule_version
+       WHERE r.patient_id=$1 AND r.status='active'`,
       [patientId],
     )
   ).rows as any[];
@@ -42,7 +44,7 @@ export async function recommendations(tx: Q, patientId: string) {
     const key = mergeKey(r);
     const lead = key ? byKey.get(key) : null;
     if (lead) {
-      lead.also.push({ id: r.id, rule_id: r.rule_id, rule_status: r.rule_status, title: r.title, detail: r.detail, facts: r.facts });
+      lead.also.push({ id: r.id, rule_id: r.rule_id, rule_version: r.rule_version, rule_status: r.rule_status, ruleEvidence: r.ruleEvidence, title: r.title, detail: r.detail, facts: r.facts });
       continue;
     }
     const card = { ...r, also: [] as any[] };
@@ -328,7 +330,19 @@ export function planView(s: PatientState) {
     reason: p.reason,
     dueDate: p.due_date,
     status: p.status,
-    view: planStatusView(p.status, p.due_date, s.today),
+    view: p.status === "completed" && p.progress === "performed" ? "review" : planStatusView(p.status, p.due_date, s.today),
+    owner: p.owner,
+    progress: p.progress,
+    awaitingReview: p.status === "completed" && p.progress === "performed",
+    reviewedAt: p.reviewed_at,
+    reviewedBy: p.reviewed_by,
+    evidence: (p.completion_refs ?? []).map((id) => {
+      const original = s.observations.find((o) => o.id === id || o.logical_id === id);
+      const o = original && s.observations.find((o) => o.logical_id === original.logical_id);
+      if (o) return { id: o.id, label: MEASURES[o.code]?.display ?? o.code, value: o.value_num, unit: o.unit, at: o.effective_at };
+      const study = s.studies.find((st) => st.id === id);
+      return study ? { id, label: study.kind, value: null, unit: null, at: study.performed_at } : { id, label: "Recorded event", value: null, unit: null, at: p.completed_at };
+    }),
     outcome: p.outcome,
     completedAt: p.completed_at,
     source: (() => {
@@ -342,7 +356,7 @@ export function planView(s: PatientState) {
     // a planned procedure with a checklist before it
     checklist: p.status === "planned" ? checklistForPlan(p.title, p.category) : null,
   }));
-  const order = { overdue: 0, due: 1, planned: 2, done: 3, deferred: 4, cancelled: 5, superseded: 6 } as Record<string, number>;
+  const order = { overdue: 0, review: 1, due: 2, planned: 3, done: 4, deferred: 5, cancelled: 6, superseded: 7 } as Record<string, number>;
   return withState.sort((a, b) => order[a.view] - order[b.view] || (a.dueDate ?? "9") .localeCompare(b.dueDate ?? "9"));
 }
 
@@ -352,7 +366,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const plan = planView(s);
   // the active plan: what came out of the most recent plan-making context plus anything still open
   const lastSource = [...s.contexts].reverse().find((c) => s.plan.some((p) => p.source_context_id === c.id));
-  const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
+  const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || p.awaitingReview || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
   const attention = await recommendations(tx, patientId);
   const changes = whatChanged(s);
   // the echo-surveillance intervals are shown only where their rule runs (sandbox, or once approved)
@@ -364,6 +378,14 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     header: head,
     today: s.today,
     overview: overview(s, attention, plan, changes),
+    reviewContext: {
+      results: ["potassium", "creatinine", "egfr", "sbp", "hr"].map((code) => {
+        const o = s.resolved(code).current;
+        return { code, label: MEASURES[code]?.short ?? code, value: o?.value_num ?? null, unit: MEASURES[code]?.unit ?? "", at: o?.effective_at ?? null };
+      }),
+      medicines: s.meds.filter((m) => ["active", "held", "not_taking"].includes(m.status) && m.tags.some((t) => ["raas", "arni", "bb", "mra", "loop", "sglt2", "oac", "antiplatelet"].includes(t)))
+        .map((m) => ({ id: m.id, name: m.name, dose: m.doseValue == null ? "Dose not recorded" : MEDICATION[m.code] ? doseLabel(MEDICATION[m.code], m.doseValue) : `${m.doseValue} ${m.doseUnit ?? ""}`, frequency: m.frequency, status: m.status })),
+    },
     attention,
     changes,
     plan: active,
@@ -424,7 +446,7 @@ export function overview(s: PatientState, attention: any[], plan: ReturnType<typ
     why,
     changed: { since: changes.since, label: changes.label, count: changes.items.length, top: changes.items.slice(0, 3).map((i: any) => i.after != null ? `${i.label} ${i.before ?? "—"} → ${i.after}` : i.text ?? i.label) },
     attention: { red: sev("red"), orange: sev("orange"), yellow: sev("yellow"), blue: sev("blue"), top: attention[0]?.title ?? null },
-    unfinished: { overdue: unfinished.filter((p) => p.view === "overdue").length, due: unfinished.filter((p) => p.view === "due").length, top: unfinished.slice(0, 2).map((p) => p.title) },
+    unfinished: { overdue: unfinished.filter((p) => p.view === "overdue").length, due: unfinished.filter((p) => p.view === "due").length, review: plan.filter((p) => p.awaitingReview).length, top: unfinished.slice(0, 2).map((p) => p.title) },
     next: next.slice(0, 2).map((p) => ({ title: p.title, dueDate: p.dueDate })),
   };
 }
@@ -475,7 +497,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
          tr.severity AS top_severity, tr.title AS top_title, tr.rule_status AS top_status,
          rc.recs,
          nx.title AS next_title, nx.due_date AS next_due,
-         coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today
+         coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today, coalesce(pc.review,0) awaiting_review
        FROM cf.patient p
        LEFT JOIN LATERAL (SELECT kind, location, service FROM cf.care_context c WHERE c.patient_id=p.id AND c.status='open' ORDER BY started_at DESC LIMIT 1) oc ON true
        LEFT JOIN LATERAL (SELECT ended_at FROM cf.care_context c WHERE c.patient_id=p.id AND c.kind='admission' AND c.status='closed' ORDER BY ended_at DESC LIMIT 1) ld ON true
@@ -492,8 +514,9 @@ export async function worklist(q: Q, siteId: string, sample = false) {
        ) rc ON true
        LEFT JOIN LATERAL (SELECT title, due_date FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned' AND a.due_date IS NOT NULL ORDER BY due_date LIMIT 1) nx ON true
        LEFT JOIN LATERAL (
-         SELECT count(*) FILTER (WHERE due_date < $2::date) overdue, count(*) FILTER (WHERE due_date = $2::date) due_today
-         FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned'
+         SELECT count(*) FILTER (WHERE status='planned' AND due_date < $2::date) overdue, count(*) FILTER (WHERE status='planned' AND due_date = $2::date) due_today,
+                count(*) FILTER (WHERE status='completed' AND progress='performed') review
+         FROM cf.plan_action a WHERE a.patient_id=p.id
        ) pc ON true
        WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic = $3
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
@@ -527,9 +550,10 @@ export async function worklist(q: Q, siteId: string, sample = false) {
       next: r.next_title ? { title: r.next_title, dueDate: nextDue, view: planStatusView("planned", nextDue, today) } : null,
       overdue: Number(r.overdue),
       dueToday: Number(r.due_today),
+      awaitingReview: Number(r.awaiting_review),
     };
   });
-  const rank = (r: any) => (r.alert ? SEVERITY_ORDER[r.alert.severity as keyof typeof SEVERITY_ORDER] : 9) * 10 - (r.overdue ? 1 : 0);
+  const rank = (r: any) => (r.alert ? SEVERITY_ORDER[r.alert.severity as keyof typeof SEVERITY_ORDER] : 9) * 10 - (r.overdue ? 1 : 0) - (r.awaitingReview ? 0.5 : 0);
   out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return out;
 }
@@ -550,8 +574,10 @@ function countMerged(recs: { s: string; a: any }[]) {
 export async function attentionCount(q: Q, siteId: string, sample = false) {
   const r = (
     await q.query<{ n: number }>(
-      `SELECT count(DISTINCT r.patient_id)::int n FROM cf.recommendation r JOIN cf.patient p ON p.id=r.patient_id
-       WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic = $2 AND r.status='active' AND r.severity IN ('red','orange')
+      `SELECT count(*)::int n FROM cf.patient p
+       WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic = $2 AND (
+         EXISTS (SELECT 1 FROM cf.recommendation r WHERE r.patient_id=p.id AND r.status='active' AND r.severity IN ('red','orange'))
+         OR EXISTS (SELECT 1 FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='completed' AND a.progress='performed'))
          AND coalesce((SELECT status FROM cf.status_event se WHERE se.patient_id=p.id AND se.kind='vital' ORDER BY effective_on DESC, recorded_at DESC LIMIT 1), 'alive') <> 'died'`,
       [siteId, sample],
     )

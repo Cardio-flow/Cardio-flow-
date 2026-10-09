@@ -2,6 +2,7 @@
 import type { Q } from "../db/db.js";
 import { ApiError, audit, uuid, type Actor } from "../kernel/base.js";
 import { RULE } from "./rules.js";
+import { ruleContentHash } from "./engine.js";
 
 const ALLOWED: Record<string, { to: string; roles: Actor["role"][] }[]> = {
   DRAFT: [{ to: "CLINICAL_REVIEW", roles: ["admin", "reviewer"] }, { to: "RETIRED", roles: ["admin"] }],
@@ -22,7 +23,7 @@ export async function listRules(tx: Q) {
 }
 
 export async function transitionRule(tx: Q, actor: Actor, ruleId: string, version: number, to: string, note: string) {
-  const cur = (await tx.query(`SELECT * FROM cf.rule_version WHERE rule_id=$1 AND version=$2`, [ruleId, version])).rows[0];
+  const cur = (await tx.query(`SELECT * FROM cf.rule_version WHERE rule_id=$1 AND version=$2 FOR UPDATE`, [ruleId, version])).rows[0];
   if (!cur) throw new ApiError(404, "Rule version not found");
   const step = ALLOWED[cur.status]?.find((s) => s.to === to);
   if (!step) throw new ApiError(409, `A ${cur.status} rule cannot move to ${to}`);
@@ -48,13 +49,16 @@ export async function transitionRule(tx: Q, actor: Actor, ruleId: string, versio
 
 export async function draftRule(tx: Q, actor: Actor, ruleId: string, params: Record<string, number | string>, evidence: string) {
   if (!["admin", "reviewer"].includes(actor.role)) throw new ApiError(403, "Your role cannot author rules");
+  await tx.query("SELECT pg_advisory_xact_lock(431002)");
   const def = RULE[ruleId];
   if (!def) throw new ApiError(404, "Unknown rule");
   for (const k of Object.keys(params)) if (!(k in def.defaultParams)) throw new ApiError(400, `Unknown parameter ${k}`);
   const latest = (await tx.query(`SELECT * FROM cf.rule_version WHERE rule_id=$1 ORDER BY version DESC LIMIT 1`, [ruleId])).rows[0];
   const version = (latest?.version ?? 0) + 1;
-  await tx.query(`INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author) VALUES($1,$2,$3,$4,'DRAFT',$5,$6,$7)`, [
-    ruleId, version, def.kind, def.title, JSON.stringify({ ...(latest?.params ?? {}), ...params }), evidence || latest?.evidence || "", actor.id,
+  const nextParams = { ...(latest?.params ?? {}), ...params };
+  const nextEvidence = evidence || latest?.evidence || "";
+  await tx.query(`INSERT INTO cf.rule_version(rule_id,version,kind,title,status,params,evidence,author,content_hash) VALUES($1,$2,$3,$4,'DRAFT',$5,$6,$7,$8)`, [
+    ruleId, version, def.kind, def.title, JSON.stringify(nextParams), nextEvidence, actor.id, ruleContentHash(def, nextParams, nextEvidence),
   ]);
   await tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,$3,NULL,'DRAFT',$4,'New draft')`, [uuid(), ruleId, version, actor.id]);
   return version;

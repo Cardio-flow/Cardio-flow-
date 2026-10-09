@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 const exe = process.env.CHROMIUM || (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch(exe ? { executablePath: exe } : {});
 const p = await b.newPage({ viewport: { width: 1440, height: 1000 } });
+p.setDefaultTimeout(15000);
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 p.on("console", (m) => m.type() === "error" && !m.text().includes("401") && errors.push(m.text()));
@@ -23,11 +24,14 @@ await step("login", async () => {
   await p.goto(base);
   await p.getByText("Dr. Ahmed").click();
   await p.getByRole("heading", { name: "Worklist" }).waitFor();
+  await p.getByRole("button", { name: "Register first patient", exact: true }).waitFor();
+  await p.getByRole("button", { name: "Sample patients", exact: true }).click();
+  await p.getByRole("heading", { name: "Sample worklist", exact: true }).waitFor();
   await shot("01-worklist", true);
 });
 await step("summary", async () => {
   await p.getByText("Khaled Al-Mansour").first().click();
-  await p.getByRole("heading", { name: "Needs attention" }).waitFor();
+  await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
   await shot("02-summary", true);
 });
 await step("wizard", async () => {
@@ -40,7 +44,8 @@ await step("wizard", async () => {
   await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
   await shot("05-wizard-contributors");
   await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
-  await p.getByRole("button", { name: "Reduce MRA dose" }).click();
+  const reduce = p.getByRole("button", { name: "Reduce MRA dose" });
+  if (await reduce.getAttribute("aria-pressed") !== "true") await reduce.click();
   await p.getByRole("radio", { name: "12.5 mg" }).click();
   await shot("06-wizard-management");
   await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
@@ -62,6 +67,12 @@ await step("labs", async () => {
   await p.getByLabel("Potassium", { exact: true }).press("Enter");
   await p.getByText(/results? saved/).waitFor();
   await shot("10-after-labs", true);
+  const reviewQueue = p.getByLabel("Results awaiting review");
+  await reviewQueue.getByRole("button", { name: "Review result" }).first().click();
+  await p.getByRole("dialog").getByText("Result recorded · awaiting review", { exact: true }).waitFor();
+  await p.getByRole("radio", { name: "Mark reviewed", exact: true }).click();
+  await p.getByRole("button", { name: "Confirm", exact: true }).click();
+  await p.getByText(/^Reviewed ·/).waitFor();
 });
 await step("tabs", async () => {
   await p.getByRole("link", { name: "Journey" }).click();
@@ -75,14 +86,14 @@ await step("tabs", async () => {
   await shot("14-plan", true);
 });
 await step("visit", async () => {
-  await p.getByRole("link", { name: /^Summary/ }).click();
+  await p.getByRole("link", { name: /^Overview/ }).click();
   await p.getByRole("button", { name: "Start clinic visit" }).click();
   await shot("15-visit-start");
   await p.getByRole("button", { name: "Start visit" }).click();
   await p.getByText("Vital signs today").waitFor();
   await p.getByLabel("Systolic BP").fill("108");
   await p.getByLabel("Heart rate").fill("66");
-  await p.getByLabel("Weight").fill("78.4");
+  await p.getByRole("textbox", { name: "Weight kg", exact: true }).fill("78.4");
   await p.getByRole("radiogroup", { name: "NYHA class" }).getByRole("radio", { name: "II", exact: true }).click();
   await p.getByRole("radiogroup", { name: "Congestion" }).getByRole("radio", { name: "None" }).click();
   await shot("16-visit-assessment");
@@ -114,13 +125,25 @@ await step("governance", async () => {
 await step("responsive", async () => {
   await p.setViewportSize({ width: 390, height: 844 });
   await p.goto(base + "/");
-  await p.getByRole("heading", { name: "Worklist" }).waitFor();
+  await p.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
+  await p.getByRole("button", { name: "Sample patients", exact: true }).click();
+  await p.getByRole("heading", { name: "Sample worklist" }).waitFor();
   await shot("23-mobile-worklist", true);
-  await p.setViewportSize({ width: 1180, height: 820 });
-  await p.goto(base + "/");
+  if (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Phone worklist overflows");
   await p.getByText("Yousef Ibrahim").first().click();
-  await p.getByRole("heading", { name: "Needs attention" }).waitFor();
+  await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  await shot("24-mobile-overview", true);
+  if (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Phone overview overflows");
+  await p.setViewportSize({ width: 1180, height: 820 });
   await shot("24-ipad-yousef", true);
+});
+await step("logout", async () => {
+  await p.getByRole("button", { name: "Sign out", exact: true }).click();
+  await p.getByText("Dr. Ahmed", { exact: true }).waitFor();
+  await p.reload();
+  await p.getByText("Dr. Ahmed", { exact: true }).waitFor();
+  const response = await p.request.get(base + "/api/session");
+  if (response.status() !== 401) throw new Error("Signed-out session remains active");
 });
 console.log("errors", JSON.stringify(errors));
 await b.close();

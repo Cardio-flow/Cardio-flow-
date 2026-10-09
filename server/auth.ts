@@ -8,6 +8,7 @@ import {
 } from "@neondatabase/auth/server";
 import type { DB } from "./db/db.js";
 import type { HostedAuth, Session } from "./app.js";
+import { ApiError } from "./kernel/base.js";
 export function hostedAuth(
   db: DB,
   origin: string,
@@ -19,6 +20,24 @@ export function hostedAuth(
   const config = { baseUrl, cookieSecret, sessionDataTtl: 60 };
   return {
     origin,
+    async signOut(req, res) {
+      const response = await handleAuthProxyRequest({
+        ...config,
+        path: "sign-out",
+        request: new globalThis.Request(origin + "/api/auth/sign-out", {
+          method: "POST",
+          headers: { cookie: req.headers.cookie ?? "", origin, "content-type": "application/json" },
+          body: "{}",
+        }),
+      });
+      if (!response.ok) throw new ApiError(503, "Sign-out failed. You are still signed in. Try again.");
+      for (const cookie of response.headers.getSetCookie()) res.append("Set-Cookie", cookie);
+      // The provider token and the signed session cache must both leave this browser.
+      for (const cookie of extractNeonAuthCookies(req.headers.cookie ?? "").split(/;\s*/).filter(Boolean)) {
+        const name = cookie.slice(0, cookie.indexOf("="));
+        res.append("Set-Cookie", serializeSetCookie({ name, value: "", path: "/", httpOnly: true, secure: true, sameSite: "lax", maxAge: 0 }));
+      }
+    },
     mount(app) {
       app.use("/api/auth", express.raw({ type: "*/*", limit: "20kb" }));
       app.all("/api/auth/*splat", async (req, res) => {

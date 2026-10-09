@@ -4,7 +4,7 @@ A longitudinal cardiology clinical platform: one patient journey from admission 
 
 This branch is a clean rebuild. The previous implementation is preserved at git tag **`codex-archive`**. Start with [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md), then [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
-## What works (HF slice)
+## What works
 
 - **Worklist:** who needs attention now, ranked by alert severity and overdue plans, with filters.
 - **Patient Summary:** needs attention (each alert has *Why?* and one action), what changed since discharge or the last visit, the active plan with live status, medications grouped by purpose, latest results with trends, LVEF with source quality, upcoming items.
@@ -16,10 +16,13 @@ This branch is a clean rebuild. The previous implementation is preserved at git 
 - **Echo:** one source; a later limited/bedside study does not silently replace a recent formal one; clinicians can override. Improved EF resolves the device alert and raises an LVEF-change review.
 - **Guideline decision support:** HF foundational therapy gaps and safe titration to target doses, LDL-C goals with an escalation ladder (statin → ezetimibe → PCSK9/bempedoic acid), GLP-1 RA and SGLT2i in diabetes/obesity, finerenone, kidney screening, CHA2DS2-VA and DOAC dosing, BP target, DAPT, iron deficiency. Every suggestion cites its ESC source and opens a prefilled drawer; the Summary shows a *Therapy & targets* panel.
 - **Rule governance:** versions, parameters, maker/checker, separate publisher; production sites run only published rules.
+- **Results awaiting review:** follow-up actions have a responsible person/team and ordered/booked/performed/reviewed progress. Recording a result closes performance, then keeps the action visible for clinical review. Corrections invalidate the review or reopen the check as appropriate.
+- **Overview:** latest safety results with their dates and relevant medicines beside the decision lanes, including a queue of results awaiting review. Screens and pathways load when opened.
+- **Clinical modules:** coronary disease/ACS/PCI, rhythm and devices, valve disease, cardiomyopathy, pulmonary hypertension and diabetes use the same record and plan. HF, CAD and EPS registries read that record.
 
 ## Run locally
 
-Node 22+ (Vercel uses Node 24).
+Node 24.
 
 ```sh
 npm ci
@@ -60,6 +63,6 @@ src/        React UI: screens (worklist, patient tabs, governance) and drawers (
 docs/       constitution, decisions, clinical review packs and sources carried over from v1
 ```
 
-## Not built yet (by design)
+## Current limits
 
-CAD/ACS/PCI, valve pathways, AF, devices, cardiometabolic, perioperative, registries and analytics. They come after the HF slice is in daily use, as new rules, wizard content and plan templates on the same kernel. Hosted data residency and regulatory classification need checking before real patient data.
+Hospital lab import, prescribing-system integration, external appointment booking, and automatic escalation to another team are not implemented. “Ordered” and “Booked” record what the clinician confirms. Guideline citations and catalogue content still require independent clinical validation. Local development and browser checks use synthetic data only.
