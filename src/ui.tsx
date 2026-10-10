@@ -95,6 +95,8 @@ export function Drawer({
   const workspace = useContext(DrawerWorkspace);
   const ref = useRef<HTMLDivElement>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
+  const suspendedScroll = useRef<{ width: number; top: number } | null>(null);
+  const lastScroll = useRef<{ width: number; top: number } | null>(null);
   // keep the latest onClose without re-running the mount effect (which would steal focus on every keystroke)
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -102,7 +104,17 @@ export function Drawer({
     if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
     const first = (lastFocus.current && ref.current?.contains(lastFocus.current) ? lastFocus.current : null) ?? ref.current?.querySelector<HTMLElement>("[data-autofocus], input[autofocus], textarea[autofocus]") ?? ref.current?.querySelector<HTMLElement>("input,button:not([aria-label='Close']),select,textarea");
-    first?.focus();
+    first?.focus({ preventScroll: !!lastFocus.current });
+    const restoreScroll = () => {
+      const saved = suspendedScroll.current;
+      const body = ref.current?.querySelector<HTMLElement>(".drawer-body");
+      if (saved && body && saved.width === window.innerWidth) {
+        body.scrollTop = saved.top;
+        suspendedScroll.current = null;
+      }
+    };
+    restoreScroll();
+    window.addEventListener("resize", restoreScroll);
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
       if (e.key !== "Tab") return;
@@ -117,6 +129,9 @@ export function Drawer({
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      const body = ref.current?.querySelector<HTMLElement>(".drawer-body");
+      if (body && !suspendedScroll.current) suspendedScroll.current = body.getClientRects().length ? { width: window.innerWidth, top: body.scrollTop } : lastScroll.current;
+      window.removeEventListener("resize", restoreScroll);
       if (ref.current?.contains(document.activeElement)) lastFocus.current = document.activeElement as HTMLElement;
       window.removeEventListener("keydown", key);
       document.body.style.overflow = overflow;
@@ -126,7 +141,7 @@ export function Drawer({
   return (
     <>
       <div className={`scrim ${workspace ? "workspace-scrim" : ""}`} style={!active ? { display: "none" } : undefined} onClick={() => closeRef.current()} />
-      <div ref={ref} onFocusCapture={(e) => { lastFocus.current = e.target as HTMLElement; }} role="dialog" aria-modal={active || undefined} aria-label={title} style={!active ? { display: "none" } : undefined} className={`drawer ${wide ? "wide" : ""} ${workspace ? "with-workspace" : ""}`}>
+      <div ref={ref} onScrollCapture={e => { const target = e.target as HTMLElement; if (active && target.classList.contains("drawer-body") && target.getClientRects().length) lastScroll.current = { width: window.innerWidth, top: target.scrollTop }; }} onFocusCapture={(e) => { lastFocus.current = e.target as HTMLElement; }} role="dialog" aria-modal={active || undefined} aria-label={title} style={!active ? { display: "none" } : undefined} className={`drawer ${wide ? "wide" : ""} ${workspace ? "with-workspace" : ""}`}>
         {workspace && <aside className="drawer-context">{workspace}</aside>}
         <div className="drawer-main">
         <div className="drawer-head">

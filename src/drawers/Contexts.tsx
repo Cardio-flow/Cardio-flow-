@@ -10,10 +10,29 @@ import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
 import type { Open } from "../screens/Patient";
 import { triage } from "../../shared/triage";
 import { existingClinicReview } from "../../shared/follow-up";
+import { VISIT_REASONS, type DictationSuggestion } from "../../shared/dictation";
+import { Dictation } from "../Dictation";
 
 const LOCATIONS = ["CCU", "Ward 3A", "Ward 3B", "Step-down"];
 
 export function Admission({ patientId, summary, onClose, onDone }: { patientId: string; summary: any; onClose(): void; onDone(m?: string, r?: any): void }) {
+  const [narrative, setNarrative] = useState("");
+  const [dictationDraft, setDictationDraft] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [vitals, setVitals] = useState<Record<string, string>>({});
+  function close() {
+    if (busy) return;
+    if ((narrative || dictationDraft || recording || Object.values(vitals).some(Boolean) || reasons.length || symptoms.length) && !window.confirm("Discard unsaved admission entries?")) return;
+    onClose();
+  }
+  function applyDictation(text: string, fields: DictationSuggestion[]) {
+    if ([narrative, text].filter(Boolean).join("\n").length > 4000) return false;
+    setNarrative(x => [x, text].filter(Boolean).join("\n").slice(0, 4000));
+    setReasons(x => [...new Set([...x, ...fields.filter(s => s.field === "reason").map(s => s.value)])].slice(0, 6));
+    const picked = fields.filter(s => s.field === "symptom").map(s => s.value);
+    if (picked.length) setSymptoms(x => picked.includes("No symptoms") ? ["No symptoms"] : [...new Set([...x.filter(s => s !== "No symptoms"), ...picked])]);
+    setVitals(x => ({ ...x, ...Object.fromEntries(fields.filter(s => s.field === "vital").map(s => [s.code, s.value])) }));
+  }
   const [reasons, setReasons] = useState<string[]>([]);
   const [hfChoice, setHfChoice] = useState<string>("");
   const [route, setRoute] = useState<string>("Emergency department");
@@ -30,6 +49,7 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function save() {
+    if (dictationDraft.trim() && !window.confirm("The dictation transcript has not been used. Continue without it?")) return;
     setBusy(true);
     try {
       const r = await api(`/patients/${patientId}/admissions`, {
@@ -40,6 +60,8 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
           route,
           symptoms,
           hfRelated,
+          narrative,
+          vitals: Object.entries(vitals).filter(([, value]) => value.trim()).map(([code, value]) => ({ code, value: Number(value) })),
           confirmations: [
             ...summary.header.diagnoses.map((d: any) => ({ kind: "condition", id: d.id, answer: conf[d.id] })),
             ...meds.map((m: any) => ({ kind: "medication", id: m.id, answer: conf[m.id] })),
@@ -58,15 +80,18 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       title="Start admission"
       subtitle="Known history is brought forward for confirmation, never copied as today's data"
       icon={<BedDouble size={22} />}
-      onClose={onClose}
+      onClose={close}
       footer={
         <span className="end">
-          <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
+          <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={close}>Cancel</button>
+          <button className="btn primary" disabled={!reasons.length || busy || recording} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
         </span>
       }
     >
       <div className="drawer-body">
+        <Dictation patientId={patientId} mode="admission" disabled={busy} onApply={applyDictation} onDraftChange={setDictationDraft} onRecordingChange={setRecording} />
+        {narrative && <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
+        {Object.keys(vitals).length > 0 && <div className="q"><div className="label">Review admission vitals</div><p className="help">These readings will be recorded now, linked to this admission. Clear any value that is historical or uncertain.</p><div className="row wrap">{[["sbp", "Systolic BP", "mmHg"], ["dbp", "Diastolic BP", "mmHg"], ["hr", "Heart rate", "bpm"], ["weight", "Weight", "kg"]].map(([code, label, unit]) => <label className="field" key={code}><span>{label} ({unit})</span><input className="input num" inputMode="decimal" value={vitals[code] ?? ""} onChange={e => setVitals(x => ({ ...x, [code]: e.target.value }))} /></label>)}</div></div>}
         {readmitDays != null && (
           <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
             Previous discharge {fmtDay(lastDischarge.endedAt, { year: true })}: this is a readmission after {readmitDays} days ({readmissionBand(readmitDays)}).
@@ -132,6 +157,8 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [weight, setWeight] = useState<string>("");
   const [reuseClinicFollowUp, setReuseClinicFollowUp] = useState(true);
   const [handover, setHandover] = useState("");
+  const [dictationDraft, setDictationDraft] = useState("");
+  const [recording, setRecording] = useState(false);
   // an item already booked (open in the plan) is not preselected again — it would be a duplicate task
   const booked = (title: string, days = 14) => /^(HF )?clinic review$/i.test(title) ? existingClinicReview(summary.plan ?? [], title, addDays(summary.today, days), summary.today) : (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
   const [picked, setPicked] = useState<Record<string, number | null>>(() => {
@@ -146,8 +173,14 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [error, setError] = useState("");
   const today = summary.today;
   const ctx = jr?.contexts.find((c: any) => c.id === contextId);
+  function closeDischarge() {
+    if (busy) return;
+    if ((handover || dictationDraft || recording) && !window.confirm("Discard unsaved discharge narrative?")) return;
+    onClose();
+  }
   const meds = summary.medications.groups.flatMap((g: any) => g.meds);
   async function save() {
+    if (dictationDraft.trim() && !window.confirm("The dictation transcript has not been used. Continue without it?")) return;
     setBusy(true);
     try {
       const plan = Object.entries(picked)
@@ -175,15 +208,16 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       title="Discharge"
       subtitle={ctx ? `Admitted ${fmtDay(ctx.startedAt, { weekday: true })} · ${ctx.location ?? ""}` : "Review, reconcile, plan"}
       icon={<LogOut size={22} />}
-      onClose={onClose}
+      onClose={closeDischarge}
       footer={
         <span className="end">
-          <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
+          <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={closeDischarge}>Cancel</button>
+          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy || recording} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
       <div className="drawer-body">
+        <Dictation patientId={patientId} mode="admission" fields="none" disabled={busy} onDraftChange={setDictationDraft} onRecordingChange={setRecording} onApply={text => { if ([handover, text].filter(Boolean).join("\n").length > 4000) return false; setHandover(x => [x, text].filter(Boolean).join("\n")); }} />
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
           <div className="q">
             <div className="label" style={{ fontSize: 15 }}>Outcome</div>
@@ -293,9 +327,12 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   );
 }
 
-const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Prosthetic valve problem", "Arrhythmia", "Device", "ICD shock", "Pre-operative assessment", "Chest pain", "Bleeding", "Chest infection", "Myocarditis", "Pericarditis", "Routine cardiology"];
-
 export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted, active = true }: { patientId: string; summary: any; contextId?: string; active?: boolean; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
+  const [narrative, setNarrative] = useState("");
+  const [dictationDraft, setDictationDraft] = useState("");
+  const [recording, setRecording] = useState(false);
+  const narrativeAtStart = useRef("");
+  const narrativeInNote = useRef("");
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
   const [step, setStep] = useState(contextId ? 1 : 0);
   // resuming an open visit keeps the reasons chosen when it was started
@@ -315,6 +352,22 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
   const savedRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (contextId) api(`/patients/${patientId}/journey`).then(j => {
+      const text = j.contexts.find((c: any) => c.id === contextId)?.summary?.narrative ?? "";
+      narrativeAtStart.current = text;
+      setNarrative(x => x || text);
+    }).catch(() => {});
+  }, [contextId, patientId]);
+  useEffect(() => {
+    setNote(x => {
+      if (!x || narrative === narrativeInNote.current) return x;
+      const previous = narrativeInNote.current ? `Reviewed narrative:\n${narrativeInNote.current}` : "";
+      narrativeInNote.current = narrative;
+      const next = narrative ? `Reviewed narrative:\n${narrative}` : "";
+      return previous && x.includes(previous) ? x.replace(previous, next) : [x, next].filter(Boolean).join("\n\n");
+    });
+  }, [narrative]);
   const [already, setAlready] = useState<string[]>([]);
   const [prefilled, setPrefilled] = useState(false);
   // values already recorded today (an earlier part of this visit, quick labs, a reading at the desk): shown
@@ -340,15 +393,23 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   }, [patientId]);
   useEffect(() => {
     // the draft note is fetched once; going Back and returning keeps the clinician's edits
-    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => { generatedNote.current = n.text; setNote((x) => x || n.text); }).catch((e) => setError((e as Error).message)).finally(() => setNoteLoading(false));
+    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => {
+      let draft = n.text;
+      if (narrativeAtStart.current) draft = draft.replace(`Reviewed narrative: ${narrativeAtStart.current}\n`, "");
+      if (narrative) draft += `\n\nReviewed narrative:\n${narrative}`;
+      narrativeInNote.current = narrative;
+      generatedNote.current = draft; setNote(x => x || draft);
+    }).catch((e) => setError((e as Error).message)).finally(() => setNoteLoading(false));
     if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch((e) => setError((e as Error).message));
   }, [step, visitId, patientId, active]);
   const previous = summary.plan;
   async function start() {
+    if (dictationDraft.trim() && !window.confirm("The dictation transcript has not been used. Continue without it?")) return;
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/visits`, { body: { reasons, symptoms, service: reasons.includes("Heart failure") ? "HF clinic" : "Cardiology clinic" } });
+      const r = await api(`/patients/${patientId}/visits`, { body: { reasons, symptoms, narrative, service: reasons.includes("Heart failure") ? "HF clinic" : "Cardiology clinic" } });
       setVisitId(r.id);
+      narrativeAtStart.current = narrative;
       setStep(1);
       onStarted?.();
     } catch (e) {
@@ -377,9 +438,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     setBusy(false);
   }
   async function finish() {
+    if (dictationDraft.trim() && !window.confirm("The dictation transcript has not been used. Continue without it?")) return;
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note } });
+      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative } });
       onDone("Visit closed · note saved", r);
     } catch (e) {
       setError((e as Error).message);
@@ -398,7 +460,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         if (busy) return;
         const numeric = { ...vit, ...(isHf ? hfa : {}) };
         const unsaved = Object.entries(numeric).some(([code, v]) => v.trim() && savedRef.current[code] !== JSON.stringify({ code, value: Number(v) })) || (nyha && savedRef.current.nyha !== JSON.stringify({ code: "nyha", text: nyha })) || (cong && savedRef.current.congestion !== JSON.stringify({ code: "congestion", text: cong }));
-        if ((unsaved || note !== generatedNote.current) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
+        if ((unsaved || dictationDraft || recording || narrative !== narrativeAtStart.current || note !== generatedNote.current) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
         visitId && step > 0 ? onDone() : onClose();
       }}
       head={
@@ -413,17 +475,31 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       }
       footer={
         <>
-          {step > 1 && <button className="btn secondary" onClick={() => setStep(step - 1)}>Back</button>}
+          {step > 1 && <button className="btn secondary" disabled={recording} onClick={() => setStep(step - 1)}>Back</button>}
           <span className="end">
-            {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
-            {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
-            {step === 2 && <button className="btn primary" onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy || noteLoading} onClick={finish}>Finish visit</button>}
+            {step === 0 && <button className="btn primary" disabled={!reasons.length || busy || recording} onClick={start}>Start visit</button>}
+            {step === 1 && <button className="btn primary" disabled={busy || recording || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
+            {step === 2 && <button className="btn primary" disabled={recording} onClick={() => setStep(3)}>Continue to note</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || recording || noteLoading} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
     >
       <div className="drawer-body">
+        <Dictation patientId={patientId} mode="visit" active={active} disabled={busy || (step === 3 && noteLoading) || (step === 1 && !prefilled)} fields={step === 0 ? "all" : step === 1 ? "vitals" : "none"} onDraftChange={setDictationDraft} onRecordingChange={setRecording} onApply={(text, fields) => {
+          if (text && [step === 3 ? note : narrative, text].filter(Boolean).join("\n\n").length > (step === 3 ? 8000 : 4000)) return false;
+          if (step === 0) {
+            setNarrative(x => [x, text].filter(Boolean).join("\n").slice(0, 4000));
+            setReasons(x => [...new Set([...x, ...fields.filter(s => s.field === "reason").map(s => s.value)])].slice(0, 8));
+            const picked = fields.filter(s => s.field === "symptom").map(s => s.value);
+            if (picked.length) setSymptoms(x => picked.includes("No symptoms") ? ["No symptoms"] : [...new Set([...x.filter(s => s !== "No symptoms"), ...picked])]);
+          } else if (text) {
+            if (step === 3) setNote(x => [x, text].filter(Boolean).join("\n\n").slice(0, 8000));
+            else setNarrative(x => [x, text].filter(Boolean).join("\n").slice(0, 4000));
+          }
+          setVit(x => ({ ...x, ...Object.fromEntries(fields.filter(s => s.field === "vital").map(s => [s.code, s.value])) }));
+        }} />
+        {step < 3 && narrative && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
         {step === 0 && (
           <>
             <div className="q">
@@ -559,7 +635,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
             <div className="help">Generated from what you selected. Edit freely before finishing.</div>
-            <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
+            <textarea className="input" disabled={busy || recording || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
           </div>
         )}
         {error && <div className="error-box">{error}</div>}

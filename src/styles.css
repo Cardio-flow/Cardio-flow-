@@ -1541,3 +1541,14 @@ table.data.meds td.med-compact { display: none; }
   .mb-fields > label:nth-child(3) { grid-column: 1 / -1; }
   .mb-fields .input { min-width: 0; width: 100%; }
 }
+
+/* Reviewed dictation sits inside existing clinical entry forms. */
+.dictation { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--surface, #fff); }
+.dictation-body, .dictation-review { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.dictation-body p { margin: 0; }
+.dictation-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.dictation-choice input { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; }
+.dictation-choice span { min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.dictation-choice small { color: var(--ink-3); }
+.dictation textarea { width: 100%; resize: vertical; }
+@media (max-width: 640px) { .dictation-body > .row { align-items: stretch; } .dictation-body > .row > .field { flex: 1; min-width: 0; } }
