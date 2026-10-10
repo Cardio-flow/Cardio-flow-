@@ -55,6 +55,16 @@ await step("wizard", async () => {
   await shot("07-wizard-confirm");
   await p.getByRole("button", { name: "Confirm plan" }).click();
   await p.getByText("Hyperkalaemia review recorded").waitFor();
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.waitForFunction(() => {
+    const toast = document.querySelector('.toast');
+    const header = document.querySelector('.topbar');
+    return toast && header && header.getBoundingClientRect().top >= toast.getBoundingClientRect().bottom - 1;
+  });
+  const clipped = await p.locator('.toast-text').evaluate(e => e.scrollHeight > e.clientHeight);
+  if (clipped) throw Error('Phone notification text is clipped');
+  await shot("08-phone-decision-notification");
+  await p.setViewportSize({ width: 1440, height: 1000 });
   await shot("08-after-wizard", true);
 });
 await step("labs", async () => {

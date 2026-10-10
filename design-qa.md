@@ -36,3 +36,11 @@ No unresolved P0 or P1 findings in the reviewed states. Preserved differences fr
 - The three-result batch uses one save. The final automated fill/save sequence including 35 Tab checks took 507 ms in this local run; this is automation timing, not measured clinician entry time. A clinician trial is still needed to establish real-world speed.
 
 Evidence is local workspace output. CI runs the same browser scripts and uploads screenshots. This change is prepared for review; production deployment is a separate release step.
+
+## Phone entry follow-up — 10 October 2026
+
+Result: passed in a local synthetic sandbox. The date row now shows the effective date and reveals custom entry on request. Partial dates disable Save without losing results. Medicine cards show dose, frequency and indication; Edit reveals controls on phones while desktop controls stay expanded. Monitoring, contraindications and required override reasons remain outside the collapsed controls. Notifications reserve measured space above the app and drawers, display their full text and offer dismissal.
+
+Inspected actual Chromium screenshots at 390 × 844: `/workspace/cardioflow-phone-polish-check/02-compact-date.png`, `03-compact-medicines.png`, `04-notification.png`, `05-safety-visible.png`, and `hf/08-phone-decision-notification.png`. Two routine medicine summaries and their Edit controls fit above the footer. The longer decision notification wraps above the header without overlapping it. The contraindicated combination remains visibly red with Start disabled until the required reason is supplied.
+
+Validation: 277 tests passed; standard and hosted builds passed; existing HF, admission/pathway/decision/discharge and clinic-entry browser walkthroughs passed. New `scripts/phone-polish.mjs` verifies default/custom/partial dates, saved effective date, retained results, saved dose edit, responsive controls, second-card visibility, reserved notification space, and the required contraindication override. It is included in CI. These are automated synthetic checks, not measured clinician entry times or clinical validation. No new clinical rules, doses, schemas, modules or daily admission review were added.
