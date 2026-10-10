@@ -26,7 +26,6 @@ import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays, localDay } from "../shared/clinical.js";
 import { ADMISSION_ROUTES, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
-import { suggestDictation } from "../shared/dictation.js";
 
 export type Session = Actor & { email: string; expires: number; csrf: string };
 export type HostedAuth = {
@@ -596,12 +595,6 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- care contexts ----------
-  app.post("/api/patients/:id/dictation/preview", clinician, route(async (req, res) => {
-    const id = uuidS.parse(req.params.id);
-    const input = z.object({ text: z.string().trim().min(1).max(4000), mode: z.enum(["visit", "admission"]) }).parse(req.body);
-    await db.transaction(tx => patientInSite(tx, actor(res), id));
-    res.json(suggestDictation(input.text, input.mode));
-  }));
   app.post("/api/patients/:id/admissions", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z

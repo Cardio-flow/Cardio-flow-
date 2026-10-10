@@ -25,7 +25,6 @@ jobs:
           node scripts/admission-shots.mjs screenshots/admission
           node scripts/entry-fixes.mjs screenshots/entry-fixes
           node scripts/phone-polish.mjs screenshots/phone-polish
-          node scripts/dictation-check.mjs screenshots/dictation
       - uses: actions/upload-artifact@v4
         if: always()
         with:
