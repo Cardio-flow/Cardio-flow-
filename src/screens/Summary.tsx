@@ -695,7 +695,7 @@ function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
 
 // Rhythm & devices (rhythm module): AF with its stroke-risk score and anticoagulation, rate and
 // rhythm control, the latest ECG and ambulatory ECG, devices, ablations and cardioversions.
-const RH_KIND: Record<string, string> = { device: "Device", ablation: "Ablation", cardioversion: "DCCV" };
+const RH_KIND: Record<string, string> = { device: "Device", ablation: "Ablation", cardioversion: "DCCV", laao: "LAA closure" };
 function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
   if (!r) return null;
   const ago = (iso: string | null) => (iso ? fmtDay(iso, { year: true }) : "date not recorded");
@@ -708,7 +708,7 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
     </div>
   );
   const oac = r.anticoagulation[0];
-  const needsOac = r.stroke && r.stroke.score >= 2 && !oac;
+  const needsOac = r.stroke && r.stroke.score >= 2 && !oac && r.aftercare?.closure?.method !== "Transcatheter occlusion";
   return (
     <section className="card pad cad-panel" aria-labelledby="rhp">
       <div className="card-head">
@@ -717,7 +717,9 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
           {r.device && (
             <button className="btn ghost small" onClick={() => open({ kind: "study", studyKind: "device_check", initial: r.device.type ? { device: r.device.type } : {} })}>+ Device check</button>
           )}
-          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "rhythm" })}>+ Device / ablation / DCCV</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "wizard", wizard: "af-ablation-plan" })}>AF ablation</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "wizard", wizard: "laao-selection" })}>LAA closure</button>
+          <button className="btn ghost small" onClick={() => open({ kind: "procedure", group: "rhythm" })}>+ Rhythm procedure / LAA closure</button>
         </span>
       </div>
       {r.af && (
@@ -751,6 +753,8 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
         )}
         {tile("Ambulatory ECG", r.holter ? r.holter.summary || "Recorded" : null, r.holter ? fmtDay(r.holter.at, { year: true }) : "No Holter recorded")}
       </div>
+      {r.aftercare?.ablation && <div className="infobox af-aftercare" style={{ marginTop: 14 }}><b>After AF ablation · {fmtDay(r.aftercare.ablation.day)}</b><p>8-week blanking period through {fmtDay(r.aftercare.ablation.blankingEnd)} · Selected minimum OAC review {fmtDay(r.aftercare.ablation.minimumOac)}. This is a review date, not a stop order.</p><button className="btn secondary small" onClick={() => open({ kind: "wizard", wizard: "after-af-ablation" })}>Review ablation care</button></div>}
+      {r.aftercare?.closure && <div className="infobox af-aftercare" style={{ marginTop: 14 }}><b>LAA closure · {r.aftercare.closure.device} · {fmtDay(r.aftercare.closure.day)}</b><p>Regimen: {r.aftercare.closure.regimen}. {r.aftercare.closure.image ? `Imaging ${fmtDay(r.aftercare.closure.image.day)}: device thrombus ${r.aftercare.closure.image.thrombus ?? "not assessed"}, leak ${r.aftercare.closure.image.leak ?? "not assessed"}.` : "Surveillance imaging not recorded."}</p><div className="row wrap"><button className="btn secondary small" onClick={() => open({ kind: "wizard", wizard: "after-laao" })}>Review LAA closure care</button><button className="btn ghost small" onClick={() => open({ kind: "study", studyKind: "laa_imaging", initial: { purpose: "After closure" } })}>Record TEE / CT</button></div></div>}
       {r.devices.length > 0 && (
         <>
           <div className="tgt-title" style={{ marginTop: 14 }}>Devices</div>

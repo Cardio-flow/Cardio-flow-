@@ -131,6 +131,8 @@ export const MED_RULES: RuleDef[] = [
     evidence: "2024 ESC AF guidelines: adding antiplatelet treatment to oral anticoagulation is not recommended in AF patients for the goal of preventing ischaemic stroke or thromboembolism (III B), nor to prevent recurrent embolic stroke (III B); antiplatelet therapy beyond 12 months is not recommended in stable patients with chronic coronary or vascular disease treated with oral anticoagulation (III B). Fires with AF or flutter listed, an oral anticoagulant and an antiplatelet, no PCI or ACS in the last 12 months (procedure record or dated diagnosis), no PCI/CABG diagnosis dated in the last 12 months, and no mechanical valve.",
     evaluate(s) {
       if (!s.tags.has("af") || s.tags.has("mechanical-valve")) return [];
+      if (s.procedures.some(p => p.kind === "laao" && p.attributes.method === "Transcatheter occlusion" && p.attributes.result === "Implanted / completed")) return []; // LAAO-specific regimen review, never a generic antiplatelet stop.
+
       const meds = s.meds.filter((m) => m.status === "active");
       const oac = meds.filter((m) => m.tags.includes("oac"));
       const ap = meds.filter((m) => m.tags.includes("antiplatelet"));

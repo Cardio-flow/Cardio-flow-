@@ -189,6 +189,8 @@ export async function voidProcedure(tx: Q, actor: Actor, patientId: string, proc
     [uuid(), patientId, p.kind, p.performed_at, `Entered in error · ${why(reason)}`, procedureId, p.context_id, actor.id],
   );
   await undoProcedureEffects(tx, actor, patientId, p);
+  await reopenCompletedBy(tx, patientId, [procedureId]);
+
   await audit(tx, actor, "entered-in-error", "procedure", procedureId, patientId, { kind: p.kind, reason: why(reason) });
   return null; // every rule runs again (antithrombotic durations, device and valve rules read procedures)
 }

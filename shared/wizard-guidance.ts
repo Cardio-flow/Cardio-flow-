@@ -920,7 +920,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const m = c.meds.find((x) => x.tags.includes("oac"));
       if (!m) return [S("none", "No anticoagulant on the medication list")];
       const days = m.startedAt ? Math.round((Date.parse(c.today) - Date.parse(localDay(m.startedAt))) / 86400000) : null;
-      return [days != null && days < 21 ? S("short", `${m.name} started ${days} day${days === 1 ? "" : "s"} ago`) : S("3w", `${m.name}${days != null ? ` for ${days} days` : ""}: confirm no missed doses (or INR >2 throughout)`)];
+      // Duration alone cannot establish adherence or therapeutic INR. Leave ≥3 weeks for explicit confirmation.
+      return days != null && days < 21 ? [S("short", `${m.name} started ${days} day${days === 1 ? "" : "s"} ago`)] : [];
     },
     start: (_a, c) => [dx(c, "mechanical-valve", "ms-significant") ? S("other", "Mechanical valve or significant MS: warfarin, not a DOAC") : S("apixaban", "A DOAC in preference to warfarin (ESC AF 2024)")],
     prep: (a) => [
@@ -955,6 +956,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const valve = dx(c, "mechanical-valve", "ms-significant");
       if (on(c, "doac") && valve) return [S("doac-to-vka", "DOAC with a mechanical valve or moderate–severe MS: contraindicated — switch to a VKA (ESC/EACTS 2025, III)")];
       if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated: continue, check the dose")];
+      const cl = c.afProcedures?.closure, ab = c.afProcedures?.ablation;
+      if (cl?.method === "Transcatheter occlusion" && !valve && !dx(c,"hcm","amyloid") && (!ab?.minimumOac || c.today >= ab.minimumOac)) return [S("laao", "Recorded transcatheter closure: review device-specific therapy, surveillance and other OAC indications (SCAI/HRS 2025)")];
       // HCM or cardiac amyloidosis: anticoagulation whatever the score (ESC cardiomyopathies 2023, I B)
       if (c.dx?.includes("hcm") || c.dx?.includes("amyloid")) return [S(valve ? "warfarin" : "apixaban", "HCM or cardiac amyloidosis with AF: oral anticoagulation whatever the CHA₂DS₂-VA score (ESC cardiomyopathies 2023, I B)")];
       if (sc == null) return [];
@@ -966,7 +969,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const sbp = val(c, "sbp");
       const out = [
         sbp != null && sbp > 160 && S("bp", `SBP ${sbp} (>160: uncontrolled, a bleeding risk factor)`),
-        onCode(c, "aspirin") && !dx(c, "cad", "pad", "ascvd") && S("stop-asa", "No vascular indication: antiplatelet therapy is not used for stroke prevention in AF (ESC AF 2024, III)"),
+        c.afProcedures?.closure?.method !== "Transcatheter occlusion" && onCode(c, "aspirin") && !dx(c, "cad", "pad", "ascvd") && S("stop-asa", "No vascular indication: antiplatelet therapy is not used for stroke prevention in AF (ESC AF 2024, III)"),
         on(c, "nsaid") && S("nsaid", "NSAID with anticoagulation: avoid"),
       ];
       return out.some(Boolean) ? out : [S("none", "No modifiable bleeding risk factor in the record (scores are not used to withhold OAC)")];
@@ -1079,6 +1082,26 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       (a.device === "icd" || a.device === "crt") && dx(c, "hf") && S("hf", "An ICD or CRT does not replace guideline-directed HF therapy"),
       S("advice", "Device card, wound care and driving advice"),
     ],
+  },
+};
+
+// Procedural safety confirmations stay explicit. Suggestions reuse recorded facts, never infer adherence.
+GUIDANCE["af-ablation-plan"] = {
+  decision: () => [S("refer", "EP shared decision: confirm indication, symptoms, preparation and procedural risks (ESC AF 2024)")],
+};
+GUIDANCE["after-af-ablation"] = {
+  basis: () => [S("esc", "ESC AF / EHRA consensus 2024: at least 2 months OAC; ACC/AHA/HRS uses 3 months")],
+  monitor: a => [a.rhythm === "recurrence" && S("yes", "Symptoms / recurrence require additional rhythm monitoring (EHRA consensus 2024)")],
+};
+GUIDANCE["laao-selection"] = {
+  decision: () => [S("refer", "SCAI/HRS 2025: multidisciplinary eligibility, anatomy and antithrombotic feasibility review before implantation")],
+};
+GUIDANCE["after-laao"] = {
+  imagePlan: (_a, c) => {
+    const im = c.afProcedures?.imaging;
+    return [!im || im.findings.deviceThrombus === "Present" || im.findings.deviceThrombus === "Indeterminate" || im.findings.laaThrombus === "Present"
+      ? S("book", "Post-closure surveillance / repeat imaging is needed; select the date with the implant team (SCAI/HRS 2025)")
+      : S("reviewed", "A post-closure scan is recorded: review its findings before a regimen transition (SCAI/HRS 2025)")];
   },
 };
 

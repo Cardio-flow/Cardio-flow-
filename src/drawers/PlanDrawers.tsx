@@ -166,7 +166,8 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
             <button className="btn secondary small" onClick={() => open({ kind: "labs", codes: [...new Set(["creatinine", "potassium", ...(p.completesOn.codes ?? [])])] })}>Add result</button>
           </div>
         )}
-        {p.completesOn?.type === "study" && p.status === "planned" && <button className="btn secondary" onClick={() => open(p.completesOn.kind === "echo" ? { kind: "echo" } : { kind: "study", studyKind: p.completesOn.kind })}>Add study result</button>}
+        {p.completesOn?.type === "study" && p.status === "planned" && <button className="btn secondary" onClick={() => open(p.completesOn.kind === "echo" ? { kind: "echo" } : { kind: "study", studyKind: p.completesOn.kind, initial: p.completesOn.kind === "laa_imaging" ? { purpose: "After closure" } : undefined })}>Add study result</button>}
+        {p.completesOn?.type === "procedure" && p.status === "planned" && <button className="btn secondary" onClick={() => open({ kind: "procedure", group: "rhythm", procedureKind: p.completesOn.kind })}>Record procedure</button>}
         {p.awaitingReview && <div className="infobox"><div><b>Result recorded · awaiting review</b><p>Review the evidence and record any next step in the plan before confirming.</p>{p.evidence?.map((e: any) => <p key={e.id}>{e.label}{e.value != null ? `: ${e.value} ${e.unit ?? ""}` : ""}{e.at ? ` · ${fmtDay(e.at, { year: true })}` : ""}</p>)}</div></div>}
         {(p.status === "planned" || p.awaitingReview) ? (
           <>
@@ -175,7 +176,7 @@ export function PlanItem({ patientId, planId, onClose, onDone, open }: { patient
               <SingleChoice label="Update plan item" options={p.awaitingReview ? [{ value: "reviewed", label: "Mark reviewed" }, { value: "assign", label: "Change owner" }] : [
                 ...(p.progress === "planned" ? [{ value: "ordered", label: "Order sent" }] : []),
                 ...(p.progress !== "booked" ? [{ value: "booked", label: "Booked" }] : []),
-                ...(!["lab", "study"].includes(p.completesOn?.type) ? [{ value: "performed", label: "Performed · needs review" }, { value: "complete", label: "Done and reviewed" }] : []),
+                ...(!["lab", "study", "procedure"].includes(p.completesOn?.type) ? [{ value: "performed", label: "Performed · needs review" }, { value: "complete", label: "Done and reviewed" }] : []),
                 { value: "assign", label: "Change owner" }, { value: "reschedule", label: "Change date" }, { value: "cancel", label: "Cancel" },
               ]} value={action} onChange={setAction} />
             </div>

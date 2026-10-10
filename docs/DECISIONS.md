@@ -2,6 +2,13 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · AF ablation and LAA closure care
+
+- Ahmed explicitly authorises completing the existing AF module, including ablation, LAA closure devices, aftercare and antithrombotic decisions. This supersedes the earlier hold on new clinical pathway work for this scope. Continue to use existing patient facts, procedures, studies, decisions and dated plans; no separate module database, daily admission review or dictation.
+- Add shared-decision/preparation and aftercare content for ablation and closure. Anchor aftercare decisions to the actual procedure and reviewed imaging IDs, so a new procedure or scan requires a new review. Procedure-linked tasks close only on matching actual evidence and reopen when that evidence is withdrawn. Migration 011 extends the existing study-kind constraint for LAA imaging without changing checksum-protected schema.sql.
+- Minimum post-ablation periods use calendar months: ESC/EHRA 2, ACC/AHA/HRS 3. Neither becomes an automatic stop order. Follow-up, ECG, recurrent rhythm monitoring and antithrombotic review are dated plans. Legacy ablation preparation refers to the complete preparation review rather than scheduling before adherence and imaging are checked; effective anticoagulation is not inferred from a medication start date.
+- Record transcatheter versus surgical closure, device, result and intended regimen explicitly. Postimplant OAC/DAPT and transition remain clinician/device-protocol decisions, with separate review of thrombus, leaks, exceptions and other anticoagulant indications. Surgical exclusion does not remove the AF OAC indication. See docs/af-guideline-matrix.md for source verification, divergent recommendations and evidence gaps.
+
 ## 2026-10-10 · Remove dictation after clinical feedback
 
 - Ahmed reports unreliable medical-term recognition and values reaching the wrong fields. Remove microphone capture, transcript extraction, review controls and the preview endpoint from visits, admission entry and discharge. Return to the existing manual clinical forms. No replacement speech module is introduced.

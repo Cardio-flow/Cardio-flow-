@@ -9,7 +9,7 @@ import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
 
-const PROC_LABEL: Record<string, string> = { pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
+const PROC_LABEL: Record<string, string> = { pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", laao: "LAA closure", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
 
 export function MedicationsTab({ id, version, open }: { id: string; version: number; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/record`, [version]);
@@ -182,7 +182,7 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
       </section>
       {data.procedures?.length > 0 && (
         <section className="card pad">
-          <div className="card-head"><h2>Procedures</h2><span className="meta">PCI, CABG, valve, device and ablation</span></div>
+          <div className="card-head"><h2>Procedures</h2><span className="meta">PCI, CABG, valve, rhythm and LAA closure</span></div>
           <table className="data">
             <thead><tr><th>Date</th><th>Procedure</th><th>Details</th><th /></tr></thead>
             <tbody>
@@ -257,7 +257,7 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
                 {p.title}
                 <small>
                   {p.source ? `${p.source.label} · ${fmtDay(p.source.at)}` : p.category.replace("_", " ")}
-                  {p.completesOn?.type === "lab" ? " · closes on result" : p.completesOn?.type === "visit" ? " · closes at visit" : p.completesOn?.type === "study" ? " · closes on Echo" : ""}
+                  {p.completesOn?.type === "lab" ? " · closes on result" : p.completesOn?.type === "visit" ? " · closes at visit" : p.completesOn?.type === "procedure" ? " · closes on recorded procedure" : p.completesOn?.type === "study" ? " · closes on study" : ""}
                   {p.outcome ? ` · ${p.outcome}` : ""}
                   {p.owner ? ` · Owner: ${p.owner}` : ""}
                   {["ordered", "booked"].includes(p.progress) ? ` · ${p.progress}` : ""}

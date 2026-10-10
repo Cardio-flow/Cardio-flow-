@@ -2,6 +2,7 @@
 // panel, notes and documents. Descriptive only: AF and its pattern, CHA₂DS₂-VA, anticoagulation with
 // the DOAC label-dose check, rate- and rhythm-control medicines, the latest ECG and ambulatory ECG,
 // conduction disease, cardiac devices, ablations and cardioversions — each with its date.
+import { addCalendarMonths } from "../../shared/af.js";
 import { DIAGNOSIS, MEDICATION, doseLabel } from "../../shared/catalog.js";
 import { attributesText } from "../../shared/history.js";
 import { addDays, daysBetween, localDay } from "../../shared/clinical.js";
@@ -68,8 +69,15 @@ export function rhythmProfile(s: PatientState) {
   const cied = s.conditions.find((c) => c.code === "cied");
   const av = s.conditions.find((c) => c.code === "av-block");
 
+  const ablation = [...procs].reverse().find(p => p.kind === "ablation" && (p.attributes.targets ?? []).some((t: string) => /^AF/.test(t)));
+  const closure = [...procs].reverse().find(p => p.kind === "laao" && p.attributes.result === "Implanted / completed");
+  const laImage = closure ? [...s.studies].reverse().find(st => st.kind === "laa_imaging" && st.attributes.purpose === "After closure" && st.performed_at >= closure.performed_at) : null;
   const dev = deviceStatus(s);
   return {
+    aftercare: {
+      ablation: ablation ? { day: localDay(ablation.performed_at), blankingEnd: addDays(localDay(ablation.performed_at),56), minimumOac: addCalendarMonths(localDay(ablation.performed_at), s.afReviews?.["after-af-ablation"]?.answers._procedureId === ablation.id && s.afReviews["after-af-ablation"].answers.basis === "acc" ? 3 : 2) } : null,
+      closure: closure ? { day: localDay(closure.performed_at), device: closure.attributes.device, method: closure.attributes.method, regimen: s.afReviews?.["after-laao"]?.answers._procedureId === closure.id ? s.afReviews["after-laao"].answers.regimen : closure.attributes.regimen, image: laImage ? { day: localDay(laImage.performed_at), thrombus: laImage.attributes.deviceThrombus, leak: laImage.attributes.leak } : null } : null,
+    },
     device: dev ? {
       type: dev.type, implantAt: dev.implantAt, dueAt: dev.dueAt, intervalMonths: dev.intervalMonths, overdue: !!dev.dueAt && dev.dueAt < s.today,
       check: dev.check ? { at: dev.check.at, summary: dev.check.summary, battery: dev.check.a.battery, longevity: dev.check.a.longevity ?? null, setting: dev.check.a.setting } : null,
@@ -88,7 +96,7 @@ export function rhythmProfile(s: PatientState) {
           score: score.score,
           items: score.items.map((i) => `${i.label} +${i.pts}`),
           // ESC AF 2024: OAC recommended with CHA2DS2-VA ≥2 (I), considered with 1 (IIa)
-          advice: score.score >= 2 ? "OAC recommended (I)" : score.score === 1 ? "OAC should be considered (IIa)" : "No OAC indication from the score",
+          advice: closure?.attributes.method === "Transcatheter occlusion" && !s.conditions.some(c => ["mechanical-valve", "ms-significant"].includes(c.code)) ? "LAA closure: device-specific stroke-prevention review" : score.score >= 2 ? "OAC recommended (I)" : score.score === 1 ? "OAC should be considered (IIa)" : "No OAC indication from the score",
         }
       : null,
     anticoagulation: oacs.map((m) => {

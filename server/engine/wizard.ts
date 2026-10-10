@@ -1,3 +1,4 @@
+import { addCalendarMonths } from "../../shared/af.js";
 import type { Q } from "../db/db.js";
 import { MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, localDay } from "../../shared/clinical.js";
@@ -113,6 +114,17 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     ecgRhythm: (ecg?.attributes?.rhythm as string | undefined) ?? null, ecgRate: (ecg?.attributes?.rate as number | undefined) ?? null,
     doac: doacDoseCheck(s).map((c) => ({ code: c.med.code, dose: c.med.doseValue, right: c.right, why: c.why })),
   } : null;
+  const ablation = [...s.procedures].reverse().find(p => p.kind === "ablation" && (p.attributes.targets ?? []).some((t: string) => /^AF/.test(t)));
+  const closure = [...s.procedures].reverse().find(p => p.kind === "laao" && p.attributes.result === "Implanted / completed");
+  const imaging = [...s.studies].reverse().find(st => st.kind === "laa_imaging" && st.attributes.purpose === "After closure" && closure && st.performed_at >= closure.performed_at);
+  const preImaging = [...s.studies].reverse().find(st => st.kind === "laa_imaging" && ["Before closure", "Before cardioversion / ablation"].includes(st.attributes.purpose));
+  if (closure?.attributes.method === "Transcatheter occlusion") dx.push("laao-transcatheter");
+  const afProcedures = {
+    ablation: ablation ? { id: ablation.id, day: localDay(ablation.performed_at), result: String(ablation.attributes.result), minimumOac: addCalendarMonths(localDay(ablation.performed_at), s.afReviews?.["after-af-ablation"]?.answers._procedureId === ablation.id && s.afReviews["after-af-ablation"].answers.basis === "acc" ? 3 : 2) } : null,
+    closure: closure ? { id: closure.id, day: localDay(closure.performed_at), method: String(closure.attributes.method), device: String(closure.attributes.device), regimen: String(closure.attributes.regimen), reviewDate: closure.attributes.reviewDate ?? null } : null,
+    imaging: imaging ? { id: imaging.id, day: localDay(imaging.performed_at), findings: imaging.attributes } : null,
+    preImaging: preImaging ? { id: preImaging.id, day: localDay(preImaging.performed_at), findings: preImaging.attributes } : null,
+  };
   const ds = deviceStatus(s);
   const device = ds ? { type: ds.type, checkAt: ds.check ? localDay(ds.check.at) : null, check: ds.check?.a ?? null } : null;
   const ve = latestValveEcho(s);
@@ -170,7 +182,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const cabg = [...s.procedures].reverse().find((p) => p.kind === "cabg");
   const ccsTest = latestCcsTest(s);
   if (wizardId === "ccs-test-result" && ccsTest && !base.detected.risk) base.detected.risk = [ccsTest.risk];
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -228,6 +240,8 @@ export async function completeWizard(
     if (v == null || v === "") continue;
     if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || v < ctx.today) throw new ApiError(400, `${q.label}: choose today or a later date`);
   }
+  if (wizardId === "after-af-ablation" && !ctx.afProcedures?.ablation) throw new ApiError(400, "Record the AF ablation before planning post-ablation care");
+  if (wizardId === "after-laao" && !ctx.afProcedures?.closure) throw new ApiError(400, "Record a completed LAA closure before planning post-closure care");
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   // the clinician may move a planned date (keyed by the plan item's title); never before today
   for (const item of outcome)
@@ -264,7 +278,7 @@ export async function completeWizard(
   }
   await tx.query(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify(input.answers), input.contextId ?? null, actor.id, episodeId],
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them

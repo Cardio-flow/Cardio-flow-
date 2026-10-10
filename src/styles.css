@@ -567,6 +567,8 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 .input.num.study-num { width: 120px; }
 
 /* ---------- admission, discharge, status ---------- */
+.af-aftercare { flex-direction: column; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.af-aftercare > * { min-width: 0; max-width: 100%; }
 .infobox.warn { background: var(--orange-soft); border-color: var(--orange-line); color: var(--orange-deep); font-weight: 600; }
 .chip.deceased { background: #1d2939; color: #fff; }
 .study-kind.path { border-left: 4px solid var(--c, var(--flow-blue)); }

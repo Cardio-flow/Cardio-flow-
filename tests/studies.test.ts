@@ -152,7 +152,13 @@ test("obstructive disease at angiography prompts adding coronary disease; the AP
     assert.match((await bad.json()).error, /Underlying rhythm is required/);
     const ok = await post({ kind: "holter", date: nowIso(), findings: { duration: "48 h", rhythm: "Sinus rhythm", veBurden: 12.5, nsvt: "Yes" } });
     assert.equal(ok.status, 200);
+    const missingLaa = await post({ kind: "laa_imaging", date: nowIso(), findings: { purpose: "After closure", modality: "Cardiac CT", laaThrombus: "Absent" } });
+    assert.equal(missingLaa.status, 400);
+    assert.match((await missingLaa.json()).error, /Device-related thrombus is required/);
+    const laa = await post({ kind: "laa_imaging", date: nowIso(), findings: { purpose: "After closure", modality: "Cardiac CT", laaThrombus: "Absent", deviceThrombus: "Present", leak: "Absent" } });
+    assert.equal(laa.status, 200);
     const rec = await (await fetch(`${base}/patients/${pid}/record`, { headers: { cookie } })).json();
+    assert.ok(rec.studies.some((s: any) => s.kind === "laa_imaging" && /Device thrombus: Present/.test(s.findings[0])));
     assert.ok(rec.studies.some((s: any) => s.kind === "holter" && /VE 12.5%/.test(s.findings[0])));
   } finally {
     server.close();

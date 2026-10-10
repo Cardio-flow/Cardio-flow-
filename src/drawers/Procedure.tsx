@@ -1,3 +1,4 @@
+import { LAA_DEVICES, LAA_METHODS, LAA_RESULTS, LAA_REGIMENS } from "../../shared/af";
 import { useState } from "react";
 import { HeartPulse } from "lucide-react";
 import { api, useData } from "../api";
@@ -11,9 +12,9 @@ const opts = (l: readonly string[]) => l.map((x) => ({ value: x, label: x }));
 
 // Record a procedure with its exact date: PCI or CABG (antithrombotic durations count from here), or a
 // device implant, ablation or cardioversion (rhythm & devices).
-export function ProcedureDrawer({ patientId, contextId, group = "coronary", onClose, onDone, onAfterPci, onAfter }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; onClose(): void; onDone(m?: string, r?: any): void; onAfterPci?(): void; onAfter?(wizard: string): void }) {
+export function ProcedureDrawer({ patientId, contextId, group = "coronary", initialKind, onClose, onDone, onAfterPci, onAfter }: { patientId: string; contextId?: string; group?: "coronary" | "rhythm" | "valve" | "ph"; initialKind?: ProcedureKind; onClose(): void; onDone(m?: string, r?: any): void; onAfterPci?(): void; onAfter?(wizard: string): void }) {
   const { data: health } = useData<any>("/health");
-  const [kind, setKind] = useState<ProcedureKind>(group === "rhythm" ? "device" : group === "valve" ? "valve" : group === "ph" ? "rhc" : "pci");
+  const [kind, setKind] = useState<ProcedureKind>(initialKind ?? (group === "rhythm" ? "device" : group === "valve" ? "valve" : group === "ph" ? "rhc" : "pci"));
   const [date, setDate] = useState("");
   const [v, setV] = useState<Record<string, any>>({ devices: ["Drug-eluting stent"], complex: [], complications: [] });
   const [busy, setBusy] = useState(false);
@@ -24,6 +25,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     : kind === "cabg" ? { grafts: v.grafts ?? [], count: v.count ? Number(v.count) : null, setting: v.cabgSetting ?? "elective" }
     : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null, remote: v.remote ?? null }
     : kind === "ablation" ? { targets: v.targets ?? [], energy: v.energy ?? null, result: v.ablResult ?? "Acute success" }
+    : kind === "laao" ? { method: v.laaMethod, device: v.laaDevice, result: v.laaResult, regimen: v.laaRegimen, reviewDate: v.laaReview ?? null }
     : kind === "valve" ? { position: v.position ?? null, procedure: v.vproc ?? null, prosthesis: v.prosthesis ?? null, design: v.design ?? null, access: v.vaccess ?? null }
     : kind === "rhc" ? { ...Object.fromEntries(RHC_NUMBERS.map((n) => [n.key, v[n.key] === undefined || v[n.key] === "" ? null : Number(v[n.key])])), vasoreactivity: v.vasoreactivity ?? "Not done" }
     : { method: v.method ?? null, rhythm: v.cvRhythm ?? "Atrial fibrillation", prep: v.prep ?? null, result: v.cvResult ?? "Sinus rhythm restored" };
@@ -31,6 +33,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     : kind === "cabg" ? [!(v.grafts ?? []).length && "grafts"]
     : kind === "device" ? [!v.devType && "device"]
     : kind === "ablation" ? [!(v.targets ?? []).length && "target"]
+    : kind === "laao" ? [!v.laaMethod && "closure method", !v.laaDevice && "closure device", !v.laaResult && "closure result", !v.laaRegimen && "regimen"]
     : kind === "valve" ? [!v.position && "valve", !v.vproc && "procedure", v.vproc === "Surgical replacement" && !v.prosthesis && "prosthesis"]
     : kind === "rhc" ? [!v.mpap && "mean PA pressure", !v.pawp && "wedge pressure", ...RHC_NUMBERS.filter((n) => v[n.key] && !(Number(v[n.key]) >= n.min && Number(v[n.key]) <= n.max)).map((n) => `${n.label} ${n.min}–${n.max}`)]
     : [!v.method && "method"]).filter(Boolean);
@@ -44,7 +47,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
       const r = await api(`/patients/${patientId}/procedures`, { body: { kind, date: at, details, contextId: contextId ?? null } });
       // the procedure goes straight on to its next steps (PCI: the after-PCI sheet; CABG, device implant and valve
       // intervention: their pathway); the alerts they answer are not toasted
-      const next = kind === "cabg" ? "after-cabg" : kind === "device" && ["New implant", "Upgrade"].includes((details as any).action) ? "after-device" : kind === "valve" ? "valve-antithrombotic" : null;
+      const next = kind === "laao" && (details as any).result === "Implanted / completed" ? "after-laao" : kind === "ablation" && ((details as any).targets ?? []).some((t: string) => /^AF/.test(t)) ? "after-af-ablation" : kind === "cabg" ? "after-cabg" : kind === "device" && ["New implant", "Upgrade"].includes((details as any).action) ? "after-device" : kind === "valve" ? "valve-antithrombotic" : null;
       onDone(`${PROCEDURE_LABEL[kind]} recorded`, (kind === "pci" && onAfterPci) || (next && onAfter) ? undefined : r);
       if (kind === "pci") onAfterPci?.();
       else if (next) onAfter?.(next);
@@ -55,7 +58,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
   }
   return (
     <Drawer
-      title={group === "rhythm" ? "Record device, ablation or cardioversion" : group === "valve" ? "Record valve intervention" : group === "ph" ? "Record right heart catheterisation" : "Record PCI or CABG"}
+      title={group === "rhythm" ? "Record rhythm procedure / LAA closure" : group === "valve" ? "Record valve intervention" : group === "ph" ? "Record right heart catheterisation" : "Record PCI or CABG"}
       subtitle={group === "rhythm" ? "Dated so device follow-up and anticoagulation around cardioversion and ablation can be timed" : group === "ph" ? "Classified by the 2022 ESC/ERS haemodynamic definitions; PH joins the problem list" : group === "valve" ? "The prosthesis or repair joins the problem list; antithrombotic therapy and follow-up are timed from this date" : "The exact date and setting time DAPT and anticoagulant combinations"}
       icon={<HeartPulse size={22} />}
       wide
@@ -72,10 +75,10 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
     >
       <div className="drawer-body">
         <div className="row wrap" style={{ gap: 18, alignItems: "flex-end" }}>
-          {group !== "valve" && group !== "ph" && <Segmented label="Procedure" options={(group === "rhythm" ? (["device", "ablation", "cardioversion"] as ProcedureKind[]) : (["pci", "cabg"] as ProcedureKind[])).map((k) => ({ value: k, label: PROCEDURE_LABEL[k] }))} value={kind} onChange={(x) => setKind(x as ProcedureKind)} />}
+          {group !== "valve" && group !== "ph" && <Segmented label="Procedure" options={(group === "rhythm" ? (["device", "ablation", "cardioversion", "laao"] as ProcedureKind[]) : (["pci", "cabg"] as ProcedureKind[])).map((k) => ({ value: k, label: PROCEDURE_LABEL[k] }))} value={kind} onChange={(x) => setKind(x as ProcedureKind)} />}
           <label className="field">
             <span>Date</span>
-            <DateInput className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateInput aria-label="Procedure date" className="input" max={health?.today} value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
         </div>
         {kind === "pci" ? (
@@ -200,6 +203,15 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", onCl
                 <SingleChoice label="Remote monitoring" options={opts(REMOTE_MONITORING)} value={v.remote} onChange={(x) => set("remote", x)} />
               </div>
             )}
+          </>
+        ) : kind === "laao" ? (
+          <>
+            <div className="q"><div className="label">Closure method</div><SingleChoice label="Closure method" options={opts(LAA_METHODS)} value={v.laaMethod} onChange={x => { set("laaMethod", x); set("laaDevice", ""); }} /></div>
+            <div className="q"><div className="label">Closure device</div><SingleChoice label="Closure device" options={opts(LAA_DEVICES.filter(d => v.laaMethod === "Surgical exclusion" ? d.startsWith("Surgical") : !d.startsWith("Surgical")))} value={v.laaDevice} onChange={x => set("laaDevice", x)} /></div>
+            <div className="q"><div className="label">Closure result</div><SingleChoice label="Closure result" options={opts(LAA_RESULTS)} value={v.laaResult} onChange={x => set("laaResult", x)} /></div>
+            <div className="q"><div className="label">Antithrombotic regimen documented by implant team</div><SingleChoice label="Antithrombotic regimen" options={opts(LAA_REGIMENS)} value={v.laaRegimen} onChange={x => set("laaRegimen", x)} /></div>
+            <label className="field"><span>Regimen review date (optional)</span><DateInput aria-label="Regimen review date" className="input" value={v.laaReview ?? ""} onChange={e => set("laaReview", e.target.value)} /></label>
+            <p className="help">Record the actual device and prescribed regimen. Confirm its current instructions for use. Aftercare records a review decision; it never stops an anticoagulant automatically.</p>
           </>
         ) : kind === "ablation" ? (
           <>
