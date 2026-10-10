@@ -2,6 +2,11 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · Remove dictation after clinical feedback
+
+- Ahmed reports unreliable medical-term recognition and values reaching the wrong fields. Remove microphone capture, transcript extraction, review controls and the preview endpoint from visits, admission entry and discharge. Return to the existing manual clinical forms. No replacement speech module is introduced.
+- Preserve recorded notes, context narratives, observations and admission milestones. Keep narrative persistence and encounter transaction protections; removing dictation does not remove clinical history. Existing visit narrative remains editable when present; admission history can be entered manually.
+
 ## 2026-10-10 · English-only dictation with faster review
 
 - Per Ahmed, dictation is English-only for this release. Remove the Arabic language option and fix browser recognition to en-GB. Dictate visit/admission opens capture with one button; Type or paste remains available. Consent is kept only during the mounted form. Pause/resume preserves transcript and suspended visit child actions retain the draft without browser storage.
