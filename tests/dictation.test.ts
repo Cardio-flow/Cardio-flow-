@@ -30,6 +30,23 @@ test("reasons respect encounter vocabulary and repeated readings are deduplicate
   assert.equal(suggestDictation("Reason: Acute decompensated HF.", "admission").suggestions[0].value, "Acute decompensated HF");
   assert.equal(suggestDictation("Heart rate 88 bpm. Heart rate 88 bpm.", "visit").suggestions.length, 1);
 });
+test("natural English cardiology phrasing maps only supported concepts with explicit units", () => {
+  const result = suggestDictation("Here for heart failure follow-up. Patient has breathlessness and ankle swelling. BP is 110 over 70 mmHg. Heart rate is 88 bpm. Weight is 80 kg.", "visit");
+  assert.deepEqual(result.suggestions.map(s => s.code), ["Heart failure", "Dyspnoea", "Leg swelling", "sbp", "dbp", "hr", "weight"]);
+  assert.equal(suggestDictation("Admitted for acute decompensated heart failure.", "admission").suggestions[0].value, "Acute decompensated HF");
+});
+test("focused review flags negation, missing units, medication instructions and relative dates", () => {
+  const result = suggestDictation("No chest pain. BP 110 over 70. Stop bisoprolol 5 mg. Repeat potassium tomorrow.", "visit");
+  assert.deepEqual(result.suggestions, []);
+  for (const group of ["Meaning", "Vitals", "Medicines", "Dates", "Labs"]) assert.ok(result.issues.some(i => i.group === group), group);
+  assert.ok(result.sections.some(s => s.title === "Plan"));
+  assert.ok(result.issues.every(i => i.source));
+});
+test("negation in a symptom list withholds the entire ambiguous list and headings invent no findings", () => {
+  assert.deepEqual(suggestDictation("Symptoms: no breathlessness and chest pain.", "visit").suggestions, []);
+  assert.deepEqual(suggestDictation("History:\nSymptoms:\nExamination:\nVitals:\nPlan:", "visit").suggestions, []);
+  assert.equal(suggestDictation("History:\nHeart rate 88 bpm.", "visit").suggestions[0].value, "88");
+});
 
 let db: DB, server: Server, base: string;
 let active = true;

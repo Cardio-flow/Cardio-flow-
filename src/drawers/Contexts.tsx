@@ -89,7 +89,7 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       }
     >
       <div className="drawer-body">
-        <Dictation patientId={patientId} mode="admission" disabled={busy} onApply={applyDictation} onDraftChange={setDictationDraft} onRecordingChange={setRecording} />
+        <Dictation patientId={patientId} mode="admission" currentValues={vitals} disabled={busy} onApply={applyDictation} onDraftChange={setDictationDraft} onRecordingChange={setRecording} />
         {narrative && <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
         {Object.keys(vitals).length > 0 && <div className="q"><div className="label">Review admission vitals</div><p className="help">These readings will be recorded now, linked to this admission. Clear any value that is historical or uncertain.</p><div className="row wrap">{[["sbp", "Systolic BP", "mmHg"], ["dbp", "Diastolic BP", "mmHg"], ["hr", "Heart rate", "bpm"], ["weight", "Weight", "kg"]].map(([code, label, unit]) => <label className="field" key={code}><span>{label} ({unit})</span><input className="input num" inputMode="decimal" value={vitals[code] ?? ""} onChange={e => setVitals(x => ({ ...x, [code]: e.target.value }))} /></label>)}</div></div>}
         {readmitDays != null && (
@@ -486,7 +486,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       }
     >
       <div className="drawer-body">
-        <Dictation patientId={patientId} mode="visit" active={active} disabled={busy || (step === 3 && noteLoading) || (step === 1 && !prefilled)} fields={step === 0 ? "all" : step === 1 ? "vitals" : "none"} onDraftChange={setDictationDraft} onRecordingChange={setRecording} onApply={(text, fields) => {
+        <Dictation patientId={patientId} mode="visit" currentValues={vit} active={active} disabled={busy || (step === 3 && noteLoading) || (step === 1 && !prefilled)} fields={step === 0 ? "all" : step === 1 ? "vitals" : "none"} onDraftChange={setDictationDraft} onRecordingChange={setRecording} onApply={(text, fields) => {
           if (text && [step === 3 ? note : narrative, text].filter(Boolean).join("\n\n").length > (step === 3 ? 8000 : 4000)) return false;
           if (step === 0) {
             setNarrative(x => [x, text].filter(Boolean).join("\n").slice(0, 4000));

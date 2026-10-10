@@ -2,6 +2,13 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · English-only dictation with faster review
+
+- Per Ahmed, dictation is English-only for this release. Remove the Arabic language option and fix browser recognition to en-GB. Dictate visit/admission opens capture with one button; Type or paste remains available. Consent is kept only during the mounted form. Pause/resume preserves transcript and suspended visit child actions retain the draft without browser storage.
+- Provide optional blank HF follow-up/admission-history headings. Recognise conservative English catalogue synonyms and common explicit-unit vital phrasing; do not infer units, diagnoses, treatments or dates. Group narrative for inspection without rearranging the stored original transcript. Highlight negation/uncertainty, missing units, conflicts, medicine instructions, labs and relative dates with original source words.
+- Add to note puts reviewed text into the existing narrative without filling fields. Structured suggestions remain unchecked, are grouped, allow direct numeric correction and show existing vital values they would replace. The ordinary form save remains required. Invalid selected numbers cannot be applied.
+- Automated checks validate extraction and workflow behaviour, not microphone/accent accuracy or clinician speed. Medical speech-service selection and the real-voice trial require recordings/participation and are not implied to be completed. No external AI service is introduced.
+
 ## 2026-10-10 · Reviewed dictation in visits and admissions
 
 - Start with optional browser speech recognition (English/Arabic) and editable pasted/keyboard-microphone transcripts. Starting the microphone explains browser-provider processing and requires explicit consent. No audio is stored by CardioFlow; unsupported/denied speech has a text fallback. Stop recognition when hidden, inactive or unmounted. No AI provider credentials or external extraction service are introduced.

@@ -26,7 +26,7 @@ async function api(path, body) {
 }
 async function patient(tag) { return api('/patients', { name: 'Synthetic dictation ' + tag, mrn: 'DICT-' + tag + '-' + Date.now(), sex: 'Male', birthDate: '1960-01-01', sample: true }); }
 async function review(dialog, text, select = true) {
-  await dialog.getByRole('button', { name: 'Dictate or paste', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Type or paste', exact: true }).click();
   await dialog.getByLabel('Transcript to review', { exact: true }).fill(text);
   await dialog.getByRole('button', { name: 'Review transcript', exact: true }).click();
   await dialog.getByText('Choose entries after checking the transcript', { exact: true }).waitFor();
@@ -54,7 +54,29 @@ try {
   dialog = page.getByRole('dialog', { name: 'Clinic visit', exact: true });
   assert.equal(await dialog.getByLabel(/^Systolic BP/).inputValue(), '110');
   assert.equal(await dialog.getByLabel(/^Heart rate/).inputValue(), '88');
+  await dialog.getByLabel(/^Systolic BP/).fill('120');
+  await dialog.getByRole('button', { name: 'Type or paste', exact: true }).click();
+  await dialog.getByLabel('Transcript to review').fill('BP is 110 over 70 mmHg.');
+  await dialog.getByRole('button', { name: 'Review transcript', exact: true }).click();
+  await dialog.getByText("Replaces this form's value: 120", { exact: true }).waitFor();
+  await dialog.getByLabel('Correct Systolic BP', { exact: true }).fill('111');
+  await dialog.getByRole('checkbox', { name: /^Systolic BP/ }).check();
+  await dialog.getByRole('checkbox', { name: 'Include the reviewed transcript in the narrative', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Use reviewed entries', exact: true }).click();
+  assert.equal(await dialog.getByLabel(/^Systolic BP/).inputValue(), '111');
   await dialog.getByRole('button', { name: 'Save and continue', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Type or paste', exact: true }).click();
+  await dialog.getByLabel('Transcript to review').fill('Draft kept during interruption.');
+  await dialog.getByRole('button', { name: 'Add labs', exact: true }).click();
+  const labs = page.getByRole('dialog', { name: 'Add results', exact: true });
+  await labs.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await dialog.getByLabel('Transcript to review').inputValue(), 'Draft kept during interruption.');
+  await dialog.getByRole('button', { name: 'Resume dictation', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.testRecognition.lang), 'en-GB');
+  await page.evaluate(() => { const result = [{ transcript: 'No chest pain.' }]; result.isFinal = true; window.testRecognition.onresult({ resultIndex: 0, results: [result] }); });
+  await dialog.getByRole('button', { name: 'Pause dictation', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Add to note', exact: true }).click();
+  assert.ok((await dialog.getByLabel('Visit narrative').inputValue()).includes('Draft kept during interruption'));
   await dialog.getByRole('button', { name: 'Continue to note', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[aria-label="Clinic note"]').disabled);
   assert.ok((await dialog.getByLabel('Clinic note').inputValue()).includes(text));
@@ -81,15 +103,19 @@ try {
   await page.goto(base + '/patients/' + admission.id + '/visits');
   await page.getByRole('button', { name: 'New admission', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Start admission', exact: true });
-  await dialog.getByRole('button', { name: 'Dictate or paste', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Start dictation', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Type or paste', exact: true }).click();
+  assert.equal(await dialog.getByRole('combobox').count(), 0, 'Dictation must be English-only');
+  await dialog.getByRole('button', { name: 'Admission history', exact: true }).click();
+  assert.ok((await dialog.getByLabel('Transcript to review').inputValue()).includes('Examination:'));
+  await dialog.getByLabel('Transcript to review').fill('');
+  await dialog.getByRole('button', { name: /^(Start|Resume) dictation$/ }).click();
   await page.evaluate(() => {
     const result = [{ transcript: 'Reason: Other. Symptoms: Dyspnoea. Heart rate 92 bpm. Presentation reviewed.' }]; result.isFinal = true;
     window.testRecognition.onresult({ resultIndex: 0, results: [result] });
   });
   await dialog.getByRole('button', { name: 'Other', exact: true }).click();
   assert.equal(await dialog.getByRole('button', { name: 'Admit', exact: true }).isEnabled(), false, 'Finish recording before saving');
-  await dialog.getByRole('button', { name: 'Stop dictation', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Pause dictation', exact: true }).click();
   await dialog.getByRole('button', { name: 'Review transcript', exact: true }).click();
   await dialog.getByText('Choose entries after checking the transcript', { exact: true }).waitFor();
   // Editing invalidates a prepared review instead of applying stale extracted values.
@@ -121,14 +147,13 @@ try {
   await page.goto(base + '/patients/' + denied.id);
   await page.getByRole('button', { name: 'Start clinic visit', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Start clinic visit', exact: true });
-  await dialog.getByRole('button', { name: 'Dictate or paste', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Start dictation', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Dictate visit', exact: true }).click();
   await page.evaluate(() => { window.testRecognition.onerror({ error: 'not-allowed' }); window.testRecognition.onend(); });
   await dialog.getByText('Microphone permission was denied. Type or paste your transcript instead.', { exact: true }).waitFor();
   await dialog.getByLabel('Transcript to review').fill('Reason: Routine cardiology.');
   await dialog.getByRole('button', { name: 'Review transcript', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use reviewed entries', exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Start dictation', exact: true }).click();
+  await dialog.getByRole('button', { name: /^(Start|Resume) dictation$/ }).click();
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -143,13 +168,13 @@ try {
   await page.evaluate(() => { window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; });
   await page.getByRole('button', { name: 'Start clinic visit', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Start clinic visit', exact: true });
-  await dialog.getByRole('button', { name: 'Dictate or paste', exact: true }).click();
-  assert.equal(await dialog.getByRole('button', { name: 'Start dictation', exact: true }).isEnabled(), false);
+  await dialog.getByRole('button', { name: 'Type or paste', exact: true }).click();
+  assert.equal(await dialog.getByRole('button', { name: /^(Start|Resume) dictation$/ }).isEnabled(), false);
   await dialog.getByLabel('Transcript to review').fill('Reason: Routine cardiology.');
   await dialog.getByRole('button', { name: 'Review transcript', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use reviewed entries', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log('PASS: unchecked/source-linked review; no preview writes; visit vitals/note correction/retention; no medicine execution; simulated microphone transcript; editing invalidates review; phone admission/Journey; discharge handover; denied/unsupported microphone text fallback; hidden microphone stops and rejects late events; no overflow/page errors');
+  console.log('PASS: English-only one-click capture; blank templates; note-only action; pause/resume; interrupted draft retention; inline numeric correction and replacement warning; unchecked/source-linked review; no preview writes; clinic/admission/discharge persistence; no medicine execution; denied/unsupported microphone fallback; hidden microphone cleanup; no overflow/page errors');
 } catch (e) { await page.screenshot({ path: out + '/FAIL.png', animations: 'disabled' }).catch(() => {}); throw e; }
 finally { await browser.close(); }
