@@ -290,6 +290,6 @@ test("risk factors are flagged apart from diagnoses; suspected IHD asks for the 
   const { suggest } = await import("../shared/wizard-guidance.js");
   const sug = suggest("suspected-ihd", "test", { likelihood: "moderate", lowExercise: "no" }, { today: "", meds: [], facts: [], detected: {} } as any);
   assert.ok(sug.some((x: any) => x.value === "ccta"));
-  await call("POST", `/patients/${id}/studies`, { kind: "ccta", date: new Date(Date.now() - 3600_000).toISOString(), findings: { cac: 0, cadrads: "1" } });
+  await call("POST", `/patients/${id}/studies`, { kind: "ccta", date: new Date().toISOString(), findings: { cac: 0, cadrads: "1" } });
   assert.match((await active("cad.suspected-workup"))[0].title, /negative — rule it out/);
 });

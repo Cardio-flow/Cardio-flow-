@@ -1543,3 +1543,5 @@ table.data.meds td.med-compact { display: none; }
   .mb-fields > label:nth-child(3) { grid-column: 1 / -1; }
   .mb-fields .input { min-width: 0; width: 100%; }
 }
+
+.pathway-reference { line-height: 1.4; display: block; min-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

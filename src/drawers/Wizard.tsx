@@ -460,6 +460,7 @@ export function WizardDrawer({
             <span>
               <b>How this works</b>
               {def.note}
+              {def.source && <details style={{ marginTop: 8 }}><summary>References</summary><span className="help">{def.source}</span></details>}
             </span>
           </div>
         </div>

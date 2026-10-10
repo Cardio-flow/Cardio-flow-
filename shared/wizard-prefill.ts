@@ -33,6 +33,7 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
 export type Join = { next: string; when: (a: Answers, ctx: WizardContext) => boolean; why: string; carry?: (a: Answers) => Answers };
 const has = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 export const JOIN: Record<string, Join> = {
+  "after-structural": { next: "valve-antithrombotic", when: (a, ctx) => a.safety === "stable" && ctx.structural?.actual?.target === "TAVI", why: "Review and confirm the actual TAVI antithrombotic prescriptions and dated transitions" },
   "acs-discharge": { next: "antithrombotic", when: () => true, why: "Durations and stop dates of the antithrombotic therapy after this ACS" },
   "chest-pain-cad": {
     next: "antithrombotic",

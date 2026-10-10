@@ -1,3 +1,4 @@
+import { planningMissing } from "./wizards-structural.js";
 // Guideline suggestions inside every pathway (Ahmed, 3 Oct 2026: "the pathways show the actions
 // we do but do not suggest the steps according to guidelines — that is their purpose").
 //
@@ -49,6 +50,18 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "tavi-plan": {
+    decision: (_a, c) => [planningMissing(c, "TAVI").length && S("workup", "Complete the missing structural imaging and Heart Team work-up before scheduling (ESC/EACTS 2025).")],
+  },
+  "teer-plan": {
+    decision: (a, c) => [planningMissing(c, a.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER").length && S("workup", "Complete anatomy and clinical selection before scheduling TEER (ESC/EACTS 2025).")],
+  },
+  "other-structural-plan": {
+    decision: () => [S("workup", "A specialist valve team must assess the exact replacement device, prior implant and procedural risks.")],
+  },
+  "after-structural": {
+    protocol: () => [S("pending", "Confirm the actual device instructions, independent OAC/PCI indications and implant-team regimen before a treatment transition.")],
+  },
   // ---------------- Heart failure ----------------
   hyperkalaemia: {
     result: (_a, c) => {

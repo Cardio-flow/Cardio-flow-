@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Activity, FlaskConical, Stethoscope, BedDouble, FileHeart } from "lucide-react";
 import { STUDIES, STUDY_LABEL } from "../../shared/studies";
 import { api, useData } from "../api";
@@ -280,6 +280,7 @@ export function PlanTab({ id, version, open }: { id: string; version: number; op
 export function VisitsTab({ id, version, summary, open }: { id: string; version: number; summary: any; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/journey`, [version]);
   const [note, setNote] = useState<Record<string, string>>({});
+  useEffect(() => setNote({}), [version]);
   if (!data) return <main className="page" />;
   const contexts = [...data.contexts].reverse();
   return (
@@ -312,6 +313,8 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
           </div>
           {c.kind === "admission" ? c.status === "open" ? <AdmissionTimeline context={c} events={data.events} /> : <details className="admission-history"><summary>Admission milestones & events</summary><AdmissionTimeline context={c} events={data.events} /></details> : c.actions.length > 0 && <div className="row wrap" style={{ gap: 8 }}>{c.actions.map((a: any) => <Tag key={a.id} sev={VIEW_SEV[a.view]}>{a.title} · {fmtDay(a.dueDate)}</Tag>)}</div>}
           <div className="row wrap admission-actions" style={{ marginTop: 12, gap: 8 }}>
+            <button className="btn secondary small" onClick={() => open({kind:"context-edit",context:c})}>{c.kind === "admission" ? "Edit admission" : "Edit visit"}</button>
+            <button className="btn ghost small" onClick={() => open({kind:"context-edit",context:c,remove:true})}>{c.kind === "admission" ? "Delete admission" : "Delete visit"}</button>
             {c.status === "open" && c.kind === "admission" && <>
               <button className="btn secondary small" onClick={() => open({ kind: "pathways" })}>Review pathways</button>
               <button className="btn primary admission-labs" onClick={() => open({ kind: "labs" })}><FlaskConical size={18} />Add labs</button>

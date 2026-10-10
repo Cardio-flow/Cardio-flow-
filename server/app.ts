@@ -14,6 +14,7 @@ import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
+import { editContext, removeContext } from "./kernel/context-management.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
@@ -381,7 +382,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),
@@ -595,6 +596,26 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- care contexts ----------
+  app.post("/api/patients/:id/contexts/:cid/edit", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({
+      version: z.number().int().positive(), reason: z.string().trim().min(1).max(300),
+      startedAt: isoDateTime, endedAt: isoDateTime.nullish(),
+      location: z.string().trim().min(1).max(80), service: z.string().trim().min(1).max(60),
+      reasons: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
+      symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10),
+      narrative: z.string().max(4000), note: z.string().max(8000),
+      route: z.enum(ADMISSION_ROUTES as [string,...string[]]).nullish(), hfRelated: z.boolean().nullish(),
+      dischargeStatus: z.string().max(120).optional(), destination: z.enum(DISCHARGE_DESTINATION as [string,...string[]]).nullish(),
+      events: z.array(z.enum(IN_HOSPITAL_EVENTS as [string,...string[]])).max(20).optional(), handover: z.string().max(4000).optional(),
+    }).parse(req.body);
+    await write(res,id,(tx,a)=>editContext(tx,a,id,uuidS.parse(req.params.cid),input));
+  }));
+  app.post("/api/patients/:id/contexts/:cid/remove", clinician, route(async (req,res)=>{
+    const id=uuidS.parse(req.params.id);
+    const input=z.object({version:z.number().int().positive(),reason:z.string().trim().min(1).max(300)}).parse(req.body);
+    await write(res,id,(tx,a)=>removeContext(tx,a,id,uuidS.parse(req.params.cid),input));
+  }));
   app.post("/api/patients/:id/admissions", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z

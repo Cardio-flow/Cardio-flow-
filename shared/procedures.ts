@@ -1,4 +1,5 @@
 import { LAA_METHODS, LAA_DEVICES, LAA_RESULTS, LAA_REGIMENS } from "./af.js";
+import { STRUCTURAL_RESULTS, STRUCTURAL_COMPLICATIONS, RESIDUAL_GRADES } from "./structural.js";
 // Procedures (coronary module, 4 Oct 2026): PCI and CABG as their own dated records, so that
 // antithrombotic durations can be counted from the exact day and the setting (ACS or elective).
 // Descriptive vocabulary only. Complex PCI follows the ESC definition used for DAPT decisions
@@ -52,7 +53,7 @@ export const VALVE_ACCESS = ["Transfemoral", "Other access"] as const;
 export const MECH_DESIGNS = ["Bileaflet / current tilting-disc", "Older tilting-disc", "Caged-ball", "Unknown"] as const;
 // the prosthesis a valve procedure leaves (problem-list vocabulary), or null for a valvotomy
 export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
-  a.procedure === "TAVI" ? "TAVI"
+  a.result === "Aborted / no implant" ? null : a.procedure === "TAVI" ? "TAVI"
   : a.procedure === "Surgical replacement" ? (a.prosthesis === "Mechanical" ? "Mechanical" : "Bioprosthetic (surgical)")
   : a.procedure === "Surgical repair" ? "Repair / ring"
   : a.procedure === "Transcatheter edge-to-edge repair (TEER)" ? "Edge-to-edge repair (clip)"
@@ -183,12 +184,24 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
     const procedure = oneOf(VALVE_PROCEDURES, a.procedure, "Procedure");
     if (!procedure) throw new Error("Choose the procedure");
     if (procedure === "TAVI" && position !== "Aortic") throw new Error("TAVI is an aortic procedure");
+    if (procedure === "Transcatheter edge-to-edge repair (TEER)" && !["Mitral","Tricuspid"].includes(position)) throw new Error("TEER requires a mitral or tricuspid valve");
+    const number = (key:string,max:number) => {
+      if (a[key] == null || a[key] === "") return null;
+      const n=Number(a[key]);
+      if (!Number.isFinite(n) || n < 0 || n > max || (key === "implantCount" && !Number.isInteger(n))) throw new Error(`${key}: invalid reported value`);
+      return n;
+    };
     const prosthesis = procedure === "Surgical replacement" ? oneOf(VALVE_PROSTHESES, a.prosthesis, "Prosthesis") : null;
     if (procedure === "Surgical replacement" && !prosthesis) throw new Error("Mechanical or bioprosthetic?");
     return {
       position, procedure, prosthesis,
       design: prosthesis === "Mechanical" ? oneOf(MECH_DESIGNS, a.design, "Valve design") ?? "Unknown" : null,
       access: procedure === "TAVI" || procedure === "Valve-in-valve" ? oneOf(VALVE_ACCESS, a.access, "Access") : null,
+      result: oneOf(STRUCTURAL_RESULTS,a.result,"Procedure result") ?? "Completed",
+      deviceModel: a.deviceModel == null ? null : String(a.deviceModel).trim().slice(0,80),
+      deviceSize: number("deviceSize",100), implantCount: number("implantCount",20),
+      residualGrade: oneOf(RESIDUAL_GRADES,a.residualGrade,"Residual regurgitation / leak"),
+      meanGradient: number("meanGradient",200), complications: someOf(STRUCTURAL_COMPLICATIONS,a.complications,"Complications"),
     };
   }
   if (kind === "cardioversion") {
@@ -230,7 +243,7 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
       "Transcatheter edge-to-edge repair (TEER)": `${a.position} TEER`, "Balloon valvotomy": `${a.position} balloon valvotomy`,
       "Transcatheter valve replacement": `${a.position} transcatheter valve replacement`, "Valve-in-valve": `${a.position} valve-in-valve`,
     };
-    return [what[a.procedure] ?? a.procedure, a.design && a.design !== "Unknown" ? a.design : null, a.access ? a.access.toLowerCase() : null].filter(Boolean).join(" · ");
+    return [a.result === "Aborted / no implant" ? "Aborted / no implant" : null, what[a.procedure] ?? a.procedure, a.deviceModel || null, a.implantCount ? `${a.implantCount} implants` : null, a.residualGrade ? `residual ${a.residualGrade}` : null, a.meanGradient != null ? `mean gradient ${a.meanGradient} mmHg` : null, a.design && a.design !== "Unknown" ? a.design : null, a.access ? a.access.toLowerCase() : null].filter(Boolean).join(" · ");
   }
   if (kind === "rhc") return [`mPAP ${a.mpap} · PAWP ${a.pawp}${a.pvr != null ? ` · PVR ${a.pvr} WU` : ""}`, a.class ? String(a.class).replace(/^Pre-capillary$/, "pre-capillary PH").replace(/^Isolated post-capillary$/, "isolated post-capillary PH").replace(/^Combined post- and pre-capillary$/, "combined post- and pre-capillary PH") : null, a.vasoreactivity && a.vasoreactivity !== "Not done" ? `vasoreactivity ${String(a.vasoreactivity).toLowerCase()}` : null].filter(Boolean).join(" · ");
   if (kind === "cardioversion") return [`${a.method} cardioversion of ${String(a.rhythm ?? "").toLowerCase()}`, a.prep, a.result].filter(Boolean).join(" · ");

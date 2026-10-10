@@ -3,6 +3,7 @@
 // observations (code in `obs`), so the engine and the trends see them like any lab.
 // Categories are descriptive (reporting vocabulary), never treatment thresholds.
 
+import { STRUCTURAL_TARGETS } from "./structural.js";
 export type StudyField =
   | { key: string; label: string; type: "choice"; options: string[]; required?: boolean; when?: Cond }
   | { key: string; label: string; type: "multi"; options: string[]; when?: Cond }
@@ -15,6 +16,38 @@ const AV = ["None", "First-degree", "Mobitz I", "Mobitz II", "Complete"];
 const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not assessed"];
 
 export const STUDIES: StudyDef[] = [
+  {
+    kind: "structural_imaging", label: "Structural intervention imaging (CT / 3D TOE)", short: "Structural imaging",
+    help: "Record the structural team's report. Device suitability depends on the exact device IFU and expert assessment; missing measurements do not imply clearance.",
+    fields: [
+      {key:"intervention",label:"Planned intervention",type:"choice",options:STRUCTURAL_TARGETS,required:true},
+      {key:"modality",label:"Imaging modality",type:"choice",options:["Cardiac CT","3D TOE / TEE","Combined CT and TOE / TEE","Alternative imaging agreed by Heart Team"],required:true},
+      {key:"suitability",label:"Reported anatomical suitability",type:"choice",options:["Suitable","Uncertain / incomplete","Unsuitable"],required:true},
+      {key:"position",label:"Target valve (replacement / valve-in-valve)",type:"choice",options:["Aortic","Mitral","Tricuspid","Pulmonary"],required:true,when:{field:"intervention",in:["Valve-in-valve / other transcatheter valve"]}},
+      {key:"reviewed",label:"Structural team reviewed the complete report",type:"choice",options:["Yes","No / pending"],required:true},
+      {key:"annulusArea",label:"Annulus area",type:"number",unit:"mm²",min:0,max:2000,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"annulusPerimeter",label:"Annulus perimeter",type:"number",unit:"mm",min:0,max:300,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"leftCoronaryHeight",label:"Left coronary height",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"rightCoronaryHeight",label:"Right coronary height",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"aorticRoot",label:"Sinus / STJ / ascending aorta review",type:"choice",options:["Complete","Incomplete","Important adverse anatomy"],when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"calcification",label:"Valve / LVOT calcification review",type:"choice",options:["Complete","Incomplete","Important adverse anatomy"],when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"vtc",label:"Virtual valve-to-coronary distance (if applicable)",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["Valve-in-valve / other transcatheter valve"]}},
+      {key:"neoLvot",label:"Predicted neo-LVOT area (mitral replacement)",type:"number",unit:"mm²",min:0,max:2000,decimals:1,when:{field:"intervention",in:["Valve-in-valve / other transcatheter valve"]}},
+      {key:"access",label:"Vascular access assessment",type:"choice",options:["Transfemoral feasible","Alternative access planned","Not suitable","Not assessed"],when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
+      {key:"jetLocation",label:"Regurgitant jet / target segment",type:"choice",options:["Central","Medial","Lateral","Multiple jets","Other","Not assessed"],when:{field:"intervention",in:["Mitral TEER","Tricuspid TEER"]}},
+      {key:"coaptationGap",label:"Coaptation gap",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["Mitral TEER","Tricuspid TEER"]}},
+      {key:"leafletLength",label:"Available grasping leaflet length",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["Mitral TEER","Tricuspid TEER"]}},
+      {key:"leafletReview",label:"Leaflet / grasping zone review",type:"choice",options:["Suitable under selected device IFU","Unsuitable","Not assessed"],when:{field:"intervention",in:["Mitral TEER","Tricuspid TEER"]}},
+      {key:"flailGap",label:"Flail gap (when present)",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["Mitral TEER"]}},
+      {key:"flailWidth",label:"Flail width (when present)",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["Mitral TEER"]}},
+      {key:"valveArea",label:"Mitral valve area",type:"number",unit:"cm²",min:0,max:20,decimals:2,when:{field:"intervention",in:["Mitral TEER"]}},
+      {key:"meanGradient",label:"Baseline mean transmitral gradient",type:"number",unit:"mmHg",min:0,max:100,decimals:1,when:{field:"intervention",in:["Mitral TEER"]}},
+      {key:"septum",label:"Transseptal access / LA-LAA thrombus review",type:"choice",options:["Access suitable and no thrombus","Thrombus / access concern","Not assessed"],when:{field:"intervention",in:["Mitral TEER"]}},
+      {key:"leadInteraction",label:"CIED lead interaction",type:"choice",options:["No lead","No relevant interference","Interference / lead strategy needed","Not assessed"],when:{field:"intervention",in:["Tricuspid TEER"]}},
+      {key:"rvFunction",label:"RV function assessment",type:"choice",options:["No severe dysfunction","Severe dysfunction","Not assessed"],when:{field:"intervention",in:["Tricuspid TEER"]}},
+      {key:"pulmonaryVascular",label:"Invasive pulmonary haemodynamic assessment",type:"choice",options:["No pre-capillary PH","Pre-capillary PH / concern","Not assessed"],when:{field:"intervention",in:["Tricuspid TEER"]}},
+    ],
+  },
   {
     kind: "laa_imaging", label: "LAA / closure-device imaging", short: "LAA imaging",
     help: "TOE/TEE or cardiac CT: explicitly record thrombus, device thrombus and leak. Missing or indeterminate findings never count as clearance.",
@@ -229,6 +262,7 @@ export function obstructiveCad(kind: string, a: Record<string, any>): string | n
 
 // One line for lists, the journey and notes.
 export function studySummary(kind: string, a: Record<string, any>): string {
+  if (kind === "structural_imaging") return [a.intervention,a.modality,a.suitability,a.reviewed === "Yes" ? "team reviewed" : "review pending"].filter(Boolean).join(" · ");
   const u = (n: unknown, unit: string) => (n == null ? null : `${n}${unit}`);
   switch (kind) {
     case "laa_imaging": return [a.purpose, a.modality, `LAA thrombus: ${a.laaThrombus}`, a.deviceThrombus ? `Device thrombus: ${a.deviceThrombus}` : null, a.leak ? `Leak: ${a.leak}${a.leakMm != null ? ` (${a.leakMm} mm)` : ""}` : null].filter(Boolean).join(" · ");

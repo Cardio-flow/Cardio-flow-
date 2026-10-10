@@ -1,10 +1,14 @@
+import { structuralEvidenceKey } from "./structural-evidence.js";
 import { addCalendarMonths } from "../../shared/af.js";
 import type { Q } from "../db/db.js";
 import { MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
-import { ApiError, audit, journeyEvent, nowIso, today, uuid, type Actor } from "../kernel/base.js";
+import { ApiError, audit, journeyEvent, liveContext, nowIso, today, uuid, type Actor } from "../kernel/base.js";
+import { structuralPlanning } from "../../shared/wizards-structural.js";
+import { structuralTarget } from "../../shared/structural.js";
+import { isHfAdmission } from "../../shared/encounters.js";
 import { LIVE_MED, addCondition, addPlanAction, medicationEvent, recordBarrier, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
@@ -182,7 +186,15 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const cabg = [...s.procedures].reverse().find((p) => p.kind === "cabg");
   const ccsTest = latestCcsTest(s);
   if (wizardId === "ccs-test-result" && ccsTest && !base.detected.risk) base.detected.risk = [ccsTest.risk];
-  return { ...base, values, dx, planned, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  const actual = [...s.procedures].reverse().find(p => p.kind === "valve" && p.attributes.result !== "Aborted / no implant" && structuralTarget(p.attributes));
+  const structural = {
+    planning: [...s.studies].reverse().filter(st => st.kind === "structural_imaging").map(st=>({id:st.id,day:localDay(st.performed_at),findings:st.attributes})),
+    actual: actual ? {id:actual.id,day:localDay(actual.performed_at),target:structuralTarget(actual.attributes)!,findings:actual.attributes} : null,
+    hfAdmissionInYear: s.contexts.some(c=>c.kind === "admission" && isHfAdmission(c) && localDay(c.started_at) >= new Date(Date.parse(s.today + "T12:00:00Z") - 365*86400000).toISOString().slice(0,10)),
+    latestEchoId: latestStudy(s,"echo")?.id ?? null,
+    rhcId: [...s.procedures].reverse().find(p=>p.kind === "rhc")?.id ?? null,
+  };
+  return { ...base, values, dx, planned, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -219,6 +231,7 @@ export async function completeWizard(
   wizardId: string,
   input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string>; overrides?: Record<string, string> },
 ) {
+  await liveContext(tx,patientId,input.contextId);
   const def = WIZARDS[wizardId];
   if (!def) throw new ApiError(404, "Unknown wizard");
   for (const step of def.steps) {
@@ -242,6 +255,7 @@ export async function completeWizard(
   }
   if (wizardId === "after-af-ablation" && !ctx.afProcedures?.ablation) throw new ApiError(400, "Record the AF ablation before planning post-ablation care");
   if (wizardId === "after-laao" && !ctx.afProcedures?.closure) throw new ApiError(400, "Record a completed LAA closure before planning post-closure care");
+  if (wizardId === "after-structural" && !ctx.structural?.actual) throw new ApiError(400,"Record the completed structural intervention before planning its aftercare");
   if (wizardId === "after-laao" && String(input.answers.protocol ?? "").startsWith("flxpro-")) {
     if (ctx.afProcedures?.closure?.device !== "WATCHMAN FLX Pro" || ctx.afProcedures.closure.method !== "Transcatheter occlusion") throw new ApiError(400, "The selected US WATCHMAN FLX Pro protocol does not match the recorded closure device");
     if (input.answers.protocol === "flxpro-ablation" && (!ctx.afProcedures?.ablation || ctx.afProcedures.ablation.day > ctx.afProcedures.closure.day)) throw new ApiError(400, "Record AF ablation on or before closure before selecting the post-ablation device protocol");
@@ -284,7 +298,7 @@ export async function completeWizard(
   }
   await tx.query(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them
@@ -353,7 +367,7 @@ export async function declineRecommendation(tx: Q, actor: Actor, patientId: stri
   const rec = (await tx.query(`SELECT * FROM cf.recommendation WHERE id=$1 AND patient_id=$2 AND status='active'`, [recommendationId, patientId])).rows[0];
   if (!rec) throw new ApiError(404, "This alert is no longer active");
   if (!input.reason.trim()) throw new ApiError(400, "Give a short reason");
-  const context = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND status='open' ORDER BY started_at DESC LIMIT 1`, [patientId])).rows[0];
+  const context = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND status='open' ORDER BY started_at DESC LIMIT 1`, [patientId])).rows[0];
   const decisionId = uuid();
   await tx.query(`INSERT INTO cf.decision(id,patient_id,recommendation_id,outcome,reason,decided_by,context_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, [
     decisionId, patientId, recommendationId, input.outcome, input.reason, actor.id, context?.id ?? null,

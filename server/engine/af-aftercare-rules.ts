@@ -95,7 +95,7 @@ export const AF_AFTERCARE_RULES: RuleDef[] = [
             p.status === "planned" &&
             p.completes_on.kind === "laa_imaging" &&
             p.completes_on.purpose === "After closure" &&
-            p.created_at >= cl.performed_at,
+            (p.created_at >= cl.performed_at || (answered && p.decision_id === review?.id)),
         );
       if (
         answered &&

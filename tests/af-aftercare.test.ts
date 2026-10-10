@@ -117,7 +117,8 @@ test("actual closure, DAPT, follow-up and decisions are linked; repeat implant n
   const p = await tx((q) =>
     K.recordProcedure(q, doc, id, {
       kind: "laao",
-      date: at(T),
+      // Keep the first implant before the later repeat, including around Kuwait midnight.
+      date: new Date(Date.now() - 60_000).toISOString(),
       details: la,
       contextId: admission.id,
     }),
