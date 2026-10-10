@@ -34,6 +34,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     if (facts.length) lines.push(facts.join(" · "));
   }
   if (sm.symptoms?.length) lines.push("Presenting symptoms: " + sm.symptoms.join(", "));
+  if (sm.narrative) lines.push("Reviewed narrative: " + sm.narrative);
   if (c.kind === "admission" && sm.events?.length) lines.push("In-hospital events: " + sm.events.join(", "));
   if (c.kind === "admission" && sm.dischargeStatus) lines.push(`At discharge: ${sm.dischargeStatus}${sm.destination ? ` · to ${sm.destination.toLowerCase()}` : ""}`);
   if (c.kind === "admission" && sm.handover) lines.push(`Handover / outstanding issues: ${sm.handover}`);

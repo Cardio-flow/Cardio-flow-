@@ -26,6 +26,7 @@ import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays, localDay } from "../shared/clinical.js";
 import { ADMISSION_ROUTES, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
+import { suggestDictation } from "../shared/dictation.js";
 
 export type Session = Actor & { email: string; expires: number; csrf: string };
 export type HostedAuth = {
@@ -595,6 +596,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- care contexts ----------
+  app.post("/api/patients/:id/dictation/preview", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ text: z.string().trim().min(1).max(4000), mode: z.enum(["visit", "admission"]) }).parse(req.body);
+    await db.transaction(tx => patientInSite(tx, actor(res), id));
+    res.json(suggestDictation(input.text, input.mode));
+  }));
   app.post("/api/patients/:id/admissions", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z
@@ -605,10 +612,19 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         route: z.enum(ADMISSION_ROUTES as [string, ...string[]]).nullish(),
         symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(),
         hfRelated: z.boolean().nullish(),
+        narrative: z.string().trim().max(4000).optional(),
+        vitals: z.array(z.object({ code: z.enum(["sbp", "dbp", "hr", "weight"]), value: z.number().finite() })).max(4).optional(),
         confirmations: z.array(z.object({ kind: z.enum(["condition", "medication"]), id: uuidS, answer: z.enum(["unchanged", "changed", "unknown", "not-assessed"]) })).optional(),
       })
       .parse(req.body);
-    await write(res, id, (tx, a) => K.startAdmission(tx, a, id, input));
+    await write(res, id, async (tx, a) => {
+      const result = await K.startAdmission(tx, a, id, input);
+      if (input.vitals?.length) {
+        await K.recordObservations(tx, a, id, { effectiveAt: input.startedAt, contextId: result.id, items: input.vitals });
+        return { ...result, changed: [...result.changed, ...input.vitals.map(v => v.code)] };
+      }
+      return result;
+    });
   }));
   app.post("/api/patients/:id/admissions/:cid/discharge", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -633,12 +649,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ reasons: z.array(z.string().max(80)).min(1).max(8), service: z.string().max(60), symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional() }).parse(req.body);
+    const input = z.object({ reasons: z.array(z.string().max(80)).min(1).max(8), service: z.string().max(60), symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(), narrative: z.string().trim().max(4000).optional() }).parse(req.body);
     await write(res, id, (tx, a) => K.startVisit(tx, a, id, { ...input, startedAt: nowIso() }));
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ note: z.string().max(8000).optional() }).parse(req.body);
+    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional() }).parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }));
   }));
   app.post("/api/patients/:id/status", clinician, route(async (req, res) => {

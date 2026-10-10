@@ -2,6 +2,20 @@
 
 Short entries. Newest first. Do not undo a decision without adding a new entry that says why.
 
+## 2026-10-10 · English-only dictation with faster review
+
+- Per Ahmed, dictation is English-only for this release. Remove the Arabic language option and fix browser recognition to en-GB. Dictate visit/admission opens capture with one button; Type or paste remains available. Consent is kept only during the mounted form. Pause/resume preserves transcript and suspended visit child actions retain the draft without browser storage.
+- Provide optional blank HF follow-up/admission-history headings. Recognise conservative English catalogue synonyms and common explicit-unit vital phrasing; do not infer units, diagnoses, treatments or dates. Group narrative for inspection without rearranging the stored original transcript. Highlight negation/uncertainty, missing units, conflicts, medicine instructions, labs and relative dates with original source words.
+- Add to note puts reviewed text into the existing narrative without filling fields. Structured suggestions remain unchecked, are grouped, allow direct numeric correction and show existing vital values they would replace. The ordinary form save remains required. Invalid selected numbers cannot be applied.
+- Automated checks validate extraction and workflow behaviour, not microphone/accent accuracy or clinician speed. Medical speech-service selection and the real-voice trial require recordings/participation and are not implied to be completed. No external AI service is introduced.
+
+## 2026-10-10 · Reviewed dictation in visits and admissions
+
+- Start with optional browser speech recognition (English/Arabic) and editable pasted/keyboard-microphone transcripts. Starting the microphone explains browser-provider processing and requires explicit consent. No audio is stored by CardioFlow; unsupported/denied speech has a text fallback. Stop recognition when hidden, inactive or unmounted. No AI provider credentials or external extraction service are introduced.
+- A clinician-authorised, site-scoped preview endpoint proposes only explicitly labelled English catalogue reasons/symptoms and complete vital values with units. It does not persist or infer diagnoses, treatments, doses, dates, labs or plans. Historical/uncertain context, conflicting readings and incompatible symptom selections are left as narrative. Each suggestion shows its source text and starts unchecked.
+- Use reviewed entries fills existing visit/admission form state. Normal save is still required. Admission narrative uses the existing context summary/Journey; confirmed admission vitals use existing observation recording in the same transaction, preserving context linkage and reassessment. Visit narrative appears in its draft/final note; discharge dictation appends to its existing handover field. No new tables, clinical rules, modules or daily admission review.
+- Real accent, noise and medical-term accuracy is not established by automated checks. Browser recognition is an initial optional transcription channel, not a validated medical speech engine; Arabic/mixed-language content remains narrative unless it matches the explicit English field format.
+
 - 2026-10-10 · Selected display direction: combine Quiet Workspace desktop with Bedside Focus phone. A shared admission timeline presents existing journey events, medicine changes and follow-up; event details expand on demand. Desktop clinical entry drawers retain a read-only admission context panel inside the same focus-trapped dialog. Phone admission header is compact, with labs and medicines as full-width actions. The clinic note is editable only after its generated draft request settles, avoiding an initial typing race. Existing clinical forms, rule severities, calculations and persistence remain the source of truth. No daily admission review or new clinical modules.
 
 ## 2026-10-10 · Phone entry refinements

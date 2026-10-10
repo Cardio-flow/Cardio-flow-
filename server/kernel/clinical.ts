@@ -950,6 +950,7 @@ export type AdmissionInput = {
   route?: string | null;
   symptoms?: string[];
   hfRelated?: boolean | null;
+  narrative?: string;
   confirmations?: { kind: "condition" | "medication"; id: string; answer: "unchanged" | "changed" | "unknown" | "not-assessed" }[];
 };
 
@@ -974,7 +975,7 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
     readmission = { days, band: readmissionBand(days), previousId: prev.id, previousDischarge: new Date(prev.ended_at).toISOString(), previousHfRelated, hfReadmission: hfRelated && previousHfRelated };
   }
   const id = uuid();
-  const summary = { confirmations: input.confirmations ?? [], route: input.route ?? null, symptoms: input.symptoms ?? [], hfRelated, readmission };
+  const summary = { confirmations: input.confirmations ?? [], route: input.route ?? null, symptoms: input.symptoms ?? [], hfRelated, readmission, ...(input.narrative ? { narrative: input.narrative } : {}) };
   await tx.query(
     `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'admission','open',$3,$4,'Cardiology',$5,$6,$7,$8)`,
     [id, patientId, input.startedAt, input.location, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
@@ -982,7 +983,7 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.startedAt, kind: "admission", category: "visit",
     title: `Admitted · ${input.reasons.join(", ") || "cardiology"}${readmission ? ` · readmission ${readmission.days} d after discharge` : ""}`,
-    detail: [input.location, input.route, (input.symptoms ?? []).join(", ")].filter(Boolean).join(" · "), refType: "care_context", refId: id, contextId: id,
+    detail: [input.location, input.route, (input.symptoms ?? []).join(", "), input.narrative].filter(Boolean).join(" · "), refType: "care_context", refId: id, contextId: id,
   });
   await audit(tx, actor, "admit", "care_context", id, patientId);
   return { id, changed: ["contexts"] as Changed };
@@ -1099,7 +1100,7 @@ export async function startVisit(
   tx: Q,
   actor: Actor,
   patientId: string,
-  input: { startedAt: string; reasons: string[]; service: string; location?: string; symptoms?: string[] },
+  input: { startedAt: string; reasons: string[]; service: string; location?: string; symptoms?: string[]; narrative?: string },
 ) {
   await patientInSite(tx, actor, patientId);
   notFuture(input.startedAt, "A visit");
@@ -1112,7 +1113,7 @@ export async function startVisit(
   const id = uuid();
   await tx.query(
     `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'clinic_visit','open',$3,$4,$5,$6,$7,$8,$9)`,
-    [id, patientId, input.startedAt, input.location ?? "OPD", input.service, input.reasons, prev?.id ?? null, JSON.stringify({ symptoms: input.symptoms ?? [] }), actor.id],
+    [id, patientId, input.startedAt, input.location ?? "OPD", input.service, input.reasons, prev?.id ?? null, JSON.stringify({ symptoms: input.symptoms ?? [], ...(input.narrative ? { narrative: input.narrative } : {}) }), actor.id],
   );
   const completed = await completeMatching(tx, actor, patientId, { type: "visit", at: input.startedAt, ref: id });
   await journeyEvent(tx, actor, {
@@ -1123,11 +1124,11 @@ export async function startVisit(
   return { id, changed: ["contexts", ...(completed.length ? ["plan"] : [])] as Changed, completed };
 }
 
-export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string }) {
+export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string; narrative?: string }) {
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
-  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "" })]);
+  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;
 }
