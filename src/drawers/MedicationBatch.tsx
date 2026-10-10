@@ -1,7 +1,7 @@
 // Several medicines at once (clinic visit, 7 Oct 2026): the guideline suggestions for this patient are
 // listed first and can be ticked; any other medicine is added from the search; each row keeps its own dose,
 // frequency, indication, pre-start check and monitoring; one Save starts them all (all or none).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useId } from "react";
 import { Pill, Search, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, Tag } from "../ui";
@@ -138,6 +138,8 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
 
 function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: string; summary: any; row: Row; upd(p: Partial<Row>): void; remove(): void; onHits(h: Hit[]): void }) {
   const d = MEDICATION[row.code];
+  const [editing, setEditing] = useState(false);
+  const fieldsId = useId();
   const tags = patientTags(summary);
   const { data: check } = useData<{ hits: Hit[]; start: { dose: number } | null }>(`/patients/${patientId}/medication-check/${row.code}`, [row.code]);
   const hits = check?.hits ?? [];
@@ -154,10 +156,14 @@ function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: s
     <div className={`mb-row ${reds.length ? "red" : ""}`}>
       <div className="mb-row-top">
         <b>{d.name}</b>
-        <span className="muted small">{d.drugClass}{d.brands?.length ? ` · ${d.brands.join(", ")}` : ""}</span>
+        <span className="muted small mb-meta">{d.drugClass}{d.brands?.length ? ` · ${d.brands.join(", ")}` : ""}</span>
         <button type="button" className="btn ghost small" style={{ marginLeft: "auto" }} onClick={remove} aria-label={`Remove ${d.name}`}><X size={14} /> Remove</button>
       </div>
-      <div className="mb-fields">
+      <div className="mb-summary">
+        <div><b>{row.dose ? doseLabel(d, Number(row.dose)) : "Dose not specified"} · {row.freq}</b><span>{row.indication === "unspecified" ? "Indication not specified" : d.indicationChoices ? row.indication : tagLabel(row.indication, summary)}</span></div>
+        <button type="button" className="btn ghost small" aria-expanded={editing} aria-controls={fieldsId} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit"}<span className="sr-only"> {d.name}</span></button>
+      </div>
+      <div id={fieldsId} className="mb-fields" data-editing={editing}>
         <label className="field">
           <span>Dose</span>
           <select className="input" value={row.dose} onChange={(e) => upd({ dose: e.target.value })}>
@@ -176,13 +182,13 @@ function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: s
             {indications.map((t) => <option key={t} value={t}>{t === "unspecified" ? "Not specified" : d.indicationChoices ? t : tagLabel(t, summary)}</option>)}
           </select>
         </label>
-        {(schedule.length > 0 || renal) && (
-          <label className="mb-book">
-            <input type="checkbox" checked={row.book} onChange={(e) => upd({ book: e.target.checked })} />
-            <span>{schedule.length ? "Book its monitoring schedule" : "Book K⁺ and creatinine in 1 week"}</span>
-          </label>
-        )}
       </div>
+      {(schedule.length > 0 || renal) && (
+        <label className="mb-book">
+          <input type="checkbox" checked={row.book} onChange={(e) => upd({ book: e.target.checked })} />
+          <span>{schedule.length ? "Book its monitoring schedule" : "Book K⁺ and creatinine in 1 week"}</span>
+        </label>
+      )}
       {check?.start && <div className="mb-note">Label starting dose {check.start.dose} mg for this patient.</div>}
       {hits.length > 0 && (
         <div className="mb-hits">

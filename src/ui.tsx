@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { AlertTriangle, Activity, Clock, Info, CheckCircle2, X } from "lucide-react";
 
 // ---------- routing ----------
@@ -226,6 +226,16 @@ type Toast = { text: string; err?: boolean };
 const ToastCtx = createContext<(t: Toast) => void>(() => {});
 export function ToastHost({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null);
+  const [height, setHeight] = useState(0);
+  const rail = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!toast || !rail.current) { setHeight(0); return; }
+    const measure = () => setHeight(rail.current?.getBoundingClientRect().height ?? 0);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(rail.current);
+    return () => observer.disconnect();
+  }, [toast]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), toast.err ? 6000 : 3500);
@@ -233,13 +243,14 @@ export function ToastHost({ children }: { children: ReactNode }) {
   }, [toast]);
   return (
     <ToastCtx.Provider value={setToast}>
-      {children}
-      {toast && (
-        <div className={`toast ${toast.err ? "err" : ""}`} role="status" aria-live="polite">
+      <div className="app-feedback" style={{ "--feedback-space": `${height}px` } as CSSProperties}>
+        {toast && <div ref={rail} className={`toast ${toast.err ? "err" : ""}`} role="status" aria-live="polite">
           {toast.err ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
-          {toast.text}
-        </div>
-      )}
+          <span className="toast-text">{toast.text}</span>
+          <button type="button" className="icon-btn" aria-label="Dismiss notification" onClick={() => setToast(null)}><X size={18} /></button>
+        </div>}
+        {children}
+      </div>
     </ToastCtx.Provider>
   );
 }

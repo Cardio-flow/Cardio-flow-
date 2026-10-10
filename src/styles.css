@@ -1506,3 +1506,38 @@ table.data.meds td.med-compact { display: none; }
   .admission-patient-head .pt-name { gap: 4px 6px; }
   .admission-patient-head .pt-edit { height: 28px; }
 }
+
+/* Compact entry; the selected values and safety findings stay visible. */
+.lab-date { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.lab-date-current { display: flex; align-items: center; gap: 10px; color: var(--navy); }
+.lab-date-current > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; flex: 1; min-width: 0; }
+.lab-date-current > span > span { color: var(--ink-3); }
+.lab-date-current .btn { flex-shrink: 0; }
+.lab-date-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.mb-summary { display: none; }
+.app-feedback { padding-top: var(--feedback-space, 0px); }
+.app-feedback .topbar { top: var(--feedback-space, 0px); }
+.app-feedback .sidebar { top: var(--feedback-space, 0px); height: calc(100dvh - var(--feedback-space, 0px)); }
+.app-feedback .drawer { top: var(--feedback-space, 0px); height: calc(100dvh - var(--feedback-space, 0px)); }
+.app-feedback .toast { top: 0; bottom: auto; left: 0; transform: none; width: 100%; max-width: none; max-height: 30dvh; overflow-y: auto; border-radius: 0; padding: 10px 16px; font-size: 13px; line-height: 1.45; }
+.toast > svg { flex-shrink: 0; }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast .icon-btn { flex-shrink: 0; color: #fff; background: rgba(255,255,255,.1); width: 32px; height: 32px; }
+@media (min-width: 1200px) {
+  .app-feedback .drawer.with-workspace { top: calc(72px + var(--feedback-space, 0px)); height: calc(100dvh - 72px - var(--feedback-space, 0px)); }
+}
+@media (max-width: 640px) {
+  .mb-row { gap: 6px; padding: 10px 12px; }
+  .mb-row-top { align-items: center; flex-wrap: nowrap; gap: 6px; }
+  .mb-row-top > b { min-width: 0; overflow-wrap: anywhere; }
+  .mb-row-top .mb-meta { display: none; }
+  .mb-row-top .btn { font-size: 12px; padding: 0 6px; }
+  .mb-summary { display: flex; align-items: center; gap: 8px; }
+  .mb-summary > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .mb-summary span { color: var(--ink-3); font-size: 12px; overflow-wrap: anywhere; }
+  .mb-summary .btn { flex-shrink: 0; min-height: 40px; }
+  .mb-fields[data-editing="false"] { display: none; }
+  .mb-fields { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .mb-fields > label:nth-child(3) { grid-column: 1 / -1; }
+  .mb-fields .input { min-width: 0; width: 100%; }
+}

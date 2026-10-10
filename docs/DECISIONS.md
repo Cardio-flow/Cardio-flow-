@@ -4,6 +4,12 @@ Short entries. Newest first. Do not undo a decision without adding a new entry t
 
 - 2026-10-10 · Selected display direction: combine Quiet Workspace desktop with Bedside Focus phone. A shared admission timeline presents existing journey events, medicine changes and follow-up; event details expand on demand. Desktop clinical entry drawers retain a read-only admission context panel inside the same focus-trapped dialog. Phone admission header is compact, with labs and medicines as full-width actions. The clinic note is editable only after its generated draft request settles, avoiding an initial typing race. Existing clinical forms, rule severities, calculations and persistence remain the source of truth. No daily admission review or new clinical modules.
 
+## 2026-10-10 · Phone entry refinements
+
+- Lab entry shows one effective date and reveals manual date entry on request. Partial/invalid custom dates disable saving rather than silently falling back to today; Use today restores the explicit default.
+- Phone medicine batches keep dose, frequency and indication in a compact summary, with expandable edits. Monitoring, safety findings and required override reasons stay outside the collapsed fields. Desktop retains the full controls.
+- Notifications reserve a measured strip above the app and drawers, preserving full message text and exposing Dismiss. They do not cover the forms or bottom navigation. No clinical rules, modules or data schema changes.
+
 ## 2026-10-10 · Finish existing admission and entry workflows before adding modules
 
 - Admissions stay focused on recorded milestones/events, labs, medication changes and discharge documentation. No daily admission review or new clinical pathways/modules in this iteration, per Ahmed's request.

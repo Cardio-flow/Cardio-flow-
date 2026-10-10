@@ -13,6 +13,7 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
   const [values, setValues] = useState<Record<string, string>>({});
   const [units, setUnits] = useState<Record<string, string>>({});
   const [date, setDate] = useState<string>("today");
+  const [dateEditing, setDateEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,7 +46,7 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
   const addable = useMemo(() => LABS.filter((l) => !l.derived && !rows.includes(l.code) && (l.display + l.short).toLowerCase().includes(q.toLowerCase())), [rows, q]);
   async function save(e?: React.FormEvent) {
     e?.preventDefault();
-    if (busy || !filled.length || invalid.length) return;
+    if (busy || !filled.length || invalid.length || !date) return;
     setBusy(true);
     setError("");
     try {
@@ -82,7 +83,7 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
           <span className="note">Tab: next result · Alt+U: units · Enter: save</span>
           <span className="end">
             <button className="btn ghost" onClick={close} style={{ color: "var(--ink-3)" }}>Cancel</button>
-            <button className="btn primary" form="labs-form" disabled={busy || !filled.length || invalid.length > 0}>
+            <button className="btn primary" form="labs-form" disabled={busy || !filled.length || invalid.length > 0 || !date}>
               {busy ? "Saving…" : `Save ${filled.length || ""} result${filled.length === 1 ? "" : "s"}`}
             </button>
           </span>
@@ -90,18 +91,17 @@ export function QuickLabs({ patientId, codes, contextId, onClose, onDone }: { pa
       }
     >
       <form id="labs-form" className="drawer-body" onSubmit={save}>
-        <div className="row wrap" style={{ gap: 14 }}>
-          <span style={{ fontWeight: 800, width: 120 }}>Date</span>
-          <div className="seg" role="radiogroup" aria-label="Result date">
-            <button type="button" role="radio" aria-checked={date === "today"} onClick={() => setDate("today")}>
-              Today{today ? ` · ${fmtDay(today, { weekday: true })}` : ""}
-            </button>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 10px", fontWeight: 600, color: "var(--ink-3)" }}>
-              <Calendar size={16} />
-              <span className="sr-only">Other date</span>
-              <DateInput className="input" style={{ height: 36 }} max={today} value={date === "today" ? "" : date} onChange={(e) => setDate(e.target.value || "today")} />
-            </label>
+        <div className="lab-date">
+          <div className="lab-date-current">
+            <Calendar size={17} aria-hidden="true" />
+            <span><b>Result date</b><span>{date === "today" ? `Today${today ? ` · ${fmtDay(today, { weekday: true })}` : ""}` : date ? fmtDay(date, { weekday: true, year: true }) : "Choose a date"}</span></span>
+            <button type="button" className="btn ghost small" aria-expanded={dateEditing} aria-controls="lab-date-edit" onClick={() => setDateEditing(!dateEditing)}>{dateEditing ? "Hide date entry" : "Change date"}</button>
           </div>
+          {dateEditing && <div id="lab-date-edit" className="lab-date-edit">
+            <DateInput className="input" aria-label="Result date" autoFocus max={today} value={date === "today" ? today ?? "" : date} onChange={(e) => setDate(e.target.value)} />
+            <button type="button" className="btn secondary small" onClick={() => { setDate("today"); setDateEditing(false); }}>Use today</button>
+            {!date && <span className="help">Enter a complete past or current date, or use today.</span>}
+          </div>}
         </div>
         {adding && (
           <div className="col">
