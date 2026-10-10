@@ -64,6 +64,9 @@ try {
     "lab-creatinine",
   );
   await page.getByLabel("Creatinine", { exact: true }).fill("100");
+  await page.keyboard.press("Alt+u");
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Creatinine unit");
+  await page.getByLabel("Creatinine", { exact: true }).focus();
   await page.keyboard.press("Tab");
   assert.equal(
     await page.evaluate(() => document.activeElement.id),
