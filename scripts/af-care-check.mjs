@@ -107,6 +107,7 @@ try {
     imagePlan = "Arrange surveillance or repeat imaging",
   ) => {
     await radio("Safety today", "No urgent symptoms reported");
+    await radio("Reviewed device protocol", "WATCHMAN FLX Pro US IFU: DAPT-only");
     await radio(
       "Intended antithrombotic regimen",
       "DAPT per implant-team / device protocol",
@@ -116,6 +117,7 @@ try {
     await radio("TEE / CT surveillance", imagePlan);
     await date("Imaging / findings review date", day(T, 45));
     await date("LAA closure team follow-up date", day(T, 45));
+    await radio("Later device surveillance", "Plan 12-month surveillance under the reviewed device protocol");
     await next();
     await p.screenshot({
       animations: "disabled",
@@ -204,6 +206,7 @@ try {
     "Review short-term antiarrhythmic therapy with EP",
   );
   await next();
+  assert.equal(await p.getByRole("radiogroup", { name: "Post-ablation minimum anticoagulation reference", exact: true }).getByRole("radio", { name: /ESC/ }).getAttribute("aria-checked"), "true", "ESC should be the default reference");
   await radio(
     "Post-ablation minimum anticoagulation reference",
     "ACC/AHA/HRS: at least 3 calendar months",
@@ -218,6 +221,7 @@ try {
   );
   await next();
   await p.setViewportSize({ width: 390, height: 844 });
+  assert.ok((await p.getByRole("dialog").innerText()).includes("Pulsed field"), "Aftercare reads actual PFA energy");
   await p.screenshot({
     animations: "disabled",
     path: `${out}/03-phone-ablation-plan.png`,

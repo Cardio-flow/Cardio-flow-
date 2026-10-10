@@ -120,7 +120,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const preImaging = [...s.studies].reverse().find(st => st.kind === "laa_imaging" && ["Before closure", "Before cardioversion / ablation"].includes(st.attributes.purpose));
   if (closure?.attributes.method === "Transcatheter occlusion") dx.push("laao-transcatheter");
   const afProcedures = {
-    ablation: ablation ? { id: ablation.id, day: localDay(ablation.performed_at), result: String(ablation.attributes.result), minimumOac: addCalendarMonths(localDay(ablation.performed_at), s.afReviews?.["after-af-ablation"]?.answers._procedureId === ablation.id && s.afReviews["after-af-ablation"].answers.basis === "acc" ? 3 : 2) } : null,
+    ablation: ablation ? { id: ablation.id, day: localDay(ablation.performed_at), result: String(ablation.attributes.result), energy: ablation.attributes.energy, minimumOac: addCalendarMonths(localDay(ablation.performed_at), s.afReviews?.["after-af-ablation"]?.answers._procedureId === ablation.id && s.afReviews["after-af-ablation"].answers.basis === "acc" ? 3 : 2) } : null,
     closure: closure ? { id: closure.id, day: localDay(closure.performed_at), method: String(closure.attributes.method), device: String(closure.attributes.device), regimen: String(closure.attributes.regimen), reviewDate: closure.attributes.reviewDate ?? null } : null,
     imaging: imaging ? { id: imaging.id, day: localDay(imaging.performed_at), findings: imaging.attributes } : null,
     preImaging: preImaging ? { id: preImaging.id, day: localDay(preImaging.performed_at), findings: preImaging.attributes } : null,
@@ -242,6 +242,12 @@ export async function completeWizard(
   }
   if (wizardId === "after-af-ablation" && !ctx.afProcedures?.ablation) throw new ApiError(400, "Record the AF ablation before planning post-ablation care");
   if (wizardId === "after-laao" && !ctx.afProcedures?.closure) throw new ApiError(400, "Record a completed LAA closure before planning post-closure care");
+  if (wizardId === "after-laao" && String(input.answers.protocol ?? "").startsWith("flxpro-")) {
+    if (ctx.afProcedures?.closure?.device !== "WATCHMAN FLX Pro" || ctx.afProcedures.closure.method !== "Transcatheter occlusion") throw new ApiError(400, "The selected US WATCHMAN FLX Pro protocol does not match the recorded closure device");
+    if (input.answers.protocol === "flxpro-ablation" && (!ctx.afProcedures?.ablation || ctx.afProcedures.ablation.day > ctx.afProcedures.closure.day)) throw new ApiError(400, "Record AF ablation on or before closure before selecting the post-ablation device protocol");
+    const expected = input.answers.protocol === "flxpro-dapt" ? "dapt" : "oac";
+    if (input.answers.regimen !== expected) throw new ApiError(400, "The intended regimen must match the selected device protocol; use the reviewed regional / individualized protocol for exceptions");
+  }
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   // the clinician may move a planned date (keyed by the plan item's title); never before today
   for (const item of outcome)

@@ -1094,7 +1094,8 @@ GUIDANCE["after-af-ablation"] = {
   monitor: a => [a.rhythm === "recurrence" && S("yes", "Symptoms / recurrence require additional rhythm monitoring (EHRA consensus 2024)")],
 };
 GUIDANCE["laao-selection"] = {
-  decision: () => [S("refer", "SCAI/HRS 2025: multidisciplinary eligibility, anatomy and antithrombotic feasibility review before implantation")],
+  basis: () => [S("esc", "ESC AF 2024 is the default: LAAO for long-term OAC contraindication (IIb C). SCAI/HRS offers a broader conditional shared decision, not an equivalent ESC recommendation.")],
+  decision: () => [S("refer", "ESC AF 2024: specialist shared decision and eligibility review before implantation; assess anatomy and postimplant therapy with the implant team")],
 };
 GUIDANCE["after-laao"] = {
   imagePlan: (_a, c) => {

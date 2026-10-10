@@ -12,7 +12,8 @@ import { suggest } from "../shared/wizard-guidance.js";
 import { RHYTHM_RULES } from "../server/engine/rhythm-rules.js";
 import { addCalendarMonths } from "../shared/af.js";
 import { cleanProcedure } from "../shared/procedures.js";
-import { buildOutcome } from "../shared/wizards.js";
+import { buildOutcome, WIZARDS } from "../shared/wizards.js";
+import { prefill } from "../shared/wizard-prefill.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 let db: DB;
@@ -49,6 +50,8 @@ const la = {
 };
 const laAnswers = {
   safety: "stable",
+  protocol: "regional",
+  lateImaging: "individual",
   regimen: "dapt",
   regimenAt: addDays(T, 30),
   imagePlan: "book",
@@ -528,4 +531,165 @@ test("medication duration never confirms effective preprocedure anticoagulation"
   assert.deepEqual(suggest("peri-af-procedure", "oacNow", {}, c), []);
   c.meds[0].startedAt = null;
   assert.deepEqual(suggest("peri-af-procedure", "oacNow", {}, c), []);
+});
+
+test("ESC defaults preserve the distinct SCAI closure eligibility decision", async () => {
+  const id = await patient();
+  const c = (await tx((q) => getWizard(q, id, "laao-selection"))).context;
+  assert.equal(prefill("laao-selection", c).answers.basis, "esc");
+  assert.equal(prefill("after-af-ablation", c).answers.basis, "esc");
+  const a = {
+    basis: "esc",
+    reason: "preference",
+    life: "adequate",
+    shortTherapy: "yes",
+    imaging: "clear",
+    decision: "proceed",
+    when: T,
+  };
+  const scheduled = (answers: any) =>
+    buildOutcome("laao-selection", answers, c).some(
+      (x) => x.kind === "plan" && x.category === "procedure",
+    );
+  assert.equal(scheduled(a), false);
+  assert.equal(scheduled({ ...a, basis: "scai" }), true);
+  assert.equal(scheduled({ ...a, reason: "contra" }), true);
+  assert.match(
+    WIZARDS["laao-selection"].assess!(
+      { ...a, basis: "scai" },
+      c,
+    ).recommendations.join(" "),
+    /moderate-certainty/,
+  );
+});
+
+test("device protocol validation rejects mismatched devices, regimen and unrecorded ablation", async () => {
+  const id = await patient();
+  await tx((q) =>
+    K.recordProcedure(q, doc, id, { kind: "laao", date: at(T), details: la }),
+  );
+  await assert.rejects(
+    run(id, "after-laao", { ...laAnswers, protocol: "flxpro-dapt" }),
+    /does not match/,
+  );
+  const pro = await patient();
+  await tx((q) =>
+    K.recordProcedure(q, doc, pro, {
+      kind: "laao",
+      date: at(T),
+      details: { ...la, device: "WATCHMAN FLX Pro" },
+    }),
+  );
+  await assert.rejects(
+    run(pro, "after-laao", { ...laAnswers, protocol: "flxpro-oac" }),
+    /regimen must match/,
+  );
+  await assert.rejects(
+    run(pro, "after-laao", {
+      ...laAnswers,
+      protocol: "flxpro-ablation",
+      regimen: "oac",
+    }),
+    /Record AF ablation/,
+  );
+  const r = await run(pro, "after-laao", {
+    ...laAnswers,
+    protocol: "flxpro-dapt",
+    lateImaging: "book",
+  });
+  const late = r.outcome.find(
+    (x) => x.kind === "plan" && x.title.includes("12-month LAA"),
+  );
+  assert.ok(late?.kind === "plan");
+  assert.equal(late.dueDate, addCalendarMonths(T, 12));
+  assert.equal(late.completesOn.after, addCalendarMonths(T, 12));
+  assert.ok(!r.outcome.some((x) => ["start", "medication"].includes(x.kind)));
+  assert.equal(
+    (await loadState(db, pro)).afReviews?.["after-laao"].answers.protocol,
+    "flxpro-dapt",
+  );
+});
+
+test("an unconfirmed device protocol remains an actionable finding despite clear imaging and matching medicines", async () => {
+  const id = await patient();
+  await tx((q) =>
+    K.recordProcedure(q, doc, id, {
+      kind: "laao",
+      date: at(addDays(T, -1)),
+      details: la,
+    }),
+  );
+  await meds(id);
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "laa_imaging",
+      date: at(T),
+      findings: {
+        purpose: "After closure",
+        modality: "TOE / TEE",
+        laaThrombus: "Absent",
+        deviceThrombus: "Absent",
+        leak: "Absent",
+      },
+    }),
+  );
+  await run(id, "after-laao", {
+    ...laAnswers,
+    protocol: "unconfirmed",
+    imagePlan: "reviewed",
+  });
+  const rule = AF_AFTERCARE_RULES.find(
+    (r) => r.id === "rhythm.laao-aftercare",
+  )!;
+  assert.equal(rule.evaluate(await loadState(db, id), {}).length, 1);
+  await run(id, "after-laao", {
+    ...laAnswers,
+    protocol: "regional",
+    imagePlan: "reviewed",
+  });
+  assert.equal(rule.evaluate(await loadState(db, id), {}).length, 0);
+});
+
+test("PFA recovery and long-term risk review read the actual procedure and create no automatic drug change", async () => {
+  const id = await patient();
+  await tx((q) =>
+    K.recordProcedure(q, doc, id, {
+      kind: "ablation",
+      date: at(addDays(T, -10)),
+      details: {
+        targets: ["AF (pulmonary vein isolation)"],
+        energy: "Pulsed field",
+        result: "Acute success",
+      },
+    }),
+  );
+  const c = (await tx((q) => getWizard(q, id, "after-af-ablation"))).context;
+  assert.equal(c.afProcedures?.ablation?.energy, "Pulsed field");
+  const a = {
+    safety: "stable",
+    rhythm: "well",
+    aad: "none",
+    basis: "esc",
+    oac: "longterm",
+    reviewAt: T,
+    ecgAt: T,
+    monitor: "no",
+  };
+  const low = { ...c, af: { ...c.af!, score: 0 } };
+  const assessment = WIZARDS["after-af-ablation"].assess!(a, low);
+  assert.match(assessment.recommendations.join(" "), /haemolysis/);
+  assert.match(assessment.recommendations.join(" "), /other indications/);
+  assert.match(
+    assessment.recommendations.join(" "),
+    /minimum period has not passed/,
+  );
+  const out = buildOutcome("after-af-ablation", a, low);
+  assert.ok(
+    out.some(
+      (x) =>
+        x.kind === "plan" &&
+        x.title.includes("rhythm-monitoring / restart plan"),
+    ),
+  );
+  assert.ok(out.every((x) => x.kind === "plan"));
 });

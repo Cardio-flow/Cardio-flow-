@@ -3,7 +3,7 @@ import { addDays, localDay } from "../../shared/clinical.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 const LA_SOURCE =
-  "2025 SCAI/HRS LAAO guideline, recommendations 5–8 (https://doi.org/10.1016/j.jscai.2025.103783): OAC or DAPT; postimplant TEE/CT; DRT favors OAC. SAPT, leak management, OAC duration and repeat-imaging timing are knowledge gaps.";
+  "2025 SCAI/HRS LAAO guideline, recommendations 5–8 (https://doi.org/10.1016/j.jscai.2025.103783): OAC or DAPT; postimplant TEE/CT; DRT favors OAC. 2023 SCAI/HRS consensus, recommendation 11 (https://doi.org/10.1016/j.jcin.2023.01.011): studied regimen/current device IFU and bleeding risk guide antithrombotics. SAPT, leak management, OAC duration and repeat-imaging timing are knowledge gaps.";
 const closureOf = (s: PatientState) =>
   [...s.procedures]
     .reverse()
@@ -51,6 +51,10 @@ export const AF_AFTERCARE_RULES: RuleDef[] = [
       const im = imageOf(s, cl.performed_at),
         review = s.afReviews?.["after-laao"];
       const answered = review?.answers._procedureId === cl.id;
+      const protocolMissing =
+        answered &&
+        (!review!.answers.protocol ||
+          review!.answers.protocol === "unconfirmed");
       const drugs = s.meds.filter((m) => m.status === "active");
       const regimen = answered
         ? review!.answers.regimen
@@ -93,14 +97,21 @@ export const AF_AFTERCARE_RULES: RuleDef[] = [
             p.completes_on.purpose === "After closure" &&
             p.created_at >= cl.performed_at,
         );
-      if (answered && !mismatch && !needsReview && !newImage && !noScanPlan)
+      if (
+        answered &&
+        !protocolMissing &&
+        !mismatch &&
+        !needsReview &&
+        !newImage &&
+        !noScanPlan
+      )
         return [];
       return [
         finding(
           "laao-care",
-          `${cl.id}:${im?.id ?? "no-image"}:${regimen ?? "unknown"}:${drugs.map((m) => m.id).join(",")}:${reviewDate ?? ""}:${review?.at ?? ""}:${needsReview ? "due" : "not-due"}:${noScanPlan ? "no-plan" : "covered"}`,
+          `${cl.id}:${im?.id ?? "no-image"}:${regimen ?? "unknown"}:${drugs.map((m) => m.id).join(",")}:${reviewDate ?? ""}:${review?.at ?? ""}:${needsReview ? "due" : "not-due"}:${noScanPlan ? "no-plan" : "covered"}:${protocolMissing ? "protocol-missing" : String(review?.answers.protocol ?? "")}`,
           "LAA closure: review imaging and the antithrombotic plan",
-          `${cl.attributes.device}, ${localDay(cl.performed_at)}. ${mismatch ? "The intended regimen is missing or differs from active medicines. " : ""}${newImage ? "New surveillance imaging needs a clinical decision. " : ""}${noScanPlan ? "No surveillance imaging or dated imaging plan recorded. " : ""}${needsReview ? "The regimen review is due. " : ""}Confirm the device protocol, bleeding risk and other anticoagulant indications; no automatic medication stop.`,
+          `${cl.attributes.device}, ${localDay(cl.performed_at)}. ${protocolMissing ? "The governing regional device protocol has not been confirmed. " : ""}${mismatch ? "The intended regimen is missing or differs from active medicines. " : ""}${newImage ? "New surveillance imaging needs a clinical decision. " : ""}${noScanPlan ? "No surveillance imaging or dated imaging plan recorded. " : ""}${needsReview ? "The regimen review is due. " : ""}Confirm the device protocol, bleeding risk and other anticoagulant indications; no automatic medication stop.`,
           "after-laao",
         ),
       ];

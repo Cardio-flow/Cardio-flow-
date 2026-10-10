@@ -76,7 +76,7 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
     id: "af-ablation-plan",
     title: "AF ablation: shared decision & preparation",
     source: "ESC AF 2024; EHRA/HRS/APHRS/LAHRS ablation consensus 2024",
-    note: "Catheter ablation is an option for symptom control after drug failure/intolerance, or first-line in selected patients. HFrEF and suspected tachycardia-mediated cardiomyopathy need an EP discussion. PVI is the core procedure; energy and additional lesions are chosen by the operator. Anticoagulation remains based on stroke risk.",
+    note: "ESC is the default reference. First-line catheter ablation within shared decision-making for paroxysmal AF is Class I A; selected persistent AF is Class IIb C. Ablation after antiarrhythmic failure/intolerance is Class I A. HFrEF and suspected tachycardia-mediated cardiomyopathy need an EP discussion. Anticoagulation remains based on stroke risk.",
     steps: [
       {
         id: "decision",
@@ -112,7 +112,7 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
               ["yes", "Confirmed with the EP team"],
               ["no", "Interrupted, absent or not confirmed"],
             ],
-            "Check missed DOAC doses, therapeutic INR for VKA, renal function and interactions. Medication start date alone does not prove effective anticoagulation.",
+            "ESC 2024: at least 3 weeks effective OAC before ablation in elevated-risk patients (I C). Check missed DOAC doses, therapeutic INR for VKA, renal function and interactions. Medication start date alone does not prove adherence.",
           ),
           single("thrombus", "Thrombus exclusion / EP imaging decision", [
             ["clear", "EP confirms imaging requirements satisfied"],
@@ -126,7 +126,7 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
               ["continuous", "Uninterrupted anticoagulation"],
               ["minimal", "Minimally interrupted DOAC under EP protocol"],
             ],
-            "Uninterrupted VKA; continuous or minimally interrupted DOAC per the operator's protocol. Do not create a generic heparin-bridging schedule.",
+            "ESC 2024 recommends uninterrupted OAC (I A). Minimally interrupted DOAC is an EP-protocol alternative supported by procedural evidence and ACC guidance; it is not a VKA interruption or bridging instruction.",
           ),
         ],
       },
@@ -205,7 +205,7 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
     id: "after-af-ablation",
     title: "After AF ablation: anticoagulation & recovery",
     source:
-      "ESC AF 2024; EHRA/HRS/APHRS/LAHRS ablation consensus 2024; ACC/AHA/HRS AF 2023",
+      "ESC AF 2024 (default); EHRA ablation consensus 2024; EHRA/HRS PFA statement 2026 (10.1093/europace/euag080); ACC/AHA/HRS AF 2023 (alternative)",
     note: "Record the actual AF ablation first. Dates count from that procedure. Early recurrence within the 8-week blanking period is not automatically treatment failure. Review symptoms, ECG, stroke prevention and risk factors; never stop anticoagulation automatically.",
     steps: [
       {
@@ -337,6 +337,14 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
             String(a.reviewAt),
           ),
         );
+      if (a.oac === "longterm")
+        out.push(
+          plan(
+            "medication",
+            "Long-term OAC shared decision: stroke risk, other indications, recurrence evidence and rhythm-monitoring / restart plan",
+            String(a.reviewAt),
+          ),
+        );
       return out;
     },
     assess(a, c) {
@@ -355,12 +363,59 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
               ? addCalendarMonths(ab.day, a.basis === "acc" ? 3 : 2)
               : "Not available",
           },
+          {
+            label: "Reference",
+            value:
+              a.basis === "acc"
+                ? "ACC/AHA/HRS 2023 · minimum 3 months"
+                : "ESC 2024 · minimum 2 months (I C)",
+          },
+          {
+            label: "CHA₂DS₂-VA",
+            value: String(c.af?.score ?? "Not available"),
+          },
+          { label: "Ablation energy", value: ab?.energy ?? "Not recorded" },
         ],
         recommendations: [
           "Routine rhythm assessment within 2–3 months includes at least a 12-lead ECG; annual ECG follow-up thereafter, earlier monitoring for symptoms.",
           "The 8-week blanking period describes recurrence interpretation; urgent symptoms still need assessment.",
           "Give written access-site / wound and activity instructions from the EP team. Review chest pain, dyspnoea, swallowing pain / fever, stroke symptoms and bleeding; severe or progressive symptoms need urgent care.",
           "Continue OAC according to stroke risk beyond the minimum period; sinus rhythm alone does not establish that stopping OAC is safe.",
+          ...(c.af
+            ? [
+                c.af.score >= 2
+                  ? "ESC: CHA₂DS₂-VA ≥2 supports ongoing OAC. Ablation success alone does not remove this indication (I C)."
+                  : c.af.score === 1
+                    ? "ESC: CHA₂DS₂-VA 1 — consider OAC through shared decision-making (IIa C). EHRA 2024 allows selected intermediate-risk withdrawal discussions after 12 months without recurrence, with long-term rhythm monitoring and a restart plan."
+                    : "ESC: CHA₂DS₂-VA 0 — review whether OAC remains indicated after the minimum period. EHRA 2024 supports discontinuation in low-risk patients after 2 months; confirm other indications and the selected reference before any medication change.",
+              ]
+            : [
+                "Stroke risk is missing: establish it before a long-term OAC decision.",
+              ]),
+          ...((c.dx ?? []).some((d) =>
+            ["hcm", "amyloid", "mechanical-valve", "ms-significant"].includes(
+              d,
+            ),
+          )
+            ? [
+                "Cardiomyopathy or valve-related anticoagulation indications remain independent of the score. Do not apply a low-risk withdrawal option without specialist review.",
+              ]
+            : []),
+          ...(ab?.energy === "Pulsed field"
+            ? [
+                "PFA statement 2026: assess possible haemolysis / kidney injury and coronary vasospasm when symptoms or procedural concerns arise. Review renal function and hydration individually, particularly with CKD; use the EP team's discharge criteria.",
+                ...(c.device
+                  ? [
+                      "PFA with an implanted cardiac electronic device: confirm pre- and postprocedure interrogation and platform-specific precautions with EP.",
+                    ]
+                  : []),
+              ]
+            : []),
+          ...(ab && c.afProcedures?.closure
+            ? [
+                "Both AF ablation and LAA closure are recorded. Review the device-specific post-ablation protocol alongside the ablation minimum; neither procedure alone authorizes a drug stop.",
+              ]
+            : []),
           ...(a.oac === "longterm" &&
           ab &&
           c.today < addCalendarMonths(ab.day, a.basis === "acc" ? 3 : 2)
@@ -376,13 +431,23 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
     ...shared,
     id: "laao-selection",
     title: "LAA closure: eligibility & shared decision",
-    source: "SCAI/HRS LAAO 2025 (2026 corrigendum); ESC AF 2024",
-    note: "OAC and transcatheter LAAO are shared-decision options for eligible nonvalvular AF. Consider bleeding history, ability to take the postimplant regimen, anatomy, procedural risks and quality life expectancy. Surgical LAA exclusion is a separate strategy, generally adjunctive to OAC.",
+    source:
+      "ESC AF 2024 (default, IIb C); SCAI/HRS LAAO 2025 + JSCAI correction 2026 (10.1016/j.jscai.2025.104164), conditional / moderate certainty",
+    note: "ESC: percutaneous LAA closure may be considered when long-term OAC is contraindicated (IIb C). SCAI/HRS offers a broader conditional OAC-versus-LAAO shared decision. Select the reference explicitly. Review procedural harms, postimplant therapy, anatomy and expected benefit. Surgical exclusion during cardiac surgery is adjunctive to indicated OAC.",
     steps: [
       {
         id: "eligibility",
         title: "Eligibility",
         questions: [
+          single(
+            "basis",
+            "LAA closure eligibility reference",
+            [
+              ["esc", "ESC 2024: long-term OAC contraindication (IIb C)"],
+              ["scai", "SCAI/HRS 2025: broader shared decision (conditional)"],
+            ],
+            "ESC is the default. Bleeding risk or preference alone needs specialist assessment; SCAI/HRS recommendation 2.1 is conditional with moderate-certainty evidence, as corrected in 2026.",
+          ),
           single("reason", "Reason for considering closure", [
             ["contra", "Contraindication to long-term OAC"],
             ["bleeding", "Bleeding complications / elevated bleeding risk"],
@@ -442,6 +507,7 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
       if (
         a.decision === "proceed" &&
         a.reason !== "surgery" &&
+        (a.reason === "contra" || a.basis === "scai") &&
         hasAf(c) &&
         !recordedThrombus(c) &&
         !excluded &&
@@ -483,7 +549,9 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
               "AF is not documented. Confirm the AF diagnosis and indication for stroke prevention before scheduling transcatheter closure.",
             ]
           : []),
-        "2025 SCAI/HRS recommendations are conditional: discuss OAC, LAAO and procedure-related harms with the patient.",
+        a.basis === "scai"
+          ? "SCAI/HRS 2025, corrected 2026: OAC or LAAO are conditional options with moderate-certainty evidence. Discuss procedural harms and patient goals; elevated bleeding risk does not establish universal LAAO benefit."
+          : "ESC 2024: percutaneous LAAO may be considered for a contraindication to long-term OAC (IIb C). Bleeding risk or preference without a contraindication is referred for specialist assessment under this reference.",
         "A closure device does not treat AF or replace anticoagulation for a mechanical valve, venous thromboembolism or another indication.",
         "Confirm the implanted device's current instructions for use and local implant protocol; short-term treatment and surveillance remain necessary.",
       ];
@@ -515,6 +583,13 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
         heading: "LAA closure decision",
         rows: [
           {
+            label: "Eligibility reference",
+            value:
+              a.basis === "scai"
+                ? "SCAI/HRS · conditional / moderate certainty"
+                : "ESC 2024 · IIb C",
+          },
+          {
             label: "CHA₂DS₂-VA",
             value: String(c.af?.score ?? "Not available"),
           },
@@ -527,7 +602,8 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
     ...shared,
     id: "after-laao",
     title: "After LAA closure: imaging & antithrombotic care",
-    source: "SCAI/HRS LAAO 2025; SCAI/HRS LAAC consensus 2023; ESC AF 2024",
+    source:
+      "ESC AF 2024; SCAI/HRS LAAO 2025; device IFU (WATCHMAN FLX Pro US 52212467-01A); FDA Amulet S012/S021",
     note: "Record the actual closure and device first. This review records the clinician's intended regimen and dates, not an automatic prescription or stop order. OAC or DAPT are post-transcatheter options; SAPT and leak management remain evidence gaps. Device thrombus requires a specialist OAC decision.",
     steps: [
       {
@@ -535,6 +611,27 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
         title: "Recovery",
         questions: [
           redFlags,
+          single(
+            "protocol",
+            "Reviewed device protocol",
+            [
+              [
+                "regional",
+                "Current regional / individualized implant-team protocol reviewed",
+              ],
+              ["flxpro-oac", "WATCHMAN FLX Pro US IFU: short-term OAC"],
+              ["flxpro-dapt", "WATCHMAN FLX Pro US IFU: DAPT-only"],
+              [
+                "flxpro-ablation",
+                "WATCHMAN FLX Pro US IFU: OAC after AF ablation",
+              ],
+              [
+                "unconfirmed",
+                "Protocol or regional applicability not confirmed",
+              ],
+            ],
+            "US options apply only to the recorded WATCHMAN FLX Pro device after clinician confirmation of local applicability. Reference: 52212467-01A, ©2025, pages 28–31. Other models and jurisdictions require their current IFU.",
+          ),
           single("regimen", "Intended antithrombotic regimen", [
             ["oac", "OAC per implant-team / device protocol"],
             ["dapt", "DAPT per implant-team / device protocol"],
@@ -554,6 +651,21 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
           ]),
           date("imageAt", "Imaging / findings review date"),
           date("clinicAt", "LAA closure team follow-up date"),
+          single(
+            "lateImaging",
+            "Later device surveillance",
+            [
+              [
+                "book",
+                "Plan 12-month surveillance under the reviewed device protocol",
+              ],
+              [
+                "individual",
+                "Individualized / already arranged: review with implant team",
+              ],
+            ],
+            "The retrieved US WATCHMAN FLX Pro IFU includes imaging at 12 months. This is not a universal schedule for other closure devices.",
+          ),
         ],
       },
     ],
@@ -568,10 +680,11 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
           ),
         ];
       const im = c.afProcedures?.imaging?.findings;
+      const protocolReviewed = a.protocol && a.protocol !== "unconfirmed";
       const out = [
         plan(
           "medication",
-          `LAA closure antithrombotic review: ${String(a.regimen).toUpperCase()} per ${cl.device} protocol; verify imaging and other OAC indications before transition`,
+          `LAA closure antithrombotic review: ${String(a.regimen).toUpperCase()} per ${cl.device} protocol; ${protocolReviewed ? "verify imaging and other OAC indications before transition" : "confirm current regional IFU and implant-team protocol before transition"}`,
           String(a.regimenAt),
         ),
         plan("follow_up", "LAA closure team follow-up", String(a.clinicAt), {
@@ -583,6 +696,38 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
           c.today,
         ),
       ];
+      if (!protocolReviewed)
+        out.unshift(
+          plan(
+            "medication",
+            "LAA closure: implant-team confirmation of current regional IFU, device regimen and surveillance; no treatment transition until reviewed",
+            c.today,
+          ),
+        );
+      if (a.lateImaging === "book" && cl.method === "Transcatheter occlusion")
+        out.push(
+          plan(
+            "investigation",
+            protocolReviewed
+              ? "12-month LAA closure surveillance under reviewed device protocol"
+              : "12-month LAA closure surveillance: confirm current device protocol",
+            todayOr(addCalendarMonths(cl.day, 12), c),
+            {
+              type: "study",
+              kind: "laa_imaging",
+              purpose: "After closure",
+              after: addCalendarMonths(cl.day, 12),
+            },
+          ),
+        );
+      if (String(a.protocol).startsWith("flxpro-"))
+        out.push(
+          plan(
+            "education",
+            "WATCHMAN FLX Pro: review six-month endocarditis prophylaxis advice for indicated procedures with the implant team",
+            c.today,
+          ),
+        );
       if (cl.method === "Surgical exclusion")
         out.push(
           plan(
@@ -656,6 +801,14 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
           },
           { label: "Recorded regimen", value: cl?.regimen ?? "Not documented" },
           {
+            label: "Device protocol",
+            value: String(a.protocol).startsWith("flxpro-")
+              ? `WATCHMAN FLX Pro US IFU 52212467-01A · ${a.protocol === "flxpro-ablation" ? "post-ablation OAC option" : a.protocol === "flxpro-dapt" ? "DAPT-only option" : "short-term OAC option"}`
+              : a.protocol === "regional"
+                ? "Current regional / individualized protocol reviewed by clinician"
+                : "Not confirmed — implant-team review required",
+          },
+          {
             label: "Post-closure imaging",
             value: im
               ? `${im.day}: device thrombus ${im.findings.deviceThrombus}; leak ${im.findings.leak}`
@@ -668,6 +821,25 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
           "SCAI/HRS 2023 suggests surveillance TEE/CT at 45–90 days; 2025 supports imaging but does not establish one optimal timing. Use the clinician-selected date.",
           "Do not transition treatment on the basis of an unreviewed, missing or indeterminate scan. Device thrombus favors OAC; duration and repeat-imaging timing require individualized decisions.",
           "A residual leak has no universal OAC recommendation in the 2025 guideline. No automatic leak-size cutoff or drug stop is applied.",
+          ...(String(a.protocol).startsWith("flxpro-")
+            ? [
+                a.protocol === "flxpro-ablation"
+                  ? "US FLX Pro post-ablation option: OAC plus aspirin, with TEE/CT at 3 months (±15 days) and 12 months. Transition depends on clinician review of seal, thrombus and other indications."
+                  : "US FLX Pro short-term OAC / DAPT-only options: TEE assessment at 45 days (±15 days) and 12 months; subsequent treatment follows the selected IFU option and clinician review.",
+                "This device IFU uses a >5 mm leak criterion for anticoagulation review and recommends anticoagulation for device thrombus until imaging-confirmed resolution. Apply its criteria only to the reviewed device protocol; no automatic drug change.",
+                "Review six-month endocarditis prophylaxis advice for indicated procedures. This does not mean daily antibiotics for six months.",
+              ]
+            : []),
+          ...(cl?.device === "Amplatzer Amulet"
+            ? [
+                "Amulet FDA labeling updates: S012 (September 2025) includes OAC in postimplant options; S021 (August 2026) adds landing-zone / pulmonary-artery assessment. Confirm the complete current regional IFU; the original 2021 label is insufficient for a current regimen.",
+              ]
+            : []),
+          ...(!a.protocol || a.protocol === "unconfirmed"
+            ? [
+                "The governing device protocol is not confirmed. Arrange implant-team review before any treatment transition; do not treat recorded clear imaging alone as clearance.",
+              ]
+            : []),
           ...(cl?.method === "Surgical exclusion"
             ? [
                 "Surgical closure is generally adjunctive to OAC. Do not apply a transcatheter-device regimen as a replacement for indicated anticoagulation.",

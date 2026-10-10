@@ -97,7 +97,7 @@ export type WizardContext = {
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
   af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
   afProcedures?: {
-    ablation: { id: string; day: string; result: string; minimumOac?: string } | null;
+    ablation: { id: string; day: string; result: string; energy?: string; minimumOac?: string } | null;
     closure: { id: string; day: string; method: string; device: string; regimen: string; reviewDate: string | null } | null;
     imaging: { id: string; day: string; findings: Record<string, any> } | null;
     preImaging?: { id: string; day: string; findings: Record<string, any> } | null;
