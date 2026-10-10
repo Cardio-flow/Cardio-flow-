@@ -86,11 +86,13 @@ export const initials = (name: string) => {
 };
 
 // ---------- drawer ----------
+export const DrawerWorkspace = createContext<ReactNode>(null);
 export function Drawer({
   title, subtitle, icon, tone = "blue", wide, onClose, children, footer, head, active = true,
 }: {
   title: string; subtitle?: string; icon: ReactNode; tone?: Sev; wide?: boolean; onClose(): void; children: ReactNode; footer?: ReactNode; head?: ReactNode; active?: boolean;
 }) {
+  const workspace = useContext(DrawerWorkspace);
   const ref = useRef<HTMLDivElement>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
   // keep the latest onClose without re-running the mount effect (which would steal focus on every keystroke)
@@ -104,7 +106,7 @@ export function Drawer({
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
       if (e.key !== "Tab") return;
-      const nodes = Array.from(ref.current?.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]") ?? []).filter((n) => n.tabIndex >= 0 && !n.hasAttribute("disabled") && n.getClientRects().length > 0);
+      const nodes = Array.from(ref.current?.querySelectorAll<HTMLElement>("button, input, select, textarea, summary, a[href], [tabindex]") ?? []).filter((n) => n.tabIndex >= 0 && !n.hasAttribute("disabled") && n.getClientRects().length > 0);
       const first = nodes[0], last = nodes[nodes.length - 1];
       if (!first) return;
       if (!ref.current?.contains(document.activeElement) || (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
@@ -123,8 +125,10 @@ export function Drawer({
   }, [active]);
   return (
     <>
-      <div className="scrim" style={!active ? { display: "none" } : undefined} onClick={() => closeRef.current()} />
-      <div ref={ref} onFocusCapture={(e) => { lastFocus.current = e.target as HTMLElement; }} role="dialog" aria-modal={active || undefined} aria-label={title} style={!active ? { display: "none" } : undefined} className={`drawer ${wide ? "wide" : ""}`}>
+      <div className={`scrim ${workspace ? "workspace-scrim" : ""}`} style={!active ? { display: "none" } : undefined} onClick={() => closeRef.current()} />
+      <div ref={ref} onFocusCapture={(e) => { lastFocus.current = e.target as HTMLElement; }} role="dialog" aria-modal={active || undefined} aria-label={title} style={!active ? { display: "none" } : undefined} className={`drawer ${wide ? "wide" : ""} ${workspace ? "with-workspace" : ""}`}>
+        {workspace && <aside className="drawer-context">{workspace}</aside>}
+        <div className="drawer-main">
         <div className="drawer-head">
           <div className={`drawer-title sev-${tone}`}>
             <div className="ic">{icon}</div>
@@ -140,6 +144,7 @@ export function Drawer({
         </div>
         {children}
         {footer && <div className="drawer-foot">{footer}</div>}
+        </div>
       </div>
     </>
   );

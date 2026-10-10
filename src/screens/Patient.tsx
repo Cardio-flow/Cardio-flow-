@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useState } from "react";
 import { FlaskConical, Plus, Stethoscope, BedDouble, LogOut as DischargeIcon, Route, FileText, Pencil } from "lucide-react";
 import { useData } from "../api";
-import { Drawer, Link, Tag, initials, useToast } from "../ui";
+import { Drawer, DrawerWorkspace, Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab } from "./Summary";
 import { triage } from "../../shared/triage";
 import { JourneyTab } from "./Journey";
 import { MedicationsTab, InvestigationsTab, PlanTab, VisitsTab, RegistriesTab } from "./Tabs";
+import { AdmissionBrief } from "./AdmissionTimeline";
 import { QuickLabs } from "../drawers/QuickLabs";
 import type { PathwayPart } from "../drawers/Wizard";
 const WizardDrawer = lazy(() => import("../drawers/Wizard").then(m => ({ default: m.WizardDrawer })));
@@ -93,7 +94,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (
     <>
-      <section className="pt-head">
+      <section className={`pt-head ${tab === "visits" && ctx?.kind === "admission" ? "admission-patient-head" : ""}`}>
         <Link to="/" className="pt-back">‹ Worklist</Link>
         <div className="pt-top">
           <div className="pt-avatar">{initials(h.name)}</div>
@@ -109,7 +110,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               >
                 <Pencil size={14} /> Edit details
               </button>
-              {h.sample && <span className="chip sample-chip">Sample patient · synthetic</span>}
+              {h.sample && <span className="chip sample-chip">{tab === "visits" && ctx?.kind === "admission" ? "Sample · synthetic" : "Sample patient · synthetic"}</span>}
               <span className={`chip ${h.deceased ? "deceased" : "gray"}`}>{h.where}</span>
               {h.readmission?.hfReadmission && h.readmission.days <= 30 && <span className="chip sev sev-orange"><span className="dot" />HF readmission · day {h.readmission.days}</span>}
               {h.status?.followUp && h.status.followUp.status !== "active" && !h.deceased && (
@@ -220,6 +221,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {tab === "plan" && <PlanTab id={id} version={version} open={setOpen} />}
       {tab === "registries" && <RegistriesTab id={id} version={version} />}
 
+      <DrawerWorkspace.Provider value={ctx?.kind === "admission" && open && ["labs", "med-add", "med-action", "med-batch", "plan-add", "discharge", "pathways", "wizard", "result-correct", "med-correct"].includes(open.kind) ? <AdmissionBrief id={id} contextId={ctx.id} header={h} attention={s.attention} version={version} /> : null}>
       <Suspense fallback={open ? <Drawer title="Loading action" subtitle={h.name} icon={<Route size={22} />} onClose={close}><div className="drawer-body" role="status">Loading…</div></Drawer> : null}>
       {open?.kind === "labs" && <QuickLabs patientId={id} codes={open.codes} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "wizard" && (
@@ -260,6 +262,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "void" && <VoidEntry patientId={id} what={open.what} path={open.path} onClose={close} onDone={done} />}
       {open?.kind === "status" && <StatusDrawer patientId={id} today={s.today} current={h.status} onClose={close} onDone={done} />}
       </Suspense>
+      </DrawerWorkspace.Provider>
     </>
   );
 }

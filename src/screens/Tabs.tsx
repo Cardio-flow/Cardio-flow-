@@ -6,6 +6,7 @@ import { Sparkline, Tag, useToast } from "../ui";
 import { MEASURES, MEDICATION, PURPOSE_ORDER, doseLabel, formatNumber } from "../../shared/catalog";
 import { flagFor, fmtDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
+import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
 
 const PROC_LABEL: Record<string, string> = { pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
@@ -282,7 +283,7 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
   if (!data) return <main className="page" />;
   const contexts = [...data.contexts].reverse();
   return (
-    <main className="page">
+    <main className="page admissions-page">
       <div className="page-head">
         <div>
           <h1 style={{ fontSize: 22 }}>Admissions & visits</h1>
@@ -294,10 +295,9 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
         </span>}
       </div>
       {summary.header.openContext?.kind === "clinic_visit" && <p className="infobox">A clinic visit is open. Use Continue visit to finish it before starting a new admission.</p>}
-      {summary.header.openContext?.kind === "admission" && <p className="infobox">An admission is open. Record decisions and results below, then discharge when ready.</p>}
       {contexts.length === 0 && <div className="empty">No visits or admissions yet.</div>}
       {contexts.map((c: any) => (
-        <section key={c.id} className="card pad">
+        <section key={c.id} data-admission-id={c.kind === "admission" ? c.id : undefined} className={`card pad admission-card ${c.status === "open" ? "current" : ""}`}>
           <div className="card-head">
             <div className="row">
               {c.kind === "admission" ? <BedDouble size={20} color="var(--navy)" /> : <Stethoscope size={20} color="var(--navy)" />}
@@ -310,31 +310,12 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
             {c.reasons.map((r: string) => <span key={r} className="chip dx">{r}</span>)}
             {c.summary?.dischargeStatus && <span className="chip outline">{c.summary.dischargeStatus}</span>}
           </div>
-          {c.kind === "admission" && <details open={c.status === "open"} style={{ margin: "14px 0" }}>
-            <summary style={{ cursor: "pointer", fontWeight: 700 }}>Milestones & events</summary>
-            <ol style={{ listStyle: "none", margin: "12px 0", padding: 0 }}>
-              {data.events.filter((e: any) => e.context_id === c.id && !e.planned).map((e: any) => <li key={e.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line-2)" }}>
-                <span className="meta">{fmtDay(e.occurred_at, { weekday: true })}</span>
-                <div><b>{e.title}</b></div>
-                {e.detail && <div className="help">{e.detail}</div>}
-              </li>)}
-            </ol>
-            {c.summary?.events?.length > 0 && <p className="help">In-hospital events: {c.summary.events.join(" · ")}</p>}
-            {c.meds.length > 0 && <div className="col" style={{ gap: 6 }}>
-              <span className="eyebrow">Medication changes during admission</span>
-              {c.meds.map((m: any, i: number) => <span key={i}><b>{m.name}</b> · {m.kind} {m.dose}</span>)}
-            </div>}
-          </details>}
-          {c.actions.length > 0 && (
-            <div className="row wrap" style={{ gap: 8 }}>
-              {c.actions.map((a: any) => <Tag key={a.id} sev={VIEW_SEV[a.view]}>{a.title} · {fmtDay(a.dueDate)}</Tag>)}
-            </div>
-          )}
-          <div className="row wrap" style={{ marginTop: 12, gap: 8 }}>
+          {c.kind === "admission" ? c.status === "open" ? <AdmissionTimeline context={c} events={data.events} /> : <details className="admission-history"><summary>Admission milestones & events</summary><AdmissionTimeline context={c} events={data.events} /></details> : c.actions.length > 0 && <div className="row wrap" style={{ gap: 8 }}>{c.actions.map((a: any) => <Tag key={a.id} sev={VIEW_SEV[a.view]}>{a.title} · {fmtDay(a.dueDate)}</Tag>)}</div>}
+          <div className="row wrap admission-actions" style={{ marginTop: 12, gap: 8 }}>
             {c.status === "open" && c.kind === "admission" && <>
               <button className="btn secondary small" onClick={() => open({ kind: "pathways" })}>Review pathways</button>
-              <button className="btn secondary small" onClick={() => open({ kind: "labs" })}>Add labs</button>
-              <button className="btn secondary small" onClick={() => open({ kind: "med-batch" })}>Add medicines</button>
+              <button className="btn primary admission-labs" onClick={() => open({ kind: "labs" })}><FlaskConical size={18} />Add labs</button>
+              <button className="btn secondary admission-medicines" onClick={() => open({ kind: "med-batch" })}><Plus size={18} />Add medicines</button>
               <button className="btn secondary small" onClick={() => open({ kind: "plan-add" })}>Add plan item</button>
             </>}
             {c.status === "open" && c.kind === "admission" && <button className="btn primary small" onClick={() => open({ kind: "discharge", contextId: c.id })}>Discharge</button>}

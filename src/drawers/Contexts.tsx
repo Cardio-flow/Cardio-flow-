@@ -309,6 +309,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [hfa, setHfa] = useState<Record<string, string>>({});
   const isHf = !!summary.hf || reasons.includes("Heart failure");
   const [note, setNote] = useState("");
+  const [noteLoading, setNoteLoading] = useState(true);
   const generatedNote = useRef("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -339,7 +340,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   }, [patientId]);
   useEffect(() => {
     // the draft note is fetched once; going Back and returning keeps the clinician's edits
-    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => { generatedNote.current = n.text; setNote((x) => x || n.text); }).catch((e) => setError((e as Error).message));
+    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => { generatedNote.current = n.text; setNote((x) => x || n.text); }).catch((e) => setError((e as Error).message)).finally(() => setNoteLoading(false));
     if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch((e) => setError((e as Error).message));
   }, [step, visitId, patientId, active]);
   const previous = summary.plan;
@@ -417,7 +418,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
             {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy} onClick={finish}>Finish visit</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || noteLoading} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
@@ -558,7 +559,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
             <div className="help">Generated from what you selected. Edit freely before finishing.</div>
-            <textarea className="input" rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
+            <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
           </div>
         )}
         {error && <div className="error-box">{error}</div>}
