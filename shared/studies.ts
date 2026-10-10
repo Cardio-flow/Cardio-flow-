@@ -16,6 +16,18 @@ const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not asses
 
 export const STUDIES: StudyDef[] = [
   {
+    kind: "laa_imaging", label: "LAA / closure-device imaging", short: "LAA imaging",
+    help: "TOE/TEE or cardiac CT: explicitly record thrombus, device thrombus and leak. Missing or indeterminate findings never count as clearance.",
+    fields: [
+      { key: "purpose", label: "Purpose", type: "choice", required: true, options: ["Before closure", "After closure", "Before cardioversion / ablation"] },
+      { key: "modality", label: "Modality", type: "choice", required: true, options: ["TOE / TEE", "Cardiac CT"] },
+      { key: "laaThrombus", label: "LAA thrombus", type: "choice", required: true, options: ["Absent", "Present", "Indeterminate"] },
+      { key: "deviceThrombus", label: "Device-related thrombus", type: "choice", required: true, options: ["Absent", "Present", "Indeterminate"], when: { field: "purpose", in: ["After closure"] } },
+      { key: "leak", label: "Peridevice leak / residual flow", type: "choice", required: true, options: ["Absent", "Present", "Indeterminate"], when: { field: "purpose", in: ["After closure"] } },
+      { key: "leakMm", label: "Measured leak", type: "number", unit: "mm", min: 0, max: 100, decimals: 1, when: { field: "leak", in: ["Present"] } },
+    ],
+  },
+  {
     kind: "ecg", label: "12-lead ECG", short: "ECG", help: "Rhythm, QRS width and morphology drive the device and rhythm rules.",
     fields: [
       { key: "rhythm", label: "Rhythm", type: "choice", required: true, options: ["Sinus rhythm", "Atrial fibrillation", "Atrial flutter", "Paced", "Junctional", "Other"] },
@@ -219,6 +231,7 @@ export function obstructiveCad(kind: string, a: Record<string, any>): string | n
 export function studySummary(kind: string, a: Record<string, any>): string {
   const u = (n: unknown, unit: string) => (n == null ? null : `${n}${unit}`);
   switch (kind) {
+    case "laa_imaging": return [a.purpose, a.modality, `LAA thrombus: ${a.laaThrombus}`, a.deviceThrombus ? `Device thrombus: ${a.deviceThrombus}` : null, a.leak ? `Leak: ${a.leak}${a.leakMm != null ? ` (${a.leakMm} mm)` : ""}` : null].filter(Boolean).join(" · ");
     case "ecg":
       return [a.rhythm, u(a.rate, " bpm"), a.qrs != null ? `QRS ${a.qrs} ms${a.qrsMorphology && a.qrsMorphology !== "Normal" ? " " + a.qrsMorphology : ""}` : a.qrsMorphology, u(a.qtc, " ms QTc"), a.avBlock && a.avBlock !== "None" ? `${a.avBlock} AV block` : null, (a.st ?? []).filter((x: string) => x !== "None").join(", ") || null]
         .filter(Boolean).join(" · ");

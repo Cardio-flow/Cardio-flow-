@@ -509,13 +509,17 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "af.anticoagulation",
     kind: "clinical",
     title: "AF stroke prevention (CHA2DS2-VA)",
-    inputs: ["conditions", "meds", "lvef"],
+    inputs: ["conditions", "meds", "lvef", "procedures"],
     defaultParams: {},
     evidence: "2024 ESC AF guidelines: OAC recommended with CHA2DS2-VA ≥2 (class I), considered with score 1 (IIa); DOAC preferred over VKA except mechanical valve or moderate–severe mitral stenosis.",
     evaluate(s) {
       if (!s.tags.has("af")) return [];
       // a mechanical valve: valve.mechanical-antithrombotic carries the anticoagulation advice (no duplicate red card)
       if (s.tags.has("mechanical-valve") && !onTag(s, "oac").length) return [];
+      const closure = [...s.procedures].reverse().find(p => p.kind === "laao" && p.attributes.result === "Implanted / completed" && p.attributes.method === "Transcatheter occlusion");
+      if (closure && !s.tags.has("mechanical-valve") && !s.tags.has("ms-significant") && !onTag(s, "oac").length) return [];
+      // Stroke prevention after transcatheter closure is reviewed by the LAAO aftercare rules;
+      // surgical closure and unrelated anticoagulant indications remain separate.
       const vka = live(s).find((m) => m.code === "warfarin");
       // DOACs are not used with a mechanical valve or moderate–severe mitral stenosis
       const vkaOnly = s.tags.has("mechanical-valve") || s.tags.has("ms-significant");

@@ -42,7 +42,7 @@ export type PlanRow = {
   title: string;
   reason: string;
   due_date: string | null;
-  completes_on: { type: string; codes?: string[]; kind?: string };
+  completes_on: { type: string; codes?: string[]; kind?: string; purpose?: string; after?: string; target?: string; method?: string };
   status: string;
   outcome: string;
   completed_at: string | null;
@@ -102,6 +102,7 @@ export type PatientState = {
   episodes: EpisodeRow[];
   // the latest completed run of each pathway (wizard id → ISO time), for rules that ask "done since the event?"
   pathwaysDone: Record<string, string>;
+  afReviews?: Record<string, { at: string; answers: Record<string, any> }>;
 };
 export type StatusRow = { id: string; kind: string; status: string; effective_on: string; place: string | null; cause_group: string | null; detail: string };
 
@@ -132,7 +133,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
             FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes,
         (SELECT coalesce(json_agg(pr ORDER BY pr.performed_at), '[]') FROM (SELECT p.id,p.kind,p.performed_at,p.attributes,p.summary,p.context_id FROM cf.procedure p
             WHERE p.patient_id=$1 AND p.status='final' AND NOT EXISTS (SELECT 1 FROM cf.procedure r WHERE r.replaces=p.id)) pr) AS procedures,
-        (SELECT coalesce(json_object_agg(w.wizard, w.at), '{}') FROM (SELECT wizard, max(decided_at) AS at FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IS NOT NULL GROUP BY wizard) w) AS pathways`,
+        (SELECT coalesce(json_object_agg(w.wizard, w.at), '{}') FROM (SELECT wizard, max(decided_at) AS at FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IS NOT NULL GROUP BY wizard) w) AS pathways,
+        (SELECT coalesce(json_object_agg(d.wizard, json_build_object('at',d.decided_at,'answers',d.answers)), '{}') FROM (SELECT DISTINCT ON (wizard) wizard,decided_at,answers FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IN ('after-laao','after-af-ablation') ORDER BY wizard,decided_at DESC) d) AS af_reviews`,
       [patientId],
     )
   ).rows[0];
@@ -239,6 +241,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       resolved_at: e.resolved_at ? new Date(e.resolved_at).toISOString() : null,
       decisions: (typeof e.decisions === "string" ? JSON.parse(e.decisions) : e.decisions ?? []).map((d: any) => ({ id: d.id, decided_at: new Date(d.decided_at).toISOString() })),
     })),
+    afReviews: typeof bundle.af_reviews === "string" ? JSON.parse(bundle.af_reviews) : bundle.af_reviews ?? {},
     pathwaysDone: Object.fromEntries(Object.entries((typeof bundle.pathways === "string" ? JSON.parse(bundle.pathways) : bundle.pathways) ?? {}).map(([k, v]) => [k, new Date(v as string).toISOString()])),
   };
 }

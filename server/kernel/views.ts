@@ -340,6 +340,8 @@ export function planView(s: PatientState) {
       const original = s.observations.find((o) => o.id === id || o.logical_id === id);
       const o = original && s.observations.find((o) => o.logical_id === original.logical_id);
       if (o) return { id: o.id, label: MEASURES[o.code]?.display ?? o.code, value: o.value_num, unit: o.unit, at: o.effective_at };
+      const procedure = s.procedures.find(pr => pr.id === id);
+      if (procedure) return { id, label: procedure.summary, value: null, unit: null, at: procedure.performed_at };
       const study = s.studies.find((st) => st.id === id);
       return study ? { id, label: study.kind, value: null, unit: null, at: study.performed_at } : { id, label: "Recorded event", value: null, unit: null, at: p.completed_at };
     }),

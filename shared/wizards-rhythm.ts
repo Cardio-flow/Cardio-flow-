@@ -163,6 +163,7 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
               { value: "warfarin", label: "Start warfarin (INR-guided)", unless: ["oac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "Mechanical valve or moderate–severe mitral stenosis: a VKA, not a DOAC" },
               { value: "vka-to-doac", label: "Switch warfarin to a DOAC", requires: ["vka"], unlessDx: ["mechanical-valve", "ms-significant"] },
               { value: "doac-to-vka", label: "Switch the DOAC to warfarin", requires: ["doac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "DOACs are contraindicated with a mechanical valve and not used in moderate–severe MS" },
+              { value: "laao", label: "Recorded LAA closure: review the implant-team regimen", requiresDx: ["laao-transcatheter"], unlessDx: ["mechanical-valve", "ms-significant"] },
               { value: "not-indicated", label: "Not indicated (CHA₂DS₂-VA 0)" },
               { value: "contraindicated", label: "Contraindicated", unless: ["oac"] },
               { value: "declined", label: "Declined by the patient", unless: ["oac"] },
@@ -174,7 +175,7 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
               { value: "none", label: "None" },
               { value: "bp", label: "Uncontrolled blood pressure" },
               { value: "nsaid", label: "NSAID / unnecessary antiplatelet", requires: ["nsaid", "antiplatelet"] },
-              { value: "stop-asa", label: "Stop aspirin given for stroke prevention only", requires: ["antiplatelet"] },
+              { value: "stop-asa", label: "Stop aspirin given for stroke prevention only", requires: ["antiplatelet"], unlessDx: ["laao-transcatheter"] },
               { value: "alcohol", label: "Excess alcohol" },
               { value: "labile-inr", label: "Labile INR", requires: ["vka"] },
             ],
@@ -266,8 +267,9 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
     const w = ctx.meds.find((m) => m.tags.includes("vka"));
     out.push(plan("medication", "Switch warfarin to a DOAC (start when INR <2)", t, { type: "manual" }, w?.id ?? null));
   }
+  if (a.oac === "laao") out.push(plan("medication", "LAA closure: implant-team antithrombotic and imaging review; assess other OAC indications", t));
   const bleed = pick(a, "bleed");
-  if (bleed.includes("stop-asa")) {
+  if (bleed.includes("stop-asa") && ctx.afProcedures?.closure?.method !== "Transcatheter occlusion") {
     const asa = ctx.meds.find((m) => m.code === "aspirin");
     if (asa) out.push({ kind: "medication", medicationId: asa.id, event: "stop", doseValue: null, label: "Aspirin: stop (not for stroke prevention in AF)" });
   }
@@ -292,23 +294,25 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
 
 RHYTHM_WIZARDS["af-care"].assess = (a: Answers, ctx: WizardContext): Assessment => {
   const af = ctx.af;
+  const closureReview = a.oac === "laao" && ctx.afProcedures?.closure?.method === "Transcatheter occlusion";
   const lvef = ctx.values?.lvef?.value ?? null;
   const hr = ctx.af?.ecgRate ?? ctx.values?.hr?.value ?? null;
   const onOac = ctx.meds.some((m) => m.tags.includes("oac"));
   const score = af?.score ?? null;
   const rows: Assessment["rows"] = [
     { label: "Pattern", value: { first: "First diagnosed", paroxysmal: "Paroxysmal", persistent: "Persistent", permanent: "Permanent" }[String(a.pattern)] ?? "Not given" },
-    { label: "CHA₂DS₂-VA", value: score == null ? "Not available" : `${score}${af!.items.length ? ` (${af!.items.join(", ")})` : ""}`, tone: score != null && score >= 2 && !onOac && a.oac !== "apixaban" && a.oac !== "other-doac" ? "orange" : undefined },
+    { label: "CHA₂DS₂-VA", value: score == null ? "Not available" : `${score}${af!.items.length ? ` (${af!.items.join(", ")})` : ""}`, tone: score != null && score >= 2 && !onOac && !closureReview && a.oac !== "apixaban" && a.oac !== "other-doac" ? "orange" : undefined },
     { label: "Heart rate", value: hr != null ? `${hr} bpm` : "Not recorded", tone: hr != null && hr >= 110 ? "orange" : hr != null ? "green" : undefined },
     { label: "LVEF", value: lvef != null ? `${lvef}%` : "Not recorded", tone: lvef == null ? "orange" : undefined },
   ];
   const rec: string[] = [];
+  if (closureReview) rec.push("Transcatheter LAA closure: follow the reviewed implant-team regimen and imaging. Review thrombus and other OAC indications; do not use procedural success alone to stop therapy.");
   const cmpOac = !!(ctx.dx?.includes("hcm") || ctx.dx?.includes("amyloid"));
   if (cmpOac && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push("HCM or cardiac amyloidosis with AF: oral anticoagulation is recommended whatever the CHA₂DS₂-VA score (I B).");
-  else if (score != null && score >= 2 && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push(`CHA₂DS₂-VA ${score}: oral anticoagulation is recommended (I), a DOAC in preference to warfarin.`);
-  if (score === 1 && !onOac && a.oac !== "apixaban" && a.oac !== "other-doac") rec.push("CHA₂DS₂-VA 1: oral anticoagulation should be considered (IIa).");
+  else if (score != null && score >= 2 && !onOac && !closureReview && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push(`CHA₂DS₂-VA ${score}: oral anticoagulation is recommended (I), a DOAC in preference to warfarin.`);
+  if (score === 1 && !onOac && !closureReview && a.oac !== "apixaban" && a.oac !== "other-doac") rec.push("CHA₂DS₂-VA 1: oral anticoagulation should be considered (IIa).");
   for (const d of af?.doac ?? []) if (d.dose != null && d.dose !== d.right) rec.push(`${d.code[0].toUpperCase() + d.code.slice(1)} ${d.dose} mg: the label dose is ${d.right} mg (${d.why}).`);
-  if (ctx.meds.some((m) => m.code === "aspirin") && !(ctx.dx ?? []).some((x) => ["cad", "pad", "ascvd"].includes(x)) && !pick(a, "bleed").includes("stop-asa")) rec.push("Aspirin is not used for stroke prevention in AF (III).");
+  if (ctx.afProcedures?.closure?.method !== "Transcatheter occlusion" && ctx.meds.some((m) => m.code === "aspirin") && !(ctx.dx ?? []).some((x) => ["cad", "pad", "ascvd"].includes(x)) && !pick(a, "bleed").includes("stop-asa")) rec.push("Aspirin is not used for stroke prevention in AF (III).");
   if (hr != null && hr >= 110 && !pick(a, "rate").length) rec.push(`Heart rate ${hr} bpm: lenient rate control targets a resting rate <110 bpm.`);
   if (lvef != null && lvef <= 40 && pick(a, "rate").includes("ccb")) rec.push("LVEF ≤40%: diltiazem and verapamil are avoided; beta-blocker and/or digoxin.");
   if (lvef == null && !pick(a, "tests").includes("echo")) rec.push("No LVEF recorded: echocardiography guides rate and rhythm choices.");
@@ -350,10 +354,8 @@ RHYTHM_WIZARDS["peri-af-procedure"].outcome = (a: Answers, ctx: WizardContext): 
     if (((a.post as string[]) ?? []).includes("ecg")) out.push(plan("investigation", "12-lead ECG after cardioversion", addDays(day, 7), { type: "study", kind: "ecg" }));
     if (((a.post as string[]) ?? []).includes("holter")) out.push(plan("investigation", "Ambulatory ECG after cardioversion (recurrence)", addDays(day, 90), { type: "study", kind: "holter" }));
   } else {
-    out.push(plan("procedure", "AF catheter ablation (anticoagulation uninterrupted)", when));
-    if (((a.post as string[]) ?? []).includes("oac")) out.push(plan("medication", "Anticoagulation for at least 2 months after AF ablation, then by CHA₂DS₂-VA", addDays(when, 60), { type: "manual" }, link));
-    if (((a.post as string[]) ?? []).includes("ecg")) out.push(plan("investigation", "12-lead ECG after ablation", addDays(when, 7), { type: "study", kind: "ecg" }));
-    if (((a.post as string[]) ?? []).includes("holter")) out.push(plan("investigation", "Ambulatory ECG 3 months after ablation (recurrence)", addDays(when, 90), { type: "study", kind: "holter" }));
+    out.push(plan("referral", "EP review: complete AF ablation shared decision, effective anticoagulation and thrombus exclusion", when));
+    out.push(plan("education", "Use AF ablation: shared decision & preparation; record the actual procedure before dating recovery and OAC review", t));
   }
   return out;
 };
@@ -531,7 +533,7 @@ RHYTHM_WIZARDS["peri-af-procedure"].assess = (a: Answers, ctx: WizardContext): A
     if (a.prep === "wait" && a.oacNow !== "3w") rec.push("Cardioversion after ≥3 weeks of effective anticoagulation (I B): the date above counts from the start of anticoagulation.");
     rec.push("Anticoagulation for at least 4 weeks after cardioversion.");
   } else if (a.proc === "ablation") {
-    rec.push("AF ablation on uninterrupted oral anticoagulation (I A), continued for at least 2 months after it.");
+    rec.push("Complete the AF ablation preparation pathway to confirm adherence, EP imaging and the periprocedural protocol. Record the actual ablation before setting the postprocedure minimum OAC and follow-up dates.");
   }
   rec.push(ctx.af ? `Long-term anticoagulation follows the stroke risk (CHA₂DS₂-VA ${ctx.af.score}), not the rhythm achieved.` : "Long-term anticoagulation follows CHA₂DS₂-VA, not the rhythm achieved.");
   if (oac?.tags.includes("vka")) rec.push("Warfarin: INR 2.0–3.0 throughout the weeks before cardioversion.");

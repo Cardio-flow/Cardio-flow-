@@ -28,6 +28,7 @@ import type { CheckKind } from "../../shared/procedures.js";
 export type { CheckKind };
 
 export const CHECK_TITLE: Record<CheckKind, string> = {
+  laao: "Before LAA closure",
   pci: "Before coronary angiography / PCI",
   cardioversion: "Before cardioversion of AF",
   ablation: "Before AF ablation",
@@ -182,6 +183,12 @@ export function checklist(s: PatientState, kind: CheckKind): { title: string; it
       : { key: "echo", label: "Echo (effusion size and site)", status: "missing", why: "Echo guides the procedure.", source: "ESC pericardial 2015" });
     if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Elective procedure: plan the interruption; tamponade is not delayed for it." });
     if (antiplatelets.length) items.push({ key: "ap", label: "Antiplatelet therapy", status: "info", value: antiplatelets.map((m) => m.name).join(", "), why: "Weigh against the indication with the team." });
+  }
+  if (kind === "laao") {
+    items.push(lab(s, "creatinine"), lab(s, "haemoglobin"), lab(s, "platelets"));
+    const st = latestStudy(s, "laa_imaging");
+    items.push({ key: "laa", label: "LAA imaging", status: st?.attributes.laaThrombus === "Absent" && st.attributes.purpose === "Before closure" ? "info" : "flag", value: st ? `${st.attributes.modality}: thrombus ${st.attributes.laaThrombus}` : "Not recorded", date: st?.performed_at, why: "Confirm current TEE/CT excludes thrombus and the anatomy is suitable; do not treat an old result as procedural clearance." });
+    items.push({ key: "regimen", label: "Post-closure antithrombotic plan", status: "info", why: "Agree device-specific OAC or DAPT and follow-up imaging with the implant team; confirm the current instructions for use.", action: { type: "wizard", wizard: "laao-selection", label: "LAA closure decision" } });
   }
   return { title: CHECK_TITLE[kind], items };
 }

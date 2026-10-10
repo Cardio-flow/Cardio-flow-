@@ -330,7 +330,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc"]),
+        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),
@@ -341,7 +341,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // checklists before a procedure (redesign slice 7), read from the record
   app.get("/api/patients/:id/checklist/:kind", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const kind = z.enum(["pci", "cardioversion", "ablation", "device", "valve", "rhc", "cabg", "pericardiocentesis"]).parse(req.params.kind);
+    const kind = z.enum(["pci", "cardioversion", "ablation", "device", "valve", "rhc", "cabg", "pericardiocentesis", "laao"]).parse(req.params.kind);
     res.json(await db.transaction(async (tx) => {
       await patientInSite(tx, actor(res), id);
       return checklist(await loadState(tx, id), kind);
@@ -381,7 +381,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),

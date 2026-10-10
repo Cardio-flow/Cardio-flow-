@@ -666,7 +666,9 @@ export async function recordProcedure(
     title: `${PROCEDURE_LABEL[input.kind]} · ${summary}`.slice(0, 200), detail: "", refType: "procedure", refId: id, contextId: input.contextId,
   });
   await audit(tx, actor, "record", "procedure", id, patientId, { kind: input.kind });
-  return { id, changed };
+  const completed = await completeMatching(tx, actor, patientId, { type: "procedure", kind: input.kind, at: input.date, ref: id, detail: attributes });
+  return { id, changed: [...changed, ...(completed.length ? ["plan"] : [])], completed };
+
 }
 
 // ---------- medications ----------
@@ -867,7 +869,7 @@ export async function updatePlanAction(
     if (input.action === "reviewed" && !pendingReview) throw new ApiError(409, "Record the result or completion before reviewing it");
     if (input.action === "ordered" && cur.progress === "booked") throw new ApiError(409, "This item is already booked");
     if (input.action === "performed" && !input.outcome?.trim()) throw new ApiError(400, "Record what was performed and where the result can be found");
-    if (input.action === "performed" && ["lab", "study"].includes(cur.completes_on?.type)) throw new ApiError(400, "Add the result or study to the patient record so this item closes with its evidence");
+    if (input.action === "performed" && ["lab", "study", "procedure"].includes(cur.completes_on?.type)) throw new ApiError(400, "Record the result, study or procedure in the patient record so this item closes with its evidence");
     await tx.query(`UPDATE cf.plan_action SET progress=$2, status=CASE WHEN $2 IN ('performed','reviewed') THEN 'completed' ELSE status END,
       completed_at=CASE WHEN $2='performed' THEN $3 ELSE completed_at END,
       reviewed_at=CASE WHEN $2='reviewed' THEN $3 ELSE reviewed_at END,
@@ -876,7 +878,7 @@ export async function updatePlanAction(
       [planId, input.action, at, actor.id, input.outcome ?? ""]);
     await journeyEvent(tx, actor, { patientId, occurredAt: at, kind: "plan-progress", category: "plan", title: `${input.action === "performed" ? "Performed" : input.action === "reviewed" ? "Reviewed" : input.action === "booked" ? "Booked" : "Ordered"} · ${cur.title}`, detail: input.outcome ?? "", refType: "plan_action", refId: planId });
   } else if (input.action === "complete") {
-    if (["lab", "study"].includes(cur.completes_on?.type)) throw new ApiError(400, "Add the result or study to the patient record before completing this check");
+    if (["lab", "study", "procedure"].includes(cur.completes_on?.type)) throw new ApiError(400, "Add the result or study, or record the procedure in the patient record before completing this check");
     await tx.query(`UPDATE cf.plan_action SET status='completed', progress='reviewed', outcome=$2, completed_at=$3, reviewed_at=$3, reviewed_by=$4, updated_at=now(), version=version+1 WHERE id=$1`, [planId, input.outcome ?? "", at, actor.id]);
     await journeyEvent(tx, actor, { patientId, occurredAt: at, kind: "task-complete", category: "plan", title: `Completed · ${cur.title}`, detail: input.outcome ?? "", refType: "plan_action", refId: planId });
   } else if (input.action === "reschedule" || input.action === "defer") {
@@ -896,7 +898,7 @@ export async function completeMatching(
   tx: Q,
   actor: Actor,
   patientId: string,
-  trigger: { type: "lab"; codes: string[]; at: string; ref: string; results?: { code: string; id: string }[] } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string; detail?: Record<string, any> },
+  trigger: { type: "lab"; codes: string[]; at: string; ref: string; results?: { code: string; id: string }[] } | { type: "visit"; at: string; ref: string } | { type: "study"; kind: string; at: string; ref: string; detail?: Record<string, any> } | { type: "procedure"; kind: string; at: string; ref: string; detail: Record<string, any> },
 ) {
   const open = (
     await tx.query(`SELECT id,title,due_date,completes_on,created_at FROM cf.plan_action WHERE patient_id=$1 AND status='planned'`, [patientId])
@@ -913,8 +915,8 @@ export async function completeMatching(
     if (new Date(trigger.at) < new Date(a.created_at) && trigger.type !== "visit") continue;
     // how early a result may count: never more than half the planned interval (max 7 days; 30 for Echo)
     const interval = a.due_date ? Math.max(0, daysBetween(new Date(a.created_at).toISOString(), String(a.due_date).slice(0, 10))) : 0;
-    const windowDays = trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
-    if (a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
+    const windowDays = trigger.type === "procedure" ? 0 : trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
+    if (trigger.type !== "procedure" && a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
     if (trigger.type === "lab" && !(c.codes ?? []).every((code: string) => trigger.codes.includes(code))) continue;
     // a stress MIBI is a stress test: it completes a planned "stress test", but not an exercise echo (LVOT
     // gradient) nor, when pharmacological, an exercise test; an exercise ECG does not complete stress imaging
@@ -924,6 +926,8 @@ export async function completeMatching(
       if (c.kind !== trigger.kind && !mibiForStress) continue;
       if (c.kind === "stress" && trigger.kind === "stress" && /imaging/i.test(a.title) && d.modality === "Exercise ECG") continue;
     }
+    if (trigger.type === "study" && c.kind === "laa_imaging" && (c.purpose !== trigger.detail?.purpose || (c.after && day < c.after))) continue;
+    if (trigger.type === "procedure" && (c.kind !== trigger.kind || (c.method && c.method !== trigger.detail.method) || (c.target === "AF" && !(trigger.detail.targets ?? []).some((t: string) => /^AF/.test(t))) || (trigger.kind === "laao" && trigger.detail.result !== "Implanted / completed"))) continue;
     const signature = JSON.stringify(c);
     // one result closes the earliest waiting item of each kind; identical items due the same day close together
     const due = a.due_date ? String(a.due_date).slice(0, 10) : "";

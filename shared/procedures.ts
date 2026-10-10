@@ -1,3 +1,4 @@
+import { LAA_METHODS, LAA_DEVICES, LAA_RESULTS, LAA_REGIMENS } from "./af.js";
 // Procedures (coronary module, 4 Oct 2026): PCI and CABG as their own dated records, so that
 // antithrombotic durations can be counted from the exact day and the setting (ACS or elective).
 // Descriptive vocabulary only. Complex PCI follows the ESC definition used for DAPT decisions
@@ -58,8 +59,8 @@ export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
   : a.procedure === "Transcatheter valve replacement" || a.procedure === "Valve-in-valve" ? (a.position === "Aortic" ? "TAVI" : "Transcatheter valve")
   : null;
 
-export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation" };
+export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc" | "laao";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation", laao: "LAA closure" };
 // Right heart catheterisation (PH module, slice 2): the measured pressures, flow and resistance, and the
 // 2022 ESC/ERS haemodynamic definition they meet. PVR is taken as measured, or computed as
 // (mPAP − PAWP) / cardiac output when only the cardiac output is given.
@@ -89,7 +90,7 @@ export function rhcClass(a: { mpap?: number | null; pawp?: number | null; co?: n
 }
 export const VALVE_KINDS: ProcedureKind[] = ["valve"];
 export const CORONARY_KINDS: ProcedureKind[] = ["pci", "cabg"];
-export const RHYTHM_KINDS: ProcedureKind[] = ["device", "ablation", "cardioversion"];
+export const RHYTHM_KINDS: ProcedureKind[] = ["device", "ablation", "cardioversion", "laao"];
 // the problem-list device type for a device record
 export const CIED_TYPE = (t: string) =>
   /^Pacemaker|Leadless/.test(t) ? "Pacemaker" : /ICD/.test(t) ? "ICD" : t === "CRT-P" ? "CRT-P" : t === "CRT-D" ? "CRT-D" : "Loop recorder";
@@ -160,6 +161,17 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
       remote: oneOf(REMOTE_MONITORING, a.remote, "Remote monitoring"),
     };
   }
+  if (kind === "laao") {
+    const method = oneOf(LAA_METHODS, a.method, "Closure method");
+    const device = oneOf(LAA_DEVICES, a.device, "Closure device");
+    const result = oneOf(LAA_RESULTS, a.result, "Closure result");
+    if (!method || !device || !result) throw new Error("Record method, device and result");
+    if ((method === "Surgical exclusion") !== device.startsWith("Surgical")) throw new Error("Device does not match closure method");
+    const regimen = oneOf(LAA_REGIMENS, a.regimen, "Antithrombotic regimen") ?? "Not documented";
+    const reviewDate = a.reviewDate ? String(a.reviewDate) : null;
+    if (reviewDate && (!/^\d{4}-\d{2}-\d{2}$/.test(reviewDate) || Number.isNaN(Date.parse(reviewDate)) || new Date(reviewDate).toISOString().slice(0,10) !== reviewDate)) throw new Error("Invalid regimen review date");
+    return { method, device, result, regimen, reviewDate };
+  }
   if (kind === "ablation") {
     const targets = someOf(ABLATION_TARGETS, a.targets, "Target");
     if (!targets.length) throw new Error("Choose what was ablated");
@@ -210,6 +222,7 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
     return [`${(a.vessels ?? []).join(", ")}${dev ? ` ${dev}` : ""}`, setting, a.complex?.length ? "complex PCI" : null, comp.length ? `complication: ${comp.map((c) => c.toLowerCase()).join(", ")}` : null].filter(Boolean).join(" · ");
   }
   if (kind === "device") return [a.type, a.action !== "New implant" ? a.action?.toLowerCase() : null, a.indication, a.pacing && a.pacing !== "No pacing lead" ? a.pacing : null, a.remote === "Enrolled" ? "remote monitoring" : null].filter(Boolean).join(" · ");
+  if (kind === "laao") return [a.method, a.device, a.result, `Regimen: ${a.regimen}`].filter(Boolean).join(" · ");
   if (kind === "ablation") return [(a.targets ?? []).join(" + "), a.energy, a.result !== "Acute success" ? a.result?.toLowerCase() : null].filter(Boolean).join(" · ");
   if (kind === "valve") {
     const what: Record<string, string> = {
@@ -225,10 +238,11 @@ export function procedureSummary(kind: string, a: Record<string, any>) {
 }
 
 // Checklists before a procedure (redesign slice 7; valve and RHC added in the audit finish, 6 Oct)
-export type CheckKind = "pci" | "cardioversion" | "ablation" | "device" | "valve" | "rhc" | "cabg" | "pericardiocentesis";
+export type CheckKind = "pci" | "cardioversion" | "ablation" | "device" | "valve" | "rhc" | "cabg" | "pericardiocentesis" | "laao";
 // a planned procedure (plan item) that has a checklist: matched by its title
 export function checklistForPlan(title: string, category: string): CheckKind | null {
   if (!["procedure", "referral", "follow_up"].includes(category) || /immediate|primary PCI|^(anticoagulation|12-lead|ambulatory|TOE|echo)/i.test(title)) return null;
+  if (/LAA (closure|occlusion)|left atrial appendage (closure|occlusion)/i.test(title)) return "laao";
   if (/cardioversion/i.test(title)) return "cardioversion";
   if (/AF catheter ablation|ablation for AF|AF ablation/i.test(title)) return "ablation";
   if (/coronary angiography|\bPCI\b/i.test(title)) return "pci";

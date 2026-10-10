@@ -2,6 +2,8 @@
 // list, a first-diagnosed AF without an AF-CARE plan, and AF with a fast ventricular rate.
 // Source: 2024 ESC/EACTS AF guidelines — AF-CARE for every patient with AF; lenient rate control with
 // a resting heart rate <110 bpm as the initial target (class to confirm against the full text).
+import { addCalendarMonths } from "../../shared/af.js";
+import { AF_AFTERCARE_RULES } from "./af-aftercare-rules.js";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { CIED_TYPE } from "../../shared/procedures.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
@@ -23,6 +25,7 @@ const planFor = (s: PatientState, re: RegExp, from: string) => s.plan.some((p) =
 const hasAf = (s: PatientState) => s.conditions.some((c) => (c.code === "af" || c.code === "flutter") && c.status === "active");
 
 export const RHYTHM_RULES: RuleDef[] = [
+  ...AF_AFTERCARE_RULES,
   {
     id: "rhythm.ecg-af-undiagnosed",
     kind: "clinical",
@@ -92,12 +95,12 @@ export const RHYTHM_RULES: RuleDef[] = [
     title: "No anticoagulation in the 4 weeks after cardioversion",
     inputs: ["procedures", "meds"],
     defaultParams: {},
-    evidence: "2024 ESC AF: anticoagulation for at least 4 weeks after cardioversion (as recalled; to confirm against the full text), then long term by CHA₂DS₂-VA regardless of the rhythm achieved.",
+    evidence: "2024 ESC AF: anticoagulation for at least 4 weeks after cardioversion, then long term by CHA₂DS₂-VA regardless of the rhythm achieved.",
     evaluate(s) {
       const cv = [...s.procedures].reverse().find((p) => p.kind === "cardioversion");
       if (!cv) return [];
       const days = daysBetween(localDay(cv.performed_at), s.today);
-      if (days > 28 || s.meds.some((m) => m.status === "active" && m.tags.includes("oac"))) return [];
+      if (days < 0 || days >= 28 || s.meds.some((m) => m.status === "active" && m.tags.includes("oac"))) return [];
       return [{
         key: "post-cv", signature: cv.id, severity: "orange",
         title: `Cardioversion ${days === 0 ? "today" : `${days} days ago`} with no anticoagulant`,
@@ -110,20 +113,22 @@ export const RHYTHM_RULES: RuleDef[] = [
   {
     id: "rhythm.post-ablation-oac",
     kind: "clinical",
-    title: "No anticoagulation in the 2 months after AF ablation",
-    inputs: ["procedures", "meds"],
+    title: "No anticoagulation during the post-AF-ablation minimum period",
+    inputs: ["procedures", "meds", "pathways"],
     defaultParams: {},
-    evidence: "2024 ESC AF: anticoagulation continued for at least 2 months after AF ablation (as recalled; to confirm against the full text), then by CHA₂DS₂-VA rather than by the ablation result.",
+    evidence: "2024 ESC AF: anticoagulation continued for at least 2 months after AF ablation, then by CHA₂DS₂-VA rather than by the ablation result. ACC/AHA/ACCP/HRS AF 2023 (10.1016/j.jacc.2023.08.017): at least 3 months if that reference is selected.",
     evaluate(s) {
       const ab = [...s.procedures].reverse().find((p) => p.kind === "ablation" && (p.attributes.targets ?? []).some((t: string) => /^AF/.test(t)));
       if (!ab) return [];
+      const review = s.afReviews?.["after-af-ablation"];
+      const months = review?.answers._procedureId === ab.id && review.answers.basis === "acc" ? 3 : 2;
       const days = daysBetween(localDay(ab.performed_at), s.today);
-      if (days > 60 || s.meds.some((m) => m.status === "active" && m.tags.includes("oac"))) return [];
+      if (days < 0 || s.today >= addCalendarMonths(localDay(ab.performed_at), months) || s.meds.some((m) => m.status === "active" && m.tags.includes("oac"))) return [];
       return [{
-        key: "post-abl", signature: ab.id, severity: "orange",
+        key: "post-abl", signature: `${ab.id}:${months}`, severity: "orange",
         title: `AF ablation ${days === 0 ? "today" : `${days} days ago`} with no anticoagulant`,
-        detail: "Continue anticoagulation for at least 2 months after ablation, then by CHA₂DS₂-VA.",
-        facts: [{ label: "Ablation", value: ab.summary, date: ab.performed_at }, { label: "Until", value: fmtDay(addDays(localDay(ab.performed_at), 60), { year: true }) }, { label: "Guideline", value: "ESC AF 2024" }],
+        detail: `Continue anticoagulation for at least ${months} months after ablation, then by stroke risk. This minimum is not an automatic stop date.`,
+        facts: [{ label: "Ablation", value: ab.summary, date: ab.performed_at }, { label: "Until", value: fmtDay(addCalendarMonths(localDay(ab.performed_at), months), { year: true }) }, { label: "Guideline", value: months === 3 ? "ACC/AHA/HRS AF 2023" : "ESC AF 2024" }],
         missing: [], action: { type: "wizard", wizard: "af-care" },
       }];
     },

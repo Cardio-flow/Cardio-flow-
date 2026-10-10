@@ -128,14 +128,13 @@ test("Fatma (apixaban for 2 days): a cardioversion is dated 3 weeks after the ap
   assert.equal(await rec(pid, "rhythm.cardioversion-before-3w"), undefined);
 });
 
-test("AF ablation: dated with uninterrupted anticoagulation and 2 months after; no anticoagulant after an ablation or a cardioversion is flagged", async () => {
+test("Legacy AF procedure pathway refers for full ablation preparation; actual ablation / cardioversion without OAC is flagged", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Abl " + Date.now(), mrn: "B" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["af", "htn"] }));
   await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "apixaban", doseValue: 5, frequency: "BID", route: "PO", indication: "af", effectiveAt: at(addDays(T, -100)) }); await reassess(q, pid, "sandbox"); });
   await run(pid, "peri-af-procedure", { proc: "ablation", when: addDays(T, 10), oacNow: "3w", post: ["oac", "holter"], review: "none" });
   let s = await loadState(db, pid);
-  assert.equal(s.plan.find((p) => p.title === "AF catheter ablation (anticoagulation uninterrupted)")!.due_date, addDays(T, 10));
-  assert.equal(s.plan.find((p) => /^Anticoagulation for at least 2 months after AF ablation/.test(p.title))!.due_date, addDays(T, 70));
-  assert.equal(s.plan.find((p) => /^Ambulatory ECG 3 months after ablation/.test(p.title))!.due_date, addDays(T, 100));
+  assert.ok(s.plan.some(p => p.category === "referral" && p.title.includes("thrombus exclusion")));
+  assert.ok(!s.plan.some(p => p.category === "procedure" || p.title.startsWith("Anticoagulation for at least 2 months")));
 
   const p2 = await tx((q) => K.createPatient(q, doc, { name: "Cv " + Date.now(), mrn: "C2" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["af"] }));
   await tx(async (q) => { await K.recordProcedure(q, doc, p2, { kind: "cardioversion", date: at(addDays(T, -5)), details: { method: "Electrical", prep: "AF onset <24 h", result: "Sinus rhythm restored" } }); await reassess(q, p2, "sandbox"); });

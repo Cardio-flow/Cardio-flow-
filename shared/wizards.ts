@@ -8,6 +8,7 @@ import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
 import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
+import { AF_AFTERCARE_WIZARDS } from "./wizards-af-aftercare.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
@@ -95,6 +96,12 @@ export type WizardContext = {
   dx?: string[];
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
   af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
+  afProcedures?: {
+    ablation: { id: string; day: string; result: string; energy?: string; minimumOac?: string } | null;
+    closure: { id: string; day: string; method: string; device: string; regimen: string; reviewDate: string | null } | null;
+    imaging: { id: string; day: string; findings: Record<string, any> } | null;
+    preImaging?: { id: string; day: string; findings: Record<string, any> } | null;
+  };
   // valve module: latest NYHA class, listed lesions with severity, latest echo grades, treated positions
   valve?: {
     nyha: string | null; lesions: { code: string; severity: string | null }[]; echo: Record<string, string>; mrType: string | null; treated: string[]; bicuspid: boolean;
@@ -563,6 +570,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...INFLAMMATORY_WIZARDS,
   ...CORONARY_WIZARDS,
   ...RHYTHM_WIZARDS,
+  ...AF_AFTERCARE_WIZARDS,
   ...VALVE_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
