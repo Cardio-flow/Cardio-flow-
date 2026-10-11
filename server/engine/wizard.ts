@@ -334,7 +334,7 @@ export async function completeWizard(
   for (const item of outcome.filter((i) => i.kind === "start")) {
     if (item.kind !== "start") continue;
     if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
-    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId, reason: startWhy[item.code] });
+    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId, decisionId, reason: startWhy[item.code] });
     changed.push(...r.changed);
   }
   const medByRef = async (ref: string | undefined) => {

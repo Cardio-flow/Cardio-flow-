@@ -134,11 +134,16 @@ for (const kind of ["admission", "clinic_visit"] as const) {
         (p) => p.source_context_id === ctx.id && p.due_date! >= today(),
       ),
     );
+    const history = await journey(db, pid);
     assert.ok(
-      (await journey(db, pid)).contexts
+      history.contexts
         .find((c: any) => c.id === ctx.id)!
         .actions.some((p: any) => p.id === tasks[0].id),
     );
+    const selected = history.events.find((e: any) => e.ref_id === result.decisionId)!;
+    assert.deepEqual(selected.linked.actions.map((a: any) => a.id).sort(), tasks.map(p => p.id).sort());
+    assert.deepEqual(selected.linked.meds.map((m: any) => [m.name, m.kind, m.dose]), [["Spironolactone", "decrease", "12.5 mg"]]);
+    assert.equal(history.contexts.find((c: any) => c.id === ctx.id)!.meds.length, 2, "Admission history retains both the unrelated start and the decision's reduction");
     const note = await draftNote(db, pid, ctx.id);
     assert.match(note.text, /Hyperkalaemia review/);
     assert.match(note.text, /12.5 mg/);
@@ -159,6 +164,9 @@ for (const kind of ["admission", "clinic_visit"] as const) {
         .awaitingReview,
       true,
     );
+    const updated = (await journey(db, pid)).events.find((e: any) => e.ref_id === result.decisionId)!;
+    assert.equal(updated.linked.actions.find((a: any) => a.id === labTask.id)!.view, "review", "Event actions show live review status, while their original text remains unchanged");
+    assert.equal(updated.detail, selected.detail);
   });
 }
 test("a failed second joined pathway rolls back the first decision and its medication change", async () => {

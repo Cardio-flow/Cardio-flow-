@@ -374,11 +374,11 @@ h1, h2, h3 { margin: 0; }
 .jr .line { flex-grow: 1; width: 2px; background: #d5e0ee; min-height: 10px; }
 .jr .line.dash { background: repeating-linear-gradient(#d5e0ee 0 4px, transparent 4px 8px); }
 .jr .body { padding: 10px 0 16px; min-width: 0; }
-.jr .body button { all: unset; cursor: pointer; display: block; width: 100%; border-radius: 12px; padding: 2px 4px; }
-.jr .body button:hover .t { color: var(--action); }
+.jr .body .jr-event { all: unset; cursor: pointer; display: block; width: 100%; border-radius: 12px; padding: 2px 4px; }
+.jr .body .jr-event:hover .t { color: var(--action); }
 .jr .t { font-size: 15px; font-weight: 800; }
 .jr .dt { font-size: 13.5px; font-weight: 500; color: var(--ink-3); margin-top: 3px; }
-.jr.sel .body button { background: var(--blue-soft); outline: 1px solid var(--blue-line); padding: 10px 14px; }
+.jr.sel .body .jr-event { background: var(--blue-soft); outline: 1px solid var(--blue-line); padding: 10px 14px; }
 .jr.planned .t { color: var(--ink-3); font-weight: 700; }
 .node.visit { background: var(--navy); color: #fff; }
 .node.investigation { background: var(--blue-bg); color: var(--action); }
@@ -665,7 +665,6 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 
 /* ---------------- phones (2 Oct 2026) ---------------- */
 .grid-journey { grid-template-columns: minmax(0, 1fr) 400px; }
-.jr-detail { margin-top: 10px; padding: 14px; border: 1px solid var(--blue-line); border-radius: 12px; background: #fff; box-shadow: var(--shadow-lg); }
 @media (max-width: 900px) {
   .grid-journey { grid-template-columns: minmax(0, 1fr); }
   /* patient header: no avatar, compact rows */
@@ -809,8 +808,8 @@ tr.reg-only td { color: var(--ink-4); }
   .lab-row.calc > .small { grid-column: 1 / -1; grid-row: 3; }
   .lab-row.calc > span:last-child:empty { display: none; }
 }
-/* journey: the selected event stays inside the card; Documents stays visible at the end of the tab bar */
-.jr .body button { box-sizing: border-box; max-width: 100%; }
+/* Journey events keep a compact reading target. */
+.jr .body .jr-event { box-sizing: border-box; max-width: 100%; }
 /* phones: Documents sits with the other header actions instead of at the end of the scrolling tab bar */
 .docs-phone { display: none; }
 @media (max-width: 900px) {
@@ -1469,10 +1468,9 @@ table.data.meds td.med-compact { display: none; }
 .jr .t { font-size: 14px; }
 .jr .dt { font-size: 12px; line-height: 1.4; }
 .jr.sel .body .jr-event { padding: 6px 8px; }
-.jr-detail { box-shadow: none; background: #f7faff; animation: date-reveal 140ms ease-out; }
 @keyframes date-reveal { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 760px) { .jr { grid-template-columns: 48px 28px minmax(0, 1fr); gap: 6px; } .wizard-reference > summary > span { width: 100%; padding-left: 22px; } }
-@media (prefers-reduced-motion: reduce) { .date-picker, .jr-detail { animation: none; } .jr .body .jr-event { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .date-picker { animation: none; } .jr .body .jr-event { transition: none; } }
 
 /* echo: boxed sections, wall-by-wall motion, LVH grade (7 Oct) */
 .ef-box { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: #fff; }
@@ -1660,3 +1658,45 @@ table.data.meds td.med-compact { display: none; }
 
 .admission-card > .card-head { position: relative; padding-right: 64px; }
 .encounter-edit { position: absolute; right: 0; top: -8px; }
+
+/* Journey reading view: full phone width, one event and one layer at a time. */
+.journey-panel { box-shadow: var(--shadow); }
+.journey-detail-heading { display: grid; gap: 6px; margin-bottom: 18px; }
+.journey-detail-heading h2 { font-size: 19px; line-height: 1.35; }
+.journey-focus-body { background: #f8faff; }
+.journey-detail { min-width: 0; overflow-wrap: anywhere; animation: date-reveal 160ms ease-out; }
+.journey-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--line); background: #eaf0f8; border-radius: 12px; margin-bottom: 20px; }
+.journey-switch button { min-height: 42px; border: 0; border-radius: 9px; font: 700 13px var(--font); color: var(--ink-3); background: transparent; cursor: pointer; }
+.journey-switch button[aria-pressed="true"] { background: #fff; color: var(--navy); box-shadow: 0 2px 6px #0b2d5b0d; }
+.journey-switch button:focus-visible, .journey-action-link:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.journey-detail .eyebrow { margin: 0 0 10px; font-size: 11px; }
+.journey-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.journey-facts > div { padding: 12px; border: 1px solid #dbe6f5; border-radius: 12px; background: linear-gradient(145deg, #edf5ff, #f8fbff); }
+.journey-facts dt { color: var(--ink-3); font-size: 11.5px; font-weight: 700; margin-bottom: 5px; }
+.journey-facts dd { margin: 0; color: var(--navy); font-size: 16px; font-weight: 800; }
+.journey-facts dd small { display: block; margin-top: 5px; font-size: 11px; font-weight: 500; line-height: 1.5; color: var(--ink-3); }
+.journey-key-points { margin: 16px 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-3); }
+.journey-key-points li + li { margin-top: 8px; }
+.journey-action-link { margin-top: 18px; padding: 14px; width: 100%; display: flex; align-items: center; gap: 10px; border: 1px solid #bce1dc; border-radius: 12px; background: #eaf7f4; color: #125f56; cursor: pointer; text-align: left; font: inherit; font-size: 13px; }
+.journey-action-link > svg { flex-shrink: 0; }
+.journey-action-link > span:first-of-type { flex: 1; }
+.journey-action-link small { display: block; font-size: 12px; margin-top: 3px; }
+.journey-view-link { white-space: nowrap; font-weight: 700; }
+.journey-action-list, .journey-medicine-list { list-style: none; padding: 0; margin: 0; }
+.journey-action { display: flex; gap: 10px; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.journey-action:first-child { padding-top: 4px; }
+.journey-action:last-child { border-bottom: 0; }
+.journey-action > div { flex: 1; min-width: 0; }
+.journey-action b { display: block; font-size: 13px; line-height: 1.5; font-weight: 700; }
+.journey-action small { display: flex; align-items: center; gap: 5px; color: var(--ink-3); font-size: 11.5px; margin-top: 5px; }
+.journey-action .tag { max-width: 90px; font-size: 10.5px; line-height: 1.35; text-align: center; flex-shrink: 0; }
+.journey-medicine-list { margin-bottom: 20px; }
+.journey-medicine-list li { display: flex; align-items: center; gap: 10px; padding: 12px; background: #eaf7f4; border-radius: 12px; color: #125f56; font-size: 13px; }
+.journey-medicine-list li + li { margin-top: 6px; }
+.journey-medicine-list small { display: block; margin-top: 3px; font-size: 12px; font-weight: 500; }
+.journey-context-strip { display: flex; gap: 10px; align-items: center; border-radius: 12px; padding: 12px; background: #eef3fa; color: var(--navy); font-size: 12px; margin-bottom: 20px; }
+.journey-context-strip small { display: block; color: var(--ink-3); margin-top: 4px; }
+.journey-original { margin: 0 0 20px; font-size: 13px; line-height: 1.75; color: var(--ink-3); white-space: pre-wrap; }
+.journey-note { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 ui-monospace, Menlo, monospace; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+@media (max-width: 900px) { .journey-focus-body { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .journey-detail, .journey-focus .drawer, .journey-focus .scrim { animation: none; } }

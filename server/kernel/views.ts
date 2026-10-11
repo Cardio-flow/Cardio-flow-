@@ -1,4 +1,5 @@
 import { correctedRefs } from "./corrections.js";
+import { journeySummary } from "./journey-detail.js";
 import { targets } from "../engine/guidelines.js";
 import { hfProfile } from "../engine/hf-profile.js";
 import { cadProfile } from "../engine/cad-profile.js";
@@ -519,20 +520,32 @@ export async function journey(tx: Q, patientId: string) {
       id: "plan-" + p.id, occurred_at: p.due_date + "T09:00:00.000Z", kind: "planned", category: "plan", title: p.title, detail: p.reason,
       ref_type: "plan_action", ref_id: p.id, context_id: p.source_context_id, planned: true,
     }));
+  const actionViews = new Map(planView(s).map(a => [a.id, a]));
+  const projectAction = (a: typeof s.plan[number]) => {
+    const { id, title, dueDate, progress, view } = actionViews.get(a.id)!;
+    return { id, title, dueDate, progress, view };
+  };
   const contexts = s.contexts.map((c) => {
     const actions = s.plan.filter((p) => p.source_context_id === c.id);
     const meds = s.meds.flatMap((m) =>
       m.events
         .filter((e) => e.effective_at >= c.started_at && (!c.ended_at || e.effective_at <= c.ended_at) && e.kind !== "continue")
-        .map((e) => ({ name: m.name, kind: e.kind, dose: doseLabel(MEDICATION[m.code], e.dose_value, e.dose_unit) })),
+        .map((e) => ({ name: m.name, kind: e.kind, dose: doseLabel(MEDICATION[m.code], e.dose_value, e.dose_unit), frequency: e.frequency, route: e.route })),
     );
     return {
       id: c.id, version: c.version, kind: c.kind, status: c.status, startedAt: c.started_at, endedAt: c.ended_at, location: c.location, service: c.service, reasons: c.reasons, summary: c.summary,
-      actions: actions.map((a) => ({ id: a.id, title: a.title, dueDate: a.due_date, view: planStatusView(a.status, a.due_date, s.today) })),
+      actions: actions.map(projectAction),
       meds,
     };
   });
-  return { today: s.today, events: [...events, ...planned], contexts };
+  const projected = [...events, ...planned].map(e => {
+    const ctx = e.ref_type === "care_context" ? contexts.find(c => c.id === e.ref_id) : null;
+    // A decision shows its own actions, even outside an admission. Never infer ownership from dates.
+    const actions = ctx?.actions ?? s.plan.filter(a => e.ref_type === "decision" ? a.decision_id === e.ref_id : e.ref_type === "plan_action" && a.id === e.ref_id).map(projectAction);
+    const meds = ctx?.meds ?? (e.ref_type === "decision" ? s.meds.flatMap(m => m.events.filter(ev => ev.decision_id === e.ref_id && ev.kind !== "continue").map(ev => ({ name: m.name, kind: ev.kind, dose: doseLabel(MEDICATION[m.code], ev.dose_value, ev.dose_unit), frequency: ev.frequency, route: ev.route }))) : []);
+    return { ...e, linked: { actions, meds }, reading: e.category === "complication" && e.ref_type === "decision" ? journeySummary(e.detail ?? "", actions.map(a => a.title), meds.map(m => m.name)) : null };
+  });
+  return { today: s.today, events: projected, contexts };
 }
 
 // One set-based query for the whole list (latency to the database dominates, not query cost).
