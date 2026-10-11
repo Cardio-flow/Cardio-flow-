@@ -116,6 +116,36 @@ try {
       conclusion: "Uncontrolled on treatment",
     },
   });
+  await api(`/patients/${pat.id}/wizards/htn-resistance/complete`, {
+    answers: {
+      basis: "resistant",
+      technique: "yes",
+      adherence: "yes",
+      doses: "yes",
+      lifestyle: "yes",
+      decision: "specialist",
+      when: T,
+      reviewDate: T,
+    },
+  });
+  await page.goto(`${base}/patients/${pat.id}`);
+  await page.getByRole("button", { name: "Assess RDN", exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Verify resistance", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Review hypertension", exact: true })
+      .count(),
+    0,
+  );
+  await page.screenshot({
+    path: out + "/00-rdn-pending-workup-phone.png",
+    animations: "disabled",
+  });
   for (const findings of [
     {
       purpose: "Primary aldosteronism screen",
@@ -154,20 +184,8 @@ try {
       date: new Date().toISOString(),
       findings,
     });
-  await api(`/patients/${pat.id}/wizards/htn-resistance/complete`, {
-    answers: {
-      basis: "resistant",
-      technique: "yes",
-      adherence: "yes",
-      doses: "yes",
-      lifestyle: "yes",
-      decision: "specialist",
-      when: T,
-      reviewDate: T,
-    },
-  });
+
   await page.goto(`${base}/patients/${pat.id}`);
-  await page.locator("#lane-consider > summary").click();
   await page.getByRole("button", { name: "Assess RDN", exact: true }).click();
   await radio("Elective RDN setting", "Stable adult; pregnancy excluded");
   for (const label of [
@@ -206,7 +224,7 @@ try {
     .click();
   await page
     .getByRole("dialog", {
-      name: "After renal denervation: recovery and BP follow-up",
+      name: "RDN follow-up",
       exact: true,
     })
     .waitFor();

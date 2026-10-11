@@ -1,5 +1,7 @@
 # Hypertension: sources and implementation
 
+11 October flow correction: acute BP assessment uses the existing severe-BP rule; outpatient confirmation and resistant-treatment assessment have one primary route. Resistance approval is tied to BP, out-of-office measurements and the medication regimen separately from subsequent secondary-cause/anatomical reports. Completing those reports advances RDN eligibility without repeating unchanged adherence/dose review; changed BP/treatment still invalidates it. Verified candidates can see a pending RDN assessment with missing checks, while actual scheduling retains all existing clinical, renal, secondary, anatomy, IFU and specialist/shared-decision requirements. Positive or uninterpretable aldosteronism screens and identified secondary disease do not become ready RDN candidates. Equivalent future hypertension tests and BP reviews are reused; overdue bookings and distinct annual surveillance are not treated as adequate substitutes. No guideline threshold or drug regimen was changed.
+
 Reviewed 11 October 2026. ESC is the default framework. The latest dedicated ESC hypertension guideline remains 2024; the 2026 ESC cardiovascular disease/chronic kidney disease guideline updates BP management in CKD. The 2025 Endocrine Society guideline supplies primary aldosteronism screening recommendations. US hypertension thresholds are not mixed into the ESC defaults.
 
 ## Primary references

@@ -1371,6 +1371,45 @@ table.data.meds td.med-compact { display: none; }
 .date-in .date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
 .date-in.bad .date-text { border-color: var(--orange); background: var(--orange-soft); }
 .date-in .sl-input.date-text { padding-right: 40px; min-width: 140px; }
+.date-in .date-cal { width: 40px; height: 40px; background: var(--blue-soft); }
+.date-picker { position: fixed; max-height: calc(100dvh - 32px); overflow-y: auto; z-index: 60; top: calc(100% + 6px); left: 0; width: 286px; max-width: calc(100vw - 40px); padding: 12px; border: 1px solid var(--blue-line); border-radius: 16px; background: #fff; box-shadow: var(--shadow-lg); animation: date-reveal 140ms ease-out; }
+.date-picker-head { display: flex; gap: 4px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.date-picker-head select { font: inherit; font-size: 13px; font-weight: 700; color: var(--navy); border: 0; background: var(--blue-soft); border-radius: 8px; padding: 8px 3px; min-width: 0; }
+.date-picker-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.date-picker-grid small { text-align: center; color: var(--ink-3); padding: 6px 0; }
+.date-picker-grid button { border: 0; background: transparent; border-radius: 8px; min-height: 36px; font: inherit; font-size: 13px; color: var(--navy); cursor: pointer; }
+.date-picker-grid button:hover:not(:disabled) { background: var(--blue-soft); }
+.date-picker-grid button[aria-pressed="true"] { background: var(--action); color: #fff; font-weight: 800; }
+.date-picker-grid button:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+.date-picker-grid .other-month { color: var(--ink-4); }
+.date-picker-grid button:disabled { opacity: .3; cursor: default; }
+.manual-date { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.manual-date .date-in { width: 192px; }
+.discharge-date { flex-basis: 100%; gap: 10px; }
+.wizard-reference { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.wizard-reference > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--navy); }
+.wizard-reference > summary > span { font-weight: 500; color: var(--ink-3); }
+.wizard-reference p { margin-top: 10px; }
+.question-help { font-size: 12px; color: var(--ink-3); }
+.question-help > summary { cursor: pointer; font-weight: 600; }
+.guide-compact { padding: 8px 12px; }
+.guide-compact > summary { cursor: pointer; }
+.guide-compact:not([open]) .guide-head { margin-bottom: 0; }
+.wiz-main > .q { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(135deg, #f5f8fe, #fff 72%); }
+.journey-filter { width: 178px; height: 36px; font-size: 12px; padding: 6px 10px; }
+.journey-card { background: linear-gradient(160deg, #f5f8fe, #fff 40%); }
+.jr { grid-template-columns: 68px 30px minmax(0, 1fr); gap: 8px; }
+.jr .body { padding: 7px 0 10px; }
+.jr .body .jr-event { padding: 6px 8px; transition: background 140ms ease, color 140ms ease; }
+.jr .body .jr-event:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.jr .t, .jr .dt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.jr .t { font-size: 14px; }
+.jr .dt { font-size: 12px; line-height: 1.4; }
+.jr.sel .body .jr-event { padding: 6px 8px; }
+.jr-detail { box-shadow: none; background: #f7faff; animation: date-reveal 140ms ease-out; }
+@keyframes date-reveal { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 760px) { .jr { grid-template-columns: 48px 28px minmax(0, 1fr); gap: 6px; } .wizard-reference > summary > span { width: 100%; padding-left: 22px; } }
+@media (prefers-reduced-motion: reduce) { .date-picker, .jr-detail { animation: none; } .jr .body .jr-event { transition: none; } }
 
 /* echo: boxed sections, wall-by-wall motion, LVH grade (7 Oct) */
 .ef-box { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: #fff; }

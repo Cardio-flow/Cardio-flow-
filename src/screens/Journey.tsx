@@ -109,16 +109,12 @@ export function JourneyTab({ id, version }: { id: string; version: number }) {
   return (
     <main className="page">
       <div className="grid-main grid-journey">
-        <section className="card pad">
+        <section className="card pad journey-card">
           <div className="card-head" style={{ flexWrap: "wrap" }}>
             <h2>Journey</h2>
-            <div className="filters">
-              {FILTERS.map(([k, l]) => (
-                <button key={k} className="filter" style={{ height: 34, fontSize: 12.5 }} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                  {l}
-                </button>
-              ))}
-            </div>
+            <select className="input journey-filter" aria-label="Journey filter" value={filter} onChange={e=>setFilter(e.target.value)}>
+              {FILTERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+            </select>
           </div>
           <label className="row small" style={{ fontWeight: 600, color: "var(--ink-3)", marginBottom: 8 }}>
             <input type="checkbox" checked={!recent} onChange={(e) => setRecent(!e.target.checked)} /> Show older history
@@ -152,9 +148,9 @@ export function JourneyTab({ id, version }: { id: string; version: number }) {
                       {!last && <span className={`line ${e.planned || events[i + 1]?.planned ? "dash" : ""}`} />}
                     </div>
                     <div className="body">
-                      <button onClick={() => setSel(narrow && sel?.id === e.id ? null : e)} aria-pressed={sel?.id === e.id} aria-expanded={narrow ? sel?.id === e.id : undefined}>
+                      <button className="jr-event" onClick={() => setSel(narrow && sel?.id === e.id ? null : e)} aria-pressed={sel?.id === e.id} aria-expanded={narrow ? sel?.id === e.id : undefined}>
                         <div className="t">{e.title}</div>
-                        {e.detail && <div className="dt">{e.detail}</div>}
+                        {e.detail && <div className="dt">{e.category === "complication" ? "Decision recorded · View details" : e.detail}</div>}
                       </button>
                       {narrow && sel?.id === e.id && <div className="jr-detail">{detail}</div>}
                     </div>

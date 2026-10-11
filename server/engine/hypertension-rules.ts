@@ -1,6 +1,18 @@
 import type { Finding, RuleDef } from "./rules.js";
 import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
 import { officeHigh, severeBp } from "../../shared/hypertension.js";
+import { daysBetween } from "../../shared/clinical.js";
+export const urgentBp = (s: import("../kernel/state.js").PatientState) =>
+  ["sbp", "dbp"].some((code) => {
+    const o = s.resolved(code).current;
+    return (
+      o?.status === "final" &&
+      o.value_num != null &&
+      daysBetween(o.effective_at, s.today) >= 0 &&
+      daysBetween(o.effective_at, s.today) <= 2 &&
+      o.value_num >= (code === "sbp" ? 180 : 110)
+    );
+  });
 const evidence =
   "ESC hypertension 2024, doi:10.1093/eurheartj/ehae178, Table 5/10/13, sections 7.6,8.3,8.5,8.6,9.13; ESC CVD/CKD 2026 doi:10.1093/eurheartj/ehag098 (BP recommendations, official slide 24); Endocrine Society PA 2025 doi:10.1210/clinem/dgaf284, recommendations 1/3. RDN conditional on verified resistance / specialist alternative, eGFR ≥40, exclusion of secondary causes, shared decision and device assessment. 90-day freshness is a workflow limit.";
 const finding = (
@@ -36,6 +48,13 @@ export const HYPERTENSION_RULES: RuleDef[] = [
       )
         return [];
       const h = hypertensionProfile(s);
+      if (
+        urgentBp(s) ||
+        (h.triple &&
+          officeHigh(h.office) &&
+          h.phenotype !== "White-coat phenotype")
+      )
+        return [];
       const known = s.tags.has("htn");
       const elevated =
         !!h.office && (h.office.sbp >= 130 || h.office.dbp >= 80);
@@ -89,6 +108,7 @@ export const HYPERTENSION_RULES: RuleDef[] = [
       if (
         s.patient.age < 18 ||
         s.contexts.some((c) => c.kind === "admission" && c.status === "open") ||
+        urgentBp(s) ||
         !officeHigh(h.office) ||
         !h.triple ||
         h.phenotype === "White-coat phenotype" ||
@@ -155,20 +175,51 @@ export const HYPERTENSION_RULES: RuleDef[] = [
     evidence,
     evaluate(s) {
       const h = hypertensionProfile(s);
-      if (!h.rdnEligible || h.actual) return [];
+      if (
+        s.patient.age < 18 ||
+        h.actual ||
+        urgentBp(s) ||
+        s.contexts.some((c) => c.kind === "admission" && c.status === "open")
+      )
+        return [];
+      const verified =
+        h.resistance &&
+        ["technique", "adherence", "doses", "lifestyle"].every(
+          (k) => h.resistance![k] === "yes",
+        );
+      const candidate =
+        verified &&
+        h.triple &&
+        h.resistance?.basis === "resistant" &&
+        officeHigh(h.office) &&
+        h.outside?.valid &&
+        h.outside.high &&
+        (h.egfr == null || h.egfr >= 40) &&
+        (!h.secondary ||
+          h.secondary.result === "Work-up incomplete" ||
+          h.secondary.result === "No secondary cause identified") &&
+        (!h.pa || (h.pa.reliable && h.pa.result === "Negative"));
+      if (!h.rdnEligible && !candidate) return [];
       if (s.procedureReviews?.["rdn-plan"]?.answers._hypertensionKey === h.key)
         return [];
       return [
         finding(
           "htn-rdn",
           h.key,
-          "Consider specialist renal denervation assessment",
-          "Current clinical screening criteria are met. Review recorded anatomy, current device IFU, patient preference and multidisciplinary approval before scheduling. RDN is conditional; it does not automatically change medicines.",
+          h.rdnEligible
+            ? "Consider specialist renal denervation assessment"
+            : "Resistant hypertension: complete RDN eligibility assessment",
+          h.rdnEligible
+            ? "Clinical screening met. Review anatomy, device IFU and specialist / patient approval."
+            : "Resistance verified. Complete the listed checks before RDN can be considered; scheduling remains blocked.",
           "rdn-plan",
           "blue",
-          !h.anatomy?.suitable
-            ? ["Specialist-approved renal artery anatomy / IFU exclusions"]
-            : [],
+          [
+            ...h.rdnMissing,
+            ...(!h.anatomy?.suitable
+              ? ["Specialist-approved renal artery anatomy / IFU exclusions"]
+              : []),
+          ],
         ),
       ];
     },

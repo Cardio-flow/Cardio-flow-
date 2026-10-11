@@ -33,7 +33,7 @@ export function DateField({ label, value, onChange, today, quick, max }: { label
             <button key={q.label} type="button" className="sl-q" aria-pressed={value === d} onClick={() => onChange(d)}>{q.label}</button>
           );
         })}
-        <DateInput className="sl-input" aria-label={label} value={value} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} />
+        <label className="manual-date"><span>Manual date</span><DateInput className="sl-input" aria-label={label} value={value} max={max} onChange={(e) => onChange(e.target.value)} /></label>
       </span>
     </span>
   );
@@ -136,7 +136,7 @@ function StartLine({ a, s, open, done, onCancel }: { a: any; s: any; open(o: Ope
       )}
       {error && <div className="error-box">{error}</div>}
       <div className="sl-actions">
-        <button className={`btn small ${needReason ? "danger" : "primary"}`} disabled={busy || (needReason && override.trim().length < 3)} onClick={save}>
+        <button className={`btn small ${needReason ? "danger" : "primary"}`} disabled={busy || !start || (renalK && !check1) || (needReason && override.trim().length < 3)} onClick={save}>
           {busy ? "Saving…" : needReason ? `Start ${def.name} anyway` : `Start ${def.name}${dose != null ? " " + doseLabel(def, dose) : ""}`}
         </button>
         <button className="btn ghost small" onClick={() => open({ kind: "med-add", code, dose: dose ?? undefined, reason: a.title })}>More options</button>
@@ -202,7 +202,7 @@ function TitrateLine({ a, s, open, done, onCancel }: { a: any; s: any; open(o: O
       {follow.source && <div className="sl-note">{follow.label}: {follow.source}.</div>}
       {error && <div className="error-box">{error}</div>}
       <div className="sl-actions">
-        <button className="btn primary small" disabled={busy} onClick={save}>{busy ? "Saving…" : `${up ? "Increase" : "Reduce"} to ${doseLabel(def, dose)}`}</button>
+        <button className="btn primary small" disabled={busy || !when || !review} onClick={save}>{busy ? "Saving…" : `${up ? "Increase" : "Reduce"} to ${doseLabel(def, dose)}`}</button>
         <button className="btn ghost small" onClick={() => open({ kind: "med-action", medId: med.id, action: a.action.direction, dose, reason: up ? "Titration toward target" : a.title })}>More options</button>
         <button className="btn ghost small" onClick={onCancel}>Cancel</button>
       </div>

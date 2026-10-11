@@ -15,6 +15,7 @@ test("lanes: red and orange safety act now; due tests are ordered; blue is consi
   assert.equal(laneOf(f("lipids.lpa-once", "blue", { type: "add-labs", codes: ["lpa"] })), "order");
   assert.equal(laneOf(f("med.monitoring", "yellow", { type: "add-plan", template: "mon-doac" })), "order");
   assert.equal(laneOf(f("hf.advanced-hf", "orange", { type: "add-plan", template: "advanced-hf" })), "decide", "a referral is a decision");
+  assert.equal(laneOf(f("htn.rdn", "blue", {type:"wizard", wizard:"rdn-plan"})),"decide");
   assert.equal(laneOf(f("hf.device-assessment", "blue", { type: "add-plan", template: "echo" })), "consider");
   assert.equal(laneOf(f("metabolic.obesity", "blue", { type: "start-med" })), "consider");
 });

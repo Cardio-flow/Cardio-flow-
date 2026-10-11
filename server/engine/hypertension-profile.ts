@@ -169,8 +169,55 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
   const secondaryStudy = result("Secondary hypertension review");
   const paStudy = result("Primary aldosteronism screen");
   const anatomyStudy = result("RDN anatomical assessment");
+  // Technique/adherence/dose review belongs to the BP regimen, not to every later screening report.
+  const resistanceKey = JSON.stringify({
+    office: [office?.id ?? null, office ? recent(s, office.at) : false],
+    outside: [outsideStudy?.id ?? null, outside?.valid ?? false],
+    meds: s.meds
+      .filter(isBpMed)
+      .map((m) => [m.id, m.status, m.doseValue, m.frequency, m.lastChange?.id]),
+    loopRequired: num("egfr") == null ? "unknown" : num("egfr")! < 30,
+    adult: s.patient.age >= 18,
+  });
   const review = s.procedureReviews?.["htn-resistance"]?.answers;
-  const resistance = review?._hypertensionKey === key ? review : null;
+  let legacyMatches = false;
+  if (review?._hypertensionKey && !review._resistanceKey) {
+    try {
+      const prior = JSON.parse(review._hypertensionKey),
+        current = JSON.parse(key);
+      const bpInputs = new Set([
+        "sbp",
+        "dbp",
+        "egfr",
+        ...HTN_MEASURES.filter(
+          (code) => code.startsWith("abpm-") || code.startsWith("home-"),
+        ),
+      ]);
+      legacyMatches =
+        JSON.stringify(
+          prior.obs.filter((row: any[]) => bpInputs.has(row[0])),
+        ) ===
+          JSON.stringify(
+            current.obs.filter((row: any[]) => bpInputs.has(row[0])),
+          ) &&
+        JSON.stringify(prior.meds) === JSON.stringify(current.meds) &&
+        prior.age === current.age &&
+        (!outsideStudy ||
+          prior.studies.some(
+            (row: any[]) =>
+              row[0] === outsideStudy.id &&
+              row[1] === recent(s, outsideStudy.performed_at),
+          ));
+    } catch {
+      /* Unrecognized historical evidence requires a fresh review. */
+    }
+  }
+  const resistance =
+    review &&
+    (review._resistanceKey === resistanceKey ||
+      (!review._resistanceKey && legacyMatches))
+      ? review
+      : null;
   const secondaryClues: string[] = [];
   const htn = s.conditions.find((c) => c.code === "htn");
   if (
@@ -227,9 +274,15 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
           anatomyStudy.attributes.reviewed === "Yes",
       }
     : null;
-  const highRisk = ["ascvd", "cad", "hf", "stroke", "vascular", "ckd"].some(
-    (t) => s.tags.has(t),
-  );
+  const highRisk = [
+    "ascvd",
+    "cad",
+    "hf",
+    "stroke",
+    "vascular",
+    "ckd",
+    "dm",
+  ].some((t) => s.tags.has(t));
   const rdnMissing: string[] = [];
   if (s.contexts.some((c) => c.kind === "admission" && c.status === "open"))
     rdnMissing.push("Stable outpatient reassessment after admission");
@@ -284,6 +337,7 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
   const actual = [...s.procedures].reverse().find((p) => p.kind === "rdn");
   return {
     key,
+    resistanceKey,
     office,
     outside,
     phenotype:
