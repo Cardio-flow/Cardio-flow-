@@ -7,6 +7,7 @@ import { loadState, type PatientState } from "../server/kernel/state.js";
 import { today, nowIso, type Actor } from "../server/kernel/base.js";
 import { completeWizard, getWizard } from "../server/engine/wizard.js";
 import { HYPERTENSION_RULES } from "../server/engine/hypertension-rules.js";
+import { ACUTE_RULES } from "../server/engine/acute-rules.js";
 import { hypertensionProfile } from "../server/engine/hypertension-profile.js";
 import { buildOutcome } from "../shared/wizards.js";
 import { addDays } from "../shared/clinical.js";
@@ -29,6 +30,108 @@ before(async () => {
   await boot(db, { seed: false });
 });
 after(async () => db.close());
+
+test("resistance remains verified while secondary and anatomy results arrive; RDN progresses without repeating the regimen review", async () => {
+  const id = await prepared(false);
+  const initial = hypertensionProfile(await loadState(db, id));
+  await study(id, anatomy);
+  let s = await loadState(db, id);
+  assert.equal(
+    hypertensionProfile(s).resistance?._resistanceKey,
+    initial.resistanceKey,
+  );
+  assert.equal(hypertensionProfile(s).rdnEligible, true);
+  assert.equal(rules(s, "htn.resistance").length, 0);
+  assert.equal(rules(s, "htn.management").length, 0);
+  assert.equal(rules(s, "htn.rdn").length, 1);
+  await study(id, { ...secondary, secondaryResult: "Work-up incomplete" });
+  s = await loadState(db, id);
+  assert(hypertensionProfile(s).resistance);
+  assert.equal(hypertensionProfile(s).rdnEligible, false);
+  assert.match(rules(s, "htn.rdn")[0].title, /complete RDN eligibility/);
+  await assert.rejects(
+    () => complete(id, "rdn-plan", rdn),
+    /cannot be scheduled/,
+  );
+  await study(id, {
+    ...secondary,
+    secondaryResult: "Secondary cause identified",
+    cause: "Obstructive sleep apnoea",
+  });
+  assert.equal(rules(await loadState(db, id), "htn.rdn").length, 0);
+});
+
+test("legacy resistance evidence survives new work-up results but never new BP or treatment", async () => {
+  const id = await prepared(false),
+    s = await loadState(db, id);
+  const legacy = { ...s.procedureReviews!["htn-resistance"]!.answers };
+  delete legacy._resistanceKey;
+  await study(id, anatomy);
+  const later = await loadState(db, id);
+  const withLegacy = {
+    ...later,
+    procedureReviews: {
+      ...later.procedureReviews,
+      "htn-resistance": {
+        ...later.procedureReviews!["htn-resistance"]!,
+        answers: legacy,
+      },
+    },
+  };
+  assert(hypertensionProfile(withLegacy).resistance);
+  await obs(id, 160, 95);
+  const changed = await loadState(db, id);
+  assert.equal(
+    hypertensionProfile({
+      ...changed,
+      procedureReviews: withLegacy.procedureReviews,
+    }).resistance,
+    null,
+  );
+});
+
+test("continuing treatment creates no optimization task and existing equivalent future reviews/tests are reused", async () => {
+  const id = await prepared(false);
+  const c = (await tx((q) => getWizard(q, id, "htn-resistance"))).context;
+  const result = buildOutcome(
+    "htn-resistance",
+    { ...resistance, decision: "continue" },
+    c,
+  );
+  assert(
+    !result.some((i) => i.kind === "plan" && /optimization/.test(i.title)),
+  );
+  assert(
+    result.some((i) => i.kind === "note" && /Already planned/.test(i.label)),
+  );
+  assert(
+    !result.some((i) => i.kind === "plan" && i.completesOn?.type === "lab"),
+  );
+  const moved = buildOutcome(
+    "htn-resistance",
+    { ...resistance, decision: "continue" },
+    c,
+    { "Hypertension: renal function and electrolytes": T },
+  );
+  assert(moved.some((i) => i.kind === "plan" && i.dueDate === T));
+});
+
+test("manual pathway dates reject incomplete and impossible dates instead of keeping a previous suggestion", async () => {
+  const id = await prepared(false);
+  for (const value of ["", "2026-02-31", "31/02/2026"])
+    await assert.rejects(
+      () =>
+        tx((q) =>
+          completeWizard(q, a, id, "htn-resistance", {
+            answers: { ...resistance, reviewDate: addDays(T, 1) },
+            dueDates: {
+              "Hypertension: renal function and electrolytes": value,
+            },
+          }),
+        ),
+      /choose today or a later date/,
+    );
+});
 const patient = (birthDate = "1960-01-01") =>
   tx((q) =>
     K.createPatient(q, a, {
@@ -515,7 +618,9 @@ test("young onset, low potassium and non-dipping generate screening clues; marke
   assert(h.secondaryClues.some((c) => c.includes("40")));
   assert(h.secondaryClues.includes("Hypokalaemia"));
   assert(h.secondaryClues.some((c) => c.includes("apnoea")));
-  assert.equal(rules(s, "htn.management")[0].severity, "red");
+  assert.equal(rules(s, "htn.management").length, 0);
+  const acute = ACUTE_RULES.find((r) => r.id === "htn.severe")!;
+  assert.equal(acute.evaluate(s, acute.defaultParams).length, 1);
   const c = (await tx((q) => getWizard(q, id, "htn-review"))).context;
   const outcome = buildOutcome(
     "htn-review",

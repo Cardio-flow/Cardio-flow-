@@ -94,7 +94,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
     }
   }
   const reds = !!check?.hits.some((h) => h.severity === "red");
-  const valid = def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
+  const valid = startDay && (!renalK || monitor === "none" || checkDay) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
   return (
     <Drawer
       wide
@@ -399,7 +399,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!action || busy || (needsDose && !dose) || (needsReason && !reason) || (action === "frequency" && (!newFreq || newFreq === med.frequency))} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
+          <button className="btn primary" disabled={!fromDay || (!exception && action !== "frequency" && review !== "none" && !reviewDay) || !action || busy || (needsDose && !dose) || (needsReason && !reason) || (action === "frequency" && (!newFreq || newFreq === med.frequency))} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
         </span>
       }
     >

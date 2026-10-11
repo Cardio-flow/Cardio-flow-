@@ -32,7 +32,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
     ...picked.map((id) => {
       const t = PLAN_TEMPLATES.find((x) => x.id === id)!;
       const v = dates[id];
-      const due = v?.includes("-") ? v : addDays(today, Number(v ?? t.offsets[0]));
+      const due = v === "" ? null : v?.includes("-") ? v : addDays(today, Number(v ?? t.offsets[0]));
       return { category: t.category, title: t.title, dueDate: due, completesOn: t.completesOn, medicationId: t.id === "renal-k" || t.id.startsWith("mon-") || t.id === "lipids" ? medicationId ?? null : null };
     }),
     ...(custom.title.trim() ? [{ category: custom.category, title: custom.title.trim(), dueDate: custom.date || null, completesOn: { type: "manual" } }] : []),
@@ -56,7 +56,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!items.length || busy} onClick={save}>{busy ? "Saving…" : `Add ${items.length || ""} to plan`}</button>
+          <button className="btn primary" disabled={!items.length || busy || items.some(p => !p.dueDate)} onClick={save}>{busy ? "Saving…" : `Add ${items.length || ""} to plan`}</button>
         </span>
       }
     >
@@ -84,7 +84,7 @@ export function AddPlan({ patientId, template, medicationId, contextId, onClose,
                   value={dates[id]}
                   onChange={(v) => setDates({ ...dates, [id]: v })}
                 />
-                <DateInput className="input" style={{ height: 40 }} aria-label={`${t.title} exact date`} min={today} value={dates[id]?.includes("-") ? dates[id] : ""} onChange={(e) => setDates({ ...dates, [id]: e.target.value || String(t.offsets[0]) })} />
+                <label className="manual-date"><span>Manual date</span><DateInput className="input" style={{ height: 40 }} aria-label={`${t.title} exact date`} min={today} value={dates[id]?.includes("-") ? dates[id] : ""} onChange={(e) => setDates({ ...dates, [id]: e.target.value })} /></label>
               </div>
             </div>
           );

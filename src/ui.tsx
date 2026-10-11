@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
-import { AlertTriangle, Activity, Clock, Info, CheckCircle2, X } from "lucide-react";
+import { AlertTriangle, Activity, Clock, Info, CheckCircle2, X, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+
+import { maskDate, parseDate as parseShown, shownDate as toShown, validDate } from "../shared/dates";
 
 // ---------- routing ----------
 export function navigate(to: string) {
@@ -277,22 +279,44 @@ export const useSession = () => useContext(SessionCtx);
 
 // Dates: typed (dd/mm/yyyy, slashes added as you type) or picked from the calendar button. The value stays
 // ISO (yyyy-mm-dd) and onChange receives { target: { value } } like a native date input, so it drops in for one.
-const toShown = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
-function parseShown(t: string): string | null {
-  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  if (y < 1900 || dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
-  return dt.toISOString().slice(0, 10);
-}
 export function DateInput({
   value, onChange, min, max, className = "input", style, autoFocus, ...rest
 }: {
   value: string; onChange(e: { target: { value: string } }): void; min?: string; max?: string; className?: string; style?: CSSProperties; autoFocus?: boolean; "aria-label"?: string;
 }) {
   const [text, setText] = useState(toShown(value));
-  const native = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLSpanElement>(null);
+  const calendarButton = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    if (!open) return;
+    const position = () => { const r=root.current?.getBoundingClientRect(); if (!r) return; const footer=root.current?.closest(".drawer")?.querySelector(".drawer-foot")?.getBoundingClientRect(); const bottom=footer?.top ?? innerHeight; setPickerPosition({left:Math.max(8,Math.min(r.left,innerWidth-302)),top:Math.max(8,Math.min(r.bottom+6+318 > bottom ? r.top-318 : r.bottom+6,innerHeight-326))}); };
+    position(); window.addEventListener("resize",position); document.addEventListener("scroll",position,true);
+    return () => { window.removeEventListener("resize",position); document.removeEventListener("scroll",position,true); };
+  }, [open]);
+  const [month, setMonth] = useState(() => (validDate(value) ? value : new Date().toISOString().slice(0, 10)).slice(0, 7));
+  const [focused, setFocused] = useState("");
+  const caret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (caret.current != null && field.current === document.activeElement) field.current?.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [text]);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  const allowed = (d: string) => validDate(d) && !(min && d < min) && !(max && d > max);
+  const selectDate = (d: string) => { if (!allowed(d)) return; setText(toShown(d)); onChange({ target: { value: d } }); setOpen(false); calendarButton.current?.focus(); };
+  const [year, mo] = month.split("-").map(Number);
+  const first = new Date(Date.UTC(year, mo - 1, 1));
+  const start = new Date(first); start.setUTCDate(1 - (first.getUTCDay() + 6) % 7);
+  const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setUTCDate(start.getUTCDate() + i); return d.toISOString().slice(0, 10); });
+  const changeMonth = (by: number) => { const d = new Date(first); d.setUTCMonth(d.getUTCMonth() + by); setMonth(d.toISOString().slice(0, 7)); };
+  const focusDay = (d: string) => { setFocused(d); setMonth(d.slice(0, 7)); requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>(`[data-day="${d}"]`)?.focus()); };
   useEffect(() => {
     // a half-typed or invalid date is reported as "" — keep the text so the clinician can finish it
     if (parseShown(text) !== value && !(value === "" && !parseShown(text))) setText(toShown(value));
@@ -301,19 +325,22 @@ export function DateInput({
   const iso = parseShown(text);
   const out = !!iso && ((min && iso < min) || (max && iso > max));
   const bad = (text.length >= 10 && !iso) || out;
-  function typed(raw: string) {
-    let t = raw.replace(/[^\d/]/g, "");
-    // add the slashes while typing digits only: 0703 → 07/03, 07031960 → 07/03/1960
-    if (!t.includes("/") && /^\d+$/.test(t)) t = [t.slice(0, 2), t.slice(2, 4), t.slice(4, 8)].filter(Boolean).join("/");
-    t = t.slice(0, 10);
+  function typed(raw: string, cursor = raw.length) {
+    const t = maskDate(raw);
+    const count = raw.slice(0, cursor).replace(/\D/g, "").length;
+    let seen = 0, pos = 0;
+    while (pos < t.length && seen < count) { if (/\d/.test(t[pos])) seen++; pos++; }
+    if (t[pos] === "/") pos++;
+    caret.current = pos;
     setText(t);
     const p = parseShown(t);
     // anything not a complete, allowed date clears the value, so a stale earlier date is never saved
     onChange({ target: { value: p && !((min && p < min) || (max && p > max)) ? p : "" } });
   }
   return (
-    <span className={`date-in ${bad ? "bad" : ""}`} style={style}>
+    <span ref={root} className={`date-in ${bad ? "bad" : ""}`} style={style} onKeyDown={(e) => { if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); calendarButton.current?.focus(); } }}>
       <input
+        ref={field}
         className={`${className} date-text`}
         inputMode="numeric"
         placeholder="dd/mm/yyyy"
@@ -321,34 +348,43 @@ export function DateInput({
         autoFocus={autoFocus}
         aria-label={rest["aria-label"] ?? "Date (day/month/year)"}
         aria-invalid={bad || undefined}
-        onChange={(e) => typed(e.target.value)}
+        onChange={(e) => typed(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+        onKeyDown={(e) => {
+          const at = e.currentTarget.selectionStart ?? 0;
+          if (e.key === "Backspace" && at === e.currentTarget.selectionEnd && text[at - 1] === "/") {
+            e.preventDefault(); typed(text.slice(0, at - 2) + text.slice(at), at - 2);
+          }
+        }}
       />
       <button
         type="button"
         className="date-cal"
         aria-label="Choose from calendar"
         title={bad ? (out ? `Outside the allowed dates${min ? ` (from ${toShown(min)})` : ""}${max ? ` (until ${toShown(max)})` : ""}` : "Not a valid date") : "Choose from calendar"}
+        ref={calendarButton}
+        aria-expanded={open}
         onClick={() => {
-          const n = native.current;
-          if (!n) return;
-          try { (n as any).showPicker ? (n as any).showPicker() : n.click(); } catch { n.focus(); }
+          const initial = allowed(value) ? value : min ?? max ?? new Date().toISOString().slice(0, 10);
+          setMonth(initial.slice(0, 7)); setFocused(initial); setOpen(!open);
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
-        </svg>
+        <CalendarDays size={21} aria-hidden="true" />
       </button>
-      <input
-        ref={native}
-        type="date"
-        className="date-native"
-        tabIndex={-1}
-        aria-hidden="true"
-        min={min}
-        max={max}
-        value={value || ""}
-        onChange={(e) => { setText(toShown(e.target.value)); onChange({ target: { value: e.target.value } }); }}
-      />
+      {open && <span className="date-picker" style={pickerPosition} role="group" aria-label="Calendar">
+        <span className="date-picker-head">
+          <button type="button" className="icon-btn" aria-label="Previous month" onClick={() => changeMonth(-1)}><ChevronLeft size={18} /></button>
+          <select aria-label="Calendar month" value={mo} onChange={(e) => setMonth(`${year}-${e.target.value.padStart(2, "0")}`)}>{Array.from({ length: 12 }, (_, i) => <option key={i} value={i + 1}>{new Date(2026, i, 1).toLocaleString("en-GB", { month: "short" })}</option>)}</select>
+          <select aria-label="Calendar year" value={year} onChange={(e) => setMonth(`${e.target.value}-${String(mo).padStart(2, "0")}`)}>{Array.from({ length: Math.max(1, Number((max ?? `${new Date().getFullYear() + 100}`).slice(0, 4)) - Number((min ?? "1900").slice(0, 4)) + 1) }, (_, i) => Number((min ?? "1900").slice(0, 4)) + i).map((y) => <option key={y} value={y}>{y}</option>)}</select>
+          <button type="button" className="icon-btn" aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight size={18} /></button>
+        </span>
+        <span className="date-picker-grid">
+          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <small key={i} aria-hidden="true">{d}</small>)}
+          {days.map((d) => <button type="button" key={d} data-day={d} className={d.slice(0, 7) !== month ? "other-month" : ""} aria-label={new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} aria-pressed={value === d} disabled={!allowed(d)} tabIndex={d === focused ? 0 : -1} onFocus={() => setFocused(d)} onClick={() => selectDate(d)} onKeyDown={(e) => {
+            const by = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[e.key];
+            if (by) { e.preventDefault(); const next = new Date(`${d}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + by); const iso = next.toISOString().slice(0, 10); if (allowed(iso)) focusDay(iso); }
+          }}>{Number(d.slice(8))}</button>)}
+        </span>
+      </span>}
     </span>
   );
 }

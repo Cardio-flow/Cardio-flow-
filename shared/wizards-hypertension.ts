@@ -114,6 +114,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
   "htn-review": {
     ...base,
     id: "htn-review",
+    shortTitle: "Hypertension management",
     title: "Hypertension: confirm, target and treatment",
     note: "The record supplies dated BP and medicines. Diagnosis and treatment require clinical confirmation. Pregnancy, acute illness and treatment intolerance need an individualized plan.",
     steps: [
@@ -369,7 +370,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
       out.push(
         plan(
           "follow-up",
-          "Hypertension: BP, orthostasis and treatment tolerance review",
+          "Hypertension: BP and treatment tolerance review",
           String(a.reviewDate),
           { type: "visit" },
         ),
@@ -380,9 +381,10 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
   "htn-resistance": {
     ...base,
     id: "htn-resistance",
+    shortTitle: "Resistant hypertension",
     title: "Resistant hypertension: verify and optimize",
     tone: "orange",
-    note: "Combination tablets count by their component classes. Held / not-taken medicines and inadequate doses do not prove resistance. New BP, medicines or screening results require renewed confirmation.",
+    note: "Combination tablets count by their component classes. Held / not-taken medicines and inadequate doses do not prove resistance. Changed BP or treatment requires renewed confirmation. Screening results update RDN eligibility without repeating the regimen review.",
     steps: [
       {
         id: "verify",
@@ -483,20 +485,32 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
         ],
       };
     },
-    outcome(a) {
+    outcome(a, c) {
       const d = String(a.when);
       return [
-        plan(
-          "review",
-          a.decision === "specialist"
-            ? "Resistant hypertension: specialist assessment"
-            : "Hypertension: dose, adherence and regimen optimization",
-          d,
-        ),
+        ...(!c.hypertension?.outside?.valid
+          ? [
+              plan("study", "Ambulatory BP monitoring", d, {
+                type: "study",
+                kind: "abpm",
+              }),
+            ]
+          : []),
+        ...(a.decision === "continue"
+          ? []
+          : [
+              plan(
+                "review",
+                a.decision === "specialist"
+                  ? "Resistant hypertension: specialist assessment"
+                  : "Hypertension: dose, adherence and regimen optimization",
+                d,
+              ),
+            ]),
         renal(String(a.reviewDate)),
         plan(
           "follow-up",
-          "Resistant hypertension: BP and treatment tolerance review",
+          "Hypertension: BP and treatment tolerance review",
           String(a.reviewDate),
           { type: "visit" },
         ),
@@ -506,6 +520,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
   "htn-secondary": {
     ...base,
     id: "htn-secondary",
+    shortTitle: "Secondary hypertension",
     title: "Secondary hypertension: screening and results",
     note: "Screen according to the patient's clues. The 2025 Endocrine Society conditionally suggests aldosteronism screening in all hypertensive adults. Positive screening requires clinical interpretation; no automatic diagnosis or medicine withdrawal.",
     steps: [
@@ -732,6 +747,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
   "rdn-plan": {
     ...base,
     id: "rdn-plan",
+    shortTitle: "Renal denervation",
     title: "Renal denervation: eligibility and preparation",
     sourceShort: "ESC 2024 · ESC/EAPCI 2023 · IFU",
     note: "Schedule only after every recorded clinical and anatomical criterion is met. ESC resistant-hypertension recommendation IIb B; high-risk fewer-drug alternative IIb A. Benefit is BP lowering; cardiovascular outcome benefit remains unproven.",
@@ -822,6 +838,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
   "after-rdn": {
     ...base,
     id: "after-rdn",
+    shortTitle: "RDN follow-up",
     title: "After renal denervation: recovery and BP follow-up",
     note: "Read the actual procedure report. Continue medicines unless the clinician explicitly changes them; BP response may evolve over months. Follow the centre's current device protocol.",
     steps: [

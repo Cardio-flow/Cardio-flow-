@@ -30,6 +30,8 @@ export function laneOf(f: Finding): Lane {
   const a = f.action ?? {};
   if (a.type === "add-labs" || ORDER_RULES.has(f.rule_id)) return "order";
   if (a.type === "add-plan" && TEST_TEMPLATE.test(a.template ?? "") && f.severity !== "blue") return "order";
+  // A triggered RDN assessment is a patient-specific decision, including pending work-up.
+  if (f.rule_id === "htn.rdn" && f.action?.type === "wizard") return "decide";
   if (f.severity === "blue") return "consider";
   return "decide";
 }

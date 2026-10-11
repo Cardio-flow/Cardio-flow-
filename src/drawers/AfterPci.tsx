@@ -42,7 +42,7 @@ function Sheet({ c, patientId, contextId, onClose, onDone, onBundle }: { c: PciC
   const [ch, setCh] = useState<Choice>(() => defaultChoice(c));
   const [ends, setEnds] = useState<Record<string, string>>({});
   const set = <K extends keyof Choice>(k: K, v: Choice[K]) => { setCh((x) => ({ ...x, [k]: v })); setEnds({}); };
-  const ph = phases(c, ch, ends);
+  const ph = phases(c, ch, Object.fromEntries(Object.entries(ends).filter(([,day])=>day)));
   const ex = useMemo(() => extrasFor(c, ch), [c]);
   const [picked, setPicked] = useState<Set<string>>(() => new Set(ex.filter((e) => e.on).map((e) => e.id)));
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -99,8 +99,8 @@ function Sheet({ c, patientId, contextId, onClose, onDone, onBundle }: { c: PciC
           <span className="note">{reds.length && !ready ? "A contraindication needs a reason" : `${ph.filter((p) => p.stop).length} dated stop${ph.filter((p) => p.stop).length === 1 ? "" : "s"} · ${picked.size} other step${picked.size === 1 ? "" : "s"}`}</span>
           <span className="end">
             <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Later</button>
-            {acs && onBundle && <button className="btn secondary" disabled={busy || !ready} onClick={() => save(true)}>Save, then ACS bundle</button>}
-            <button className="btn primary" disabled={busy || !ready} onClick={() => save()}>{busy ? "Saving…" : "Save plan"}</button>
+            {acs && onBundle && <button className="btn secondary" disabled={busy || !ready || Object.values(ends).some(day=>!day)} onClick={() => save(true)}>Save, then ACS bundle</button>}
+            <button className="btn primary" disabled={busy || !ready || Object.values(ends).some(day=>!day)} onClick={() => save()}>{busy ? "Saving…" : "Save plan"}</button>
           </span>
         </>
       }
@@ -136,7 +136,7 @@ function Sheet({ c, patientId, contextId, onClose, onDone, onBundle }: { c: PciC
               </>
             )}
           </div>
-          <Timeline c={c} phases={ph} onEnd={(k, d) => setEnds((e) => ({ ...e, [k]: d }))} />
+          <Timeline c={c} phases={ph} ends={ends} onEnd={(k, d) => setEnds((e) => ({ ...e, [k]: d }))} />
           {starts.map((code) => (hits[code]?.length ?? 0) > 0 && (
             <div key={code} className="sl-hits">
               {hits[code].map((h, i) => (
@@ -175,7 +175,7 @@ function Sheet({ c, patientId, contextId, onClose, onDone, onBundle }: { c: PciC
 }
 
 // one row per medicine, from the PCI across the plan, with the end date of each phase editable
-function Timeline({ c, phases: ph, onEnd }: { c: PciContext; phases: ReturnType<typeof phases>; onEnd(key: string, day: string): void }) {
+function Timeline({ c, phases: ph, ends, onEnd }: { c: PciContext; ends:Record<string,string>; phases: ReturnType<typeof phases>; onEnd(key: string, day: string): void }) {
   const start = c.pci.at;
   const lastEnd = ph.map((p) => p.to).filter(Boolean).sort().pop() ?? addDays(start, 365);
   const span = Math.max(400, Math.round((Date.parse(lastEnd) - Date.parse(start)) / 86400000) + 60);
@@ -215,7 +215,7 @@ function Timeline({ c, phases: ph, onEnd }: { c: PciContext; phases: ReturnType<
         {ph.filter((p) => p.stop && p.to).map((p) => (
           <label key={p.key} className="ap-end">
             <span><b>{p.label} ends</b><em>{p.stop!.title}</em></span>
-            <DateInput className="sl-input" min={start} value={p.to!} onChange={(e) => e.target.value && onEnd(p.key, e.target.value)} aria-label={`${p.label} end date`} />
+            <DateInput className="sl-input" min={start} value={ends[p.key] ?? p.to!} onChange={(e) => onEnd(p.key, e.target.value)} aria-label={`${p.label} end date`} />
           </label>
         ))}
       </div>

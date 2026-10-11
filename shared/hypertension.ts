@@ -3,6 +3,7 @@
 export type BpPair = { sbp: number; dbp: number; at: string; id: string };
 export type HypertensionContext = {
   key: string;
+  resistanceKey: string;
   office: BpPair | null;
   outside: (BpPair & { method: string; high: boolean; valid: boolean }) | null;
   phenotype: string;

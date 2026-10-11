@@ -54,6 +54,7 @@ export type Question = {
 };
 export type Step = { id: string; title: string; questions: Question[] };
 export type WizardDef = {
+  shortTitle?: string;
   id: string;
   title: string;
   tone: "red" | "orange" | "yellow" | "blue";
@@ -136,6 +137,7 @@ export type WizardContext = {
   ccsTest?: { kind: string; label: string; at: string; summary: string; risk: "high" | "positive" | "uncertain" | "negative"; why: string; ccta: boolean } | null;
   // titles of open (planned) plan items, so a pathway does not plan the same thing twice
   planned?: string[];
+  plannedActions?: { title: string; category: string; dueDate: string | null; completesOn: Record<string, any> }[];
   // coronary context: the index event that times antithrombotic therapy and ARC-HBR criteria found
   coronary?: {
     indexAt: string; indexTitle: string; acs: boolean; pciAt: string | null; complexPci: boolean; days: number;
@@ -703,7 +705,7 @@ export type OutcomeItem =
 // wizards whose dose questions are handled explicitly above the generic pass
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
-export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext): OutcomeItem[] {
+export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
   const out: OutcomeItem[] = [];
   const actions = (answers.actions as string[] | undefined) ?? [];
   const today = ctx.today;
@@ -838,7 +840,24 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   }
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
-  return [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")].map((item) =>
-    item.kind === "plan" ? { ...item, label: `${item.title} · ${fmtDay(item.dueDate, { weekday: true, year: true })}` } : item,
-  );
+  const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
+  const htn = ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const seen = new Set<string>();
+  return items.flatMap((item): OutcomeItem[] => {
+    if (item.kind !== "plan") return [item];
+    const date = dueDates[item.title] ?? item.dueDate;
+    const target = item.completesOn ?? { type: "manual" };
+    const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
+      if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
+      if (p.completesOn.type !== target.type) return false;
+      if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
+      if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose;
+      return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
+    }) : null;
+    const key = `${item.title}:${date}`;
+    if (htn && seen.has(key)) return [];
+    seen.add(key);
+    if (existing) return [{kind:"note", label:`Already planned: ${existing.title} · ${fmtDay(existing.dueDate!, {year:true})}`}];
+    return [{...item, dueDate:date, label:`${item.title} · ${date ? fmtDay(date, {weekday:true, year:true}) : "Choose a date"}`}];
+  });
 }

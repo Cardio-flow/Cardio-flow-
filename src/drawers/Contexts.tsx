@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
+import { Drawer, DateInput, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
@@ -143,7 +143,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [handover, setHandover] = useState("");
   // an item already booked (open in the plan) is not preselected again — it would be a duplicate task
   const booked = (title: string, days = 14) => /^(HF )?clinic review$/i.test(title) ? existingClinicReview(summary.plan ?? [], title, addDays(summary.today, days), summary.today) : (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
-  const [picked, setPicked] = useState<Record<string, number | null>>(() => {
+  const [picked, setPicked] = useState<Record<string, number | string | null>>(() => {
     const base: Record<string, number | null> = hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 };
     for (const id of Object.keys(base)) {
       const t = PLAN_TEMPLATES.find((x) => x.id === id);
@@ -168,7 +168,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         .filter(([, d]) => d != null)
         .map(([id, d]) => {
           const t = PLAN_TEMPLATES.find((x) => x.id === id)!;
-          return { category: t.category, title: t.title, dueDate: addDays(today, d!), completesOn: t.completesOn };
+          return { category: t.category, title: t.title, dueDate: typeof d === "string" ? d : addDays(today, d!), completesOn: t.completesOn };
         });
       const died = outcome === "died";
       const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
@@ -193,7 +193,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={closeDischarge}>Cancel</button>
-          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
+          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
@@ -288,12 +288,15 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
                 <button type="button" className="choice" aria-pressed={on} onClick={() => setPicked({ ...picked, [t.id]: on ? null : t.offsets[0] })}>{t.title}</button>
                 {!on && (() => { const existing = booked(t.title, status === "Still congested" && t.id === "hf-clinic" ? 7 : 14); return existing ? <span className="help">Already booked · {existing.title}{existing.dueDate ? ` · ${fmtDay(existing.dueDate, { weekday: true })}` : ""}</span> : null; })()}
                 {on && (
+                  <div className="col discharge-date">
                   <Segmented
                     label={`${t.title} date`}
                     options={[...new Set([...(HF_DEFAULT[t.id] != null ? [HF_DEFAULT[t.id]] : []), ...t.offsets])].sort((a, b) => a - b).map((d) => ({ value: String(d), label: fmtDay(addDays(today, d), { weekday: true }) }))}
                     value={String(picked[t.id])}
                     onChange={(v) => setPicked({ ...picked, [t.id]: Number(v) })}
                   />
+                  <label className="manual-date"><span>Manual date</span><DateInput className="input" min={today} aria-label={`${t.title} exact date`} value={typeof picked[t.id] === "string" ? String(picked[t.id]) : addDays(today, Number(picked[t.id]))} onChange={e => setPicked(p => ({...p,[t.id]:e.target.value}))} /></label>
+                  </div>
                 )}
               </div>
             );

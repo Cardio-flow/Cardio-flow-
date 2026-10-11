@@ -1,3 +1,4 @@
+import { hypertensionProfile } from "./hypertension-profile.js";
 // Guideline-driven decision support. Every rule cites its source and class of
 // recommendation, runs as a governed rule (CLINICAL_REVIEW until a clinician approves it)
 // and only SUGGESTS: the clinician confirms every start, dose change or test.
@@ -610,6 +611,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
       if (!(has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") || s.tags.has("ckd"))) return [];
       const sbp = recent(s, "sbp", Number(p.days));
       if (!sbp || sbp.value_num! < Number(p.target_high)) return [];
+      const h = hypertensionProfile(s);
+      if (s.patient.age >= 18 && !s.contexts.some(c => c.kind === "admission" && c.status === "open") && h.office && (s.tags.has("htn") || h.office.sbp >= 140 || h.office.dbp >= 90 || h.outside?.high || h.highRisk)) return [];
       const high = sbp.value_num! >= Number(p.treat_sbp);
       return [{ key: "bp", signature: sbp.id, severity: high ? "orange" : "blue",
         title: `SBP ${Math.round(sbp.value_num!)} mmHg above target 120–129`,
