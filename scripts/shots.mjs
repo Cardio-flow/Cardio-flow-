@@ -26,6 +26,8 @@ await step("login", async () => {
   await p.getByRole("heading", { name: "Worklist" }).waitFor();
   await p.getByRole("button", { name: "Register first patient", exact: true }).waitFor();
   await p.getByRole("button", { name: "Sample patients", exact: true }).click();
+  await p.getByRole("heading", { name: "Sample patients", exact: true }).waitFor();
+  await p.locator(".sidebar").getByRole("link", { name: /^Worklist/ }).click();
   await p.getByRole("heading", { name: "Sample worklist", exact: true }).waitFor();
   await shot("01-worklist", true);
 });
@@ -137,6 +139,8 @@ await step("responsive", async () => {
   await p.goto(base + "/");
   await p.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
   await p.getByRole("button", { name: "Sample patients", exact: true }).click();
+  await p.getByRole("heading", { name: "Sample patients", exact: true }).waitFor();
+  await p.locator(".phone-nav").getByRole("link", { name: /^Worklist/ }).click();
   await p.getByRole("heading", { name: "Sample worklist" }).waitFor();
   await shot("23-mobile-worklist", true);
   if (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Phone worklist overflows");
