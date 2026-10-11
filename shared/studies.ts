@@ -5,11 +5,12 @@
 
 import { HYPERTENSION_STUDIES } from "./hypertension-studies.js";
 import { STRUCTURAL_TARGETS } from "./structural.js";
+import { BICUSPID_FIELDS } from "./bicuspid.js";
 export type StudyField =
   | { key: string; label: string; type: "choice"; options: string[]; required?: boolean; when?: Cond }
   | { key: string; label: string; type: "multi"; options: string[]; when?: Cond }
   | { key: string; label: string; type: "number"; unit: string; min: number; max: number; decimals?: number; obs?: string; required?: boolean; when?: Cond };
-type Cond = { field: string; in?: string[]; notIn?: string[] };
+type Cond = { field: string; in?: string[]; notIn?: string[]; and?: Cond };
 
 export type StudyDef = { kind: string; label: string; short: string; help: string; fields: StudyField[] };
 
@@ -20,13 +21,14 @@ export const STUDIES: StudyDef[] = [
   ...HYPERTENSION_STUDIES,
   {
     kind: "structural_imaging", label: "Structural intervention imaging (CT / 3D TOE)", short: "Structural imaging",
-    help: "Record the structural team's report. Device suitability depends on the exact device IFU and expert assessment; missing measurements do not imply clearance.",
+    help: "Record the structural team's report. Bicuspid TAVI needs measured sinus/STJ/ascending aorta, entire thoracic CT/CMR, calcification and aortic strategy. Put any prohibitive-risk rationale in the report conclusion. Device suitability depends on the exact IFU; missing measurements do not imply clearance.",
     fields: [
       {key:"intervention",label:"Planned intervention",type:"choice",options:STRUCTURAL_TARGETS,required:true},
       {key:"modality",label:"Imaging modality",type:"choice",options:["Cardiac CT","3D TOE / TEE","Combined CT and TOE / TEE","Alternative imaging agreed by Heart Team"],required:true},
       {key:"suitability",label:"Reported anatomical suitability",type:"choice",options:["Suitable","Uncertain / incomplete","Unsuitable"],required:true},
       {key:"position",label:"Target valve (replacement / valve-in-valve)",type:"choice",options:["Aortic","Mitral","Tricuspid","Pulmonary"],required:true,when:{field:"intervention",in:["Valve-in-valve / other transcatheter valve"]}},
       {key:"reviewed",label:"Structural team reviewed the complete report",type:"choice",options:["Yes","No / pending"],required:true},
+      ...BICUSPID_FIELDS,
       {key:"annulusArea",label:"Annulus area",type:"number",unit:"mm²",min:0,max:2000,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
       {key:"annulusPerimeter",label:"Annulus perimeter",type:"number",unit:"mm",min:0,max:300,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
       {key:"leftCoronaryHeight",label:"Left coronary height",type:"number",unit:"mm",min:0,max:100,decimals:1,when:{field:"intervention",in:["TAVI","Valve-in-valve / other transcatheter valve"]}},
@@ -209,6 +211,7 @@ export const STUDY_LABEL: Record<string, string> = { echo: "Echo", ...Object.fro
 
 export function fieldActive(f: StudyField, values: Record<string, unknown>) {
   if (!f.when) return true;
+  if (f.when.and && !fieldActive({ ...f, when: f.when.and }, values)) return false;
   const v = values[f.when.field];
   if (f.when.in) return typeof v === "string" && f.when.in.includes(v);
   if (f.when.notIn) return !(typeof v === "string" && f.when.notIn.includes(v));
@@ -264,7 +267,7 @@ export function obstructiveCad(kind: string, a: Record<string, any>): string | n
 
 // One line for lists, the journey and notes.
 export function studySummary(kind: string, a: Record<string, any>): string {
-  if (kind === "structural_imaging") return [a.intervention,a.modality,a.suitability,a.reviewed === "Yes" ? "team reviewed" : "review pending"].filter(Boolean).join(" · ");
+  if (kind === "structural_imaging") return [a.intervention,a.modality,a.aorticMorphology,a.aorticMorphology === "Bicuspid" ? `Sinus ${a.sinusDiameter ?? "—"} / STJ ${a.stjDiameter ?? "—"} / ascending ${a.ascendingDiameter ?? "—"} mm` : null,a.suitability,a.reviewed === "Yes" ? "team reviewed" : "review pending"].filter(Boolean).join(" · ");
   const u = (n: unknown, unit: string) => (n == null ? null : `${n}${unit}`);
   switch (kind) {
     case "laa_imaging": return [a.purpose, a.modality, `LAA thrombus: ${a.laaThrombus}`, a.deviceThrombus ? `Device thrombus: ${a.deviceThrombus}` : null, a.leak ? `Leak: ${a.leak}${a.leakMm != null ? ` (${a.leakMm} mm)` : ""}` : null].filter(Boolean).join(" · ");

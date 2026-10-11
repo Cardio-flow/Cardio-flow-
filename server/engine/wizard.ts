@@ -8,7 +8,7 @@ import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, liveContext, nowIso, today, uuid, type Actor } from "../kernel/base.js";
-import { structuralPlanning } from "../../shared/wizards-structural.js";
+import { structuralPlanning, taviSchedulingMissing } from "../../shared/wizards-structural.js";
 import { structuralTarget } from "../../shared/structural.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import { LIVE_MED, addCondition, addPlanAction, medicationEvent, recordBarrier, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
@@ -200,12 +200,18 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   if (wizardId === "ccs-test-result" && ccsTest && !base.detected.risk) base.detected.risk = [ccsTest.risk];
   const actual = [...s.procedures].reverse().find(p => p.kind === "valve" && p.attributes.result !== "Aborted / no implant" && structuralTarget(p.attributes));
   const structural = {
-    planning: [...s.studies].reverse().filter(st => st.kind === "structural_imaging").map(st=>({id:st.id,day:localDay(st.performed_at),findings:st.attributes})),
+    planning: [...s.studies].reverse().filter(st => st.kind === "structural_imaging").map(st=>({id:st.id,day:localDay(st.performed_at),findings:st.attributes,conclusion:st.conclusion})),
     actual: actual ? {id:actual.id,day:localDay(actual.performed_at),target:structuralTarget(actual.attributes)!,findings:actual.attributes} : null,
     hfAdmissionInYear: s.contexts.some(c=>c.kind === "admission" && isHfAdmission(c) && localDay(c.started_at) >= new Date(Date.parse(s.today + "T12:00:00Z") - 365*86400000).toISOString().slice(0,10)),
     latestEchoId: latestStudy(s,"echo")?.id ?? null,
     rhcId: [...s.procedures].reverse().find(p=>p.kind === "rhc")?.id ?? null,
   };
+  if (wizardId === "tavi-plan") {
+    const morphology = structural.planning.find(st => st.findings.intervention === "TAVI")?.findings.aorticMorphology;
+    if (valve.bicuspid || morphology === "Bicuspid") base.detected.morphology = ["bicuspid"];
+    else if (morphology === "Tricuspid") base.detected.morphology = ["tricuspid"];
+    else if (morphology === "Other morphology") base.detected.morphology = ["other"];
+  }
   return { ...base, hypertension, values, dx, planned, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
@@ -275,6 +281,7 @@ export async function completeWizard(
     if (input.answers.regimen !== expected) throw new ApiError(400, "The intended regimen must match the selected device protocol; use the reviewed regional / individualized protocol for exceptions");
   }
   if (wizardId === "rdn-plan" && input.answers.decision === "schedule") { const missing = rdnSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400, "RDN cannot be scheduled: " + missing.join("; ")); }
+  if (wizardId === "tavi-plan" && input.answers.decision === "schedule") { const missing = taviSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400,"TAVI cannot be scheduled: " + missing.join("; ")); }
   if (wizardId === "after-rdn" && !ctx.hypertension?.actual) throw new ApiError(400,"Record the actual RDN procedure before planning aftercare");
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   // the clinician may move a planned date (keyed by the plan item's title); never before today

@@ -9,8 +9,14 @@ import type {
   WizardDef,
 } from "./wizards.js";
 import { addCalendarMonths } from "./af.js";
+import {
+  aorticMaximum,
+  bicuspidMissing,
+  bicuspidReport,
+  isBicuspid,
+} from "./bicuspid.js";
 const source =
-  "ESC/EACTS VHD 2025 · doi:10.1093/eurheartj/ehaf194; current regional device IFU";
+  "ESC/EACTS VHD 2025 · doi:10.1093/eurheartj/ehaf194; ESC PAD/aorta 2024 Table 68 · doi:10.1093/eurheartj/ehae179; current regional device IFU";
 const q = (
   id: string,
   label: string,
@@ -109,6 +115,13 @@ export function planningMissing(c: WizardContext, target: string): string[] {
   if (a.reviewed !== "Yes") missing.push("Structural team report review");
   if (a.suitability !== "Suitable") missing.push("Anatomical suitability");
   if (target === "TAVI") {
+    if (
+      !["Tricuspid", "Bicuspid", "Other morphology"].includes(
+        a.aorticMorphology,
+      )
+    )
+      missing.push("Recorded aortic valve morphology");
+    missing.push(...bicuspidMissing(c));
     if (!a.annulusArea && !a.annulusPerimeter)
       missing.push("Annulus measurement");
     if (!(a.leftCoronaryHeight > 0) || !(a.rightCoronaryHeight > 0))
@@ -200,6 +213,45 @@ function missing(a: Answers, c: WizardContext, target: string) {
       out.push(label);
   }
   if (target === "TAVI") {
+    const bav = isBicuspid(c),
+      report = bicuspidReport(c);
+    if (
+      !bav &&
+      a.morphology !==
+        (report?.aorticMorphology === "Tricuspid" ? "tricuspid" : "other")
+    )
+      out.push("Valve morphology matches the planning report");
+    if (bav && a.morphology !== "bicuspid")
+      out.push(
+        "Bicuspid valve identified in record: review the bicuspid pathway",
+      );
+    if (a.morphology === "bicuspid" && !bav)
+      out.push("Recorded bicuspid anatomy assessment");
+    if (bav || a.morphology === "bicuspid") {
+      if (a.lesion === "ar")
+        out.push(
+          "Bicuspid pure AR: specialist surgical / device assessment outside this stenosis pathway",
+        );
+      if (!["high", "ineligible"].includes(String(a.risk)))
+        out.push("Bicuspid TAVI: increased surgical risk (ESC 2025 IIb B)");
+      if (a.bavTeam !== "reviewed")
+        out.push(
+          "Bicuspid-specific Heart Team / lifetime valve and aorta strategy",
+        );
+      if (!a.bavReviewDate)
+        out.push("Dated aortic surveillance / specialist review");
+      const deferred =
+        report?.aorticStrategy ===
+        "Aortic surgery deferred for prohibitive risk; rationale documented";
+      if (
+        deferred
+          ? a.risk !== "ineligible" || a.bavAorta !== "prohibitive"
+          : a.bavAorta !== "reviewed"
+      )
+        out.push(
+          "Concordant specialist aortic decision and prohibitive-risk rationale where applicable",
+        );
+    }
     if (
       a.lesion !== "ar" &&
       ["ava", "av-vmax", "av-mg"].some(
@@ -253,6 +305,10 @@ function missing(a: Answers, c: WizardContext, target: string) {
   }
   return [...new Set(out)];
 }
+export const taviSchedulingMissing = (a: Answers, c: WizardContext) => [
+  ...(a.safety !== "stable" ? ["Stable elective setting"] : []),
+  ...missing(a, c, "TAVI"),
+];
 function prepare(a: Answers, c: WizardContext, target: string): OutcomeItem[] {
   if (a.safety === "urgent")
     return [
@@ -279,6 +335,15 @@ function prepare(a: Answers, c: WizardContext, target: string): OutcomeItem[] {
         `${target}: confirm device IFU, peri-procedure and postprocedure antithrombotic plan`,
         when,
       ),
+      ...(target === "TAVI" && isBicuspid(c)
+        ? [
+            p(
+              "follow_up",
+              "Bicuspid aorta: surveillance",
+              String(a.bavReviewDate),
+            ),
+          ]
+        : []),
     ];
   const out = [
     p(
@@ -296,13 +361,22 @@ function prepare(a: Answers, c: WizardContext, target: string): OutcomeItem[] {
         { type: "study", kind: "echo" },
       ),
     );
-  if (!structuralPlanning(c, target))
+  if (planningMissing(c, target).length)
     out.push(
-      p("investigation", `${target}: structural CT / 3D TOE planning`, when, {
-        type: "study",
-        kind: "structural_imaging",
-        intervention: target,
-      }),
+      p(
+        "investigation",
+        `${target}: ${target === "TAVI" && (isBicuspid(c) || a.morphology === "bicuspid") ? "bicuspid anatomy and entire thoracic aorta CT / CMR" : "structural CT / 3D TOE planning"}`,
+        when,
+        {
+          type: "study",
+          kind: "structural_imaging",
+          intervention: target,
+          ...(target === "TAVI" &&
+          (isBicuspid(c) || a.morphology === "bicuspid")
+            ? { aorticMorphology: "Bicuspid" }
+            : {}),
+        },
+      ),
     );
   if (a.labs === "pending")
     out.push(
@@ -337,6 +411,16 @@ function assessment(
     rows: [
       { label: "Reference", value: "ESC/EACTS VHD 2025" },
       { label: "Age", value: String(c.profile?.age ?? "Not recorded") },
+      ...(target === "TAVI" && isBicuspid(c)
+        ? [
+            {
+              label: "Bicuspid aorta",
+              value: st
+                ? `Sinus ${st.findings.sinusDiameter ?? "—"} · STJ ${st.findings.stjDiameter ?? "—"} · ascending ${st.findings.ascendingDiameter ?? "—"} mm; ${st.findings.aorticStrategy ?? "strategy missing"}`
+                : "Measurements and aortic strategy missing",
+            },
+          ]
+        : []),
       {
         label: "Planning report",
         value: st
@@ -362,6 +446,7 @@ export const STRUCTURAL_WIZARDS: Record<string, WizardDef> = {
     ...base,
     id: "tavi-plan",
     title: "TAVI: indication & preparation",
+    sourceShort: "ESC 2025 · Aorta 2024 · IFU",
     note: "Confirm the severe lesion, indication and Heart Team strategy before scheduling. Integrative assessment is required for discordant or low-flow AS. CT evaluates annulus, root, coronary obstruction and access.",
     steps: [
       {
@@ -369,6 +454,56 @@ export const STRUCTURAL_WIZARDS: Record<string, WizardDef> = {
         title: "Indication & benefit",
         questions: [
           ...common,
+          q("morphology", "Aortic valve morphology", [
+            ["tricuspid", "Tricuspid"],
+            ["bicuspid", "Bicuspid"],
+            ["other", "Other / not yet established"],
+          ]),
+          conditional(
+            q(
+              "bavTeam",
+              "Bicuspid-specific Heart Team strategy",
+              [
+                [
+                  "reviewed",
+                  "SAVR, combined aortic surgery and lifetime strategy reviewed; TAVI agreed",
+                ],
+                ["pending", "Surgical alternatives / anatomy review pending"],
+              ],
+              "SAVR remains the primary treatment for stenotic BAV. TAVI may be considered with increased surgical risk and suitable anatomy (ESC/EACTS 2025 IIb B).",
+            ),
+            "morphology",
+            "bicuspid",
+          ),
+          conditional(
+            q(
+              "bavAorta",
+              "Bicuspid aorta treatment decision",
+              [
+                [
+                  "reviewed",
+                  "Aortic indications reviewed; no aortic surgery required now",
+                ],
+                [
+                  "prohibitive",
+                  "Aortic surgery deferred: prohibitive risk and rationale documented",
+                ],
+                ["surgery", "Aortic surgery indicated / preferred"],
+                ["pending", "Aortic assessment incomplete"],
+              ],
+              "Record actual sinus / STJ / ascending diameters and CT/CMR of the entire thoracic aorta. Consider concomitant surgery at ≥45 mm when valve surgery is indicated; ≥55 mm or root phenotype ≥50 mm are aortic surgical indications. Review growth, coarctation and family/heritable risk. TAVI does not treat aortopathy.",
+            ),
+            "morphology",
+            "bicuspid",
+          ),
+          conditional(
+            date(
+              "bavReviewDate",
+              "Aortic surveillance / specialist review date",
+            ),
+            "morphology",
+            "bicuspid",
+          ),
           q("lesion", "Aortic lesion", [
             ["as", "Severe high-gradient AS"],
             ["lowflow", "Severe low-flow / low-gradient AS"],
@@ -415,6 +550,11 @@ export const STRUCTURAL_WIZARDS: Record<string, WizardDef> = {
     assess: (a, c) =>
       assessment(a, c, "TAVI", [
         "ESC 2025: TAVI is preferred from age 70 with a tricuspid aortic valve and suitable transfemoral anatomy (I A); younger low-risk patients need SAVR discussion (I B). Bicuspid, alternative-access and pure-AR decisions require their own Heart Team assessment.",
+        ...(isBicuspid(c)
+          ? [
+              `Bicuspid AS: TAVI is conditional (IIb B), with increased surgical risk and suitable anatomy. Heavy raphe/cusp calcium increases root injury and leak risk. Review entire thoracic aorta, coarctation, growth and family/heritable risk; TAVI leaves aortopathy untreated. ${aorticMaximum(bicuspidReport(c) ?? {}) >= 45 ? "Aorta ≥45 mm: explicitly review combined SAVR/aortic replacement and record the chosen strategy." : "Record actual aortic measurements and a dated surveillance plan where indicated."}`,
+            ]
+          : []),
       ]),
   },
   "teer-plan": {

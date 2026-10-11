@@ -108,7 +108,7 @@ export type WizardContext = {
     preImaging?: { id: string; day: string; findings: Record<string, any> } | null;
   };
   structural?: {
-    planning: { id: string; day: string; findings: Record<string, any> }[];
+    planning: { id: string; day: string; findings: Record<string, any>; conclusion?: string }[];
     actual: { id: string; day: string; target: string; findings: Record<string, any> } | null;
     hfAdmissionInYear: boolean;
     latestEchoId: string | null;

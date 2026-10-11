@@ -1,5 +1,5 @@
 import { rdnSchedulingMissing } from "./wizards-hypertension.js";
-import { planningMissing } from "./wizards-structural.js";
+import { planningMissing, taviSchedulingMissing } from "./wizards-structural.js";
 // Guideline suggestions inside every pathway (Ahmed, 3 Oct 2026: "the pathways show the actions
 // we do but do not suggest the steps according to guidelines — that is their purpose").
 //
@@ -64,7 +64,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   "rdn-plan": {decision: (a,c) => [rdnSchedulingMissing(a,c).length ? S("workup","Complete recorded clinical, anatomical and shared-decision checks before RDN scheduling (ESC 2024; device IFU).") : S("schedule","All current criteria and specialist / patient confirmations are present; RDN may be considered (ESC 2024, conditional).") ]},
   "after-rdn": {monitor: () => [S("abpm","Arrange objective out-of-office BP response follow-up; ABPM is preferred where feasible (ESC/EAPCI RDN consensus 2023).") ]},
   "tavi-plan": {
-    decision: (_a, c) => [planningMissing(c, "TAVI").length && S("workup", "Complete the missing structural imaging and Heart Team work-up before scheduling (ESC/EACTS 2025).")],
+    decision: (a, c) => [taviSchedulingMissing(a, c).length && S("workup", "Complete the missing structural imaging, bicuspid/aortic assessment and Heart Team work-up before scheduling (ESC/EACTS 2025; ESC aorta 2024).")],
   },
   "teer-plan": {
     decision: (a, c) => [planningMissing(c, a.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER").length && S("workup", "Complete anatomy and clinical selection before scheduling TEER (ESC/EACTS 2025).")],

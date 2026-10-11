@@ -15,6 +15,7 @@ export const STRUCTURAL_INPUTS = [
 ];
 export function structuralEvidenceKey(s: PatientState) {
   return JSON.stringify({
+    assessment: "bicuspid-aorta-2026-10-11",
     studies: s.studies
       .filter((st) => ["echo", "structural_imaging"].includes(st.kind))
       .map((st) => st.id),

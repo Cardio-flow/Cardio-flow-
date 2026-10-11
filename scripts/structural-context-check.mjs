@@ -116,7 +116,9 @@ try {
     .getByText("Corrected synthetic clinic note", { exact: true })
     .waitFor();
   await page.getByRole("button", { name: "Edit visit", exact: true }).click();
-  await page.getByRole("button", { name: "Delete this visit…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Delete this visit…", exact: true })
+    .click();
   await radio("Reason for removal", "Duplicate entry");
   await dialog("Delete visit")
     .getByRole("button", { name: "Delete visit", exact: true })
@@ -176,7 +178,9 @@ try {
   await page
     .getByRole("button", { name: "Edit admission", exact: true })
     .click();
-  await page.getByRole("button", { name: "Delete this admission…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Delete this admission…", exact: true })
+    .click();
   await radio("Reason for removal", "Wrong entry");
   await dialog("Delete admission")
     .getByRole("button", { name: "Delete admission", exact: true })
@@ -233,6 +237,7 @@ try {
     .getByRole("button", { name: /TAVI: indication & preparation/ })
     .click();
   await radio("Clinical stability", "Stable for elective evaluation");
+  await radio("Aortic valve morphology", "Tricuspid");
   await radio(
     "Expected benefit and patient goals",
     "Meaningful benefit and goals agreed",
@@ -273,6 +278,11 @@ try {
     .waitFor();
   await page.screenshot({ path: out + "/03-tavi-missing-workup.png" });
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
+  await page.getByText(/TAVI cannot be scheduled:/).waitFor();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await radio("Next step", /^Complete work-up \/ structural team review/);
+  await next();
+  await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   const plans = (await api(`/patients/${pat.id}/record`)).plan;
   assert.ok(plans.some((p) => p.completesOn.kind === "structural_imaging"));
@@ -300,6 +310,7 @@ try {
     .getByRole("button", { name: /Structural intervention imaging/ })
     .click();
   await radio("Planned intervention", "TAVI");
+  await radio("Aortic valve morphology", "Tricuspid");
   await radio("Imaging modality", "Cardiac CT");
   await radio("Reported anatomical suitability", "Suitable");
   await radio("Structural team reviewed the complete report", "Yes");
@@ -454,6 +465,159 @@ try {
     0,
   );
   await page.screenshot({ path: out + "/04-tricuspid-requirements.png" });
+  const bav = await api("/patients", {
+    name: "Synthetic bicuspid mobile",
+    mrn: "BAV-UI-" + Date.now(),
+    sex: "Male",
+    birthDate: "1955-01-01",
+    conditions: ["as"],
+    sample: true,
+  });
+  await api(`/patients/${bav.id}/echo`, {
+    date: new Date().toISOString(),
+    quality: "formal",
+    lvef: 55,
+    findings: ["Bicuspid aortic valve"],
+    valves: { as: "Severe" },
+    measures: { ava: 0.8, "av-vmax": 4.3, "av-mg": 45 },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/patients/${bav.id}/investigations`);
+  await page.getByRole("button", { name: "Add study", exact: true }).click();
+  await page
+    .getByRole("button", { name: /Structural intervention imaging/ })
+    .click();
+  await radio("Planned intervention", "TAVI");
+  await radio("Aortic valve morphology", "Bicuspid");
+  await radio("Imaging modality", "Cardiac CT");
+  await radio("Reported anatomical suitability", "Suitable");
+  await radio("Structural team reviewed the complete report", "Yes");
+  for (const [label, value] of [
+    ["Annulus area", "450"],
+    ["Left coronary height", "14"],
+    ["Right coronary height", "16"],
+    ["Sinus of Valsalva diameter", "38"],
+    ["Sinotubular junction diameter", "32"],
+    ["Maximum ascending aorta diameter", "46"],
+  ])
+    await page.getByLabel(label, { exact: true }).fill(value);
+  for (const [label, value] of [
+    ["Bicuspid phenotype", "Fused"],
+    ["Raphe calcification", "Heavy"],
+    ["Cusp calcification burden", "Heavy"],
+    [
+      "Bicuspid landing zone / asymmetry and root-injury review",
+      "Suitable under selected device IFU",
+    ],
+    ["Entire thoracic aorta imaging review", "CT reviewed"],
+    ["Aortopathy phenotype", "Ascending phenotype"],
+    ["Coarctation assessment", "Excluded"],
+    [
+      "Specialist aortic treatment strategy",
+      "No aortic surgery indication after review",
+    ],
+    ["Sinus / STJ / ascending aorta review", "Complete"],
+    ["Valve / LVOT calcification review", "Complete"],
+    ["Vascular access assessment", "Transfemoral feasible"],
+  ])
+    await radio(label, value);
+  await page
+    .getByRole("button", { name: "None identified after review", exact: true })
+    .click();
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await page.screenshot({ path: out + "/06-bicuspid-report-phone.png" });
+  await page
+    .getByRole("button", { name: "Save Structural imaging", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Pathways", exact: true }).click();
+  await page.getByLabel("Search pathways").fill("TAVI: indication");
+  await page
+    .getByRole("button", { name: /TAVI: indication & preparation/ })
+    .click();
+  await radio("Clinical stability", "Stable for elective evaluation");
+  await radio(
+    "Expected benefit and patient goals",
+    "Meaningful benefit and goals agreed",
+  );
+  await radio(
+    "Heart Team and patient decision",
+    "Documented shared decision for this intervention",
+  );
+  await radio("Aortic valve morphology", "Bicuspid");
+  await radio(
+    "Bicuspid-specific Heart Team strategy",
+    "SAVR, combined aortic surgery and lifetime strategy reviewed; TAVI agreed",
+  );
+  await radio(
+    "Bicuspid aorta treatment decision",
+    "Aortic indications reviewed; no aortic surgery required now",
+  );
+  const reviewDay = new Date(Date.parse(T + "T12:00:00Z") + 180 * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  await date("Aortic surveillance / specialist review date", reviewDay);
+  await radio("Aortic lesion", "Severe high-gradient AS");
+  await radio(
+    "Intervention indication",
+    "Symptoms attributable to severe valve disease",
+  );
+  await radio(
+    "Integrated severity confirmation",
+    "Echo and any required DSE / CT calcium review complete",
+  );
+  await radio("Surgical / procedural risk", "Increased / high surgical risk");
+  await next();
+  await radio(
+    "Coronary assessment and treatment strategy",
+    "Reviewed; coronary strategy agreed",
+  );
+  await radio(
+    "Blood count, renal function and bleeding assessment",
+    "Results and contrast / bleeding plan reviewed",
+  );
+  await radio(
+    "Infection and endocarditis assessment",
+    "No active infection; prevention plan reviewed",
+  );
+  await radio("Next step", "Team agreed: schedule intervention");
+  await date("Work-up / procedure / review date", T);
+  await next();
+  await page
+    .getByText(/ascending 46 mm/)
+    .first()
+    .waitFor();
+  await page.getByText(/Aorta ≥45 mm:/).waitFor();
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await page.screenshot({
+    path: out + "/07-bicuspid-tavi-confirmation-phone.png",
+  });
+  await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const bavRecord = await api(`/patients/${bav.id}/record`);
+  assert(
+    bavRecord.plan.some(
+      (p) => p.category === "procedure" && p.title.startsWith("TAVI"),
+    ),
+  );
+  assert(
+    bavRecord.plan.some(
+      (p) => p.title.startsWith("Bicuspid aorta:") && p.dueDate === reviewDay,
+    ),
+  );
+  console.log(
+    "PASS: bicuspid CT data entry, measured aorta and ≥45-mm combined-surgery review, conditional Heart Team decisions and dated aortic surveillance on phone.",
+  );
   assert.deepEqual(errors, []);
   console.log(
     "PASS: audited visit/admission edits and removals, sample navigation, one-line phone references, TAVI missing-data gate and tricuspid RHC selection.",
