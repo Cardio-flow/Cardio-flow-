@@ -5,7 +5,7 @@ import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline, DateInput } fr
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
 import { JOIN, joinFor, prefill } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
-import { flagFor, fmtDay } from "../../shared/clinical";
+import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
 // one part of a joined pathway, answered and waiting to be recorded with the parts after it
@@ -129,7 +129,15 @@ export function WizardDrawer({
   const manualFor = (id:string) => id === "recheck" ? dueDates[def.recheck?.title ?? "Renal function and potassium check"] : id === "review" ? dueDates[String(answers.review).startsWith("phone-") ? "Phone follow-up" : "Clinic review"] : undefined;
   const choiceValue = (id:string) => manualFor(id) !== undefined ? undefined : answers[id] as string;
   const qType = (id: string) => def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.type;
-  const isChosen = (id: string, v: string) => (qType(id) === "multi" ? ((answers[id] as string[]) ?? []).includes(v) : answers[id] === v);
+  const isChosen = (id: string, v: string) => {
+    const day=manualFor(id);
+    if (day !== undefined && ctx) {
+      if (id === "recheck") return Number.isFinite(Number(v)) && day === addDays(ctx.today,Number(v));
+      const [kind,days]=v.split("-");
+      return kind === String(answers.review).split("-")[0] && Number.isFinite(Number(days)) && day === addDays(ctx.today,Number(days));
+    }
+    return qType(id) === "multi" ? ((answers[id] as string[]) ?? []).includes(v) : answers[id] === v;
+  };
   const applySuggestions = (id: string) => {
     const vals = (suggestions[id] ?? []).map((x) => x.value);
     if (!vals.length) return;

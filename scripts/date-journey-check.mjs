@@ -181,6 +181,8 @@ try {
   const manual = page.getByRole("textbox", { name: /exact date/ }).first();
   await manual.waitFor();
   await manual.fill("21/11/2030");
+  const renalGroup=page.locator(".q").filter({has:page.getByRole("radiogroup",{name:"Renal function and K",exact:true})});
+  await expect(renalGroup.getByRole("button",{name:"Apply",exact:true})).toBeVisible();
   await page
     .getByRole("radiogroup", { name: "Renal function and K", exact: true })
     .getByRole("radio", { name: /^Tomorrow(?: GUIDELINE)?$/ })
