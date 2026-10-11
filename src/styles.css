@@ -1545,3 +1545,16 @@ table.data.meds td.med-compact { display: none; }
 }
 
 .pathway-reference { line-height: 1.4; display: block; min-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.encounter-title { width: auto; gap: 8px; }
+.encounter-title h2 { min-width: 0; }
+.encounter-edit { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; padding: 0 8px; color: var(--navy); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.encounter-edit:hover { background: var(--surface-2); }
+.encounter-edit:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.patient-admin-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.patient-admin-row:last-child { border-bottom: 0; }
+.patient-admin-person { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; text-decoration: none; overflow-wrap: anywhere; }
+.patient-admin-row .btn { min-height: 44px; }
+
+.admission-card > .card-head { position: relative; padding-right: 64px; }
+.encounter-edit { position: absolute; right: 0; top: -8px; }

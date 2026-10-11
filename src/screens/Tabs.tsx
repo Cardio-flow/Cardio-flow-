@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Activity, FlaskConical, Stethoscope, BedDouble, FileHeart } from "lucide-react";
+import { Plus, Activity, FlaskConical, Stethoscope, BedDouble, FileHeart, PencilLine } from "lucide-react";
 import { STUDIES, STUDY_LABEL } from "../../shared/studies";
 import { api, useData } from "../api";
 import { Sparkline, Tag, useToast } from "../ui";
@@ -9,7 +9,7 @@ import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
 
-const PROC_LABEL: Record<string, string> = { pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", laao: "LAA closure", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
+const PROC_LABEL: Record<string, string> = { rdn: "Renal denervation", pci: "PCI", cabg: "CABG", valve: "Valve intervention", device: "Device", ablation: "Ablation", laao: "LAA closure", cardioversion: "Cardioversion", rhc: "Right heart catheterisation" };
 
 export function MedicationsTab({ id, version, open }: { id: string; version: number; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/record`, [version]);
@@ -108,6 +108,7 @@ export function InvestigationsTab({ id, version, open, done }: { id: string; ver
           <p>Every value keeps its date, source and quality. Nothing is overwritten.</p>
         </div>
         <div className="row wrap">
+          <button className="btn secondary" onClick={() => open({ kind: "procedure", group: "hypertension" })}>Record RDN</button>
           <button className="btn secondary" onClick={() => open({ kind: "echo" })}><Activity size={18} /> Add Echo</button>
           <button className="btn secondary" onClick={() => open({ kind: "study" })}><FileHeart size={18} /> Add study</button>
           <button className="btn primary" onClick={() => open({ kind: "labs" })}><FlaskConical size={18} /> Add labs</button>
@@ -300,10 +301,11 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
       {contexts.map((c: any) => (
         <section key={c.id} data-admission-id={c.kind === "admission" ? c.id : undefined} className={`card pad admission-card ${c.status === "open" ? "current" : ""}`}>
           <div className="card-head">
-            <div className="row">
+            <div className="row wrap encounter-title">
               {c.kind === "admission" ? <BedDouble size={20} color="var(--navy)" /> : <Stethoscope size={20} color="var(--navy)" />}
               <h2>{c.kind === "admission" ? "Admission" : c.service ?? "Clinic visit"}</h2>
               <Tag sev={c.status === "open" ? "yellow" : "gray"}>{c.status === "open" ? "Open" : "Closed"}</Tag>
+              <button className="encounter-edit" aria-label={c.kind === "admission" ? "Edit admission" : "Edit visit"} onClick={() => open({kind:"context-edit",context:c})}><PencilLine size={16} /><span>Edit</span></button>
             </div>
             <span className="meta">{fmtDay(c.startedAt, { weekday: true, year: true })}{c.endedAt ? ` → ${fmtDay(c.endedAt, { weekday: true })}` : ""} · {c.location}</span>
           </div>
@@ -313,8 +315,6 @@ export function VisitsTab({ id, version, summary, open }: { id: string; version:
           </div>
           {c.kind === "admission" ? c.status === "open" ? <AdmissionTimeline context={c} events={data.events} /> : <details className="admission-history"><summary>Admission milestones & events</summary><AdmissionTimeline context={c} events={data.events} /></details> : c.actions.length > 0 && <div className="row wrap" style={{ gap: 8 }}>{c.actions.map((a: any) => <Tag key={a.id} sev={VIEW_SEV[a.view]}>{a.title} · {fmtDay(a.dueDate)}</Tag>)}</div>}
           <div className="row wrap admission-actions" style={{ marginTop: 12, gap: 8 }}>
-            <button className="btn secondary small" onClick={() => open({kind:"context-edit",context:c})}>{c.kind === "admission" ? "Edit admission" : "Edit visit"}</button>
-            <button className="btn ghost small" onClick={() => open({kind:"context-edit",context:c,remove:true})}>{c.kind === "admission" ? "Delete admission" : "Delete visit"}</button>
             {c.status === "open" && c.kind === "admission" && <>
               <button className="btn secondary small" onClick={() => open({ kind: "pathways" })}>Review pathways</button>
               <button className="btn primary admission-labs" onClick={() => open({ kind: "labs" })}><FlaskConical size={18} />Add labs</button>

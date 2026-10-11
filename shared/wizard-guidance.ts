@@ -1,3 +1,4 @@
+import { rdnSchedulingMissing } from "./wizards-hypertension.js";
 import { planningMissing } from "./wizards-structural.js";
 // Guideline suggestions inside every pathway (Ahmed, 3 Oct 2026: "the pathways show the actions
 // we do but do not suggest the steps according to guidelines — that is their purpose").
@@ -50,6 +51,18 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "htn-review": {
+    target: (_a,c) => [(c.profile?.age ?? 0) >=85 || (c.hypertension?.egfr != null && c.hypertension.egfr <30) ? S("individual","Age ≥85 or advanced CKD: individualize BP targets and tolerance (ESC 2024; ESC CKD 2026).") : false],
+    actions: (a,c) => [S("lifestyle","Lifestyle and adherence support accompany BP care (ESC hypertension 2024)."), !c.hypertension?.outside?.valid && S("abpm","Missing / invalid out-of-office readings: confirm with ABPM before escalation (ESC 2024)."), (c.hypertension?.egfr == null || c.hypertension?.potassium == null || val(c,"uacr") == null) && S("baseline","Assess renal function, electrolytes, albuminuria and organ damage (ESC 2024; ESC CKD 2026)."), a.confirmation === "confirmed" && c.hypertension?.phenotype !== "White-coat phenotype" && !!c.hypertension?.office && (c.hypertension.office.sbp >=140 || c.hypertension.office.dbp >=90) && S("medication","Confirmed hypertension: promptly review pharmacological therapy alongside lifestyle (ESC 2024)."), S("annual","Hypertension warrants at least annual albuminuria reassessment (ESC CKD 2026).")],
+  },
+  "htn-resistance": {decision: () => [S("specialist","Suspected resistant hypertension needs specialist evaluation and exclusion of pseudo-resistance / secondary causes (ESC 2024).") ]},
+  "htn-secondary": {
+    paAction: (_a,c) => [!c.hypertension?.pa ? S("screen","Offer aldosterone, renin / ARR and potassium screening in hypertensive adults; discuss feasibility (Endocrine Society 2025, conditional).") : !c.hypertension.pa.reliable || c.hypertension.pa.result === "Indeterminate" ? S("repeat","Review and repeat an uninterpretable screen, including potassium and medication effects (Endocrine Society 2025).") : c.hypertension.pa.result === "Positive" ? S("refer","A positive screen needs specialist interpretation and a cause-specific plan (Endocrine Society 2025).") : S("reviewed","The recorded negative screen is interpretable; assess clinical suspicion before repeating.")],
+    tests: (a,c) => [((a.clues as string[] | undefined)?.includes("renal") || dx(c,"ckd")) && S("renal","Kidney disease clue: renal function, urine testing and ultrasound assessment (ESC 2024 Table 13)."), ((a.clues as string[] | undefined)?.includes("osa") || (a.clues as string[] | undefined)?.includes("resistant")) && S("osa","Sleep apnoea is relevant with symptoms, non-dipping or resistant hypertension (ESC 2024)."), ...["renovascular","adrenergic","cushing","thyroid","calcium","coarctation","drugs"].filter(v=>(a.clues as string[] | undefined)?.includes(v)).map(v=>S(v,"The selected clinical clue supports this targeted secondary-cause assessment (ESC 2024 Table 13)."))],
+    disposition: (_a,c) => [(!c.hypertension?.secondary || c.hypertension.secondary.result === "Work-up incomplete") && S("workup","Record the completed specialist work-up and review actual results; missing tests do not exclude secondary disease.")],
+  },
+  "rdn-plan": {decision: (a,c) => [rdnSchedulingMissing(a,c).length ? S("workup","Complete recorded clinical, anatomical and shared-decision checks before RDN scheduling (ESC 2024; device IFU).") : S("schedule","All current criteria and specialist / patient confirmations are present; RDN may be considered (ESC 2024, conditional).") ]},
+  "after-rdn": {monitor: () => [S("abpm","Arrange objective out-of-office BP response follow-up; ABPM is preferred where feasible (ESC/EAPCI RDN consensus 2023).") ]},
   "tavi-plan": {
     decision: (_a, c) => [planningMissing(c, "TAVI").length && S("workup", "Complete the missing structural imaging and Heart Team work-up before scheduling (ESC/EACTS 2025).")],
   },

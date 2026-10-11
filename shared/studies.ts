@@ -3,6 +3,7 @@
 // observations (code in `obs`), so the engine and the trends see them like any lab.
 // Categories are descriptive (reporting vocabulary), never treatment thresholds.
 
+import { HYPERTENSION_STUDIES } from "./hypertension-studies.js";
 import { STRUCTURAL_TARGETS } from "./structural.js";
 export type StudyField =
   | { key: string; label: string; type: "choice"; options: string[]; required?: boolean; when?: Cond }
@@ -16,6 +17,7 @@ const AV = ["None", "First-degree", "Mobitz I", "Mobitz II", "Complete"];
 const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not assessed"];
 
 export const STUDIES: StudyDef[] = [
+  ...HYPERTENSION_STUDIES,
   {
     kind: "structural_imaging", label: "Structural intervention imaging (CT / 3D TOE)", short: "Structural imaging",
     help: "Record the structural team's report. Device suitability depends on the exact device IFU and expert assessment; missing measurements do not imply clearance.",
@@ -276,6 +278,8 @@ export function studySummary(kind: string, a: Record<string, any>): string {
       return [a.modality, a.result, a.extent && a.extent !== "None" ? `${a.extent.toLowerCase()} ischaemia` : null, a.territory?.length ? a.territory.join("/") : null, u(a.mets, " METs")].filter(Boolean).join(" · ");
     case "nuclear":
       return [`${a.stressor ?? ""} MIBI`.trim(), a.result, a.extent ? `${a.extent.toLowerCase()} ischaemia` : null, a.ischaemia != null ? `${a.ischaemia}% LV` : null, a.territory?.length ? a.territory.join("/") : null, a.tid === "Yes" ? "TID" : null, u(a.gatedLvef, "% gated LVEF")].filter(Boolean).join(" · ");
+    case "home_bp": return [`Home BP ${a.meanSbp}/${a.meanDbp}`,`${a.days} days`,a.protocol,a.onTreatment].filter(Boolean).join(" · ");
+    case "hypertension_workup": return [a.purpose,a.screenResult,a.secondaryResult,a.cause,a.anatomy,a.contraindications].filter(Boolean).join(" · ");
     case "abpm":
       return [a.duration ? `${a.duration} ABPM` : "ABPM", a.sbp24 != null && a.dbp24 != null ? `24-h ${a.sbp24}/${a.dbp24}` : null, a.sbpDay != null && a.dbpDay != null ? `day ${a.sbpDay}/${a.dbpDay}` : null, a.sbpNight != null && a.dbpNight != null ? `night ${a.sbpNight}/${a.dbpNight}` : null, a.dipping && a.dipping !== "Not reported" ? a.dipping.toLowerCase() : null, a.conclusion].filter(Boolean).join(" · ");
     case "ccta":

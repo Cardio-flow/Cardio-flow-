@@ -115,7 +115,8 @@ try {
   await page
     .getByText("Corrected synthetic clinic note", { exact: true })
     .waitFor();
-  await page.getByRole("button", { name: "Delete visit", exact: true }).click();
+  await page.getByRole("button", { name: "Edit visit", exact: true }).click();
+  await page.getByRole("button", { name: "Delete this visit…", exact: true }).click();
   await radio("Reason for removal", "Duplicate entry");
   await dialog("Delete visit")
     .getByRole("button", { name: "Delete visit", exact: true })
@@ -173,8 +174,9 @@ try {
   await page.screenshot({ path: out + "/01-encounter-history.png" });
   console.log("Encounter edits passed");
   await page
-    .getByRole("button", { name: "Delete admission", exact: true })
+    .getByRole("button", { name: "Edit admission", exact: true })
     .click();
+  await page.getByRole("button", { name: "Delete this admission…", exact: true }).click();
   await radio("Reason for removal", "Wrong entry");
   await dialog("Delete admission")
     .getByRole("button", { name: "Delete admission", exact: true })
