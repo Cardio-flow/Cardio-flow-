@@ -83,6 +83,8 @@ export const STUDY_MEASURES: LabDef[] = [
   { code: "cac", display: "Coronary calcium score", short: "CAC", unit: "Agatston", category: "CT", decimals: 0 },
   // stress MIBI (myocardial perfusion SPECT) and ambulatory BP monitoring (7 Oct 2026): reported values
   { code: "mpi-ischaemia", display: "Ischaemic myocardium (perfusion imaging)", short: "Ischaemia %", unit: "% LV", category: "Nuclear", decimals: 0, max: 100 },
+  { code: "home-sbp", display: "Home mean systolic BP", short: "Home SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },
+  { code: "home-dbp", display: "Home mean diastolic BP", short: "Home DBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 160 },
   { code: "abpm-24-sbp", display: "ABPM 24-h mean systolic BP", short: "24-h SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },
   { code: "abpm-24-dbp", display: "ABPM 24-h mean diastolic BP", short: "24-h DBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 160 },
   { code: "abpm-day-sbp", display: "ABPM daytime mean systolic BP", short: "Day SBP", unit: "mmHg", category: "ABPM", decimals: 0, max: 260 },

@@ -5,7 +5,7 @@ import {
 import type { RuleDef, Finding } from "./rules.js";
 import { structuralTarget } from "../../shared/structural.js";
 const evidence =
-  "ESC/EACTS VHD 2025 (10.1093/eurheartj/ehaf194), sections 4.5, 8.2.3, 9.1–9.2, 11.2–11.4, 14.3; current regional device IFU. Heart Team assessment, procedure-specific imaging and follow-up; no automatic drug transition.";
+  "ESC/EACTS VHD 2025 (10.1093/eurheartj/ehaf194), sections 4.5, 8.2.3, 8.5.1.2 and Table 4, 9.1–9.2, 11.2–11.4, 14.3; ESC PAD/aorta 2024 (10.1093/eurheartj/ehae179), Table 68. Bicuspid TAVI increased surgical risk IIb B; aortic surgical assessment at ≥55 mm or root phenotype ≥50 mm; consider concomitant surgery ≥45 mm. Current regional device IFU. Heart Team assessment, procedure-specific imaging and follow-up; no automatic drug transition.";
 const finding = (
   key: string,
   signature: string,

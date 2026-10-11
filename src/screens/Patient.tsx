@@ -44,7 +44,7 @@ export type Open =
   | { kind: "visit"; contextId?: string }
   | { kind: "context-edit"; context: any; remove?: boolean }
   | { kind: "dx" }
-  | { kind: "procedure"; group?: "coronary" | "rhythm" | "valve" | "ph"; procedureKind?: import("../../shared/procedures").ProcedureKind }
+  | { kind: "procedure"; group?: "coronary" | "rhythm" | "valve" | "ph" | "hypertension"; procedureKind?: import("../../shared/procedures").ProcedureKind }
   | { kind: "history"; focus?: "risk" | "cardiac" }
   | { kind: "identity"; identity: any }
   | { kind: "status" }

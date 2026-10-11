@@ -930,8 +930,11 @@ export async function completeMatching(
       if (c.kind === "stress" && trigger.kind === "stress" && /imaging/i.test(a.title) && d.modality === "Exercise ECG") continue;
     }
     if (trigger.type === "study" && c.kind === "laa_imaging" && (c.purpose !== trigger.detail?.purpose || (c.after && day < c.after))) continue;
+    if (trigger.type === "study" && c.kind === "hypertension_workup" && c.purpose !== trigger.detail?.purpose) continue;
     if (trigger.type === "study" && c.kind === "structural_imaging" && c.intervention && c.intervention !== trigger.detail?.intervention) continue;
+    if (trigger.type === "study" && c.kind === "structural_imaging" && c.aorticMorphology && c.aorticMorphology !== trigger.detail?.aorticMorphology) continue;
     if (trigger.type === "study" && c.after && day < c.after) continue;
+    if (trigger.type === "procedure" && trigger.kind === "rdn" && trigger.detail.result !== "Completed") continue;
     if (trigger.type === "procedure" && trigger.kind === "valve" && (trigger.detail.result === "Aborted / no implant" || (c.position && c.position !== trigger.detail.position) || (c.procedure && c.procedure !== trigger.detail.procedure))) continue;
     if (trigger.type === "procedure" && (c.kind !== trigger.kind || (c.method && c.method !== trigger.detail.method) || (c.target === "AF" && !(trigger.detail.targets ?? []).some((t: string) => /^AF/.test(t))) || (trigger.kind === "laao" && trigger.detail.result !== "Implanted / completed"))) continue;
     const signature = JSON.stringify(c);

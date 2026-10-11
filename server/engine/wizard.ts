@@ -1,3 +1,5 @@
+import { hypertensionProfile } from "./hypertension-profile.js";
+import { rdnSchedulingMissing } from "../../shared/wizards-hypertension.js";
 import { structuralEvidenceKey } from "./structural-evidence.js";
 import { addCalendarMonths } from "../../shared/af.js";
 import type { Q } from "../db/db.js";
@@ -6,7 +8,7 @@ import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { ApiError, audit, journeyEvent, liveContext, nowIso, today, uuid, type Actor } from "../kernel/base.js";
-import { structuralPlanning } from "../../shared/wizards-structural.js";
+import { structuralPlanning, taviSchedulingMissing } from "../../shared/wizards-structural.js";
 import { structuralTarget } from "../../shared/structural.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import { LIVE_MED, addCondition, addPlanAction, medicationEvent, recordBarrier, startMedication, updateCondition, type Changed } from "../kernel/clinical.js";
@@ -88,6 +90,16 @@ function baseContext(s: PatientState, wizardId: string): WizardContext {
 // value of each measure (with the one before it), and the diagnosis codes and tags.
 export function wizardContext(s: PatientState, wizardId: string): WizardContext {
   const base = baseContext(s, wizardId);
+  const hypertension = hypertensionProfile(s);
+  if (wizardId.startsWith("htn-")) {
+    if (wizardId === "htn-review" && hypertension.highRisk) base.detected.risk = ["high"];
+    if (wizardId === "htn-review" && hypertension.outside?.valid && hypertension.office) base.detected.confirmation = [hypertension.phenotype === "White-coat phenotype" ? "whitecoat" : hypertension.phenotype === "Masked hypertension" ? "masked" : hypertension.outside.high ? "confirmed" : "repeat"];
+    if (wizardId === "htn-secondary") {
+      base.detected.clues = hypertension.secondaryClues.flatMap(clue=>clue.includes("40") ? ["young"] : clue.includes("resistant") ? ["resistant"] : clue.includes("kalaemia") ? ["potassium"] : clue.includes("Kidney") ? ["renal"] : clue.includes("apnoea") ? ["osa"] : []);
+      if (!hypertension.pa) base.detected.paAction = ["screen"];
+      else base.detected.paAction = [hypertension.pa.result === "Positive" ? "refer" : hypertension.pa.reliable && hypertension.pa.result === "Negative" ? "reviewed" : "repeat"];
+    }
+  }
   const values: NonNullable<WizardContext["values"]> = {};
   for (const code of Object.keys(MEASURES)) {
     const h = series(s, code).filter((o) => o.value_num != null && o.status === "final");
@@ -188,13 +200,19 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   if (wizardId === "ccs-test-result" && ccsTest && !base.detected.risk) base.detected.risk = [ccsTest.risk];
   const actual = [...s.procedures].reverse().find(p => p.kind === "valve" && p.attributes.result !== "Aborted / no implant" && structuralTarget(p.attributes));
   const structural = {
-    planning: [...s.studies].reverse().filter(st => st.kind === "structural_imaging").map(st=>({id:st.id,day:localDay(st.performed_at),findings:st.attributes})),
+    planning: [...s.studies].reverse().filter(st => st.kind === "structural_imaging").map(st=>({id:st.id,day:localDay(st.performed_at),findings:st.attributes,conclusion:st.conclusion})),
     actual: actual ? {id:actual.id,day:localDay(actual.performed_at),target:structuralTarget(actual.attributes)!,findings:actual.attributes} : null,
     hfAdmissionInYear: s.contexts.some(c=>c.kind === "admission" && isHfAdmission(c) && localDay(c.started_at) >= new Date(Date.parse(s.today + "T12:00:00Z") - 365*86400000).toISOString().slice(0,10)),
     latestEchoId: latestStudy(s,"echo")?.id ?? null,
     rhcId: [...s.procedures].reverse().find(p=>p.kind === "rhc")?.id ?? null,
   };
-  return { ...base, values, dx, planned, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  if (wizardId === "tavi-plan") {
+    const morphology = structural.planning.find(st => st.findings.intervention === "TAVI")?.findings.aorticMorphology;
+    if (valve.bicuspid || morphology === "Bicuspid") base.detected.morphology = ["bicuspid"];
+    else if (morphology === "Tricuspid") base.detected.morphology = ["tricuspid"];
+    else if (morphology === "Other morphology") base.detected.morphology = ["other"];
+  }
+  return { ...base, hypertension, values, dx, planned, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -262,6 +280,9 @@ export async function completeWizard(
     const expected = input.answers.protocol === "flxpro-dapt" ? "dapt" : "oac";
     if (input.answers.regimen !== expected) throw new ApiError(400, "The intended regimen must match the selected device protocol; use the reviewed regional / individualized protocol for exceptions");
   }
+  if (wizardId === "rdn-plan" && input.answers.decision === "schedule") { const missing = rdnSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400, "RDN cannot be scheduled: " + missing.join("; ")); }
+  if (wizardId === "tavi-plan" && input.answers.decision === "schedule") { const missing = taviSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400,"TAVI cannot be scheduled: " + missing.join("; ")); }
+  if (wizardId === "after-rdn" && !ctx.hypertension?.actual) throw new ApiError(400,"Record the actual RDN procedure before planning aftercare");
   const outcome = buildOutcome(wizardId, input.answers, ctx);
   // the clinician may move a planned date (keyed by the plan item's title); never before today
   for (const item of outcome)
@@ -298,7 +319,7 @@ export async function completeWizard(
   }
   await tx.query(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(["htn-review","htn-resistance","htn-secondary","rdn-plan","after-rdn"].includes(wizardId) ? {_hypertensionKey:ctx.hypertension!.key,...(wizardId === "after-rdn" ? {_procedureId:ctx.hypertension!.actual!.id} : {})} : {}), ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them

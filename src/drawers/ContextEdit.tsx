@@ -34,7 +34,7 @@ const time = (at: string) =>
 export function ContextEdit({
   patientId,
   context: c,
-  remove = false,
+  remove: initialRemove = false,
   onClose,
   onDone,
 }: {
@@ -46,6 +46,7 @@ export function ContextEdit({
 }) {
   const admission = c.kind === "admission";
   const label = admission ? "admission" : "visit";
+  const [remove, setRemove] = useState(initialRemove);
   const [v, setV] = useState<any>({
     start: localDay(c.startedAt),
     startTime: time(c.startedAt),
@@ -164,6 +165,10 @@ export function ContextEdit({
       }
     >
       <div className="drawer-body">
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button className="btn secondary small" aria-pressed={!remove} disabled={busy} onClick={() => { setRemove(false); setReason(""); setError(""); }}><PencilLine size={16} />Edit details</button>
+          <button className="btn ghost small" aria-pressed={remove} disabled={busy} onClick={() => { setRemove(true); setReason(""); setError(""); }}><Trash2 size={16} />Delete this {label}…</button>
+        </div>
         {remove ? (
           <div className="infobox">
             This {label} leaves the active history. Linked labs, medicines,

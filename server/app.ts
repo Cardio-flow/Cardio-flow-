@@ -164,6 +164,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // ---------- worklist & patients ----------
   // real patients by default; ?sample=1 shows the synthetic sample patients instead
   const sampleQ = (req: express.Request) => req.query.sample === "1";
+  app.get("/api/admin/patients", route(async (req, res) => {
+    if (actor(res).role !== "admin") throw new ApiError(403, "Administrator access required");
+    const q = z.string().max(80).parse(req.query.q ?? "");
+    const offset = z.coerce.number().int().min(0).max(1000000).parse(req.query.offset ?? 0);
+    const rows = (await db.query(`SELECT id,name,mrn,sex,birth_date,synthetic AS sample,civil_id AS "civilId",nationality,mobile,allergies,birth_date::text AS "birthDate",birth_date_estimated AS "birthDateEstimated" FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL AND synthetic=$3 AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY name,id LIMIT 31 OFFSET $4`, [actor(res).siteId, `%${q}%`, sampleQ(req), offset])).rows;
+    res.json({ rows: rows.slice(0,30), hasMore: rows.length > 30 });
+  }));
   app.get("/api/attention-count", route(async (req, res) => res.json({ count: await attentionCount(db, actor(res).siteId, sampleQ(req)) })));
   app.get("/api/worklist", route(async (req, res) => {
     const sample = sampleQ(req);
@@ -331,7 +338,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao"]),
+        kind: z.enum(["rdn", "pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),
@@ -382,7 +389,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),

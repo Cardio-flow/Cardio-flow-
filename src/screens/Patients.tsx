@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Plus, ChevronRight } from "lucide-react";
 import { useData, useSampleMode, withSample } from "../api";
-import { Link, initials, navigate } from "../ui";
+import { Link, SessionCtx, initials, navigate } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
 
 export function Patients() {
+  const session = useContext(SessionCtx);
   const [q, setQ] = useState("");
   const sample = useSampleMode();
   const { data } = useData<any[]>(withSample(`/patients?q=${encodeURIComponent(q)}`, sample));
@@ -17,7 +18,7 @@ export function Patients() {
           <h1>{sample ? "Sample patients" : "Patients"}</h1>
           <p>One record per patient across admissions, clinic and procedures</p>
         </div>
-        <button className="btn primary" onClick={() => setAdding(true)}><Plus size={18} /> New patient</button>
+        <span className="row wrap" style={{ gap: 8 }}>{session.role === "admin" && <Link className="btn secondary" to="/administration">Manage patients</Link>}<button className="btn primary" onClick={() => setAdding(true)}><Plus size={18} /> New patient</button></span>
       </div>
       <input className="input" style={{ maxWidth: 420 }} placeholder="Filter by name or MRN" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter patients" />
       <div className="card wl">

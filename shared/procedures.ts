@@ -60,8 +60,11 @@ export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
   : a.procedure === "Transcatheter valve replacement" || a.procedure === "Valve-in-valve" ? (a.position === "Aortic" ? "TAVI" : "Transcatheter valve")
   : null;
 
-export type ProcedureKind = "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc" | "laao";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation", laao: "LAA closure" };
+export const RDN_RESULTS = ["Completed", "Partial treatment", "Aborted / not performed"] as const;
+export const RDN_DEVICES = ["Symplicity Spyral", "Paradise", "Other approved device"] as const;
+export const RDN_COMPLICATIONS = ["Access-site bleeding / haematoma", "Renal artery injury / dissection", "Renal artery stenosis", "Contrast reaction", "Acute kidney injury", "Other"] as const;
+export type ProcedureKind = "rdn" | "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc" | "laao";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { rdn: "Renal denervation", pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation", laao: "LAA closure" };
 // Right heart catheterisation (PH module, slice 2): the measured pressures, flow and resistance, and the
 // 2022 ESC/ERS haemodynamic definition they meet. PVR is taken as measured, or computed as
 // (mPAP − PAWP) / cardiac output when only the cardiac output is given.
@@ -109,6 +112,12 @@ const someOf = <T extends readonly string[]>(list: T, v: unknown, what: string) 
 
 // Validate and clean a procedure's details.
 export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) {
+  if (kind === "rdn") {
+    const device=oneOf(RDN_DEVICES,a.device,"Device"), result=oneOf(RDN_RESULTS,a.result,"Result"), arteries=oneOf(["Bilateral","Left only","Right only","No treatment"] as const,a.arteries,"Arteries");
+    if (!device || !result || !arteries) throw new Error("Device, result and treated arteries are required");
+    if (result === "Completed" && arteries === "No treatment") throw new Error("Completed RDN needs treated arteries");
+    return {device,result,arteries,complications:someOf(RDN_COMPLICATIONS,a.complications,"Complications")};
+  }
   if (kind === "rhc") {
     const out: Record<string, unknown> = {};
     for (const n of RHC_NUMBERS) {
@@ -227,6 +236,7 @@ export const isComplexPci = (p: { kind: string; attributes: Record<string, any> 
 
 // One line for lists, the journey and notes.
 export function procedureSummary(kind: string, a: Record<string, any>) {
+  if (kind === "rdn") return [a.device,a.result,a.arteries,(a.complications ?? []).join(", ")].filter(Boolean).join(" · ");
   if (kind === "pci") {
     const setting = PCI_SETTINGS.find((s) => s.value === a.setting)?.label ?? "";
     const devs: string[] = a.devices ?? (a.device ? [a.device] : []);

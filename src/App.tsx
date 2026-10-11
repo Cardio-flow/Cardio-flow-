@@ -8,6 +8,7 @@ import { Patients } from "./screens/Patients";
 const PatientPage = lazy(() => import("./screens/Patient").then(m => ({ default: m.PatientPage })));
 const Registries = lazy(() => import("./screens/Registries").then(m => ({ default: m.Registries })));
 const Governance = lazy(() => import("./screens/Governance").then(m => ({ default: m.Governance })));
+const PatientAdmin = lazy(() => import("./screens/PatientAdmin").then(m => ({ default: m.PatientAdmin })));
 import { fmtDay } from "../shared/clinical";
 
 type Site = { name: string; mode: string; patients?: { real: number; sample: number } };
@@ -80,7 +81,7 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
   const samples = site?.patients?.sample ?? 0;
-  const section = path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : path.startsWith("/registries") ? "registries" : "worklist";
+  const section = path.startsWith("/administration") ? "administration" : path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : path.startsWith("/registries") ? "registries" : "worklist";
   const patientMatch = path.match(/^\/patients\/([0-9a-f-]{36})(?:\/(\w+))?/);
   return (
     <div className="shell">
@@ -106,6 +107,7 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
         </nav>
         <nav className="nav" aria-label="Administration">
           <div className="nav-label">ADMIN</div>
+          {session.role === "admin" && <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}><Users size={18} />Patient administration</Link>}
           <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
             <ShieldCheck size={18} />
             Rule governance
@@ -172,6 +174,8 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
         <Suspense fallback={<main className="page" role="status">Loading workspace…</main>}>
         {patientMatch ? (
           <PatientPage key={patientMatch[1]} id={patientMatch[1]} tab={patientMatch[2] ?? "summary"} />
+        ) : section === "administration" ? (
+          session.role === "admin" ? <PatientAdmin key={String(sample)} /> : <main className="page"><h1>Administrator access required</h1></main>
         ) : section === "patients" ? (
           <Patients />
         ) : section === "governance" ? (

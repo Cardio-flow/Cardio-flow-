@@ -535,7 +535,7 @@ const REMOVAL_REASONS = ["Registered in error", "Duplicate record", "Test or pra
 
 // Patient details: name, file number, sex, date of birth, identifiers, contact and allergies — all audited.
 // Also: move a mistaken test patient to the sample patients, or remove a record registered in error.
-export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patientId: string; identity: any; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved, initialRemove = false }: { patientId: string; identity: any; onClose(): void; onDone(m?: string, r?: any): void; onRemoved?(): void; initialRemove?: boolean }) {
   const sample = !!identity.sample;
   const shownMrn = (identity.mrn ?? "").replace(sample ? /^SYN-/ : /^$/, "");
   const [f, setF] = useState({
@@ -548,7 +548,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
   const civilBad = !!f.civilId && !/^\d{12}$/.test(f.civilId);
   const valid = !civilBad && f.name.trim().length > 1 && !!f.mrn.trim() && !!f.sex && !!f.birthDate;
   const [confirmSample, setConfirmSample] = useState(false);
-  const [removing, setRemoving] = useState(false);
+  const [removing, setRemoving] = useState(initialRemove);
   const [reason, setReason] = useState("");
   async function toSample() {
     setBusy(true);
@@ -565,7 +565,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
     try {
       await api(`/patients/${patientId}/remove`, { body: { reason } });
       toast({ text: `${identity.name ?? "Patient"} removed (${reason.toLowerCase()})` });
-      navigate("/");
+      if (onRemoved) onRemoved(); else navigate("/");
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -583,18 +583,19 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
   }
   return (
     <Drawer
-      title="Patient details"
+      title={removing ? "Delete patient" : "Patient details"}
       subtitle="Registration, identifiers and contact. Every change is audited with the previous value."
       icon={<IdCard size={22} />}
       onClose={onClose}
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+          {!removing && <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>}
         </span>
       }
     >
       <div className="drawer-body">
+        {!removing && <>
         <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
           <label className="field grow">
             <span>Full name</span>
@@ -617,8 +618,9 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone }: { patie
           <span>Allergies</span>
           <input className="input" placeholder="e.g. No known drug allergies" value={f.allergies} onChange={(e) => setF({ ...f, allergies: e.target.value })} />
         </label>
+        </>}
         {error && <div className="error-box">{error}</div>}
-        {!sample && (
+        {!sample && !removing && (
           <div className="sample-move">
             <b>Registered only to try the app?</b>
             <span className="muted small">Move this record to the sample patients. It leaves the real worklist and registries and its file number gets the SYN- prefix. This cannot be undone.</span>

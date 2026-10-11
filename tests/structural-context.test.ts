@@ -19,6 +19,7 @@ import {
 } from "../shared/wizards-structural.js";
 import { cleanProcedure } from "../shared/procedures.js";
 import { voidStudy, voidProcedure } from "../server/kernel/corrections.js";
+import { cleanStudy } from "../shared/studies.js";
 import { today, type Actor, nowIso } from "../server/kernel/base.js";
 import { addDays, localDay } from "../shared/clinical.js";
 let db: DB;
@@ -59,6 +60,7 @@ const base = {
 };
 const tavi = {
   ...base,
+  morphology: "tricuspid",
   lesion: "as",
   indication: "symptomatic",
   confirmation: "yes",
@@ -67,6 +69,7 @@ const tavi = {
 };
 const ct = {
   intervention: "TAVI",
+  aorticMorphology: "Tricuspid",
   modality: "Cardiac CT",
   suitability: "Suitable",
   reviewed: "Yes",
@@ -391,6 +394,251 @@ test("TAVI schedules only with recorded severe disease and complete reviewed ana
   assert.ok(planningMissing(c, "TAVI").length);
 });
 
+const bavCt = {
+  ...ct,
+  aorticMorphology: "Bicuspid",
+  bicuspidType: "Fused",
+  raphe: "Heavy",
+  cuspCalcium: "Heavy",
+  bicuspidLanding: "Suitable under selected device IFU",
+  sinusDiameter: 38,
+  stjDiameter: 32,
+  ascendingDiameter: 42,
+  thoracicAorta: "CT reviewed",
+  aorticPhenotype: "Ascending phenotype",
+  coarctation: "Excluded",
+  aorticRisks: ["None identified after review"],
+  aorticStrategy: "No aortic surgery indication after review",
+};
+const bavAnswers = {
+  ...tavi,
+  morphology: "bicuspid",
+  bavTeam: "reviewed",
+  bavAorta: "reviewed",
+  bavReviewDate: addDays(T, 180),
+};
+async function bavPatient() {
+  const id = await patient();
+  await tx((q) =>
+    K.recordEcho(q, doc, id, {
+      date: nowIso(),
+      quality: "formal",
+      lvef: 55,
+      findings: ["Bicuspid aortic valve"],
+      valves: { as: "Severe" },
+      measures: { ava: 0.8, "av-vmax": 4.3, "av-mg": 45 },
+    }),
+  );
+  return id;
+}
+test("bicuspid anatomy and entire thoracic aorta requirements block scheduling; echo evidence cannot be bypassed by a tricuspid answer", async () => {
+  const id = await bavPatient();
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: ct,
+    }),
+  );
+  let c = (await getWizard(db, id, "tavi-plan")).context;
+  assert.deepEqual(c.detected.morphology, ["bicuspid"]);
+  await assert.rejects(
+    tx((q) => completeWizard(q, doc, id, "tavi-plan", { answers: tavi })),
+    /Bicuspid/,
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: { ...bavCt, ascendingDiameter: null },
+    }),
+  );
+  await assert.rejects(
+    tx((q) => completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers })),
+    /diameters/,
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: bavCt,
+    }),
+  );
+  c = (await getWizard(db, id, "tavi-plan")).context;
+  assert.deepEqual(planningMissing(c, "TAVI"), []);
+  for (const changes of [
+    { aorticGrowth: 3 },
+    { coarctation: "Present; specialist strategy recorded" },
+  ]) {
+    await tx((q) =>
+      K.recordStudy(q, doc, id, {
+        kind: "structural_imaging",
+        date: nowIso(),
+        findings: { ...bavCt, ...changes },
+      }),
+    );
+    await assert.rejects(
+      tx((q) =>
+        completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers }),
+      ),
+      /reconcile the recorded risk assessment/,
+    );
+  }
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: bavCt,
+    }),
+  );
+  await assert.rejects(
+    tx((q) =>
+      completeWizard(q, doc, id, "tavi-plan", {
+        answers: { ...bavAnswers, risk: "low" },
+      }),
+    ),
+    /increased surgical risk/,
+  );
+  await tx((q) =>
+    completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers }),
+  );
+  const s = await loadState(db, id);
+  assert(
+    s.plan.some(
+      (p) => p.category === "procedure" && p.title.startsWith("TAVI"),
+    ),
+  );
+  assert.equal(
+    s.plan.find((p) => p.title.startsWith("Bicuspid aorta:"))?.due_date,
+    bavAnswers.bavReviewDate,
+  );
+});
+test("aortic surgical indications require documented prohibitive-risk strategy rather than routine isolated TAVI clearance", async () => {
+  const id = await bavPatient();
+  for (const findings of [
+    { ...bavCt, sinusDiameter: 50, aorticPhenotype: "Root phenotype" },
+    { ...bavCt, ascendingDiameter: 55 },
+  ]) {
+    await tx((q) =>
+      K.recordStudy(q, doc, id, {
+        kind: "structural_imaging",
+        date: nowIso(),
+        findings,
+      }),
+    );
+    await assert.rejects(
+      tx((q) =>
+        completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers }),
+      ),
+      /aortic surgery indication/,
+    );
+  }
+  const deferred = {
+    ...bavCt,
+    ascendingDiameter: 55,
+    aorticStrategy:
+      "Aortic surgery deferred for prohibitive risk; rationale documented",
+  };
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: deferred,
+    }),
+  );
+  await assert.rejects(
+    tx((q) =>
+      completeWizard(q, doc, id, "tavi-plan", {
+        answers: { ...bavAnswers, risk: "ineligible", bavAorta: "prohibitive" },
+      }),
+    ),
+    /Actual specialist prohibitive-risk rationale/,
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: deferred,
+      conclusion:
+        "Synthetic Heart Team: prohibitive surgical risk; informed palliative TAVI decision, ongoing aortic surveillance and residual aneurysm risk discussed.",
+    }),
+  );
+  await assert.rejects(
+    tx((q) => completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers })),
+    /Concordant specialist/,
+  );
+  await tx((q) =>
+    completeWizard(q, doc, id, "tavi-plan", {
+      answers: { ...bavAnswers, risk: "ineligible", bavAorta: "prohibitive" },
+    }),
+  );
+});
+test("bicuspid work-up stays open for wrong morphology and new adverse reports reopen preparation; bicuspid fields stay out of TEER", async () => {
+  const id = await bavPatient();
+  const task = await tx((q) =>
+    K.addPlanAction(q, doc, id, {
+      category: "investigation",
+      title: "Bicuspid thoracic aorta work-up",
+      dueDate: T,
+      completesOn: {
+        type: "study",
+        kind: "structural_imaging",
+        intervention: "TAVI",
+        aorticMorphology: "Bicuspid",
+      },
+    }),
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: ct,
+    }),
+  );
+  assert.equal(
+    (await loadState(db, id)).plan.find((p) => p.id === task.id)?.status,
+    "planned",
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: bavCt,
+    }),
+  );
+  await tx((q) =>
+    completeWizard(q, doc, id, "tavi-plan", { answers: bavAnswers }),
+  );
+  assert.equal(
+    STRUCTURAL_RULES[0].evaluate(await loadState(db, id), {}).length,
+    0,
+  );
+  await tx((q) =>
+    K.recordStudy(q, doc, id, {
+      kind: "structural_imaging",
+      date: nowIso(),
+      findings: {
+        ...bavCt,
+        ascendingDiameter: 55,
+        aorticStrategy: "Aortic surgery indicated / preferred",
+      },
+    }),
+  );
+  assert.equal(
+    STRUCTURAL_RULES[0].evaluate(await loadState(db, id), {}).length,
+    1,
+  );
+  const clean = cleanStudy("structural_imaging", {
+    intervention: "Mitral TEER",
+    aorticMorphology: "Bicuspid",
+    bicuspidType: "Fused",
+    modality: "3D TOE / TEE",
+    suitability: "Uncertain / incomplete",
+    reviewed: "No / pending",
+  });
+  assert.equal(clean.aorticMorphology, undefined);
+  assert.equal(clean.bicuspidType, undefined);
+});
 test("ventricular TEER uses recorded outcome criteria and tricuspid candidates need actual RHC", async () => {
   const id = await patient();
   let c = (await tx((q) => getWizard(q, id, "teer-plan"))).context;

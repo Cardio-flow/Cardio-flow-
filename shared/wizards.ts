@@ -9,6 +9,8 @@ import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 import { AF_AFTERCARE_WIZARDS } from "./wizards-af-aftercare.js";
+import { HYPERTENSION_WIZARDS } from "./wizards-hypertension.js";
+import type { HypertensionContext } from "./hypertension.js";
 import { STRUCTURAL_WIZARDS } from "./wizards-structural.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
@@ -57,7 +59,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Hypertension" | "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   sourceShort?: string;
   // what the "recheck" answer books (default: renal function and potassium)
@@ -85,6 +87,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  hypertension?: HypertensionContext;
   today: string;
   meds: WizardMed[];
   facts: { label: string; value: string; date?: string; tone?: string }[];
@@ -105,7 +108,7 @@ export type WizardContext = {
     preImaging?: { id: string; day: string; findings: Record<string, any> } | null;
   };
   structural?: {
-    planning: { id: string; day: string; findings: Record<string, any> }[];
+    planning: { id: string; day: string; findings: Record<string, any>; conclusion?: string }[];
     actual: { id: string; day: string; target: string; findings: Record<string, any> } | null;
     hfAdmissionInYear: boolean;
     latestEchoId: string | null;
@@ -582,6 +585,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...AF_AFTERCARE_WIZARDS,
   ...VALVE_WIZARDS,
   ...STRUCTURAL_WIZARDS,
+  ...HYPERTENSION_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
 };
