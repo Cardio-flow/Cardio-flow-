@@ -1,3 +1,4 @@
+import { LAB_LIMITS } from "../../shared/lab-review.js";
 import { hypertensionProfile } from "./hypertension-profile.js";
 // Guideline-driven decision support. Every rule cites its source and class of
 // recommendation, runs as a governed rule (CLINICAL_REVIEW until a clinician approves it)
@@ -328,6 +329,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "ESC HF (2023 focused update, retained 2026): screen all HF patients for iron deficiency; ID = ferritin <100 ng/mL or 100–299 with TSAT <20%; IV iron in symptomatic HFrEF.",
     evaluate(s, p) {
       if (!isHF(s)) return [];
+      // Anaemia's unified cause/treatment pathway includes the HF iron decision.
+      const hb = s.resolved("haemoglobin").current;
+      if (s.patient.age >= 18 && hb?.status === "final" && hb.value_num != null && hb.value_num < (s.patient.sex === "Female" ? LAB_LIMITS.hbFemale : LAB_LIMITS.hbMale)) return [];
       const fer = recent(s, "ferritin", Number(p.screen_days)), ts = recent(s, "tsat", Number(p.screen_days));
       if (!fer || !ts)
         return [{

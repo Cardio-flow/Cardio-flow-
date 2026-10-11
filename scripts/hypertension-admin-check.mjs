@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -205,7 +206,7 @@ try {
     animations: "disabled",
   });
   await page.getByRole("button", { name: /^Confirm/ }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   let record = await api(`/patients/${pat.id}/record`);
   assert(
     record.plan.some(
@@ -213,7 +214,8 @@ try {
     ),
   );
   await page.getByRole("link", { name: "Investigations", exact: true }).click();
-  await page.getByRole("button", { name: "Record RDN", exact: true }).click();
+  await page.getByRole("button", { name: "Add procedure", exact: true }).click();
+  await page.getByRole("button", { name: /^Renal denervation/ }).click();
   await date("Procedure date", T);
   await radio("RDN device", "Symplicity Spyral");
   await radio("RDN result", "Completed");
@@ -247,7 +249,7 @@ try {
   await next();
   await noOverflow();
   await page.getByRole("button", { name: /^Confirm/ }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   record = await api(`/patients/${pat.id}/record`);
   assert(
     record.plan.some(
@@ -289,7 +291,7 @@ try {
     .waitFor();
   await radio("Reason for removal", "Duplicate entry");
   await page.getByRole("button", { name: "Delete visit", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   await page
     .locator(".phone-nav")
     .getByRole("button", { name: "Sign out", exact: true })
@@ -315,7 +317,7 @@ try {
     .getByRole("dialog", { name: "Patient details", exact: true })
     .getByRole("button", { name: "Save", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   await page
     .getByRole("textbox", { name: "Find patient to manage" })
     .fill(editedName);
@@ -338,7 +340,7 @@ try {
   await page
     .getByRole("button", { name: "Remove " + editedName, exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   await page.getByText("No matching patients.", { exact: true }).waitFor();
   assert.equal(
     await page.evaluate(

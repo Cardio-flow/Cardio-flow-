@@ -1,3 +1,4 @@
+import { labSuggestions, LAB_WIZARDS } from "./wizards-lab.js";
 import { rdnSchedulingMissing } from "./wizards-hypertension.js";
 import { planningMissing, taviSchedulingMissing } from "./wizards-structural.js";
 // Guideline suggestions inside every pathway (Ahmed, 3 Oct 2026: "the pathways show the actions
@@ -1131,6 +1132,10 @@ GUIDANCE["after-laao"] = {
       : S("reviewed", "A post-closure scan is recorded: review its findings before a regimen transition (SCAI/HRS 2025)")];
   },
 };
+
+for (const [id,def] of Object.entries(LAB_WIZARDS)) {
+  GUIDANCE[id] = Object.fromEntries(def.steps.flatMap(st=>st.questions).filter(q=>q.options).map(q=>[q.id,(a:Answers,c:WizardContext)=>labSuggestions(id,q.id,a,c)??[]]));
+}
 
 // Suggestions for one question, limited to the options this patient can be offered.
 export function suggest(wizardId: string, questionId: string, answers: Answers, ctx: WizardContext, allowed?: Set<string>): Suggestion[] {

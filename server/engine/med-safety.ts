@@ -1,3 +1,5 @@
+import { labResults } from "./lab-results.js";
+import { ratio, LAB_LIMITS, LAB_URLS } from "../../shared/lab-review.js";
 // Medicine safety table (medication coverage, slice 1): contraindicated or not-recommended combinations of
 // two medicines, and of a medicine with a condition in the record. One table read by two rules, so every
 // module's medicines are checked in one place. Every row quotes its source:
@@ -60,8 +62,8 @@ export function facts(s: PatientState) {
     tags,
     // CYP2C19 result on the HCM diagnosis (mavacamten dosing and interactions)
     cyp2c19: (conds.find((c) => c.code === "hcm")?.attributes?.cyp2c19 as string | undefined) ?? null,
-    // ALT upper limit of normal: the laboratory reference range in the catalogue
-    altUln: MEASURES.alt.ref?.high ?? null,
+    // Actual ALT report reference limit; catalogue ranges are not prescribing limits.
+    altUln: s.resolved("alt").current?.reference_high ?? null,
     // latest values for start limits (within 60 days, as the HF start gates), heart rate within 30 days
     k60: recent("potassium", 60), alt60: recent("alt", 60),
     // results recorded after a medicine was started, newest first
@@ -89,6 +91,14 @@ const STRONG_3A4 = ["cyp3a4-inhibitor"]; // catalogue: clarithromycin
 const DOACS_15 = ["apixaban", "rivaroxaban", "edoxaban"];
 
 export const SAFETY_ROWS: SafetyRow[] = [
+  {
+    id:"statin-lab-before-start",kind:"prestart",severity:"red",
+    title:()=>"Statin start: review abnormal ALT / CK first",
+    detail:"Do not initiate a statin with baseline CK >4× the actual lab ULN. Review ALT ≥3× ULN before prescribing; no lab-based limit is assumed when the report range is missing.",
+    source:LAB_URLS.statin,
+    check:(s,f)=>{const l=labResults(s), ck=ratio(l.ck),alt=ratio(l.alt);return ck!=null&&ck>LAB_LIMITS.ckReview||alt!=null&&alt>=LAB_LIMITS.liverStop?pick(f,["statin"]).map(m=>({meds:[m],reason:ck!=null&&ck>LAB_LIMITS.ckReview?`Baseline CK ${ck.toFixed(1)}× ULN`:`Baseline ALT ${alt!.toFixed(1)}× ULN` })):[];},
+  },
+
   // ---------- two medicines ----------
   {
     id: "pde5-nitrate", kind: "interaction", severity: "red",
@@ -336,14 +346,15 @@ export const SAFETY_ROWS: SafetyRow[] = [
     source: "SmPC amiodarone 4.4 (reduce or discontinue); dronedarone (Multaq) 4.4 (re-measure within 48–72 h, withdraw if confirmed); bosentan (Tracleer) 4.4 (table by × ULN)",
     check: (_s, f) => {
       if (f.altUln == null) return [];
-      const uln = f.altUln, out: SafetyHit[] = [];
+      const out: SafetyHit[] = [];
       for (const m of pick(f, ["amiodarone", "dronedarone", "bosentan"])) {
         const [last, prev] = f.after("alt", startOf(m));
-        if (!last || last.value_num! <= 3 * uln) continue;
+        const uln = last?.reference_high;
+        if (!last || !uln || last.value_num! <= 3 * uln) continue;
         const x = last.value_num! / uln, v = `${formatNumber(last.value_num!, 0)} U/L (${formatNumber(x, 1)} × ULN ${formatNumber(uln, 0)})`;
         if (m.code === "amiodarone") out.push({ meds: [m], reason: `ALT ${v}. Reduce the amiodarone dose or discontinue (label)` });
         if (m.code === "dronedarone") {
-          const confirmed = prev && prev.value_num! >= 3 * uln;
+          const confirmed = prev && prev.reference_high != null && prev.value_num! >= 3 * prev.reference_high;
           out.push({ meds: [m], severity: confirmed ? "red" : "orange", reason: `ALT ${v}. ${confirmed ? "Confirmed on two measurements: withdraw dronedarone (label)" : "Re-measure within 48–72 hours; if confirmed ≥3 × ULN, withdraw dronedarone (label)"}` });
         }
         if (m.code === "bosentan") out.push({

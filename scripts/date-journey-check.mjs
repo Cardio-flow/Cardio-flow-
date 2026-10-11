@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic-only phone regression: date typing/picking, manual follow-up and compact history.
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -239,7 +240,7 @@ try {
   await expect(page.getByRole("textbox",{name:"Clinic review due date",exact:true})).toHaveValue("22/11/2030");
   await expect(page.getByRole("textbox",{name:"Renal function and potassium due date",exact:true})).toHaveValue("21/11/2030");
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   const rec = await api(`/patients/${p.id}/record`);
   assert(
     rec.plan.some(

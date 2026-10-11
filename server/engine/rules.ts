@@ -5,6 +5,7 @@
 import { MEASURES, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { latestDischarge, medsWithTag, series, type PatientState } from "../kernel/state.js";
+import { LAB_RULES } from "./lab-rules.js";
 import { GUIDELINE_RULES } from "./guidelines.js";
 import { STUDY_RULES, crtClass } from "./study-rules.js";
 import { ENCOUNTER_RULES } from "./encounter-rules.js";
@@ -283,6 +284,7 @@ export const RULES: RuleDef[] = [
         });
     },
   },
+  ...LAB_RULES,
   ...GUIDELINE_RULES,
   ...STUDY_RULES,
   ...ENCOUNTER_RULES,
@@ -303,7 +305,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-11.flow2";
+export const RULESET = "2026-10-11.lab-review1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

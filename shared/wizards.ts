@@ -1,6 +1,8 @@
 // Config-driven complication wizards. One engine renders every wizard; a new
 // complication is new content here, not new UI code. `buildOutcome` is shared so
 // the preview the clinician confirms is exactly what the server records.
+import { LAB_WIZARDS } from "./wizards-lab.js";
+import type { LabReview } from "./lab-review.js";
 import { MEDICATION, doseLabel } from "./catalog.js";
 import { addDays, fmtDay } from "./clinical.js";
 import { ACUTE_WIZARDS } from "./wizards-acute.js";
@@ -81,6 +83,7 @@ export type WizardMed = {
   id: string;
   code: string;
   name: string;
+  status?: string;
   doseValue: number | null;
   doseUnit: string | null;
   frequency: string | null;
@@ -88,6 +91,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  lab?: LabReview;
   hypertension?: HypertensionContext;
   today: string;
   meds: WizardMed[];
@@ -580,6 +584,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   },
   ...ACUTE_WIZARDS,
   ...DIABETES_WIZARDS,
+  ...LAB_WIZARDS,
   ...GENERAL_WIZARDS,
   ...INFLAMMATORY_WIZARDS,
   ...CORONARY_WIZARDS,
@@ -841,7 +846,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
-  const htn = ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const htn = wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];

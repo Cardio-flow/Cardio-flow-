@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic clinician walkthrough: procedure -> aftercare -> imaging -> renewed decision.
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -124,7 +125,7 @@ try {
       path: `${out}/01-closure-plan.png`,
     });
     await p.getByRole("button", { name: "Confirm plan", exact: true }).click();
-    await p.getByRole("dialog").waitFor({ state: "hidden" });
+    await continueAfterEntry(p);
   };
   await afterClosure();
   let record = await api(`/patients/${pat.id}/record`);
@@ -155,7 +156,7 @@ try {
     await p
       .getByRole("button", { name: "Save LAA imaging", exact: true })
       .click();
-    await p.getByRole("dialog").waitFor({ state: "hidden" });
+    await continueAfterEntry(p);
     await p.setViewportSize({ width: 1440, height: 1000 });
   };
   await imaging("Present", "Present");
@@ -232,7 +233,7 @@ try {
     "Phone plan overflow",
   );
   await p.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await p.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(p);
   record = await api(`/patients/${pat.id}/record`);
   assert.ok(
     JSON.stringify(record.plan).includes(

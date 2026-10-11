@@ -284,15 +284,15 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
         unit: def?.unit ?? "",
         decimals: def?.decimals ?? 0,
         ref: def?.ref ?? null,
-        current: { id: r.current.id, value: r.current.value_num, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
+        current: { id: r.current.id, value: r.current.value_num, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
         reason: r.reason,
         latestId: r.latest?.id,
-        latest: { id: latest.id, value: latest.value_num, at: latest.effective_at, status: latest.status, source: latest.source },
+        latest: { id: latest.id, value: latest.value_num, referenceHigh:latest.reference_high ?? null, at: latest.effective_at, status: latest.status, source: latest.source },
         trend: { previous: previous ? { id: previous.id, value: previous.value_num, at: previous.effective_at } : null, delta, percent,
           direction: delta == null ? null : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
           note: latest.status === "preliminary" ? "Awaiting verification" : !previous ? "First comparable result" : percent == null ? "Previous result was zero" : null },
         displaySeries: latest.status === "final" ? comparable.slice(0, 6).reverse().map((o) => ({ value: o.value_num, at: o.effective_at })) : [],
-        series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, at: o.effective_at, status: o.status, quality: o.quality })),
+        series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, referenceHigh:o.reference_high ?? null, at: o.effective_at, status: o.status, quality: o.quality })),
       };
     })
     .filter(Boolean);
@@ -434,7 +434,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     })(),
     lvef: (() => {
       const r = s.resolved("lvef");
-      return r.current ? { value: r.current.value_num, at: r.current.effective_at, quality: r.current.quality, reason: r.reason, latestQuality: r.latest?.quality, latestAt: r.latest?.effective_at, latestValue: r.latest?.value_num } : null;
+      return r.current ? { value: r.current.value_num, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, reason: r.reason, latestQuality: r.latest?.quality, latestAt: r.latest?.effective_at, latestValue: r.latest?.value_num } : null;
     })(),
     vitals: ["sbp", "dbp", "hr", "weight"].map((c) => {
       const cur = s.resolved(c).current;

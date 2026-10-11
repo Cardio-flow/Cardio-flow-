@@ -271,7 +271,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         effectiveAt: isoDateTime,
         contextId: uuidS.nullish(),
         items: z
-          .array(z.object({ code: z.string().max(40), value: z.number().finite().nullish(), unit: z.string().max(20).nullish(), text: z.string().max(40).nullish() }))
+          .array(z.object({ referenceHigh: z.number().finite().positive().max(999999).nullish(), code: z.string().max(40), value: z.number().finite().nullish(), unit: z.string().max(20).nullish(), text: z.string().max(40).nullish() }))
           .min(1)
           .max(30),
       })
@@ -280,7 +280,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/observations/:oid/correct", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ value: z.number().finite().optional(), enteredInError: z.boolean().optional() }).parse(req.body);
+    const input = z.object({ referenceHigh: z.number().finite().positive().max(999999).optional(), value: z.number().finite().optional(), enteredInError: z.boolean().optional() }).parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await K.correctObservation(tx, a, id, uuidS.parse(req.params.oid), input) }));
   }));
   // ---------- corrections (migration 008): entered in error, or a corrected copy; nothing is erased ----------

@@ -36,7 +36,7 @@ async function patient(o: { conditions?: string[]; hcm?: string; meds?: [string,
     const def = MEDICATION[code];
     await tx((q) => K.startMedication(q, doc, pid, { code, doseValue: dose ?? def.doses[0], frequency: freq ?? def.frequencies[0], route: def.routes[0], indication: def.indicationChoices?.[0] ?? def.indications[0] ?? "other", effectiveAt: at(addDays(T, -30)) } as any));
   }
-  if (o.labs?.length) await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -1)), items: o.labs!.map(([code, value]) => ({ code, value })) } as any));
+  if (o.labs?.length) await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -1)), items: o.labs!.map(([code, value]) => ({ code, value, ...(code === "alt" ? {referenceHigh:45} : {}) })) } as any));
   if (o.hr != null) await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -1)), items: [{ code: "hr", value: o.hr }] } as any));
   await tx((q) => reassess(q, pid, "sandbox"));
   return pid;
@@ -101,7 +101,7 @@ test("transaminase limits on treatment (ULN 45): amiodarone >3 × orange; droned
   assert.match((await recs(a))[0].detail, /Reduce the amiodarone dose or discontinue/);
   const d = await patient({ meds: [["dronedarone", 400]], labs: [["alt", 140]] });
   assert.equal((await recs(d)).find((x) => /ALT/.test(x.title)).severity, "orange");
-  await tx((q) => K.recordObservations(q, doc, d, { effectiveAt: new Date().toISOString(), items: [{ code: "alt", value: 150 }] } as any));
+  await tx((q) => K.recordObservations(q, doc, d, { effectiveAt: new Date().toISOString(), items: [{ code: "alt", value: 150, referenceHigh:45 }] } as any));
   await tx((q) => reassess(q, d, "sandbox"));
   const fd = (await recs(d)).find((x) => /ALT/.test(x.title));
   assert.equal(fd.severity, "red");

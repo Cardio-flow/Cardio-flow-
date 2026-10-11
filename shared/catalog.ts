@@ -13,6 +13,7 @@ export type LabDef = {
   ref?: { low?: number; high?: number };
   decimals: number;
   derived?: boolean;
+  reportLimit?: boolean;
   // highest valid value (e.g. a 0–100 score)
   max?: number;
 };
@@ -41,7 +42,16 @@ export const LABS: LabDef[] = [
   { code: "hs-crp", display: "hs-CRP", short: "hsCRP", unit: "mg/L", category: "Inflammation", ref: { high: 2 }, decimals: 1 },
   { code: "hba1c", display: "HbA1c", short: "HbA1c", unit: "%", category: "Metabolic", decimals: 1 },
   { code: "glucose", display: "Glucose", short: "Glu", unit: "mmol/L", category: "Metabolic", decimals: 1 },
-  { code: "alt", display: "ALT", short: "ALT", unit: "U/L", category: "Liver", ref: { high: 45 }, decimals: 0 },
+  { code: "alt", display: "ALT", short: "ALT", unit: "U/L", category: "Liver", reportLimit: true, decimals: 0 },
+  { code: "ast", display: "AST", short: "AST", unit: "U/L", category: "Liver", reportLimit: true, decimals: 0 },
+  { code: "ck", display: "Creatine kinase (CK)", short: "CK", unit: "U/L", category: "Muscle", reportLimit: true, decimals: 0 },
+  { code: "vitamin-d", display: "25-OH Vitamin D", short: "Vit D", unit: "nmol/L", category: "Bone", convert: { "ng/mL": 2.5 }, decimals: 1 },
+  { code: "calcium", display: "Adjusted calcium", short: "Ca", unit: "mmol/L", category: "Bone", convert: { "mg/dL": 0.2495 }, decimals: 2, reportLimit: true },
+  { code: "alp", display: "Alkaline phosphatase", short: "ALP", unit: "U/L", category: "Liver", reportLimit: true, decimals: 0 },
+  { code: "bilirubin", display: "Bilirubin", short: "Bili", unit: "µmol/L", category: "Liver", convert: { "mg/dL": 17.1 }, reportLimit: true, decimals: 1 },
+  { code: "mcv", display: "Mean cell volume", short: "MCV", unit: "fL", category: "Haematology", decimals: 0 },
+  { code: "b12", display: "Vitamin B12", short: "B12", unit: "pmol/L", category: "Haematology", convert: { "pg/mL": 0.738 }, decimals: 0 },
+  { code: "folate", display: "Folate", short: "Folate", unit: "nmol/L", category: "Haematology", decimals: 1 },
   { code: "inr", display: "INR", short: "INR", unit: "ratio", category: "Coagulation", decimals: 1 },
   { code: "tsh", display: "TSH", short: "TSH", unit: "mIU/L", category: "Thyroid", ref: { low: 0.4, high: 4.0 }, decimals: 2 },
   { code: "lactate", display: "Lactate", short: "Lactate", unit: "mmol/L", category: "Acute", ref: { high: 2 }, decimals: 1 },
@@ -131,7 +141,10 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
   { id: "hf", label: "HF monitoring", codes: ["creatinine", "potassium", "sodium", "nt-probnp"] },
   { id: "lipids", label: "Lipids", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"] },
   { id: "metabolic", label: "Diabetes & kidney", codes: ["hba1c", "creatinine", "uacr"] },
-  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat"] },
+  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat", "mcv"] },
+  { id: "bone", label: "Vitamin D / calcium", codes: ["vitamin-d", "calcium", "creatinine"] },
+  { id: "liver", label: "Liver enzymes", codes: ["alt", "ast", "alp", "bilirubin"] },
+  { id: "statin-safety", label: "Statin symptoms / safety", codes: ["ck", "alt", "creatinine"] },
   { id: "anticoag", label: "Anticoagulation", codes: ["inr", "haemoglobin", "creatinine"] },
   { id: "sepsis", label: "Sepsis / shock", codes: ["lactate", "wbc", "crp", "creatinine", "potassium"] },
   { id: "dka", label: "Glucose crisis", codes: ["glucose", "ketones", "bicarbonate", "ph", "potassium", "sodium"] },
@@ -420,6 +433,8 @@ export const MEDICATIONS: MedicationDef[] = [
   m("daptomycin", "Daptomycin", "Lipopeptide", "Infection", ["antibiotic"], [], "mg", [350, 500, 700, 1000], ["OD"], ["creatinine"], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
   m("rifampicin", "Rifampicin", "Rifamycin", "Infection", ["antibiotic", "strong-inducer"], [], "mg", [300, 450, 600], ["OD", "BID"], ["alt"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
   m("allopurinol", "Allopurinol", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [100, 200, 300], ["OD"], ["creatinine"], { indicationChoices: ["Gout", "Other"] }),
+  m("colecalciferol", "Colecalciferol (vitamin D3)", "Vitamin D", "General medicine", ["vitamin-d"], [], "IU", [800, 1000, 2000], ["OD"], ["calcium"], { indicationChoices: ["Vitamin D deficiency maintenance", "Other"] }),
+  m("ferrous-sulfate", "Ferrous sulfate (200 mg ≈ 65 mg elemental iron)", "Oral iron", "General medicine", ["oral-iron"], [], "mg", [200], ["OD", "Alternate days"], ["haemoglobin"], { indicationChoices: ["Confirmed iron deficiency anaemia", "Other"] }),
   m("febuxostat", "Febuxostat", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [40, 80, 120], ["OD"], ["alt"], { indicationChoices: ["Gout", "Other"] }),
   m("levothyroxine", "Levothyroxine", "Thyroid hormone", "General medicine", [], [], "mcg", [25, 50, 75, 100, 125, 150], ["OD"], ["tsh"], { indicationChoices: ["Hypothyroidism", "Amiodarone-induced hypothyroidism", "Other"] }),
   m("carbimazole", "Carbimazole", "Antithyroid", "General medicine", [], [], "mg", [5, 10, 20], ["OD", "BID", "TID"], ["tsh", "wbc", "alt"], { indicationChoices: ["Hyperthyroidism", "Amiodarone-induced thyrotoxicosis (type 1)", "Other"] }),

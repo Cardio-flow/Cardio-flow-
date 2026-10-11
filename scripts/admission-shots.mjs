@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic admission → pathway → decision → plan → discharge walkthrough.
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
@@ -138,6 +139,7 @@ try {
   }
   await entry.getByRole("button", { name: "Save 3 results", exact: true }).click();
   await entry.waitFor({ state: "hidden" });
+  if(await p.getByRole("button",{name:"Continue data entry",exact:true}).isVisible())await p.getByRole("button",{name:"Continue data entry",exact:true}).click();
   console.log("Automated entry duration (includes keyboard-trap check; not clinician time):", Math.round(performance.now() - startedEntry), "ms");
   await p
     .getByRole("heading", { name: "Admission", exact: true })
@@ -191,7 +193,7 @@ try {
   await p.getByRole("radio", { name: "The value was wrong", exact: true }).click();
   await p.getByLabel("Right value", { exact: false }).fill("4.8");
   await p.getByRole("button", { name: "Save correction", exact: true }).click();
-  await p.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(p);
   await potassiumRow.getByText("4.8", { exact: true }).waitFor();
   await p.screenshot({ animations: "disabled", path: `${out}/07-corrected-result.png` });
   if (errors.length) throw Error(errors.join(";"));

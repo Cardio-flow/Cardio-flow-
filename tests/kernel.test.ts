@@ -80,7 +80,7 @@ test("closed loop: alert → wizard → dose change + dated tasks → result clo
     mra = (await K.startMedication(q, doc, pid, { code: "spironolactone", doseValue: 25, frequency: "OD", route: "PO", indication: "hf", effectiveAt: d0 })).medicationId;
     await K.startMedication(q, doc, pid, { code: "sacubitril-valsartan", doseValue: 49, frequency: "BID", route: "PO", indication: "hf", effectiveAt: d0 });
     await K.recordObservations(q, doc, pid, { effectiveAt: iso(addDays(T, -10)), items: [{ code: "potassium", value: 4.6 }, { code: "creatinine", value: 120 }] });
-    const r = await K.recordObservations(q, doc, pid, { effectiveAt: iso(T, "00:30"), items: [{ code: "potassium", value: 5.9 }, { code: "creatinine", value: 125 }] });
+    const r = await K.recordObservations(q, doc, pid, { effectiveAt: iso(T, "00:00"), items: [{ code: "potassium", value: 5.9 }, { code: "creatinine", value: 125 }] });
     await reassess(q, pid, "sandbox", r.changed);
   });
   const rec = (await active(pid)).find((r) => r.rule_id === "hf.hyperkalaemia-review");
@@ -120,7 +120,7 @@ test("wizard preview equals what is recorded", async () => {
 
 test("declining an alert needs a reason and is recorded", async () => {
   const k = await byName("Khaled Al-Mansour");
-  const rid = (await db.query(`SELECT id FROM cf.recommendation WHERE patient_id=$1 AND rule_id='hf.iron-deficiency' AND status='active'`, [k])).rows[0].id;
+  const rid = (await db.query(`SELECT id FROM cf.recommendation WHERE patient_id=$1 AND rule_id='lab.anaemia' AND status='active'`, [k])).rows[0].id;
   await assert.rejects(tx((q) => declineRecommendation(q, doc, k, rid, { outcome: "declined", reason: " " })));
   await tx((q) => declineRecommendation(q, doc, k, rid, { outcome: "declined", reason: "Expected rise after ARNI start" }));
   const d = (await db.query(`SELECT reason FROM cf.decision WHERE recommendation_id=$1`, [rid])).rows[0];

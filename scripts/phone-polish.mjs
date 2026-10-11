@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic browser regression for compact dates, medication summaries and reserved notifications.
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
@@ -50,6 +51,7 @@ try {
   const payload = (await saveRequest).postDataJSON();
   assert.equal(payload.effectiveAt, new Date(yesterday + 'T08:00:00+03:00').toISOString());
   await labs.waitFor({ state: 'hidden' });
+  if (await page.getByRole('button', {name:'Continue data entry',exact:true}).isVisible()) await page.getByRole('button', {name:'Continue data entry',exact:true}).click();
   await noticeClearOf('.topbar');
   await page.getByRole('button', { name: 'Dismiss notification', exact: true }).click();
   await page.getByRole('button', { name: 'Add labs', exact: true }).click();
@@ -63,6 +65,7 @@ try {
   await page.screenshot({ path: out + '/02-compact-date.png', animations: 'disabled' });
   await page.getByRole('button', { name: 'Save 1 result', exact: true }).click();
   await labs.waitFor({ state: 'hidden' });
+  if (await page.getByRole('button', {name:'Continue data entry',exact:true}).isVisible()) await page.getByRole('button', {name:'Continue data entry',exact:true}).click();
   await page.getByRole('link', { name: 'Medications', exact: true }).click();
   await page.getByRole('button', { name: 'Add several', exact: true }).click();
   let batch = page.getByRole('dialog', { name: 'Add medicines', exact: true });
