@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { BookOpen, Check } from "lucide-react";
+import { BookOpen, Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
+import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
 import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
@@ -11,7 +12,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   const { hot } = useTriage(s);
   const F = (k: string, node: React.ReactNode, isHot = hot.has(k)) => <Fold k={k} hot={isHot}>{node}</Fold>;
   return (
-    <main className="page">
+    <main className="page overview-page">
       <div className="grid-main">
         <div className="stack">
           <Episodes s={s} open={open} done={done} />
@@ -27,8 +28,8 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <ActivePlan s={s} open={open} />
         </div>
         <div className="stack">
-          <Meds s={s} open={open} done={done} />
           <Results s={s} open={open} />
+          <Meds s={s} open={open} done={done} />
           <Upcoming s={s} open={open} />
         </div>
       </div>
@@ -387,9 +388,9 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
     }
   };
   return (
-    <section className="card pad" style={{ paddingBottom: 14 }}>
+    <section className="card pad medication-snapshot snapshot-card" aria-label="Current medications" style={{ paddingBottom: 14 }}>
       <div className="card-head">
-        <h2>Medications</h2>
+        <h2><Pill size={19} aria-hidden="true" /> Medications</h2>
         <button className="btn ghost small" onClick={() => open({ kind: "med-add" })}>+ Add</button>
       </div>
       {s.medications.groups.length === 0 && <div className="empty">No current medications recorded.</div>}
@@ -397,7 +398,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
         <div className="med-group" key={g.purpose}>
           <div className="eyebrow">{g.purpose}</div>
           {g.meds.map((m: any) => (
-            <button key={m.id} className={`med ${m.status === "held" ? "held" : ""}`} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line-2)", width: "100%" }} onClick={() => open({ kind: "med-action", medId: m.id })}>
+            <button key={m.id} className={`med snapshot-med ${m.status === "held" ? "held" : ""}`} onClick={() => open({ kind: "med-action", medId: m.id })}>
               <span className="col grow" style={{ gap: 2 }}>
                 <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" || m.status === "not_taking" ? "line-through" : undefined, color: m.status === "held" || m.status === "not_taking" ? "var(--ink-4)" : undefined }}>
                   {m.name}
@@ -405,14 +406,17 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
                 </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
                   {m.dose} · {m.frequency}
-                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at)}` : m.startedAt ? ` · since ${fmtDay(m.startedAt)}` : ""}
+                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at, { year: true })}` : m.startedAt ? ` · since ${fmtDay(m.startedAt, { year: true })}` : ""}
                 </span>
+                <DoseProgress progress={m.targetProgress} />
               </span>
               <MedTag m={m} s={s} />
             </button>
           ))}
         </div>
       ))}
+      {s.hf && <details className="snapshot-note"><summary>About HF targets</summary><p>Prescribed daily dose vs the recorded reference regimen. Individual tolerated targets may differ. Held / not-taken medicines are not counted as delivered therapy.</p><p>ESC HF target-dose table; finerenone uses the current renal-dependent SmPC reference.</p></details>}
+      <MedicationHistory entries={s.medications.history} />
       {s.barriers?.length > 0 && (
         <div className="med-group">
           <div className="eyebrow">Not given · reason recorded</div>
@@ -432,6 +436,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
 }
 
 function MedTag({ m, s }: { m: any; s: any }) {
+  if (m.status === "planned") return <Tag sev="blue">Planned</Tag>;
   if (m.status === "held") return <Tag sev="orange">Held</Tag>;
   if (m.status === "not_taking") return <Tag sev="orange">Not taking</Tag>;
   const k = s.attention.find((a: any) => a.rule_id === "hf.hyperkalaemia-review");
@@ -441,35 +446,44 @@ function MedTag({ m, s }: { m: any; s: any }) {
 }
 
 function Results({ s, open }: { s: any; open(o: Open): void }) {
+  const [all, setAll] = useState(false);
   const tone = (r: any): Sev => {
-    const v = r.current.value;
+    const v = r.latest?.value ?? r.current.value;
     if (r.ref?.high != null && v > r.ref.high) return r.code === "potassium" || r.code === "creatinine" ? (r.code === "potassium" ? "red" : "orange") : "orange";
     if (r.ref?.low != null && v < r.ref.low) return "orange";
-    return "gray";
+    return "blue";
   };
   return (
-    <section className="card pad">
+    <section className="card pad lab-snapshot snapshot-card" aria-label="Latest lab results">
       <div className="card-head">
-        <h2>Latest results</h2>
+        <h2><FlaskConical size={19} aria-hidden="true" /> Latest results</h2>
         <button className="btn ghost small" onClick={() => open({ kind: "labs" })}>+ Add</button>
       </div>
       {s.results.length === 0 && <div className="empty">No results yet.</div>}
-      {s.results.slice(0, 6).map((r: any) => {
+      {(all ? s.results : s.results.slice(0, 8)).map((r: any) => {
         const t = tone(r);
+        const latest = r.latest ?? r.current;
+        const trend = r.trend;
+        const Direction = trend?.direction === "up" ? ArrowUpRight : trend?.direction === "down" ? ArrowDownRight : Minus;
+        const pct = trend?.percent;
+        const percentage = pct == null ? null : pct !== 0 && Math.abs(pct) < 0.1 ? `${pct > 0 ? "+" : "−"}<0.1%` : `${pct > 0 ? "+" : ""}${formatNumber(pct, 1)}%`;
         return (
-          <div className="res" key={r.code}>
-            <span className="l">{r.label}</span>
-            <span>
-              <span className="v" style={{ color: t === "gray" ? undefined : `var(--${t}-ink)` }}>
-                {formatNumber(r.current.value, r.decimals)}
-                <small>{r.unit}</small>
+          <details className={`lab-tile tone-${t}`} key={r.code} data-lab-code={r.code}>
+            <summary>
+              <span className="lab-heading"><b title={r.display}>{r.display}</b><time dateTime={latest.at}>{fmtDay(latest.at, { year: true })}</time></span>
+              <span className="lab-reading"><span className="lab-value">{latest.value == null ? "—" : formatNumber(latest.value, r.decimals)}<small>{r.unit}</small></span><Sparkline values={(r.displaySeries ?? r.series).map((p: any) => p.value)} tone={t} width={80} height={32} /></span>
+              <span className="lab-comparison">
+                <span>{trend?.previous ? <>Previous {formatNumber(trend.previous.value, r.decimals)} · {fmtDay(trend.previous.at, { year: true })}</> : trend?.note ?? "First result"}</span>
+                {percentage != null ? <b className="lab-delta"><Direction size={15} aria-hidden="true" />{percentage}</b> : trend?.delta != null ? <b className="lab-delta"><Direction size={15} aria-hidden="true" />{formatNumber(trend.delta, r.decimals)} {r.unit}</b> : null}
               </span>
-              <span className="when" style={{ display: "block" }}>{fmtDay(r.current.at)}</span>
-            </span>
-            <Sparkline values={r.series.map((p: any) => p.value)} tone={t} />
-          </div>
+              {latest.status === "preliminary" && <Tag sev="orange">Preliminary</Tag>}
+              {r.current.id !== latest.id && <span className="lab-used">Clinical value {formatNumber(r.current.value, r.decimals)} · {fmtDay(r.current.at, { year: true })} · {r.reason}</span>}
+            </summary>
+            <div className="lab-history"><span className="small muted">{latest.source}{trend?.note && trend.previous ? ` · ${trend.note}` : ""}</span>{r.series.slice().reverse().map((p: any) => <div key={p.id}><b>{formatNumber(p.value, r.decimals)} {r.unit}</b><span>{fmtDay(p.at, { year: true })}{p.status === "preliminary" ? " · Preliminary" : ""}</span></div>)}</div>
+          </details>
         );
       })}
+      {s.results.length > 8 && <button className="btn ghost small snapshot-more" aria-expanded={all} onClick={() => setAll(!all)}>{all ? "Key results" : `All results (${s.results.length})`}</button>}
       {s.lvef && (
         <div className="res" style={{ borderTop: "1px solid var(--line-2)", paddingTop: 12, marginTop: 4 }}>
           <span className="l">LVEF</span>
