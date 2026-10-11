@@ -96,13 +96,14 @@ try {
     path: out + "/01-compact-journey-phone.png",
   });
   await row.locator(".jr-event").click();
-  await row.locator(".jr-detail").waitFor();
+  const detail = page.getByRole("dialog");
+  await detail.waitFor();
   assert(
-    (await row.locator(".jr-detail").innerText()).includes(
+    (await detail.innerText()).includes(
       "Secondary hypertension",
     ),
   );
-  await row.locator(".jr-event").click();
+  await detail.getByRole("button", { name: "Close", exact: true }).click();
   await noOverflow();
   await page.getByRole("button", { name: "Pathways", exact: true }).click();
   await page

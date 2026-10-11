@@ -9,7 +9,7 @@ import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
 import { completeWizard, getWizard } from "../server/engine/wizard.js";
 import { suggest } from "../shared/wizard-guidance.js";
-import { summary } from "../server/kernel/views.js";
+import { summary, journey } from "../server/kernel/views.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 
@@ -83,6 +83,10 @@ test("Hamad: AF on today's ECG, not on the problem list → AF-CARE suggests the
   const apx = s.meds.find((m) => m.code === "apixaban" && m.status === "active")!;
   assert.ok(apx && (apx.doseValue === 5 || apx.doseValue === 2.5));
   assert.ok(s.plan.some((p) => p.title === "Rate control: add digoxin"));
+  const event = (await journey(db, pid)).events.find(e => e.ref_id === done.decisionId)!;
+  assert.equal(event.context_id, null);
+  assert.ok(event.linked.actions.some((a: any) => a.title === "Rate control: add digoxin"), "Decision actions are visible outside an admission");
+  assert.ok(event.linked.meds.some((m: any) => m.name === "Apixaban" && m.kind === "start"), "Pathway starts retain decision ownership");
   assert.equal(await rec(pid, "rhythm.ecg-af-undiagnosed"), undefined, "AF now on the problem list");
   assert.equal(await rec(pid, "rhythm.af-first-plan"), undefined, "AF-CARE done for this AF");
   assert.equal((await rec(pid, "rhythm.af-fast-rate")).severity, "yellow", "the fast rate stands on its own now");
