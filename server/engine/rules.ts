@@ -17,6 +17,7 @@ import { CAD_RULES } from "./cad-rules.js";
 import { CAD_TEST_RULES } from "./cad-tests.js";
 import { RHYTHM_RULES } from "./rhythm-rules.js";
 import { VALVE_RULES } from "./valve-rules.js";
+import { STRUCTURAL_RULES } from "./structural-rules.js";
 import { CMP_RULES } from "./cmp-rules.js";
 import { PH_RULES } from "./ph-rules.js";
 import { MED_RULES } from "./med-rules.js";
@@ -293,13 +294,14 @@ export const RULES: RuleDef[] = [
   ...CAD_TEST_RULES,
   ...RHYTHM_RULES,
   ...VALVE_RULES,
+  ...STRUCTURAL_RULES,
   ...CMP_RULES,
   ...PH_RULES,
   ...MED_RULES,
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-10.af2";
+export const RULESET = "2026-10-10.structural1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

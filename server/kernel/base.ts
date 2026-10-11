@@ -31,11 +31,18 @@ export type EventInput = {
 };
 
 export async function journeyEvent(tx: Q, actor: Actor, e: EventInput) {
+  await liveContext(tx, e.patientId, e.contextId);
   await tx.query(
     `INSERT INTO cf.clinical_event(id,patient_id,occurred_at,kind,category,title,detail,ref_type,ref_id,context_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [uuid(), e.patientId, e.occurredAt, e.kind, e.category, e.title, e.detail ?? "", e.refType ?? null, e.refId ?? null, e.contextId ?? null, actor.id],
   );
+}
+
+export async function liveContext(tx: Q, patientId: string, contextId?: string | null) {
+  if (!contextId) return;
+  const c = (await tx.query(`SELECT id FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL FOR SHARE`,[contextId,patientId])).rows[0];
+  if (!c) throw new ApiError(404,"Visit or admission not found");
 }
 
 export async function patientInSite(tx: Q, actor: Actor, patientId: string) {

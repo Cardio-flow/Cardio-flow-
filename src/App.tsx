@@ -65,6 +65,10 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
   const [today, setToday] = useState<string>("");
   const [attention, setAttention] = useState(0);
   const sample = useSampleMode();
+  const switchPatients = (next: boolean) => {
+    setSampleMode(next);
+    navigate("/patients");
+  };
   useEffect(() => {
     api("/health").then((h) => setToday(h.today));
   }, []);
@@ -125,8 +129,8 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
           <span className="spacer" />
           {(samples > 0 || sample) && (
             <div className="sample-switch" role="group" aria-label="Which patients">
-              <button aria-pressed={!sample} onClick={() => setSampleMode(false)}>Real patients</button>
-              <button aria-pressed={sample} onClick={() => setSampleMode(true)}>Sample patients</button>
+              <button aria-pressed={!sample} onClick={() => switchPatients(false)}>Real patients</button>
+              <button aria-pressed={sample} onClick={() => switchPatients(true)}>Sample patients</button>
             </div>
           )}
           {today && <span className="today">{fmtDay(today, { weekday: true, year: true })}</span>}
@@ -139,7 +143,7 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
           <div className="sample-band" role="note">
             <b>Sample patients</b>
             <span>Synthetic records for practice and teaching. They never appear in real lists, counts or registries.</span>
-            <button className="linkish" onClick={() => setSampleMode(false)}>Back to real patients</button>
+            <button className="linkish" onClick={() => switchPatients(false)}>Back to real patients</button>
           </div>
         )}
         {/* phones: the sidebar is hidden, so the main sections sit in a bar at the bottom */}

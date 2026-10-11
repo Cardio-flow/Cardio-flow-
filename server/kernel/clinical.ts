@@ -3,7 +3,7 @@
 import type { Q } from "../db/db.js";
 import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay } from "../../shared/clinical.js";
-import { ApiError, audit, journeyEvent, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
+import { ApiError, audit, journeyEvent, liveContext, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { PH_SIGNS } from "../../shared/ph.js";
@@ -143,6 +143,7 @@ function onsetParts(input: { onset?: string | null; onsetYear?: number | null; a
 }
 
 export async function addCondition(tx: Q, actor: Actor, patientId: string, input: ConditionInput) {
+  await liveContext(tx,patientId,input.contextId);
   const def = DIAGNOSIS[input.code];
   if (!def) throw new ApiError(400, "Unknown diagnosis");
   const { onset, attributes } = onsetParts(input, input.code);
@@ -328,6 +329,7 @@ export async function recordObservations(
   },
 ) {
   const patient = await patientInSite(tx, actor, patientId);
+  await liveContext(tx,patientId,input.contextId);
   notFuture(input.effectiveAt, "A result");
   const ids: string[] = [];
   const saved: { code: string; value: number | null; text: string | null; id: string }[] = [];
@@ -832,6 +834,7 @@ export type PlanInput = {
 };
 
 export async function addPlanAction(tx: Q, actor: Actor, patientId: string, input: PlanInput) {
+  await liveContext(tx,patientId,input.contextId);
   // the same item already planned for the same day is not planned twice (two drawers, two medicines, re-save)
   const same = (await tx.query(
     `SELECT id FROM cf.plan_action WHERE patient_id=$1 AND status='planned' AND lower(title)=lower($2) AND due_date IS NOT DISTINCT FROM $3::date LIMIT 1`,
@@ -927,6 +930,9 @@ export async function completeMatching(
       if (c.kind === "stress" && trigger.kind === "stress" && /imaging/i.test(a.title) && d.modality === "Exercise ECG") continue;
     }
     if (trigger.type === "study" && c.kind === "laa_imaging" && (c.purpose !== trigger.detail?.purpose || (c.after && day < c.after))) continue;
+    if (trigger.type === "study" && c.kind === "structural_imaging" && c.intervention && c.intervention !== trigger.detail?.intervention) continue;
+    if (trigger.type === "study" && c.after && day < c.after) continue;
+    if (trigger.type === "procedure" && trigger.kind === "valve" && (trigger.detail.result === "Aborted / no implant" || (c.position && c.position !== trigger.detail.position) || (c.procedure && c.procedure !== trigger.detail.procedure))) continue;
     if (trigger.type === "procedure" && (c.kind !== trigger.kind || (c.method && c.method !== trigger.detail.method) || (c.target === "AF" && !(trigger.detail.targets ?? []).some((t: string) => /^AF/.test(t))) || (trigger.kind === "laao" && trigger.detail.result !== "Implanted / completed"))) continue;
     const signature = JSON.stringify(c);
     // one result closes the earliest waiting item of each kind; identical items due the same day close together
@@ -962,11 +968,11 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
   await patientInSite(tx, actor, patientId);
   notFuture(input.startedAt, "An admission");
   await notDeceased(tx, patientId);
-  const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='open'`, [patientId])).rows[0];
+  const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='open'`, [patientId])).rows[0];
   if (open) throw new ApiError(409, "This patient already has an open admission");
   const prev = (
     await tx.query(
-      `SELECT id, ended_at, reasons, summary FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND status='closed' AND ended_at <= $2 ORDER BY ended_at DESC LIMIT 1`,
+      `SELECT id, ended_at, reasons, summary FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='closed' AND ended_at <= $2 ORDER BY ended_at DESC LIMIT 1`,
       [patientId, input.startedAt],
     )
   ).rows[0] as any;
@@ -1008,7 +1014,7 @@ export type DischargeInput = {
 };
 
 export async function discharge(tx: Q, actor: Actor, patientId: string, contextId: string, input: DischargeInput) {
-  const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2`, [contextId, patientId])).rows[0];
+  const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.kind !== "admission") throw new ApiError(404, "Admission not found");
   if (ctx.status !== "open") throw new ApiError(409, "This admission is already closed");
   if (new Date(input.endedAt) < new Date(ctx.started_at)) throw new ApiError(400, "Discharge cannot be before admission");
@@ -1018,7 +1024,7 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
   if (died && !input.causeGroup) throw new ApiError(400, "Cause of death group is required");
   const events = (input.events ?? []).filter((e) => e !== "None");
   const los = daysBetween(new Date(ctx.started_at).toISOString(), input.endedAt);
-  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [
+  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, version=version+1, summary=summary || $3 WHERE id=$1`, [
     contextId, input.endedAt,
     JSON.stringify({ outcome: died ? "died" : "alive", dischargeStatus: input.status, destination: died ? null : input.destination ?? null, events, los, note: input.note ?? "", handover: input.handover ?? "" }),
   ]);
@@ -1110,9 +1116,9 @@ export async function startVisit(
   notFuture(input.startedAt, "A visit");
   await notDeceased(tx, patientId);
   const prev = (
-    await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND status='closed' ORDER BY coalesce(ended_at,started_at) DESC LIMIT 1`, [patientId])
+    await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND status='closed' ORDER BY coalesce(ended_at,started_at) DESC LIMIT 1`, [patientId])
   ).rows[0];
-  const open = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND kind='clinic_visit' AND status='open'`, [patientId])).rows[0];
+  const open = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='clinic_visit' AND status='open'`, [patientId])).rows[0];
   if (open) return { id: open.id as string, changed: [] as Changed, completed: [] };
   const id = uuid();
   await tx.query(
@@ -1129,10 +1135,10 @@ export async function startVisit(
 }
 
 export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string; narrative?: string }) {
-  const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2`, [contextId, patientId])).rows[0];
+  const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
-  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
+  await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, version=version+1, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;
 }

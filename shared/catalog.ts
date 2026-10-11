@@ -28,6 +28,7 @@ export const LABS: LabDef[] = [
   { code: "platelets", display: "Platelets", short: "Plt", unit: "10⁹/L", category: "Haematology", ref: { low: 150, high: 400 }, decimals: 0 },
   { code: "ferritin", display: "Ferritin", short: "Ferritin", unit: "µg/L", category: "Iron", decimals: 0 },
   { code: "tsat", display: "Transferrin saturation", short: "TSAT", unit: "%", category: "Iron", decimals: 0 },
+  { code: "bnp", display: "BNP", short: "BNP", unit: "pg/mL", category: "Cardiac", decimals: 0 },
   { code: "nt-probnp", display: "NT-proBNP", short: "NT-proBNP", unit: "pg/mL", category: "Cardiac", decimals: 0 },
   // assay-specific reference (99th percentile): no default range
   { code: "hs-troponin", display: "hs-Troponin", short: "hsTn", unit: "ng/L", category: "Cardiac", decimals: 0 },

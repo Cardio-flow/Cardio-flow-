@@ -9,6 +9,7 @@ import { GENERAL_WIZARDS } from "./wizards-general.js";
 import { INFLAMMATORY_WIZARDS } from "./wizards-inflammatory.js";
 import { CORONARY_WIZARDS } from "./wizards-coronary.js";
 import { AF_AFTERCARE_WIZARDS } from "./wizards-af-aftercare.js";
+import { STRUCTURAL_WIZARDS } from "./wizards-structural.js";
 import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
@@ -58,6 +59,7 @@ export type WizardDef = {
   note: string;
   group?: "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
+  sourceShort?: string;
   // what the "recheck" answer books (default: renal function and potassium)
   recheck?: { title: string; codes: string[] };
   // a completed pathway opens (or reviews) a complication episode, unless this is false
@@ -101,6 +103,13 @@ export type WizardContext = {
     closure: { id: string; day: string; method: string; device: string; regimen: string; reviewDate: string | null } | null;
     imaging: { id: string; day: string; findings: Record<string, any> } | null;
     preImaging?: { id: string; day: string; findings: Record<string, any> } | null;
+  };
+  structural?: {
+    planning: { id: string; day: string; findings: Record<string, any> }[];
+    actual: { id: string; day: string; target: string; findings: Record<string, any> } | null;
+    hfAdmissionInYear: boolean;
+    latestEchoId: string | null;
+    rhcId?: string | null;
   };
   // valve module: latest NYHA class, listed lesions with severity, latest echo grades, treated positions
   valve?: {
@@ -572,6 +581,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...RHYTHM_WIZARDS,
   ...AF_AFTERCARE_WIZARDS,
   ...VALVE_WIZARDS,
+  ...STRUCTURAL_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
 };

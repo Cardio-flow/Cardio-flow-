@@ -3,6 +3,7 @@ import { Route, Search } from "lucide-react";
 import { Drawer } from "../ui";
 import { WIZARDS } from "../../shared/wizards";
 import { DIAGNOSIS } from "../../shared/catalog";
+import { shortSource } from "../../shared/wizard-source";
 import type { CheckKind } from "../../shared/procedures";
 
 const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Valve disease", "Cardiomyopathy", "Pulmonary hypertension", "Diabetes"] as const;
@@ -75,7 +76,7 @@ export function Pathways({ summary, onClose, onPick, onChecklist }: { summary?: 
                 {items.map((w) => (
                   <button key={w.id} className={`study-kind path sev-${w.tone}`} onClick={() => onPick(w.id)}>
                     <b>{w.title}</b>
-                    {w.source && <span>{w.source}</span>}
+                    {w.source && <span className="pathway-reference" title={w.source}>{shortSource(w)}</span>}
                   </button>
                 ))}
               </div>

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { HeartPulse } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, MultiChoice, Segmented, SingleChoice, DateInput } from "../ui";
+import { STRUCTURAL_RESULTS, STRUCTURAL_COMPLICATIONS, RESIDUAL_GRADES, structuralTarget } from "../../shared/structural";
 import {
   ABLATION_ENERGY, ABLATION_RESULT, ABLATION_TARGETS, ACCESS, CABG_GRAFTS, COMPLEX_FEATURES, CV_METHOD, CV_PREP, CV_RESULT, CV_RHYTHM,
   DEVICE_ACTIONS, DEVICE_INDICATIONS, DEVICE_TYPES, PACING_SITES, REMOTE_MONITORING, VALVE_POSITIONS, VALVE_PROCEDURES, VALVE_PROSTHESES, VALVE_ACCESS, MECH_DESIGNS, PCI_COMPLICATIONS, PCI_DEVICES, PCI_SETTINGS, PCI_VESSELS, PROCEDURE_LABEL, RHC_NUMBERS, VASOREACTIVITY, cleanProcedure, procedureSummary, rhcClass, rhcPvr, type ProcedureKind,
@@ -26,7 +27,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", init
     : kind === "device" ? { type: v.devType ?? null, action: v.devAction ?? "New implant", indication: v.indication ?? null, pacing: v.pacing ?? null, remote: v.remote ?? null }
     : kind === "ablation" ? { targets: v.targets ?? [], energy: v.energy ?? null, result: v.ablResult ?? "Acute success" }
     : kind === "laao" ? { method: v.laaMethod, device: v.laaDevice, result: v.laaResult, regimen: v.laaRegimen, reviewDate: v.laaReview ?? null }
-    : kind === "valve" ? { position: v.position ?? null, procedure: v.vproc ?? null, prosthesis: v.prosthesis ?? null, design: v.design ?? null, access: v.vaccess ?? null }
+    : kind === "valve" ? { position: v.position ?? null, procedure: v.vproc ?? null, prosthesis: v.prosthesis ?? null, design: v.design ?? null, access: v.vaccess ?? null, result:v.valveResult ?? "Completed", deviceModel:v.deviceModel || null, deviceSize:v.deviceSize || null, implantCount:v.implantCount || null, residualGrade:v.residualGrade || null, meanGradient:v.meanGradient || null, complications:v.valveComplications ?? [] }
     : kind === "rhc" ? { ...Object.fromEntries(RHC_NUMBERS.map((n) => [n.key, v[n.key] === undefined || v[n.key] === "" ? null : Number(v[n.key])])), vasoreactivity: v.vasoreactivity ?? "Not done" }
     : { method: v.method ?? null, rhythm: v.cvRhythm ?? "Atrial fibrillation", prep: v.prep ?? null, result: v.cvResult ?? "Sinus rhythm restored" };
   const missing = (kind === "pci" ? [!v.setting && "setting", !(v.vessels ?? []).length && "vessels", !(v.devices ?? []).length && "device"]
@@ -47,7 +48,7 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", init
       const r = await api(`/patients/${patientId}/procedures`, { body: { kind, date: at, details, contextId: contextId ?? null } });
       // the procedure goes straight on to its next steps (PCI: the after-PCI sheet; CABG, device implant and valve
       // intervention: their pathway); the alerts they answer are not toasted
-      const next = kind === "laao" && (details as any).result === "Implanted / completed" ? "after-laao" : kind === "ablation" && ((details as any).targets ?? []).some((t: string) => /^AF/.test(t)) ? "after-af-ablation" : kind === "cabg" ? "after-cabg" : kind === "device" && ["New implant", "Upgrade"].includes((details as any).action) ? "after-device" : kind === "valve" ? "valve-antithrombotic" : null;
+      const next = kind === "laao" && (details as any).result === "Implanted / completed" ? "after-laao" : kind === "ablation" && ((details as any).targets ?? []).some((t: string) => /^AF/.test(t)) ? "after-af-ablation" : kind === "cabg" ? "after-cabg" : kind === "device" && ["New implant", "Upgrade"].includes((details as any).action) ? "after-device" : kind === "valve" ? (details as any).result === "Aborted / no implant" ? null : structuralTarget(details) ? "after-structural" : "valve-antithrombotic" : null;
       onDone(`${PROCEDURE_LABEL[kind]} recorded`, (kind === "pci" && onAfterPci) || (next && onAfter) ? undefined : r);
       if (kind === "pci") onAfterPci?.();
       else if (next) onAfter?.(next);
@@ -151,11 +152,11 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", init
           <>
             <div className="q">
               <div className="label">Valve</div>
-              <Segmented label="Valve" options={opts(VALVE_POSITIONS)} value={v.position} onChange={(x) => { set("position", x); if (x !== "Aortic" && v.vproc === "TAVI") set("vproc", undefined); }} />
+              <Segmented label="Valve" options={opts(VALVE_POSITIONS)} value={v.position} onChange={(x) => { set("position", x); if ((x !== "Aortic" && v.vproc === "TAVI") || (!["Mitral", "Tricuspid"].includes(x) && v.vproc === "Transcatheter edge-to-edge repair (TEER)")) set("vproc", undefined); }} />
             </div>
             <div className="q">
               <div className="label">Procedure</div>
-              <SingleChoice label="Procedure" options={opts(VALVE_PROCEDURES.filter((p) => p !== "TAVI" || v.position === "Aortic" || !v.position))} value={v.vproc} onChange={(x) => set("vproc", x)} />
+              <SingleChoice label="Procedure" options={opts(VALVE_PROCEDURES.filter((p) => (p !== "TAVI" || v.position === "Aortic" || !v.position) && (p !== "Transcatheter edge-to-edge repair (TEER)" || !v.position || ["Mitral","Tricuspid"].includes(v.position))))} value={v.vproc} onChange={(x) => set("vproc", x)} />
             </div>
             {v.vproc === "Surgical replacement" && (
               <div className="q">
@@ -176,6 +177,14 @@ export function ProcedureDrawer({ patientId, contextId, group = "coronary", init
                 <Segmented label="Access" options={opts(VALVE_ACCESS)} value={v.vaccess} onChange={(x) => set("vaccess", x)} />
               </div>
             )}
+            {structuralTarget({procedure:v.vproc,position:v.position}) && <>
+              <div className="q"><div className="label">Procedure result</div><SingleChoice label="Procedure result" options={opts(STRUCTURAL_RESULTS)} value={v.valveResult ?? "Completed"} onChange={x=>set("valveResult",x)}/></div>
+              <label className="q"><span className="label">Device model</span><input className="input" value={v.deviceModel ?? ""} onChange={e=>set("deviceModel",e.target.value)} maxLength={80}/></label>
+              <div className="row wrap"><label className="q grow"><span className="label">Device size (mm, if applicable)</span><input type="number" className="input" value={v.deviceSize ?? ""} onChange={e=>set("deviceSize",e.target.value)}/></label><label className="q grow"><span className="label">Number of implants / clips</span><input type="number" className="input" value={v.implantCount ?? ""} onChange={e=>set("implantCount",e.target.value)}/></label></div>
+              <div className="q"><div className="label">Residual regurgitation / leak</div><SingleChoice label="Residual regurgitation / leak" options={opts(RESIDUAL_GRADES)} value={v.residualGrade} onChange={x=>set("residualGrade",x)}/></div>
+              <label className="q"><span className="label">Postprocedure mean valve gradient (mmHg)</span><input type="number" className="input" value={v.meanGradient ?? ""} onChange={e=>set("meanGradient",e.target.value)}/></label>
+              <div className="q"><div className="label">Procedure complications</div><MultiChoice options={opts(STRUCTURAL_COMPLICATIONS)} value={v.valveComplications ?? []} onChange={x=>set("valveComplications",x)}/></div>
+            </>}
           </>
         ) : kind === "device" ? (
           <>

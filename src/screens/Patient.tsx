@@ -17,6 +17,7 @@ import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
 import { AddEcho } from "../drawers/AddEcho";
 import { AddStudy } from "../drawers/AddStudy";
 import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
+import { ContextEdit } from "../drawers/ContextEdit";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
 import { CorrectMedication, CorrectResult, VoidEntry } from "../drawers/Corrections";
@@ -41,6 +42,7 @@ export type Open =
   | { kind: "admit" }
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
+  | { kind: "context-edit"; context: any; remove?: boolean }
   | { kind: "dx" }
   | { kind: "procedure"; group?: "coronary" | "rhythm" | "valve" | "ph"; procedureKind?: import("../../shared/procedures").ProcedureKind }
   | { kind: "history"; focus?: "risk" | "cardiac" }
@@ -244,6 +246,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       {open?.kind === "study" && <AddStudy patientId={id} kind={open.studyKind} initial={open.initial} contextId={ctx?.id} onClose={close} onDone={done} />}
       {open?.kind === "admit" && <Admission patientId={id} summary={s} onClose={close} onDone={done} />}
       {open?.kind === "discharge" && <Discharge patientId={id} summary={s} contextId={open.contextId} onClose={close} onDone={done} />}
+      {open?.kind === "context-edit" && <ContextEdit patientId={id} context={open.context} remove={open.remove} onClose={close} onDone={done} />}
       {(open?.kind === "visit" || suspendedVisit) && <ClinicVisit patientId={id} summary={s} contextId={(open?.kind === "visit" ? open : suspendedVisit)?.contextId} active={open?.kind === "visit"} onClose={close} onDone={done} open={visitAction} onStarted={() => { reload(); setVersion((v) => v + 1); }} />}
       {open?.kind === "procedure" && <ProcedureDrawer patientId={id} contextId={ctx?.id} group={open.group ?? "coronary"} initialKind={open.procedureKind} onClose={close} onDone={done} onAfterPci={() => setOpen({ kind: "after-pci" })} onAfter={(w) => setOpen({ kind: "wizard", wizard: w })} />}
       {open?.kind === "dx" && <AddDiagnosis patientId={id} existing={h.diagnoses.map((d: any) => d.code)} onClose={close} onDone={done} />}

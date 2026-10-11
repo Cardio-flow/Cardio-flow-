@@ -464,6 +464,23 @@ export async function journey(tx: Q, patientId: string) {
   // entries corrected away (entered in error) leave the journey with them
   const hidden = await correctedRefs(tx, patientId);
   events.splice(0, events.length, ...events.filter((e: any) => !(e.ref_id && hidden.has(String(e.ref_id)))));
+  const liveIds = new Set(s.contexts.map(c => c.id));
+  events.splice(0, events.length, ...events.filter(e => e.ref_type !== "care_context" || liveIds.has(String(e.ref_id))).map(e => {
+    const c = s.contexts.find(c => c.id === e.ref_id && e.ref_type === "care_context");
+    if (c) {
+      if (e.kind === "admission" || e.kind === "clinic-visit") {
+        e.occurred_at = c.started_at;
+        e.title = c.kind === "admission" ? `Admitted · ${c.reasons.join(", ")}` : `${c.service} visit`;
+        e.detail = [c.location, c.reasons.join(", "), c.summary.narrative].filter(Boolean).join(" · ");
+      } else if (e.kind === "discharge") {
+        e.occurred_at = c.ended_at ?? e.occurred_at;
+        e.title = c.summary.outcome === "died" ? `Died in hospital · day ${c.summary.los}` : `Discharged · day ${c.summary.los}${e.title.match(/ · \d+ plan actions? created$/)?.[0] ?? ""}`;
+        e.detail = [c.summary.dischargeStatus,c.summary.destination,(c.summary.events as string[] | undefined)?.length ? "Events: " + (c.summary.events as string[]).join(", ") : null].filter(Boolean).join(" · ");
+      }
+    }
+    if (e.context_id && !liveIds.has(e.context_id)) e.context_id = null;
+    return e;
+  }));
   const planned = s.plan
     .filter((p) => p.status === "planned" && p.due_date && p.due_date > s.today)
     .map((p) => ({
@@ -478,7 +495,7 @@ export async function journey(tx: Q, patientId: string) {
         .map((e) => ({ name: m.name, kind: e.kind, dose: doseLabel(MEDICATION[m.code], e.dose_value, e.dose_unit) })),
     );
     return {
-      id: c.id, kind: c.kind, status: c.status, startedAt: c.started_at, endedAt: c.ended_at, location: c.location, service: c.service, reasons: c.reasons, summary: c.summary,
+      id: c.id, version: c.version, kind: c.kind, status: c.status, startedAt: c.started_at, endedAt: c.ended_at, location: c.location, service: c.service, reasons: c.reasons, summary: c.summary,
       actions: actions.map((a) => ({ id: a.id, title: a.title, dueDate: a.due_date, view: planStatusView(a.status, a.due_date, s.today) })),
       meds,
     };
@@ -501,8 +518,8 @@ export async function worklist(q: Q, siteId: string, sample = false) {
          nx.title AS next_title, nx.due_date AS next_due,
          coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today, coalesce(pc.review,0) awaiting_review
        FROM cf.patient p
-       LEFT JOIN LATERAL (SELECT kind, location, service FROM cf.care_context c WHERE c.patient_id=p.id AND c.status='open' ORDER BY started_at DESC LIMIT 1) oc ON true
-       LEFT JOIN LATERAL (SELECT ended_at FROM cf.care_context c WHERE c.patient_id=p.id AND c.kind='admission' AND c.status='closed' ORDER BY ended_at DESC LIMIT 1) ld ON true
+       LEFT JOIN LATERAL (SELECT kind, location, service FROM cf.care_context c WHERE c.patient_id=p.id AND c.removed_at IS NULL AND c.status='open' ORDER BY started_at DESC LIMIT 1) oc ON true
+       LEFT JOIN LATERAL (SELECT ended_at FROM cf.care_context c WHERE c.patient_id=p.id AND c.removed_at IS NULL AND c.kind='admission' AND c.status='closed' ORDER BY ended_at DESC LIMIT 1) ld ON true
        LEFT JOIN LATERAL (
          SELECT array_agg(code) codes FROM (SELECT DISTINCT ON (logical_id) code, status FROM cf.condition c WHERE c.patient_id=p.id ORDER BY logical_id, version DESC) x WHERE status='active'
        ) cd ON true
