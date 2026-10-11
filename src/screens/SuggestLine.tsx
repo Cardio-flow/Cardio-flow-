@@ -216,7 +216,7 @@ function BeforeStart({ codes, s }: { codes: string[]; s: any }) {
     const r = s.results?.find((x: any) => x.code === code);
     const v = r ? { value: r.current.value, at: r.current.at } : s.vitals?.find((x: any) => x.code === code);
     const m = MEASURES[code];
-    return { code, label: m?.short ?? code, v, flag: v ? flagFor(v.value, m?.ref) : null, unit: m?.unit ?? "", dec: m?.decimals ?? 0 };
+    return { code, label: m?.short ?? code, v, flag: v ? flagFor(v.value, v.referenceHigh != null ? {high:v.referenceHigh} : m?.ref) : null, unit: m?.unit ?? "", dec: m?.decimals ?? 0 };
   });
   if (!rows.length) return null;
   return (

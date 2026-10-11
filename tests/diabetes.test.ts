@@ -48,7 +48,7 @@ test("brand names: every medicine is searchable by trade name, and labels carry 
   assert.deepEqual(find("lantus"), ["insulin-glargine"]);
   assert.equal(withBrand("sacubitril-valsartan"), "Sacubitril/valsartan (Entresto)");
   const without = MEDICATIONS.filter((m) => !m.brands?.length).map((m) => m.code);
-  assert.deepEqual(without, [], "every catalogue medicine has a trade name");
+  assert.deepEqual(without, ["colecalciferol", "ferrous-sulfate"], "existing trade names retained; new vitamin D / oral iron entries use verified generic names pending local formulary confirmation");
 });
 
 test("individual target: default <7%, less stringent after severe hypoglycaemia, clinician target wins", async () => {

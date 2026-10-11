@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic browser regression: encounter corrections, navigation and structural decisions.
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -283,7 +284,7 @@ try {
   await radio("Next step", /^Complete work-up \/ structural team review/);
   await next();
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   const plans = (await api(`/patients/${pat.id}/record`)).plan;
   assert.ok(plans.some((p) => p.completesOn.kind === "structural_imaging"));
   assert.ok(
@@ -326,7 +327,7 @@ try {
   await page
     .getByRole("button", { name: "Save Structural imaging", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   await page.getByRole("button", { name: "Pathways", exact: true }).click();
   await page.getByLabel("Search pathways").fill("TAVI: indication");
   await page
@@ -368,7 +369,7 @@ try {
   await date("Work-up / procedure / review date", T);
   await next();
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   assert.ok(
     (await api(`/patients/${pat.id}/record`)).plan.some(
       (p) => p.category === "procedure" && p.title.startsWith("TAVI"),
@@ -427,7 +428,7 @@ try {
   await page
     .getByRole("button", { name: "Confirm without it", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   const actual = await api(`/patients/${pat.id}/record`);
   assert.ok(
     actual.procedures.some(
@@ -534,7 +535,7 @@ try {
   await page
     .getByRole("button", { name: "Save Structural imaging", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   await page.getByRole("button", { name: "Pathways", exact: true }).click();
   await page.getByLabel("Search pathways").fill("TAVI: indication");
   await page
@@ -603,7 +604,7 @@ try {
     path: out + "/07-bicuspid-tavi-confirmation-phone.png",
   });
   await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await continueAfterEntry(page);
   const bavRecord = await api(`/patients/${bav.id}/record`);
   assert(
     bavRecord.plan.some(

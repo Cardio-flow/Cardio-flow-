@@ -117,7 +117,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       `SELECT
         (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile,synthetic,birth_date_estimated FROM cf.patient WHERE id=$1) pt) AS patient,
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
-        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,effective_at,status,quality,source,study_id,context_id,method,recorded_at
+        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,reference_high,effective_at,status,quality,source,study_id,context_id,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
         (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)) AS meds,

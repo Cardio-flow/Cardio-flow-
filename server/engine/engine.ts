@@ -40,7 +40,7 @@ export function suppressed(s: PatientState, f: Finding) {
   return false;
 }
 
-export type ReassessResult = { created: { id: string; severity: string; title: string; rule_id: string }[]; resolved: number; superseded: number };
+export type ReassessResult = { created: { id: string; severity: string; title: string; rule_id: string; action: Finding["action"]; detail: string; facts: Finding["facts"]; missing: string[]; rule_status:string; rule_version:number; ruleEvidence:string }[]; resolved: number; superseded: number };
 
 export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "production", changed: string[] | null = null, state?: PatientState): Promise<ReassessResult> {
   await tx.query("SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE", [patientId]);
@@ -99,7 +99,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
         await tx.query(`UPDATE cf.recommendation SET status='superseded', superseded_by=$2, closed_at=now() WHERE id=$1`, [old.id, id]);
         result.superseded++;
       }
-      result.created.push({ id, severity: f.severity, title: f.title, rule_id: rule.id });
+      result.created.push({ id, severity: f.severity, title: f.title, rule_id: rule.id, action:f.action, detail:f.detail, facts:f.facts, missing:f.missing, rule_status:version.status, rule_version:version.version, ruleEvidence:version.evidence });
     }
     for (const a of active) {
       if (!seen.has(a.fingerprint.split("|")[0])) {

@@ -1,3 +1,5 @@
+import { validateLabAnswers } from "../../shared/wizards-lab.js";
+import { labResults } from "./lab-results.js";
 import { validDate } from "../../shared/dates.js";
 import { hypertensionProfile } from "./hypertension-profile.js";
 import { rdnSchedulingMissing } from "../../shared/wizards-hypertension.js";
@@ -31,7 +33,7 @@ import { latestCcsTest } from "./cad-tests.js";
 function baseContext(s: PatientState, wizardId: string): WizardContext {
   const meds = s.meds
     .filter((m) => m.status === "active" || m.status === "held")
-    .map((m) => ({ id: m.id, code: m.code, name: m.name, doseValue: m.doseValue, doseUnit: m.doseUnit, frequency: m.frequency, tags: m.tags, startedAt: m.startedAt ?? null }));
+    .map((m) => ({ id: m.id, code: m.code, name: m.name, status:m.status, doseValue: m.doseValue, doseUnit: m.doseUnit, frequency: m.frequency, tags: m.tags, startedAt: m.startedAt ?? null }));
   const fact = (code: string, tone?: string) => {
     const c = s.resolved(code).current;
     if (!c) return { label: MEASURES[code]?.display ?? code, value: "Not available", tone: "orange" };
@@ -214,7 +216,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     else if (morphology === "Tricuspid") base.detected.morphology = ["tricuspid"];
     else if (morphology === "Other morphology") base.detected.morphology = ["other"];
   }
-  return { ...base, hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, lab:labResults(s), hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -285,6 +287,8 @@ export async function completeWizard(
   if (wizardId === "rdn-plan" && input.answers.decision === "schedule") { const missing = rdnSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400, "RDN cannot be scheduled: " + missing.join("; ")); }
   if (wizardId === "tavi-plan" && input.answers.decision === "schedule") { const missing = taviSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400,"TAVI cannot be scheduled: " + missing.join("; ")); }
   if (wizardId === "after-rdn" && !ctx.hypertension?.actual) throw new ApiError(400,"Record the actual RDN procedure before planning aftercare");
+  const labError=validateLabAnswers(wizardId,input.answers,ctx);
+  if(labError)throw new ApiError(400,labError);
   // Validate edited dates before a matching existing booking can replace the proposed item.
   const targets = buildOutcome(wizardId,input.answers,{...ctx,plannedActions:[]});
   for (const item of targets) if (item.kind === "plan" && input.dueDates && Object.hasOwn(input.dueDates,item.title)) {

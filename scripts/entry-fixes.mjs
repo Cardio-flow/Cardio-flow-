@@ -108,6 +108,9 @@ try {
     );
   }
   await labs.getByRole("button", { name: /^Save 1 result$/ }).click();
+  await labs.waitFor({state:"hidden"});
+  const nextSteps=page.getByRole("dialog",{name:"Results → next steps",exact:true});
+  if(await nextSteps.isVisible())await nextSteps.getByRole("button",{name:"Continue data entry",exact:true}).click();
   await visit.getByText("Needs a decision", { exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 1);
   // Desktop position is kept independently of the phone layout used for entry.

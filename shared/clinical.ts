@@ -80,6 +80,7 @@ export function planStatusView(status: string, due: string | null, today: string
 
 // ---------- current value resolution ----------
 export type ObservationLike = {
+  reference_high?: number | null;
   id: string;
   code: string;
   value_num: number | null;

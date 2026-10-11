@@ -311,7 +311,7 @@ export async function recordHistory(
 }
 
 // ---------- observations ----------
-export type ObsInput = { code: string; value?: number | null; unit?: string | null; text?: string | null };
+export type ObsInput = { referenceHigh?: number | null; code: string; value?: number | null; unit?: string | null; text?: string | null };
 
 export async function recordObservations(
   tx: Q,
@@ -341,20 +341,23 @@ export async function recordObservations(
     if (def?.derived) throw new ApiError(400, `${def.display} is calculated automatically`);
     let value = item.value ?? null;
     let unit = def?.unit ?? null;
+    let referenceHigh = item.referenceHigh ?? null;
+    if (referenceHigh != null && !(Number.isFinite(referenceHigh) && referenceHigh > 0 && referenceHigh < 1e6)) throw new ApiError(400, "Reference upper limit must be a positive number");
     if (value != null && def && item.unit && item.unit !== def.unit) {
       const factor = def.convert?.[item.unit];
       if (!factor) throw new ApiError(400, `${def.display} cannot be entered in ${item.unit}`);
       value = value * factor;
+      if (referenceHigh != null) referenceHigh *= factor;
     }
     if (value != null && !(Number.isFinite(value) && value >= 0 && value < 1e6)) throw new ApiError(400, `${def?.display ?? item.code}: value out of range`);
     if (value != null && def?.max != null && value > def.max) throw new ApiError(400, `${def.display}: ${value} is above the maximum ${def.max}`);
     const id = uuid();
     await tx.query(
-      `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by)
-       VALUES($1,$1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by,reference_high)
+       VALUES($1,$1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       [
         id, patientId, item.code, value, item.text ?? null, unit, item.value ?? null, item.unit ?? def?.unit ?? null, input.effectiveAt,
-        input.status ?? "final", input.quality ?? "standard", input.source ?? "clinician entry", input.studyId ?? null, input.contextId ?? null, actor.id,
+        input.status ?? "final", input.quality ?? "standard", input.source ?? "clinician entry", input.studyId ?? null, input.contextId ?? null, actor.id, referenceHigh,
       ],
     );
     ids.push(id);
@@ -390,19 +393,20 @@ export async function recordObservations(
   return { ids, saved, completed, changed };
 }
 
-export async function correctObservation(tx: Q, actor: Actor, patientId: string, observationId: string, input: { value?: number; enteredInError?: boolean }) {
+export async function correctObservation(tx: Q, actor: Actor, patientId: string, observationId: string, input: { value?: number; referenceHigh?: number; enteredInError?: boolean }) {
   const cur = (await tx.query(`SELECT * FROM cf.observation WHERE id=$1 AND patient_id=$2`, [observationId, patientId])).rows[0];
   if (!cur) throw new ApiError(404, "Result not found");
-  if (input.value == null && !input.enteredInError) throw new ApiError(400, "Give the corrected value, or mark the result entered in error");
+  if (input.referenceHigh != null && !(Number.isFinite(input.referenceHigh) && input.referenceHigh > 0 && input.referenceHigh < 1e6)) throw new ApiError(400, "Reference upper limit must be a positive number");
+  if (input.value == null && input.referenceHigh == null && !input.enteredInError) throw new ApiError(400, "Give the corrected value, or mark the result entered in error");
   const def = MEASURES[cur.code];
   if (def?.derived) throw new ApiError(400, `${def.display} is calculated: correct the value it is calculated from`);
   if (input.value != null && !(Number.isFinite(input.value) && input.value >= 0 && input.value < 1e6 && (def?.max == null || input.value <= def.max)))
     throw new ApiError(400, `${def?.display ?? cur.code}: value out of range`);
-  const latest = (await tx.query(`SELECT max(version) v FROM cf.observation WHERE logical_id=$1`, [cur.logical_id])).rows[0].v;
+  const latest = (await tx.query(`SELECT version v, reference_high, value_num, status FROM cf.observation WHERE logical_id=$1 ORDER BY version DESC LIMIT 1`, [cur.logical_id])).rows[0];
   await tx.query(
-    `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,method,derived_from,study_id,context_id,recorded_by)
-     SELECT $1,logical_id,$2,patient_id,code,$3,value_text,unit,original_value,original_unit,effective_at,$4,quality,source,method,derived_from,study_id,context_id,$5 FROM cf.observation WHERE id=$6`,
-    [uuid(), Number(latest) + 1, input.value ?? cur.value_num, input.enteredInError ? "entered_in_error" : cur.status, actor.id, observationId],
+    `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,method,derived_from,study_id,context_id,recorded_by,reference_high)
+     SELECT $1,logical_id,$2,patient_id,code,$3,value_text,unit,original_value,original_unit,effective_at,$4,quality,source,method,derived_from,study_id,context_id,$5,$7 FROM cf.observation WHERE id=$6`,
+    [uuid(), Number(latest.v) + 1, input.value ?? latest.value_num, input.enteredInError ? "entered_in_error" : latest.status, actor.id, observationId, input.referenceHigh ?? latest.reference_high],
   );
   await audit(tx, actor, input.enteredInError ? "entered-in-error" : "correct", "observation", observationId, patientId);
   // a withdrawn result no longer counts for the plan item it completed
@@ -437,7 +441,7 @@ export async function correctObservation(tx: Q, actor: Actor, patientId: string,
     const patient = await patientInSite(tx, actor, patientId);
     const on = new Date(cur.effective_at).toISOString();
     for (const d of derived) {
-      const egfr = input.enteredInError ? d.value_num : egfrCkdEpi2021(input.value ?? cur.value_num, ageOn(patient.birth_date, on), patient.sex);
+      const egfr = input.enteredInError ? d.value_num : egfrCkdEpi2021(input.value ?? latest.value_num, ageOn(patient.birth_date, on), patient.sex);
       await tx.query(
         `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,method,derived_from,study_id,context_id,recorded_by)
          SELECT $1,logical_id,version+1,patient_id,code,$2,value_text,unit,original_value,original_unit,effective_at,$3,quality,source,method,derived_from,study_id,context_id,$4 FROM cf.observation WHERE id=$5`,

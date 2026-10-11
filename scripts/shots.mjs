@@ -1,3 +1,4 @@
+import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Screenshot walkthrough of the HF slice (local sandbox). Usage: node scripts/shots.mjs [outDir]
 import { chromium } from "@playwright/test";
 const out = process.argv[2] || "/tmp/shots";
@@ -78,6 +79,7 @@ await step("labs", async () => {
   await shot("09-quicklabs");
   await p.getByLabel("Potassium", { exact: true }).press("Enter");
   await p.getByText(/results? saved/).waitFor();
+  await continueAfterEntry(p);
   await shot("10-after-labs", true);
   const reviewQueue = p.getByLabel("Results awaiting review");
   await reviewQueue.getByRole("button", { name: "Review result" }).first().click();

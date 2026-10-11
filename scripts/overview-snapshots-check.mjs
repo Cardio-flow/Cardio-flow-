@@ -57,7 +57,7 @@ try {
   csrf = (await api("/session")).csrf;
   const today = (await api("/health")).today;
   const at = (n) =>
-    new Date(Date.parse(today + "T00:00:00Z") + n * 86400000).toISOString();
+    n === 0 ? new Date().toISOString() : new Date(Date.parse(today + "T00:00:00Z") + n * 86400000).toISOString();
   const p = await api("/patients", {
     name: "Synthetic overview trends",
     mrn: "SNAP-" + Date.now(),
