@@ -8,7 +8,8 @@ import { cmpProfile } from "../engine/cmp-profile.js";
 import { phProfile } from "../engine/ph-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
-import { BARRIER_LABEL, DIAGNOSIS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
+import { hfDoseProgress } from "../engine/medication-progress.js";
 import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
@@ -233,15 +234,35 @@ export function medicationGroups(s: PatientState) {
         startedAt: m.startedAt,
         tags: m.tags,
         indication: m.indication,
+        targetProgress: hfDoseProgress(s, m),
         lastChange: m.lastChange ? { kind: m.lastChange.kind === "continue" && /^Frequency changed/.test(m.lastChange.reason) ? "frequency" : m.lastChange.kind, at: m.lastChange.effective_at } : null,
         planned: s.plan.find((p) => p.status === "planned" && p.medication_id === m.id) ?? null,
       })),
   })).filter((g) => g.meds.length);
   const stopped = s.meds.filter((m) => m.status === "stopped").map((m) => ({ id: m.id, name: m.name, stoppedAt: m.lastChange?.effective_at ?? null }));
-  return { groups, stopped };
+  return { groups, stopped, history: medicationHistory(s) };
 }
 
-const KEY_RESULTS = ["potassium", "creatinine", "egfr", "sodium", "haemoglobin", "nt-probnp", "ldl-c", "hba1c"];
+export function medicationHistory(s: PatientState) {
+  const rows = s.meds.flatMap((m) => {
+    let dose: number | null = null, unit: string | null = null, frequency: string | null = null, route: string | null = null;
+    const line = () => [doseLabel(MEDICATION[m.code], dose, unit), frequency, route].filter(Boolean).join(" ");
+    return m.events.map((e, order) => {
+      const before = dose != null ? line() : null;
+      if (e.kind !== "planned") {
+        if (e.dose_value != null) { dose = e.dose_value; unit = e.dose_unit; }
+        if (e.frequency) frequency = e.frequency;
+        if (e.route) route = e.route;
+      }
+      const kind = e.kind === "continue" && /^Frequency changed/.test(e.reason) ? "frequency" : e.kind;
+      return { id: e.id, medicationId: m.id, name: m.name, code: m.code, kind, at: e.effective_at, order,
+        before, after: e.kind === "planned" ? [doseLabel(MEDICATION[m.code], e.dose_value, e.dose_unit), e.frequency, e.route].filter(Boolean).join(" ") : line(), reason: e.reason };
+    });
+  });
+  return rows.sort((a, b) => b.at.localeCompare(a.at) || b.order - a.order);
+}
+
+const KEY_RESULTS = [...new Set(["potassium", "creatinine", "egfr", "sodium", "haemoglobin", "nt-probnp", "ldl-c", "hba1c", ...LABS.map((l) => l.code)])];
 
 export function results(s: PatientState, codes = KEY_RESULTS) {
   return codes
@@ -249,6 +270,12 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
       const r = s.resolved(code);
       if (!r.current) return null;
       const def = MEASURES[code];
+      const latest = r.latest!;
+      const comparable = r.history.filter((o) => o.status === "final" && o.value_num != null && o.unit === latest.unit && o.effective_at <= latest.effective_at);
+      // A corrected version is not a new measurement; compare strictly earlier effective times.
+      const previous = latest.status === "final" && latest.value_num != null ? comparable.find((o) => o.effective_at < latest.effective_at) ?? null : null;
+      const delta = previous ? latest.value_num! - previous.value_num! : null;
+      const percent = previous && previous.value_num !== 0 ? delta! / Math.abs(previous.value_num!) * 100 : null;
       return {
         code,
         label: def?.short ?? code,
@@ -259,6 +286,11 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
         current: { id: r.current.id, value: r.current.value_num, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
         reason: r.reason,
         latestId: r.latest?.id,
+        latest: { id: latest.id, value: latest.value_num, at: latest.effective_at, status: latest.status, source: latest.source },
+        trend: { previous: previous ? { id: previous.id, value: previous.value_num, at: previous.effective_at } : null, delta, percent,
+          direction: delta == null ? null : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+          note: latest.status === "preliminary" ? "Awaiting verification" : !previous ? "First comparable result" : percent == null ? "Previous result was zero" : null },
+        displaySeries: latest.status === "final" ? comparable.slice(0, 6).reverse().map((o) => ({ value: o.value_num, at: o.effective_at })) : [],
         series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, at: o.effective_at, status: o.status, quality: o.quality })),
       };
     })

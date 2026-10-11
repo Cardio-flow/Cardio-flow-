@@ -9,6 +9,7 @@ import { isHfAdmission } from "../../shared/encounters.js";
 import type { Obs, PatientState } from "../kernel/state.js";
 import { fmtStatus, hfImprovedEf, hfPhenotype } from "./guidelines.js";
 import { optimalFmt } from "./hf-rules.js";
+import { hfDoseProgress } from "./medication-progress.js";
 
 type Point = { value: number; at: string };
 type TextPoint = { value: string; at: string };
@@ -34,20 +35,24 @@ function timeline(s: PatientState) {
   const lanes = meds.map((m) => {
     const def = MEDICATION[m.code];
     const segs: Segment[] = [];
-    let cur: { from: string; dose: number | null; unit: string | null; freq: string | null; state: Segment["state"] } | null = null;
-    let dose: number | null = null, unit: string | null = null, freq: string | null = null;
+    let cur: { from: string; dose: number | null; unit: string | null; freq: string | null; route: string | null; state: Segment["state"] } | null = null;
+    let dose: number | null = null, unit: string | null = null, freq: string | null = null, route: string | null = null;
     let stopped: string | null = null;
+    let currentState: Segment["state"] = "active";
     const close = (at: string) => {
-      if (cur && at > cur.from) segs.push({ from: cur.from, to: at, dose: cur.dose != null && def ? `${doseLabel(def, cur.dose, cur.unit)} ${cur.freq ?? ""}`.trim() : "", pct: cur.dose != null && def?.target ? Math.round((cur.dose / def.target) * 100) : null, state: cur.state });
+      if (cur && at > cur.from) segs.push({ from: cur.from, to: at, dose: cur.dose != null && def ? `${doseLabel(def, cur.dose, cur.unit)} ${cur.freq ?? ""}`.trim() : "", pct: m.code === "finerenone" ? null : hfDoseProgress(s, { ...m, doseValue: cur.dose, doseUnit: cur.unit, frequency: cur.freq, route: cur.route, status: cur.state })?.percent ?? null, state: cur.state });
     };
     for (const e of [...m.events].sort((a, b) => a.effective_at.localeCompare(b.effective_at))) {
       if (e.kind === "planned" || (e.kind === "continue" && !/^Frequency changed/.test(e.reason))) continue;
       if (e.dose_value != null) { dose = e.dose_value; unit = e.dose_unit; }
       if (e.frequency) freq = e.frequency;
+      if (e.route) route = e.route;
       if (e.kind === "stop") { close(e.effective_at); cur = null; stopped = e.effective_at; continue; }
-      const state: Segment["state"] = e.kind === "hold" ? "held" : e.kind === "not_taking" ? "not_taking" : "active";
+      if (e.kind === "hold") currentState = "held";
+      else if (e.kind === "not_taking") currentState = "not_taking";
+      else if (e.kind !== "continue") currentState = "active";
       close(e.effective_at);
-      cur = { from: e.effective_at, dose, unit, freq, state };
+      cur = { from: e.effective_at, dose, unit, freq, route, state: currentState };
       if (e.kind === "start" || e.kind === "restart") stopped = null;
     }
     close(nowIso);
@@ -102,8 +107,9 @@ export function hfProfile(s: PatientState) {
     .filter((m) => m.status !== "stopped" && m.status !== "planned" && m.tags.some((t) => FOUNDATIONAL.includes(t)))
     .map((m) => {
       const def = MEDICATION[m.code];
-      const pct = def?.target && m.doseValue != null ? Math.round((m.doseValue / def.target) * 100) : null;
-      const doseEvents = m.events.filter((e) => ["start", "restart", "increase", "decrease"].includes(e.kind));
+      const progress = hfDoseProgress(s, m);
+      const pct = progress?.percent ?? null;
+      const doseEvents = m.events.filter((e) => ["start", "restart", "increase", "decrease"].includes(e.kind) || (e.kind === "continue" && /^Frequency changed/.test(e.reason)));
       const lastDose = doseEvents[doseEvents.length - 1] ?? null;
       return {
         id: m.id,
@@ -113,9 +119,9 @@ export function hfProfile(s: PatientState) {
         started: m.startedAt,
         lastChange: m.lastChange ? { kind: m.lastChange.kind, at: m.lastChange.effective_at } : null,
         percentOfTarget: pct,
-        target: def?.target ? doseLabel(def, def.target, m.doseUnit) : null,
+        target: progress?.target ?? null,
         sameDoseSince: lastDose?.effective_at ?? m.startedAt,
-        atTargetSince: pct != null && pct >= 100 ? lastDose?.effective_at ?? m.startedAt : null,
+        atTargetSince: m.status === "active" && pct != null && pct >= 100 && m.code !== "finerenone" ? lastDose?.effective_at ?? m.startedAt : null,
       };
     });
 
@@ -140,7 +146,12 @@ export function hfProfile(s: PatientState) {
       total: hfAdmissions.length,
       last: lastHf ? { at: lastHf.started_at, discharged: lastHf.ended_at, open: lastHf.status === "open" } : null,
     },
-    pillars: fmt?.pillars ?? [],
+    pillars: (fmt?.pillars ?? []).map((p) => {
+      const med = s.meds.find((m) => m.status === "active" && m.tags.includes(p.key));
+      const progress = med ? hfDoseProgress(s, med) : null;
+      return { ...p, percentOfTarget: progress?.percent ?? null, target: progress?.target ?? null,
+        state: med ? (progress?.percent != null && progress.percent >= 100 ? "target" : "on") : p.state };
+    }),
     optimal: optimalFmt(s),
     timeline: timeline(s),
     therapy,

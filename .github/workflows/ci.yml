@@ -29,6 +29,7 @@ jobs:
           node scripts/structural-context-check.mjs screenshots/structural-context
           node scripts/hypertension-admin-check.mjs screenshots/hypertension-admin
           node scripts/date-journey-check.mjs screenshots/date-journey
+          node scripts/overview-snapshots-check.mjs screenshots/overview-snapshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:

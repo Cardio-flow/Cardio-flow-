@@ -12,7 +12,7 @@ import { bookMonitoringAtStart } from "./engine/med-rules.js";
 import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
-import { attentionCount, historyView, journey, summary, worklist, planView, results } from "./kernel/views.js";
+import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups } from "./kernel/views.js";
 import { draftNote } from "./kernel/notes.js";
 import { editContext, removeContext } from "./kernel/context-management.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -232,11 +232,14 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       await (async (tx) => {
         await patientInSite(tx, actor(res), id);
         const s = await loadState(tx, id);
-        const meds = s.meds.map((m) => ({ ...m, events: m.events }));
+        const medicationView = medicationGroups(s);
+        const progress = new Map(medicationView.groups.flatMap((g) => g.meds.map((m) => [m.id, m.targetProgress] as const)));
+        const meds = s.meds.map((m) => ({ ...m, events: m.events, targetProgress: progress.get(m.id) ?? null }));
         const studies = s.studies.map((st) => ({ ...st, lvef: s.observations.find((o) => o.code === "lvef" && (o as any).study_id === st.id)?.value_num ?? null }));
         return {
           today: s.today,
           meds,
+          medicationHistory: medicationView.history,
           plan: planView(s),
           results: results(s, [...LABS.map((l) => l.code)]),
           procedures: s.procedures,
