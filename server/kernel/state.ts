@@ -42,13 +42,16 @@ export type PlanRow = {
   title: string;
   reason: string;
   due_date: string | null;
-  completes_on: { type: string; codes?: string[]; kind?: string; purpose?: string; after?: string; target?: string; method?: string };
+  completes_on: { type: string; codes?: string[]; kind?: string; purpose?: string; after?: string; target?: string; method?: string; requiresReview?: boolean };
   status: string;
   outcome: string;
   completed_at: string | null;
   source_context_id: string | null;
   medication_id: string | null;
   decision_id: string | null;
+  indications: string[];
+  decision_refs: string[];
+  context_refs: string[];
   created_at: string;
   version: number;
   owner: string;
@@ -123,7 +126,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)) AS meds,
         (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at,decision_id FROM cf.medication_event me WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication_event' AND k.entity_id=me.id)) e) AS events,
-        (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,decision_id,created_at,version,owner,progress,completion_refs,reviewed_at,reviewed_by FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
+        (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,decision_id,indications,decision_refs,context_refs,created_at,version,owner,progress,completion_refs,reviewed_at,reviewed_by FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,version,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL) cc) AS contexts,
         (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study sx WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='study' AND k.entity_id=sx.id)) st) AS studies,

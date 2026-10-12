@@ -32,6 +32,7 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const [line, setLine] = useState<string | null>(null);
   const total = LANES.reduce((n, l) => n + t.count(l.key), 0);
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const rdn = t.cards.find(c => c.items.some(a => a.rule_id === "htn.rdn"));
   const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   const row = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine };
   return (
@@ -54,6 +55,7 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           ))}
         </div>
       ) : null}
+      {rdn && <button className="btn secondary small rdn-jump" onClick={() => go(`decision-${rdn.key}`)}>RDN assessment available ↓</button>}
       {draft && <p className="tb-draft">Items marked “in review” come from rules still in clinical review. They run on this sandbox only.</p>}
       <DecisionContext context={s.reviewContext} open={open} />
 
@@ -145,7 +147,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
 function CardRow({ c, ...p }: { c: Card } & RowProps) {
   if (c.items.length === 1)
     return (
-      <div className={`tcard sev-${c.severity}`}>
+      <div className={`tcard sev-${c.severity}`} id={`decision-${c.key}`}>
         {c.lane === "act" && <div className="ic"><SevIcon sev={c.severity} /></div>}
         <div className="tcard-body">
           <Item a={c.lead} {...p} />
@@ -155,7 +157,7 @@ function CardRow({ c, ...p }: { c: Card } & RowProps) {
       </div>
     );
   return (
-    <div className={`tcard bundle sev-${c.severity}`}>
+    <div className={`tcard bundle sev-${c.severity}`} id={`decision-${c.key}`}>
       {c.lane === "act" && <div className="ic"><SevIcon sev={c.severity} /></div>}
       <div className="tcard-body">
         {c.key.startsWith("wiz-") ? (

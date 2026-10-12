@@ -72,6 +72,7 @@ export function MedicationsTab({
           </button>
         </span>
       </div>
+      {!!data.medicationWarnings?.length && <section className="infobox warn" role="status" style={{display:"grid",gap:8}}><b>Medication reconciliation needed</b>{data.medicationWarnings.map((w: any, i: number) => <div key={i}>{w.names.join(" + ")} · {w.detail}</div>)}</section>}
       {PURPOSE_ORDER.map((purpose) => {
         const meds = live.filter((m: any) => m.purpose === purpose);
         if (!meds.length) return null;
@@ -630,6 +631,7 @@ export function PlanTab({
               <PlanMark view={p.view} />
               <span className="title">
                 {p.title}
+                {p.indications?.length > 1 && <details className="small"><summary>{p.indications.length} indications · one booking</summary>{p.indications.map((t: string) => <div key={t}>{t}</div>)}</details>}
                 <small>
                   {p.source
                     ? `${p.source.label} · ${fmtDay(p.source.at)}`
@@ -637,7 +639,7 @@ export function PlanTab({
                   {p.completesOn?.type === "lab"
                     ? " · closes on result"
                     : p.completesOn?.type === "visit"
-                      ? " · closes at visit"
+                      ? p.completesOn.requiresReview ? " · specialist review required" : " · closes at visit"
                       : p.completesOn?.type === "procedure"
                         ? " · closes on recorded procedure"
                         : p.completesOn?.type === "study"

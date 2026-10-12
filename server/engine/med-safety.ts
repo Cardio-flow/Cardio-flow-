@@ -1,4 +1,5 @@
 import { labResults } from "./lab-results.js";
+import { medicationOverlaps } from "../../shared/medication-identity.js";
 import { ratio, LAB_LIMITS, LAB_URLS } from "../../shared/lab-review.js";
 // Medicine safety table (medication coverage, slice 1): contraindicated or not-recommended combinations of
 // two medicines, and of a medicine with a condition in the record. One table read by two rules, so every
@@ -11,7 +12,7 @@ import { ratio, LAB_LIMITS, LAB_URLS } from "../../shared/lab-review.js";
 // names a state without a number ("heart failure", "renal impairment") the record's own diagnosis is used,
 // or the guideline definition: LVEF ≤40% = reduced ejection fraction (ESC HF), eGFR <60 = CKD (KDIGO), eGFR
 // <30 = severe renal impairment (KDIGO G4–G5).
-import { DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
+import { MEDICATION, DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
 import { poorOrUnknown } from "../../shared/mavacamten.js";
 import { cockcroftGault, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import type { MedState, PatientState } from "../kernel/state.js";
@@ -540,8 +541,25 @@ export function preStartCheck(s: PatientState, code: string, def: { name: string
   const already = s.meds.some((m) => m.code === code && m.status === "active");
   const s2 = already ? s : ({ ...s, meds: [...s.meds, proposed] } as PatientState);
   const order: Record<Severity, number> = { red: 0, orange: 1, yellow: 2 };
-  return [...safetyHits(s2, "interaction"), ...safetyHits(s2, "condition"), ...safetyHits(s2, "prestart")]
+  const overlapHits = medicationOverlaps(s2.meds).filter(pair => pair.ids.some(id => s2.meds.find(m => m.id === id)?.code === code)).map(pair => ({
+    severity: "orange" as const, requiresReview: true,
+    title: `Possible duplicate treatment: ${pair.names.join(" + ")}`,
+    detail: `${pair.detail}. Confirm a switch or the reason for keeping both prescriptions.`,
+    source: "Current medication record and catalogue ingredient/class identity",
+  }));
+  const clinicalHits = [...safetyHits(s2, "interaction"), ...safetyHits(s2, "condition"), ...safetyHits(s2, "prestart")]
     .filter(({ hit }) => hit.meds.some((m) => m.code === code))
     .map(({ row, hit }) => ({ severity: hit.severity ?? row.severity, title: row.title(hit), detail: hit.reason ? `${hit.reason}. ${row.detail}`.replace(/\.\. /, ". ") : row.detail, source: row.source }))
-    .sort((a, b) => order[a.severity] - order[b.severity]);
+    .map(hit => ({...hit, requiresReview: false}));
+  return [...clinicalHits, ...overlapHits].sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+export function proposedMedicines(s: PatientState, codes: string[]): PatientState {
+  const added = codes.filter(code => !s.meds.some(m => m.code === code && ["active", "held", "not_taking"].includes(m.status))).map(code => {
+    const d = MEDICATION[code];
+    return { id: `proposal:${code}`, code, name: d.name, drugClass: d.drugClass, purpose: d.purpose,
+      tags: d.tags, indication: "", status: "active", doseValue: null, doseUnit: d.unit, frequency: null,
+      route: null, startedAt: s.today, lastChange: null, events: [] } as MedState;
+  });
+  return { ...s, meds: [...s.meds, ...added] };
 }

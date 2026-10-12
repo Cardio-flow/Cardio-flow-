@@ -104,7 +104,7 @@ try {
   batch = page.getByRole('dialog', { name: 'Add medicines', exact: true });
   await batch.getByLabel('Search medicines').fill('Spironolactone');
   await batch.getByRole('button', { name: /^Spironolactone(?: |$)/ }).first().click();
-  await batch.getByText('Reason to start despite the contraindication (required)', { exact: true }).waitFor();
+  await batch.getByText('Reason for starting after reviewing these warnings (required)', { exact: true }).waitFor();
   await batch.locator('.sl-override').scrollIntoViewIfNeeded();
   assert.equal(await batch.locator('.mb-fields').isVisible(), false);
   assert.ok(await batch.locator('.mb-hits .sev-red').count() > 0);

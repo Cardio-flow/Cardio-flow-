@@ -393,6 +393,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
         <h2><Pill size={19} aria-hidden="true" /> Medications</h2>
         <button className="btn ghost small" onClick={() => open({ kind: "med-add" })}>+ Add</button>
       </div>
+      {s.medications.warnings?.length > 0 && <div className="infobox warn" style={{display:"grid",gap:6}}><b>Review overlapping treatment</b>{s.medications.warnings.map((w: any,i: number) => <div key={i}>{w.names.join(" + ")} · {w.detail}</div>)}</div>}
       {s.medications.groups.length === 0 && <div className="empty">No current medications recorded.</div>}
       {s.medications.groups.map((g: any) => (
         <div className="med-group" key={g.purpose}>

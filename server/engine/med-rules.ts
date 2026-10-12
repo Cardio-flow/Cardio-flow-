@@ -7,30 +7,40 @@ import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
 import { safetyHits, type SafetyRow } from "./med-safety.js";
 import { daptIndication } from "./valve-rules.js";
-import { DIAGNOSIS } from "../../shared/catalog.js";
+import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { cockcroftGault, daysBetween } from "../../shared/clinical.js";
 import { monitoringFor, targetCodes, type MonCheck, type MonContext } from "../../shared/drug-monitoring.js";
 import { loadState, type MedState } from "../kernel/state.js";
 import { bookingsAtStart } from "../../shared/drug-monitoring.js";
 import { addPlanAction } from "../kernel/clinical.js";
-import { today, type Actor } from "../kernel/base.js";
+import { ApiError, today, type Actor } from "../kernel/base.js";
 import type { Q } from "../db/db.js";
 
 // booked when a medicine is started from the drawer: every check point in the first 3 months, or the first
 // periodic check(s); later points are chased by med.monitoring
-export async function bookMonitoringAtStart(tx: Q, actor: Actor, patientId: string, medicationId: string, contextId: string | null) {
-  const s = await loadState(tx, patientId);
-  const m = s.meds.find((x) => x.id === medicationId);
-  if (!m) return 0;
+function startBookings(s: PatientState, m: MedState) {
   const all = bookingsAtStart(m.code, m.tags, monContext(s, m));
-  const chosen = all.filter((b) => b.days <= 91);
-  const items = chosen.length ? chosen : all.filter((x) => x.days === all[0].days);
+  const chosen = all.filter(b => b.days <= 91);
+  return chosen.length ? chosen : all.filter(x => x.days === all[0].days);
+}
+export function monitoringPreview(s: PatientState, code: string) {
+  const d = MEDICATION[code];
+  const m = { code, name: d.name, tags: d.tags, events: [], startedAt: s.today } as unknown as MedState;
+  return startBookings(s, m).map(b => ({ key: `${b.check.id}:${b.days}`, title: `${b.check.what} (${m.name} monitoring)`, dueDate: addDays(s.today,b.days) }));
+}
+export async function bookMonitoringAtStart(tx: Q, actor: Actor, patientId: string, medicationId: string, contextId: string | null, dates: Record<string, string> = {}) {
+  const s = await loadState(tx, patientId);
+  const m = s.meds.find(x => x.id === medicationId);
+  if (!m) return 0;
+  const items = startBookings(s, m);
+  const keys = new Set(items.map(b => `${b.check.id}:${b.days}`));
+  if (Object.keys(dates).some(k => !keys.has(k))) throw new ApiError(400,"The monitoring schedule changed. Review its dates again.");
   for (const b of items)
     await addPlanAction(tx, actor, patientId, {
       category: "monitoring", title: `${b.check.what} (${m.name} monitoring)`, reason: `${m.name}: ${b.check.schedule} (${b.check.source})`,
-      dueDate: addDays(today(), b.days), completesOn: "study" in b.check.target ? { type: "study", kind: b.check.target.study } : { type: "lab", codes: b.check.target.lab },
+      dueDate: dates[`${b.check.id}:${b.days}`] ?? addDays(today(), b.days), completesOn: "study" in b.check.target ? { type: "study", kind: b.check.target.study } : { type: "lab", codes: b.check.target.lab },
       contextId, medicationId,
-    } as any);
+    });
   return items.length;
 }
 

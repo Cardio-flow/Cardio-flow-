@@ -43,6 +43,7 @@ export type Option = {
   detectLab?: { code: string; above: number };
 };
 export type Question = {
+  exclusive?: string[]; // mutually exclusive options inside an otherwise multi-choice question
   id: string;
   label: string;
   help?: string;
@@ -91,6 +92,8 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  evidenceKey?: string;
+  notices?: string[];
   lab?: LabReview;
   hypertension?: HypertensionContext;
   today: string;

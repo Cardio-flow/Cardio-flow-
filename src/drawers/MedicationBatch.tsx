@@ -4,14 +4,14 @@
 import { useEffect, useMemo, useState, useId } from "react";
 import { Pill, Search, X } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, Tag } from "../ui";
+import { Drawer, Tag, DateInput } from "../ui";
 import { MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, medicationSearchText } from "../../shared/catalog";
 import { addDays } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
 import { patientTags, tagLabel } from "./Medication";
 
-type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string };
-type Row = { code: string; dose: string; freq: string; indication: string; reason?: string; book: boolean; override: string };
+type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string; requiresReview?: boolean };
+type Row = { code: string; dose: string; freq: string; indication: string; reason?: string; book: boolean; override: string; dates: Record<string,string>; renalDate: string };
 
 export function AddMedications({ patientId, summary, contextId, onClose, onDone }: { patientId: string; summary: any; contextId?: string; onClose(): void; onDone(m?: string, r?: any): void }) {
   const tags = patientTags(summary);
@@ -29,6 +29,16 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hits, setHits] = useState<Record<string, Hit[]>>({});
+  const [checkedCodes,setCheckedCodes] = useState("");
+  const [checkError,setCheckError] = useState("");
+  const codesKey = rows.map(r => r.code).sort().join(",");
+  useEffect(() => {
+    let live = true;
+    setCheckError("");
+    if (!codesKey) { setCheckedCodes(""); setHits({}); return; }
+    api(`/patients/${patientId}/medication-check-batch`, {body:{codes:codesKey.split(",")}}).then(r => { if(live) {setHits(r.hits);setCheckedCodes(codesKey);} }).catch(e => { if(live) setCheckError(e.message); });
+    return () => {live = false;};
+  },[codesKey,patientId]);
   const relevant = PURPOSE_ORDER.filter((p) => [...tags].some((t) => PURPOSE_FOR_TAG[t]?.includes(p)));
   const taken = new Set(rows.map((r) => r.code));
   const matches = useMemo(
@@ -41,13 +51,13 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
     if (!d || taken.has(code)) return;
     const matching = [...new Set(d.indications.filter((t) => tags.has(t)))];
     const pickDose = dose != null ? dose : d.doses[0];
-    setRows((r) => [...r, { code, dose: pickDose != null ? String(pickDose) : "", freq: d.frequencies[0], indication: matching[0] ?? (d.indicationChoices?.[0] ?? "unspecified"), reason, book: true, override: "" }]);
+    setRows((r) => [...r, { code, dose: pickDose != null ? String(pickDose) : "", freq: d.frequencies[0], indication: matching[0] ?? (d.indicationChoices?.[0] ?? "unspecified"), reason, book: true, override: "", dates: {}, renalDate: addDays(summary.today,7) }]);
     setQ("");
   }
   const remove = (code: string) => setRows((r) => r.filter((x) => x.code !== code));
   const upd = (code: string, p: Partial<Row>) => setRows((r) => r.map((x) => (x.code === code ? { ...x, ...p } : x)));
-  const needOverride = rows.filter((r) => (hits[r.code] ?? []).some((h) => h.severity === "red") && r.override.trim().length < 3);
-  const valid = rows.length > 0 && rows.every((r) => r.freq && (r.dose === "" || Number(r.dose) > 0)) && needOverride.length === 0;
+  const needOverride = rows.filter((r) => (hits[r.code] ?? []).some((h) => (h.severity === "red" || h.requiresReview)) && r.override.trim().length < 3);
+  const valid = checkedCodes === codesKey && !checkError && rows.length > 0 && rows.every(r => !r.book || (r.renalDate && Object.values(r.dates).every(Boolean))) && rows.every((r) => r.freq && (r.dose === "" || Number(r.dose) > 0)) && needOverride.length === 0;
   async function save() {
     setBusy(true);
     setError("");
@@ -57,12 +67,12 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
         const schedule = monitoringFor(d.code, d.tags);
         const scheduleRenal = schedule.some((k) => targetCodes(k.target).some((c) => c === "potassium" || c === "creatinine"));
         const renalK = !scheduleRenal && d.monitoring.some((c) => c === "potassium" || c === "creatinine");
-        const reds = (hits[r.code] ?? []).some((h) => h.severity === "red");
+        const reds = (hits[r.code] ?? []).some((h) => (h.severity === "red" || h.requiresReview));
         return {
           code: r.code, doseValue: r.dose ? Number(r.dose) : null, frequency: r.freq, route: d.routes[0], indication: r.indication || "unspecified",
           contextId: contextId ?? null, reason: r.reason,
-          monitoring: renalK && r.book ? { dueDate: addDays(summary.today, 7), title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
-          bookSchedule: schedule.length > 0 && r.book,
+          monitoring: renalK && r.book ? { dueDate: r.renalDate, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          bookSchedule: schedule.length > 0 && r.book, monitoringDates: r.dates,
           ...(reds ? { override: r.override.trim() } : {}),
         };
       });
@@ -91,6 +101,7 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
       }
     >
       <div className="drawer-body">
+        {needOverride.length > 0 && <div className="infobox warn" role="status"><button className="btn ghost small" onClick={() => document.getElementById("med-batch-selected")?.scrollIntoView({block:"start"})}>Review selected medicine warnings ↓</button></div>}
         {suggestions.length > 0 && (
           <section className="mb-box">
             <div className="mb-head"><b>Suggested by the guidelines</b><span>tap to add · the starting dose is the suggestion's</span></div>
@@ -124,30 +135,25 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
         </section>
         {rows.length > 0 && (
           <section className="mb-box">
-            <div className="mb-head"><b>To start</b><span>check each line</span></div>
+            <div className="mb-head" id="med-batch-selected"><b>To start</b><span>check each line</span></div>
             {rows.map((r) => (
-              <MedRow key={r.code} patientId={patientId} summary={summary} row={r} upd={(p) => upd(r.code, p)} remove={() => remove(r.code)} onHits={(h) => setHits((x) => (x[r.code] === h ? x : { ...x, [r.code]: h }))} />
+              <MedRow key={r.code} patientId={patientId} summary={summary} row={r} upd={(p) => upd(r.code, p)} remove={() => remove(r.code)} hits={hits[r.code] ?? []} />
             ))}
           </section>
         )}
-        {error && <div className="error-box">{error}</div>}
+        {(error || checkError) && <div className="error-box" role="alert">{error || checkError}</div>}
       </div>
     </Drawer>
   );
 }
 
-function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: string; summary: any; row: Row; upd(p: Partial<Row>): void; remove(): void; onHits(h: Hit[]): void }) {
+function MedRow({ patientId, summary, row, upd, remove, hits }: { patientId: string; summary: any; row: Row; upd(p: Partial<Row>): void; remove(): void; hits: Hit[] }) {
   const d = MEDICATION[row.code];
   const [editing, setEditing] = useState(false);
   const fieldsId = useId();
   const tags = patientTags(summary);
-  const { data: check } = useData<{ hits: Hit[]; start: { dose: number } | null }>(`/patients/${patientId}/medication-check/${row.code}`, [row.code]);
-  const hits = check?.hits ?? [];
-  useEffect(() => {
-    if (check) onHits(check.hits);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [check]);
-  const reds = hits.filter((h) => h.severity === "red");
+  const { data: check } = useData<{ hits: Hit[]; monitoring: {key:string;title:string;dueDate:string}[]; start: { dose: number } | null }>(`/patients/${patientId}/medication-check/${row.code}`, [row.code]);
+  const reds = hits.filter((h) => (h.severity === "red" || h.requiresReview));
   const schedule = monitoringFor(d.code, d.tags);
   const renal = d.monitoring.some((c) => c === "potassium" || c === "creatinine");
   const indications = d.indicationChoices ?? [...new Set([...d.indications.filter((t) => tags.has(t)), "unspecified"])];
@@ -189,6 +195,8 @@ function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: s
           <span>{schedule.length ? "Book its monitoring schedule" : "Book K⁺ and creatinine in 1 week"}</span>
         </label>
       )}
+      {row.book && !!check?.monitoring.length && <details className="monitoring-dates"><summary>{check.monitoring.length} monitoring dates · Edit</summary>{check.monitoring.map(b => <label className="manual-date" key={b.key}><span>{b.title} · manual date</span><DateInput className="input" min={summary.today} aria-label={`${b.title} ${b.key} date`} value={row.dates[b.key] ?? b.dueDate} onChange={e => upd({dates:{...row.dates,[b.key]:e.target.value}})} /></label>)}</details>}
+      {row.book && !schedule.length && renal && <label className="manual-date"><span>K⁺ and creatinine · manual date</span><DateInput className="input" min={summary.today} aria-label={`${d.name} renal check date`} value={row.renalDate} onChange={e => upd({renalDate:e.target.value})} /></label>}
       {check?.start && <div className="mb-note">Label starting dose {check.start.dose} mg for this patient.</div>}
       {hits.length > 0 && (
         <div className="mb-hits">
@@ -197,7 +205,7 @@ function MedRow({ patientId, summary, row, upd, remove, onHits }: { patientId: s
       )}
       {reds.length > 0 && (
         <label className="sl-override">
-          <span>Reason to start despite the contraindication (required)</span>
+          <span>Reason for starting after reviewing these warnings (required)</span>
           <input className="input" value={row.override} onChange={(e) => upd({ override: e.target.value })} placeholder="e.g. specialist advice, benefit outweighs risk" />
         </label>
       )}

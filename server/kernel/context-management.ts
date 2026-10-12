@@ -178,6 +178,16 @@ export async function editContext(
     +new Date(c.started_at) !== +new Date(input.startedAt)
   ) {
     await reopenCompletedBy(tx, patientId, [id]);
+  // A shared study booking also belongs to its other live encounter. Keep it open
+  // when one originating visit is removed, while retaining the historical links.
+  const shared = (await tx.query(`UPDATE cf.plan_action p SET source_context_id=(
+    SELECT c.id FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
+    WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL ORDER BY c.started_at,c.id LIMIT 1),
+    version=p.version+1,updated_at=now()
+    WHERE p.patient_id=$1 AND p.source_context_id=$2 AND p.status='planned' AND EXISTS(
+      SELECT 1 FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
+      WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL) RETURNING p.id,p.source_context_id`,[patientId,id])).rows;
+  for (const row of shared) await audit(tx,actor,"retain-shared-booking","plan_action",row.id,patientId,{removedContext:id,remainingContext:row.source_context_id});
     await completeMatching(tx, actor, patientId, {
       type: "visit",
       at: input.startedAt,
@@ -217,6 +227,16 @@ export async function removeContext(
     [id, actor.id, input.reason],
   );
   await reopenCompletedBy(tx, patientId, [id]);
+  // A shared study booking also belongs to its other live encounter. Keep it open
+  // when one originating visit is removed, while retaining the historical links.
+  const shared = (await tx.query(`UPDATE cf.plan_action p SET source_context_id=(
+    SELECT c.id FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
+    WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL ORDER BY c.started_at,c.id LIMIT 1),
+    version=p.version+1,updated_at=now()
+    WHERE p.patient_id=$1 AND p.source_context_id=$2 AND p.status='planned' AND EXISTS(
+      SELECT 1 FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
+      WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL) RETURNING p.id,p.source_context_id`,[patientId,id])).rows;
+  for (const row of shared) await audit(tx,actor,"retain-shared-booking","plan_action",row.id,patientId,{removedContext:id,remainingContext:row.source_context_id});
   await tx.query(
     `UPDATE cf.plan_action SET status='cancelled',outcome='Originating visit or admission removed',updated_at=now(),version=version+1 WHERE patient_id=$1 AND source_context_id=$2 AND status='planned'`,
     [patientId, id],

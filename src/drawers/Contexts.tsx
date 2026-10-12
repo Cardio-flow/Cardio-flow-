@@ -329,10 +329,55 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [note, setNote] = useState("");
   const [noteLoading, setNoteLoading] = useState(true);
   const generatedNote = useRef("");
+  const [noteKey, setNoteKey] = useState("");
+  const [freshNote, setFreshNote] = useState<{ text: string; key: string } | null>(null);
+  const draftVersion = useRef(0);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const draftPending = useRef<any>(null);
+  const draftRequest = useRef<Promise<any> | null>(null);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closed = useRef(false);
+  async function flushVisitDraft() {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    await draftRequest.current;
+    const body = draftPending.current;
+    if (!body || !visitId || closed.current) return;
+    draftPending.current = null;
+    const req = api(`/patients/${patientId}/contexts/${visitId}/draft`, { body: {...body, version: draftVersion.current} });
+    draftRequest.current = req;
+    try { const r = await req; draftVersion.current = r.version; setDraftSaved(!draftPending.current); }
+    catch(e) { draftPending.current = body; throw e; }
+    finally { draftRequest.current = null; }
+    if (draftPending.current) await flushVisitDraft();
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
   const savedRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!visitId) return;
+    let current = true;
+    api(`/patients/${patientId}/contexts/${visitId}/draft`).then(d => {
+      if (!current) return;
+      draftVersion.current = d.version;
+      if (d.note !== undefined) { setNote(d.note); setNarrative(d.narrative); narrativeInNote.current = d.narrative; generatedNote.current = d.generatedNote; setNoteKey(d.evidenceKey); }
+      setDraftLoaded(true);
+    }).catch(e => setError(`Draft could not be restored: ${e.message}`));
+    return () => { current = false; };
+  }, [visitId, patientId]);
+  useEffect(() => {
+    if (!draftLoaded || !visitId || !noteKey || closed.current) return;
+    draftPending.current = { note, narrative, generatedNote: generatedNote.current, evidenceKey: noteKey };
+    setDraftSaved(false);
+    draftTimer.current = setTimeout(() => { void flushVisitDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 300);
+    return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
+  }, [note, narrative, noteKey, visitId, draftLoaded]);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (draftPending.current || draftRequest.current) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   useEffect(() => {
     if (contextId) api(`/patients/${patientId}/journey`).then(j => {
       const text = j.contexts.find((c: any) => c.id === contextId)?.summary?.narrative ?? "";
@@ -373,16 +418,23 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     }).catch(() => {}).finally(() => setPrefilled(true));
   }, [patientId]);
   useEffect(() => {
-    // the draft note is fetched once; going Back and returning keeps the clinician's edits
-    if (step === 3 && visitId && !note) api(`/patients/${patientId}/contexts/${visitId}/note`).then((n) => {
-      let draft = n.text;
-      if (narrativeAtStart.current) draft = draft.replace(`Reviewed narrative: ${narrativeAtStart.current}\n`, "");
-      if (narrative) draft += `\n\nReviewed narrative:\n${narrative}`;
-      narrativeInNote.current = narrative;
-      generatedNote.current = draft; setNote(x => x || draft);
-    }).catch((e) => setError((e as Error).message)).finally(() => setNoteLoading(false));
-    if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch((e) => setError((e as Error).message));
-  }, [step, visitId, patientId, active]);
+    let current = true;
+    if (step === 3 && visitId && draftLoaded && active) {
+      setNoteLoading(true);
+      api(`/patients/${patientId}/contexts/${visitId}/note`).then(n => {
+        if (!current) return;
+        let draft = n.text;
+        if (narrativeAtStart.current) draft = draft.replace(`Reviewed narrative: ${narrativeAtStart.current}\n`, "");
+        if (narrative) draft += `\n\nReviewed narrative:\n${narrative}`;
+        narrativeInNote.current = narrative;
+        if (!note || note === generatedNote.current) {
+          generatedNote.current = draft; setNote(draft); setNoteKey(n.evidenceKey); setFreshNote(null);
+        } else if (noteKey !== n.evidenceKey) setFreshNote({text: draft, key: n.evidenceKey});
+      }).catch(e => setError(e.message)).finally(() => { if (current) setNoteLoading(false); });
+    }
+    if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch(e => setError(e.message));
+    return () => { current = false; };
+  }, [step, visitId, patientId, active, draftLoaded]);
   const previous = summary.plan;
   async function start() {
     setBusy(true);
@@ -420,13 +472,16 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   async function finish() {
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative } });
+      await flushVisitDraft();
+      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey } });
+      closed.current = true;
       onDone("Visit closed · note saved", r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
+  const decisionCards = triage(live.attention.filter((a: any) => a.rule_id !== "ops.plan-due"));
   const steps = ["Since last review", "Assessment", "Decisions & plan", "Note"];
   return (
     <Drawer
@@ -435,12 +490,13 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       active={active}
       subtitle={`${summary.header.name} · ${summary.header.where}`}
       icon={<Stethoscope size={22} />}
-      onClose={() => {
+      onClose={async () => {
         if (busy) return;
         const numeric = { ...vit, ...(isHf ? hfa : {}) };
         const unsaved = Object.entries(numeric).some(([code, v]) => v.trim() && savedRef.current[code] !== JSON.stringify({ code, value: Number(v) })) || (nyha && savedRef.current.nyha !== JSON.stringify({ code: "nyha", text: nyha })) || (cong && savedRef.current.congestion !== JSON.stringify({ code: "congestion", text: cong }));
-        if ((unsaved || narrative !== narrativeAtStart.current || note !== generatedNote.current) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
-        visitId && step > 0 ? onDone() : onClose();
+        if ((unsaved || (!draftLoaded && (narrative !== narrativeAtStart.current || note !== generatedNote.current))) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
+        setBusy(true);
+        try { await flushVisitDraft(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
       }}
       head={
         <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
@@ -459,7 +515,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
             {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" disabled={busy} onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy || noteLoading} onClick={finish}>Finish visit</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
@@ -552,9 +608,9 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             <div className="q">
               <div className="label">Needs a decision</div>
               {live.attention.length === 0 && <div className="help">Nothing open.</div>}
-              {triage(live.attention).map((card) => (
-                <div key={card.key} className="col visit-dec" style={{ borderBottom: "1px solid var(--line-2)", paddingBottom: 10, gap: 8 }}>
-                  <SevChip sev={card.severity}>{card.title}</SevChip>
+              {decisionCards.map((card, index) => (
+                <details key={card.key} open={index < 3 || card.severity === "red"} className="col visit-dec" style={{ borderBottom: "1px solid var(--line-2)", paddingBottom: 10, gap: 8 }}>
+                  <summary><SevChip sev={card.severity}>{card.title}</SevChip></summary>
                   {card.key.startsWith("wiz-") && <span className="help">Also covers: {card.items.filter((a) => a !== card.lead).map((a) => a.title).join(" · ")}</span>}
                   {(card.key.startsWith("wiz-") ? [card.lead] : card.items).map((a) => (
                   <span key={a.id} className={`alert sev-${a.severity}`} style={{ all: "unset" }}>
@@ -562,7 +618,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                   </span>
                   ))}
                   {card.note && <span className="help">{card.note}</span>}
-                </div>
+                </details>
               ))}
               <div className="help">After saving or closing an action, you return here with your place and entries kept.</div>
             </div>
@@ -588,7 +644,8 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               })()}
             </div>
             <div className="q">
-              <div className="label">Plan</div>
+              <div className="label">Due tasks</div>
+              {(live.plan ?? []).filter((p: any) => p.view !== "done" && p.dueDate <= live.today).map((p: any) => <div key={p.id} className="row wrap" style={{justifyContent:"space-between",padding:"8px 0"}}><span>{p.title}</span><button className="btn secondary small" onClick={() => open({kind:"plan-item",planId:p.id})}>Review task</button></div>)}
               <div className="row wrap">
                 <button className="btn secondary" onClick={() => open({ kind: "plan-add" })}>Add plan item</button>
                 <button className="btn secondary" onClick={() => open({ kind: "med-batch" })}>Add medicines</button>
@@ -600,11 +657,19 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         {step === 3 && (
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
-            <div className="help">Generated from what you selected. Edit freely before finishing.</div>
+            <div className="help">Edit before finishing. {draftSaved ? "Draft saved" : "Saving draft…"}</div>
+            {freshNote && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
+              <b>Patient data changed. Review the note before finishing.</b>
+              <details><summary>Latest generated note</summary><pre style={{whiteSpace:"pre-wrap"}}>{freshNote.text}</pre></details>
+              <div className="row wrap">
+                <button className="btn secondary" onClick={() => { if (!window.confirm("Replace your edits with the latest generated note?")) return; generatedNote.current = freshNote.text; setNote(freshNote.text); setNoteKey(freshNote.key); setFreshNote(null); }}>Use latest note</button>
+                <button className="btn secondary" onClick={() => { setNoteKey(freshNote.key); setFreshNote(null); }}>I reviewed my edited note</button>
+              </div>
+            </div>}
             <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
           </div>
         )}
-        {error && <div className="error-box">{error}</div>}
+        {error && <div className="error-box" role="alert">{error}</div>}
       </div>
     </Drawer>
   );

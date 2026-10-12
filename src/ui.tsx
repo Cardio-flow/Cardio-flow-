@@ -180,14 +180,14 @@ export function Segmented({ label, options, value, onChange }: { label: string; 
   );
 }
 export function MultiChoice({
-  options, value, onChange, auto = [], rec = [],
-}: { options: { value: string; label: string }[]; value: string[]; onChange(v: string[]): void; auto?: string[]; rec?: string[] }) {
+  options, value, onChange, auto = [], rec = [], exclusive = [],
+}: { options: { value: string; label: string }[]; value: string[]; onChange(v: string[]): void; auto?: string[]; rec?: string[]; exclusive?: string[] }) {
   return (
     <div className="choices">
       {options.map((o) => {
         const on = value.includes(o.value);
         return (
-          <button type="button" key={o.value} className="choice" aria-pressed={on} onClick={() => onChange(on ? value.filter((v) => v !== o.value) : o.value === "none" ? ["none"] : [...value.filter((v) => v !== "none"), o.value])}>
+          <button type="button" key={o.value} className="choice" aria-pressed={on} onClick={() => onChange(on ? value.filter((v) => v !== o.value) : o.value === "none" ? ["none"] : [...value.filter((v) => v !== "none" && !(exclusive.includes(o.value) && exclusive.includes(v))), o.value])}>
             {on && <CheckMark />}
             {o.label}
             {auto.includes(o.value) && <span className="auto">AUTO</span>}
@@ -243,6 +243,13 @@ type Toast = { text: string; err?: boolean };
 const ToastCtx = createContext<(t: Toast) => void>(() => {});
 export function ToastHost({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null);
+  useEffect(() => {
+    const patientKey = () => location.pathname.match(/^\/patients\/([^/]+)/)?.[1] ?? location.pathname;
+    let previous = patientKey();
+    const clear = () => { const next = patientKey(); if (next !== previous) setToast(null); previous = next; };
+    window.addEventListener("cf:navigate", clear); window.addEventListener("popstate", clear);
+    return () => { window.removeEventListener("cf:navigate", clear); window.removeEventListener("popstate", clear); };
+  }, []);
   const [height, setHeight] = useState(0);
   const rail = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
