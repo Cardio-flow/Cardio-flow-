@@ -266,6 +266,7 @@ test("visit draft persists edits, rejects lost-update overwrite and closes with 
   const close = await request(`/patients/${id}/visits/${v.id}/close`, {
     note: newer.text,
     evidenceKey: newer.evidenceKey,
+    draftVersion: 1,
   });
   assert.equal(close.status, 200);
   assert.equal(

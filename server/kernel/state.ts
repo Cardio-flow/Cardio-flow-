@@ -6,7 +6,7 @@ import { ageOn, resolveCurrent, type ObservationLike, type Resolved } from "../.
 import { today as todayFn } from "./base.js";
 import { isMechanicalValve, isModerateSevereMS } from "../../shared/history.js";
 
-export type Obs = ObservationLike & { logical_id: string; version: number; study_id: string | null; context_id: string | null; method: string | null; recorded_at: string };
+export type Obs = ObservationLike & { logical_id: string; version: number; study_id: string | null; context_id: string | null; derived_from?: string | null; method: string | null; recorded_at: string };
 export type MedEvent = {
   id: string;
   kind: string;

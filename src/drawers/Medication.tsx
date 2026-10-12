@@ -3,7 +3,7 @@ import { Pill, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, SingleChoice, Segmented, Tag, DateInput } from "../ui";
 import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
-import { addDays, flagFor, fmtDay } from "../../shared/clinical";
+import { addDays, flagFor, fmtDay, localDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
 import { DateField } from "../screens/SuggestLine";
 
@@ -267,7 +267,7 @@ function SafetyCheck({ hits }: { hits: SafetyHit[] | null }) {
   );
 }
 
-function PreStart({ def, rec, summary, hits }: { def: MedicationDef; rec: any; summary: any; hits: SafetyHit[] | null }) {
+function PreStart({ def, rec, summary, hits, label = "Pre-start check" }: { def: MedicationDef; rec: any; summary: any; hits: SafetyHit[] | null; label?: string }) {
   const contraindicated = hits?.some((h) => (h.severity === "red" || h.requiresReview));
   const items = def.monitoring.map((code) => {
     const r = rec?.results.find((x: any) => x.code === code) ?? rec?.vitals.find((x: any) => x.code === code);
@@ -279,7 +279,7 @@ function PreStart({ def, rec, summary, hits }: { def: MedicationDef; rec: any; s
   const missing = items.filter((i) => i.missing);
   return (
     <div className="q">
-      <div className="label">Pre-start check</div>
+      <div className="label">{label}</div>
       <SafetyCheck hits={hits} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
         {items.map((i) => (
@@ -299,7 +299,7 @@ function PreStart({ def, rec, summary, hits }: { def: MedicationDef; rec: any; s
         </div>
       ) : contraindicated ? (
         <div className="row small" style={{ fontWeight: 700, color: "var(--red-ink)" }}>
-          <AlertTriangle size={16} /> Contraindicated with the record above: start only after resolving it.
+          <AlertTriangle size={16} /> Review the warnings above before confirming treatment.
         </div>
       ) : (
         <div className="row small" style={{ fontWeight: 700, color: "var(--green-ink)" }}>
@@ -358,6 +358,9 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   });
   const [reviewDay, setReviewDay] = useState<string>(() => addDays(summary.today, 7));
   const [fromDay, setFromDay] = useState<string>(summary.today);
+  const [override, setOverride] = useState("");
+  const safetyAction = ["restart", "resume", "increase"].includes(action) || (action === "patient-dose" && !!dose && Number(dose) > (med?.doseValue ?? 0));
+  const {data: changeCheck, error: checkError} = useData<{hits: SafetyHit[]}>(safetyAction && med ? `/patients/${patientId}/medication-check/${med.code}` : null, [action]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!med || !def) return null;
@@ -382,7 +385,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
       const kind = action === "patient-dose" ? (med!.doseValue != null && Number(dose) > med!.doseValue ? "increase" : "decrease") : action === "patient-stop" ? "stop" : action === "frequency" ? "continue" : action;
       const why = action === "patient-dose" ? `Patient reports taking this dose${reason ? ": " + reason.toLowerCase() : ""}` : action === "patient-stop" ? `Stopped by patient: ${reason.toLowerCase()}` : action === "frequency" ? `Frequency changed: ${med!.frequency ?? "—"} → ${newFreq}${reason ? " · " + reason.toLowerCase() : ""}` : reason;
       const r = await api(`/patients/${patientId}/medications/${medId}/events`, {
-        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody, effectiveAt: fromDay === today ? undefined : new Date(`${fromDay}T12:00:00+03:00`).toISOString() },
+        body: { kind, doseValue: dose ? Number(dose) : null, frequency: action === "frequency" ? newFreq : undefined, reason: why, ...(safetyAction && override.trim().length >= 3 ? {override} : {}), contextId: contextId ?? null, review: exception || action === "frequency" ? null : reviewBody, effectiveAt: fromDay === today ? undefined : new Date(`${fromDay}T12:00:00+03:00`).toISOString() },
       });
       onDone(`${def!.name}: ${LABEL[action] ?? action} recorded`, r);
     } catch (e) {
@@ -392,6 +395,8 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   }
   const needsDose = action === "increase" || action === "decrease" || action === "patient-dose";
   const needsReason = action === "not_taking" || action === "patient-stop";
+  const warnings = safetyAction && !!changeCheck?.hits.some(h => h.severity === "red" || h.requiresReview);
+  const latestDay = history.reduce((d: string, e: any) => localDay(e.effective_at) > d ? localDay(e.effective_at) : d, "");
   return (
     <Drawer
       title={def.name}
@@ -401,15 +406,20 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!fromDay || (!exception && action !== "frequency" && review !== "none" && !reviewDay) || !action || busy || (needsDose && !dose) || (needsReason && !reason) || (action === "frequency" && (!newFreq || newFreq === med.frequency))} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
+          <button className="btn primary" disabled={!fromDay || (latestDay && fromDay < latestDay) || (safetyAction && (!changeCheck || (warnings && override.trim().length < 3))) || (!exception && action !== "frequency" && review !== "none" && !reviewDay) || !action || busy || (needsDose && !dose) || (needsReason && !reason) || (action === "frequency" && (!newFreq || newFreq === med.frequency))} onClick={save}>{busy ? "Saving…" : "Confirm"}</button>
         </span>
       }
     >
       <div className="drawer-body">
         <div className="q">
           <div className="label">What do you want to do?</div>
-          <SingleChoice label="Medication action" options={actions} value={action} onChange={(v) => (setAction(v), setDose(""), setReason(""), setReview(v === "increase" && renalK ? "lab-7" : "none"))} />
+          <SingleChoice label="Medication action" options={actions} value={action} onChange={(v) => (setAction(v), setOverride(""), setDose(""), setReason(""), setReview(v === "increase" && renalK ? "lab-7" : "none"))} />
         </div>
+        {safetyAction && <>
+          <PreStart def={def} rec={rec} summary={summary} hits={changeCheck?.hits ?? null} label="Treatment safety review" />
+          {!changeCheck && <div className="help" role="status">{checkError ?? "Checking current results and medicines…"}</div>}
+          {warnings && <label className="field"><span>Reason after reviewing these warnings (required)</span><input className="input" value={override} onChange={e => setOverride(e.target.value)} maxLength={300} /></label>}
+        </>}
         {med.status !== "held" && med.status !== "not_taking" && (
           <div className="q">
             <div className="label">Or record what the patient reports</div>
@@ -463,6 +473,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
         {action && !exception && action !== "continue" && (
           <div className="q">
             <DateField label="Change made on" value={fromDay} onChange={setFromDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
+            {latestDay && fromDay < latestDay && <div className="error-box" role="alert">Choose {fmtDay(latestDay, {year: true})} or later. Correct the medication history first for an earlier change.</div>}
           </div>
         )}
         {error && <div className="error-box" role="alert">{error}</div>}

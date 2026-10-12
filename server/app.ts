@@ -13,7 +13,7 @@ import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups } from "./kernel/views.js";
-import { getVisitDraft, saveVisitDraft } from "./kernel/visit-drafts.js";
+import { getVisitDraft, saveVisitDraft, getDischargeDraft, saveDischargeDraft } from "./kernel/visit-drafts.js";
 import { checkEvidence, evidenceKey } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
 import { editContext, removeContext } from "./kernel/context-management.js";
@@ -240,6 +240,17 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         const studies = s.studies.map((st) => ({ ...st, lvef: s.observations.find((o) => o.code === "lvef" && (o as any).study_id === st.id)?.value_num ?? null }));
         return {
           today: s.today,
+          labCollections: (() => {
+            const groups = new Map<string, {ref: string; at: string; source: string; contextId: string | null; codes: string[]}>();
+            for (const o of [...s.observations].sort((a,b) => b.effective_at.localeCompare(a.effective_at))) {
+              if (o.status !== "final" || o.derived_from || o.study_id || !LABS.some(l => l.code === o.code && !l.derived)) continue;
+              const key = JSON.stringify([o.effective_at, o.source, o.context_id]);
+              const g = groups.get(key);
+              if (g) g.codes.push(o.code);
+              else groups.set(key, {ref: o.id, at: o.effective_at, source: o.source, contextId: o.context_id ?? null, codes: [o.code]});
+            }
+            return [...groups.values()].slice(0, 20);
+          })(),
           meds,
           medicationHistory: medicationView.history,
           medicationWarnings: medicationView.warnings,
@@ -272,6 +283,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         effectiveAt: isoDateTime,
+        collectionRef: uuidS.optional(),
         contextId: uuidS.nullish(),
         items: z
           .array(z.object({ referenceHigh: z.number().finite().positive().max(999999).nullish(), code: z.string().max(40), value: z.number().finite().nullish(), unit: z.string().max(20).nullish(), text: z.string().max(40).nullish() }))
@@ -560,6 +572,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         kind: z.enum(["increase", "decrease", "hold", "restart", "stop", "continue", "not_taking", "resume"]),
+        override: z.string().trim().min(3).max(300).optional(),
         doseValue: z.number().positive().nullish(),
         frequency: z.string().max(60).nullish(),
         reason: z.string().max(300).optional(),
@@ -672,6 +685,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         endedAt: isoDateTime,
+        draftVersion: z.number().int().min(0).optional(),
         outcome: z.enum(["alive", "died"]).default("alive"),
         status: z.string().max(120),
         destination: z.enum(DISCHARGE_DESTINATION as [string, ...string[]]).nullish(),
@@ -695,7 +709,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional() }).parse(req.body);
+    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(), draftVersion: z.number().int().min(0).optional() }).parse(req.body);
     await write(res, id, async (tx, a) => { checkEvidence(await loadState(tx, id), input.evidenceKey); return { changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }; });
   }));
   app.post("/api/patients/:id/status", clinician, route(async (req, res) => {
@@ -716,6 +730,15 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/patients/:id/contexts/:cid/draft", route(async (req, res) => {
     const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
     res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return getVisitDraft(tx,id,cid); }));
+  }));
+  app.get("/api/patients/:id/admissions/:cid/draft", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id), cid = uuidS.parse(req.params.cid);
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return getDischargeDraft(tx, id, cid); }));
+  }));
+  app.post("/api/patients/:id/admissions/:cid/draft", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id), cid = uuidS.parse(req.params.cid);
+    const input = z.object({version: z.number().int().min(0), outcome: z.enum(["alive", "died"]), status: z.string().max(60), destination: z.string().max(60), events: z.array(z.string().max(80)).max(20), cause: z.string().max(60), weight: z.string().max(20), reuseClinicFollowUp: z.boolean(), handover: z.string().max(4000), picked: z.record(z.string().max(60), z.union([z.number().int().min(0).max(3650), isoDate, z.literal(""), z.null()])).refine(p => Object.keys(p).every(k => PLAN_TEMPLATES.some(t => t.id === k)), "Unknown follow-up template")}).parse(req.body);
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return saveDischargeDraft(tx, actor(res), id, cid, input); }));
   }));
   app.post("/api/patients/:id/contexts/:cid/draft", clinician, route(async (req, res) => {
     const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);

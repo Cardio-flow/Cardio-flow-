@@ -86,6 +86,9 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
       seen.add(f.key);
       const same = active.find((a) => a.fingerprint === fingerprint && a.rule_version === version.version && a.rule_status === version.status && a.rule_content_hash === contentHash);
       if (same) {
+        // Stable decision identity must not freeze the facts shown by an active alert.
+        await tx.query(`UPDATE cf.recommendation SET severity=$2,title=$3,detail=$4,facts=$5,missing=$6,action=$7 WHERE id=$1 AND (severity,title,detail,facts,missing,action) IS DISTINCT FROM ($2::text,$3::text,$4::text,$5::jsonb,$6::jsonb,$7::jsonb)`,
+          [same.id, f.severity, f.title, f.detail, JSON.stringify(f.facts), JSON.stringify(f.missing), JSON.stringify(f.action)]);
         continue;
       }
       if (decidedSet.has(rule.id + "#" + fingerprint)) continue;

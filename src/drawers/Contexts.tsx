@@ -154,16 +154,69 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const today = summary.today;
+  const draftVersion = useRef(0);
+  const pending = useRef<any>(null);
+  const request = useRef<Promise<any> | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const baseline = useRef("");
+  const finished = useRef(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const payload = {outcome, status, destination, events, cause, weight, reuseClinicFollowUp, handover, picked};
+  const payloadKey = JSON.stringify(payload);
+  function restoreDraft(d: any) {
+    draftVersion.current = d.version;
+    pending.current = null;
+    if (d.handover !== undefined) {
+      setOutcome(d.outcome); setStatus(d.status); setDestination(d.destination); setEvents(d.events); setCause(d.cause); setWeight(d.weight); setReuseClinicFollowUp(d.reuseClinicFollowUp); setHandover(d.handover); setPicked(d.picked);
+      const {version, ...answers} = d;
+      baseline.current = JSON.stringify({...payload, ...answers});
+      setDraftSaved(true);
+    } else baseline.current = payloadKey;
+    setDraftLoaded(true);
+  }
+  async function flushDraft() {
+    if (timer.current) clearTimeout(timer.current);
+    await request.current;
+    const body = pending.current;
+    if (!body || finished.current) return;
+    pending.current = null;
+    const req = api(`/patients/${patientId}/admissions/${contextId}/draft`, {body: {...body, version: draftVersion.current}});
+    request.current = req;
+    try {const r = await req; draftVersion.current = r.version; baseline.current = JSON.stringify(body); setDraftSaved(!pending.current);}
+    catch (e) {pending.current = body; throw e;}
+    finally {request.current = null;}
+    if (pending.current) await flushDraft();
+  }
+  useEffect(() => {
+    let live = true;
+    api(`/patients/${patientId}/admissions/${contextId}/draft`).then(d => {if (live) restoreDraft(d);}).catch(e => {if (live) setError(`Draft could not be restored: ${e.message}`);});
+    return () => {live = false;};
+  }, [patientId, contextId]);
+  useEffect(() => {
+    if (!draftLoaded || finished.current || (payloadKey === baseline.current && !pending.current && !request.current)) return;
+    pending.current = payload;
+    setDraftSaved(false);
+    timer.current = setTimeout(() => {void flushDraft().catch(e => setError(`Draft not saved: ${e.message}`));}, 300);
+    return () => {if (timer.current) clearTimeout(timer.current);};
+  }, [payloadKey, draftLoaded]);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {if (pending.current || request.current) {e.preventDefault(); e.returnValue = "";}};
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   const ctx = jr?.contexts.find((c: any) => c.id === contextId);
-  function closeDischarge() {
+  async function closeDischarge() {
     if (busy) return;
-    if ((handover) && !window.confirm("Discard unsaved discharge narrative?")) return;
+    try {await flushDraft();}
+    catch (e) {setError(`Draft not saved: ${(e as Error).message}`); if (!window.confirm("Close without saving the latest discharge edits?")) return;}
     onClose();
   }
   const meds = summary.medications.groups.flatMap((g: any) => g.meds);
   async function save() {
     setBusy(true);
     try {
+      await flushDraft();
       const plan = Object.entries(picked)
         .filter(([, d]) => d != null)
         .map(([id, d]) => {
@@ -173,10 +226,11 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       const died = outcome === "died";
       const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
         body: {
-          endedAt: new Date().toISOString(), outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
+          endedAt: new Date().toISOString(), draftVersion: draftVersion.current, outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
           causeGroup: died ? cause : null, dischargeWeight: !died && weight ? Number(weight) : null, plan: died ? [] : plan, reuseClinicFollowUp, handover,
         },
       });
+      finished.current = true;
       onDone(died ? "Death in hospital recorded" : "Discharged · follow-up plan saved", r);
     } catch (e) {
       setError((e as Error).message);
@@ -193,11 +247,13 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={closeDischarge}>Cancel</button>
-          <button className="btn primary" disabled={(outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
+          <button className="btn primary" disabled={!draftLoaded || (outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
-      <div className="drawer-body">
+      <>
+      <fieldset className="drawer-body" disabled={!draftLoaded || busy} style={{border:0,margin:0}}>
+        <div className="help" role="status">{!draftLoaded ? "Restoring discharge draft…" : draftSaved ? "Draft saved" : "Changes are saved as a draft"}</div>
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
           <div className="q">
             <div className="label" style={{ fontSize: 15 }}>Outcome</div>
@@ -224,7 +280,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
           {(summary.plan ?? []).filter((p: any) => p.awaitingReview).map((p: any) => <div key={p.id} className="help">Result awaiting review · {p.title}</div>)}
           <label className="field">
             <span>Handover / outstanding issues <em className="muted" style={{ fontStyle: "normal" }}>(optional)</em></span>
-            <textarea className="input" rows={3} value={handover} onChange={(e) => setHandover(e.target.value)} placeholder="Record how outstanding issues will be handled and by whom." />
+            <textarea className="input" disabled={!draftLoaded} maxLength={4000} rows={3} value={handover} onChange={(e) => setHandover(e.target.value)} placeholder="Record how outstanding issues will be handled and by whom." />
           </label>
         </div>
         <div className="q">
@@ -304,8 +360,10 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         </div>
         </>
         )}
-        {error && <div className="error-box">{error}</div>}
-      </div>
+
+      </fieldset>
+        {error && <div className="error-box" role="alert">{error}<button className="btn secondary small" type="button" onClick={() => {if (!window.confirm("Replace this window’s discharge edits with the latest saved draft?")) return; if (timer.current) clearTimeout(timer.current); void api(`/patients/${patientId}/admissions/${contextId}/draft`).then(d => {restoreDraft(d); setError("");}).catch(e => setError(e.message));}}>Load saved discharge draft</button></div>}
+      </>
     </Drawer>
   );
 }
@@ -334,6 +392,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const draftVersion = useRef(0);
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [newerDraft, setNewerDraft] = useState<any>(null);
   const draftPending = useRef<any>(null);
   const draftRequest = useRef<Promise<any> | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -347,7 +406,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     const req = api(`/patients/${patientId}/contexts/${visitId}/draft`, { body: {...body, version: draftVersion.current} });
     draftRequest.current = req;
     try { const r = await req; draftVersion.current = r.version; setDraftSaved(!draftPending.current); }
-    catch(e) { draftPending.current = body; throw e; }
+    catch(e) { draftPending.current = body; if ((e as any).status === 409) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {}); throw e; }
     finally { draftRequest.current = null; }
     if (draftPending.current) await flushVisitDraft();
   }
@@ -367,12 +426,12 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     return () => { current = false; };
   }, [visitId, patientId]);
   useEffect(() => {
-    if (!draftLoaded || !visitId || !noteKey || closed.current) return;
+    if (!draftLoaded || !visitId || !noteKey || closed.current || newerDraft) return;
     draftPending.current = { note, narrative, generatedNote: generatedNote.current, evidenceKey: noteKey };
     setDraftSaved(false);
     draftTimer.current = setTimeout(() => { void flushVisitDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 300);
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [note, narrative, noteKey, visitId, draftLoaded]);
+  }, [note, narrative, noteKey, visitId, draftLoaded, newerDraft]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (draftPending.current || draftRequest.current) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", warn);
@@ -473,11 +532,12 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     setBusy(true);
     try {
       await flushVisitDraft();
-      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey } });
+      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey, draftVersion: draftVersion.current } });
       closed.current = true;
       onDone("Visit closed · note saved", r);
     } catch (e) {
       setError((e as Error).message);
+      if ((e as any).status === 409 && (e as Error).message.includes("another window")) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {});
       setBusy(false);
     }
   }
@@ -515,7 +575,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
             {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" disabled={busy} onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!newerDraft || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
@@ -658,6 +718,11 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
             <div className="help">Edit before finishing. {draftSaved ? "Draft saved" : "Saving draft…"}</div>
+            {newerDraft && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
+              <b>A newer note was saved in another window.</b>
+              <details><summary>Newer saved note</summary><pre style={{whiteSpace:"pre-wrap"}}>{newerDraft.note}</pre></details>
+              <button className="btn secondary" onClick={() => {if (!window.confirm("Replace this window’s note with the newer saved draft?")) return; draftPending.current = null; draftVersion.current = newerDraft.version; generatedNote.current = newerDraft.generatedNote; narrativeInNote.current = newerDraft.narrative; setNote(newerDraft.note); setNarrative(newerDraft.narrative); setNoteKey(newerDraft.evidenceKey); setNewerDraft(null); setError(""); setStep(2);}}>Use newer saved note</button>
+            </div>}
             {freshNote && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
               <b>Patient data changed. Review the note before finishing.</b>
               <details><summary>Latest generated note</summary><pre style={{whiteSpace:"pre-wrap"}}>{freshNote.text}</pre></details>

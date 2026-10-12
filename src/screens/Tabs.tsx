@@ -637,7 +637,7 @@ export function PlanTab({
                     ? `${p.source.label} · ${fmtDay(p.source.at)}`
                     : p.category.replace("_", " ")}
                   {p.completesOn?.type === "lab"
-                    ? " · closes on result"
+                    ? ` · ${(p.completesOn.codes ?? []).map((code: string) => MEASURES[code]?.short ?? code).join(" / ") || "results"}`
                     : p.completesOn?.type === "visit"
                       ? p.completesOn.requiresReview ? " · specialist review required" : " · closes at visit"
                       : p.completesOn?.type === "procedure"

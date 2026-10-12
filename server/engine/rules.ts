@@ -87,7 +87,9 @@ export const RULES: RuleDef[] = [
       return [
         {
           key: "k",
-          signature: cur.id,
+          // Re-exposure after this result needs a fresh decision. Holding treatment
+          // does not invalidate a decision that just instructed that hold.
+          signature: [cur.id, ...s.meds.filter(m => m.tags.includes("raas") || m.tags.includes("potassium-sparing")).flatMap(m => m.events.filter(e => ["start", "restart", "resume", "increase"].includes(e.kind) && e.effective_at >= cur.effective_at).map(e => e.id)).sort()].join(":"),
           severity: "red",
           title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}`,
           detail:

@@ -539,7 +539,11 @@ export function preStartCheck(s: PatientState, code: string, def: { name: string
     doseValue: null, doseUnit: null, frequency: null, route: null, startedAt: s.today, lastChange: null, events: [],
   } as MedState;
   const already = s.meds.some((m) => m.code === code && m.status === "active");
-  const s2 = already ? s : ({ ...s, meds: [...s.meds, proposed] } as PatientState);
+  const existing = s.meds.find(m => m.code === code && ["held", "not_taking"].includes(m.status));
+  // A restart activates the existing prescription; it is not a second copy of it.
+  const s2 = already ? s : existing
+    ? { ...s, meds: s.meds.map(m => m.id === existing.id ? { ...m, status: "active" as const } : m) }
+    : ({ ...s, meds: [...s.meds, proposed] } as PatientState);
   const order: Record<Severity, number> = { red: 0, orange: 1, yellow: 2 };
   const overlapHits = medicationOverlaps(s2.meds).filter(pair => pair.ids.some(id => s2.meds.find(m => m.id === id)?.code === code)).map(pair => ({
     severity: "orange" as const, requiresReview: true,
