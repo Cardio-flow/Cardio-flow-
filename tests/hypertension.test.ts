@@ -472,6 +472,10 @@ test("RDN scheduling rejects missing anatomy or shared decision and closes only 
   );
   await complete(id, "rdn-plan", rdn);
   let s = await loadState(db, id);
+  const specialist = s.plan.find(p => p.title === "Resistant hypertension: specialist assessment");
+  assert.ok(specialist);
+  assert.equal(specialist.status,"completed");
+  assert.ok(specialist.reviewed_at,"RDN scheduling records the specialist decision, rather than any clinic attendance");
   const p = s.plan.find((p) => p.completes_on.kind === "rdn")!;
   assert.equal(p.status, "planned");
   await tx((q) =>

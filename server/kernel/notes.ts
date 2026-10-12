@@ -1,4 +1,5 @@
 // Documentation is output: structured data in, editable narrative out.
+import { evidenceKey } from "./evidence.js";
 import type { Q } from "../db/db.js";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { fmtDay, localDay } from "../../shared/clinical.js";
@@ -82,5 +83,5 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     lines.push("Plan:");
     for (const p of plan) lines.push(`- ${p.title}${p.dueDate ? ` — ${fmtDay(p.dueDate, { weekday: true, year: true })}` : ""}`);
   }
-  return { title, text: lines.join("\n") };
+  return { title, text: lines.join("\n"), evidenceKey: evidenceKey(s) };
 }

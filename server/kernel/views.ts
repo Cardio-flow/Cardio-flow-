@@ -1,3 +1,5 @@
+import { medicationOverlaps } from "../../shared/medication-identity.js";
+import { needsExplicitReview } from "../../shared/plan-evidence.js";
 import { correctedRefs } from "./corrections.js";
 import { journeySummary } from "./journey-detail.js";
 import { targets } from "../engine/guidelines.js";
@@ -241,7 +243,7 @@ export function medicationGroups(s: PatientState) {
       })),
   })).filter((g) => g.meds.length);
   const stopped = s.meds.filter((m) => m.status === "stopped").map((m) => ({ id: m.id, name: m.name, stoppedAt: m.lastChange?.effective_at ?? null }));
-  return { groups, stopped, history: medicationHistory(s) };
+  return { groups, stopped, warnings: medicationOverlaps(s.meds), history: medicationHistory(s) };
 }
 
 export function medicationHistory(s: PatientState) {
@@ -385,7 +387,8 @@ export function planView(s: PatientState) {
       if (!c) return null;
       return { kind: c.kind, at: c.ended_at ?? c.started_at, label: c.kind === "admission" ? "Discharge plan" : "Visit plan" };
     })(),
-    completesOn: p.completes_on,
+    completesOn: {...p.completes_on, requiresReview: needsExplicitReview(p.title,p.completes_on)},
+    indications: p.indications ?? [p.title], decisionRefs: p.decision_refs ?? [],
     version: p.version,
     medicationId: p.medication_id,
     // a planned procedure with a checklist before it
@@ -526,7 +529,7 @@ export async function journey(tx: Q, patientId: string) {
     return { id, title, dueDate, progress, view };
   };
   const contexts = s.contexts.map((c) => {
-    const actions = s.plan.filter((p) => p.source_context_id === c.id);
+    const actions = s.plan.filter((p) => p.source_context_id === c.id || (p.context_refs ?? []).includes(c.id));
     const meds = s.meds.flatMap((m) =>
       m.events
         .filter((e) => e.effective_at >= c.started_at && (!c.ended_at || e.effective_at <= c.ended_at) && e.kind !== "continue")
@@ -541,7 +544,7 @@ export async function journey(tx: Q, patientId: string) {
   const projected = [...events, ...planned].map(e => {
     const ctx = e.ref_type === "care_context" ? contexts.find(c => c.id === e.ref_id) : null;
     // A decision shows its own actions, even outside an admission. Never infer ownership from dates.
-    const actions = ctx?.actions ?? s.plan.filter(a => e.ref_type === "decision" ? a.decision_id === e.ref_id : e.ref_type === "plan_action" && a.id === e.ref_id).map(projectAction);
+    const actions = ctx?.actions ?? s.plan.filter(a => e.ref_type === "decision" ? (a.decision_id === e.ref_id || (a.decision_refs ?? []).includes(e.ref_id)) : e.ref_type === "plan_action" && a.id === e.ref_id).map(projectAction);
     const meds = ctx?.meds ?? (e.ref_type === "decision" ? s.meds.flatMap(m => m.events.filter(ev => ev.decision_id === e.ref_id && ev.kind !== "continue").map(ev => ({ name: m.name, kind: ev.kind, dose: doseLabel(MEDICATION[m.code], ev.dose_value, ev.dose_unit), frequency: ev.frequency, route: ev.route }))) : []);
     return { ...e, linked: { actions, meds }, reading: e.category === "complication" && e.ref_type === "decision" ? journeySummary(e.detail ?? "", actions.map(a => a.title), meds.map(m => m.name)) : null };
   });
@@ -659,7 +662,7 @@ export function episodesView(s: PatientState) {
     .map((e) => {
       const def = WIZARDS[e.wizard];
       const ids = new Set(e.decisions.map((d) => d.id));
-      const items = s.plan.filter((p) => p.decision_id && ids.has(p.decision_id) && p.status !== "superseded" && p.status !== "cancelled");
+      const items = s.plan.filter((p) => ((p.decision_id && ids.has(p.decision_id)) || (p.decision_refs ?? []).some(id => ids.has(id))) && p.status !== "superseded" && p.status !== "cancelled");
       const open = items.filter((p) => p.status === "planned").sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
       const held = s.meds.filter((m) => m.status === "held" && m.events.some((ev) => ev.kind === "hold" && ev.decision_id && ids.has(ev.decision_id)));
       let trend = null;

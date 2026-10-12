@@ -1,3 +1,4 @@
+import { reconcileExistingPlans } from "./kernel/plan-bookings.js";
 import type { DB } from "./db/db.js";
 import { migrate } from "./db/db.js";
 import { reassess, seedRules } from "./engine/engine.js";
@@ -44,7 +45,12 @@ export async function boot(db: DB, opts: { seed: boolean }) {
   // New or changed rules shipped with this build: evaluate every patient once.
   const site = (await db.query(`SELECT mode, settings FROM cf.site WHERE id=$1`, [SITE_ID])).rows[0] as any;
   const settings = typeof site?.settings === "string" ? JSON.parse(site.settings) : site?.settings ?? {};
-  if (newRules || settings.ruleset !== RULESET) {
+  const reconcile = settings.flowIntegrity !== "2026-10-12.1";
+  if (reconcile) {
+    await db.transaction(tx => reconcileExistingPlans(tx, { id:"system:flow-integrity", name:"CardioFlow record reconciliation", role:"admin", siteId:SITE_ID }));
+    await db.query(`UPDATE cf.site SET settings=coalesce(settings,'{}'::jsonb)||$2::jsonb WHERE id=$1`, [SITE_ID, JSON.stringify({flowIntegrity:"2026-10-12.1"})]);
+  }
+  if (newRules || reconcile || settings.ruleset !== RULESET) {
     const ids = (await db.query(`SELECT id FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL`, [SITE_ID])).rows as { id: string }[];
     for (const { id } of ids) await db.transaction((tx) => reassess(tx, id, site?.mode ?? "production"));
     await db.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [SITE_ID, JSON.stringify({ ruleset: RULESET })]);

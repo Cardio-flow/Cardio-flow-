@@ -164,9 +164,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
         );
         setShowAllNext(false);
       }
-      const red = created.find(
-        (c: any) => c.severity === "red" || c.severity === "orange",
-      );
+      const red = created.find((c: any) => c.severity === "red") ?? created.find((c: any) => c.severity === "orange");
       if (red)
         toast({ text: `${message ?? "Saved"}. New alert: ${red.title}` });
       else if (message) toast({ text: message });

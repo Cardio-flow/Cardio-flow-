@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pill, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, SingleChoice, Segmented, Tag } from "../ui";
+import { Drawer, SingleChoice, Segmented, Tag, DateInput } from "../ui";
 import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
@@ -27,12 +27,13 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const [monitor, setMonitor] = useState<string>("7");
   const [checkDay, setCheckDay] = useState<string>(() => addDays(summary.today, 7));
   const [startDay, setStartDay] = useState<string>(summary.today);
+  const [monitoringDates,setMonitoringDates] = useState<Record<string,string>>({});
   const [override, setOverride] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const today = rec?.today ?? summary.today;
   const pick = (d: MedicationDef) => {
-    setCode(d.code);
+    setCode(d.code); setOverride(""); setMonitoringDates({});
     setDose(d.doses.length ? String(d.doses[0]) : "custom");
     setFreq(d.frequencies[0]);
     setRoute(d.routes[0]);
@@ -68,7 +69,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const renalK = !scheduleRenal && def?.monitoring.some((c) => c === "potassium" || c === "creatinine");
   const [bookSchedule, setBookSchedule] = useState("yes");
   // pre-start check (contraindications, interactions, start limits) and, for mavacamten, the starting dose from CYP2C19
-  const { data: check } = useData<{ hits: SafetyHit[]; start: { dose: number; max: number; known: boolean; basis: string; why: string } | null }>(def ? `/patients/${patientId}/medication-check/${def.code}` : null, [def?.code]);
+  const { data: check } = useData<{ hits: SafetyHit[]; monitoring: {key:string;title:string;dueDate:string}[]; start: { dose: number; max: number; known: boolean; basis: string; why: string } | null }>(def ? `/patients/${patientId}/medication-check/${def.code}` : null, [def?.code]);
   useEffect(() => {
     if (check?.start && !preset) setDose(String(check.start.dose));
   }, [check?.start?.dose]);
@@ -83,7 +84,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
           indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
           effectiveAt: startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
           monitoring: renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
-          bookSchedule: schedule.length > 0 && bookSchedule === "yes",
+          bookSchedule: schedule.length > 0 && bookSchedule === "yes", monitoringDates,
           ...(reds ? { override } : {}),
         },
       });
@@ -93,8 +94,8 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
       setBusy(false);
     }
   }
-  const reds = !!check?.hits.some((h) => h.severity === "red");
-  const valid = startDay && (!renalK || monitor === "none" || checkDay) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
+  const reds = !!check?.hits.some((h) => (h.severity === "red" || h.requiresReview));
+  const valid = !!check && Object.values(monitoringDates).every(Boolean) && startDay && (!renalK || monitor === "none" || checkDay) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
   return (
     <Drawer
       wide
@@ -113,6 +114,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
       }
     >
       <div className="drawer-body">
+        {reds && <div className="infobox warn" role="status"><button className="btn ghost" onClick={() => document.getElementById("med-prestart")?.scrollIntoView({behavior:"smooth",block:"start"})}>Medication review required · view warnings</button></div>}
         {!def ? (
           <>
             <label className="row" style={{ height: 46, padding: "0 14px", border: "1px solid var(--control)", borderRadius: 12 }}>
@@ -199,7 +201,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <span><b>{`Starting dose ${check.start.dose} mg once daily · maximum ${check.start.max} mg`}</b>{` — ${check.start.basis} (SmPC 4.2).${!check.start.known ? " Record the result on the HCM diagnosis (History)." : ""}`}</span>
               </div>
             )}
-            <PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} />
+            <div id="med-prestart"><PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} /></div>
             {renalK && (
               <div className="q">
                 <div className="label">Monitoring</div>
@@ -218,17 +220,17 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                     <div key={k.id} className="small"><b>{k.what}</b>: {k.schedule} <span style={{ color: "var(--ink-3)" }}>· {k.source}</span></div>
                   ))}
                 </div>
-                <div className="help">The checks in the first 3 months (or the first periodic check) become tasks that close themselves when the result arrives; later ones are flagged when due.</div>
+                {bookSchedule === "yes" && !!check?.monitoring.length && <details className="monitoring-dates"><summary>{check.monitoring.length} monitoring dates · Edit</summary>{check.monitoring.map(b => <label className="manual-date" key={b.key}><span>{b.title} · manual date</span><DateInput className="input" min={today} aria-label={`${b.title} ${b.key} date`} value={monitoringDates[b.key] ?? b.dueDate} onChange={e => setMonitoringDates(d => ({...d,[b.key]:e.target.value}))} /></label>)}</details>}
                 <Segmented label="Book monitoring" options={[{ value: "yes", label: "Book the checks" }, { value: "no", label: "Not now" }]} value={bookSchedule} onChange={setBookSchedule} />
               </div>
             )}
             {reds && (
               <label className="sl-override">
-                <span>Reason to start despite the contraindication (required)</span>
+                <span>Reason for starting after reviewing these warnings (required)</span>
                 <input className="input" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="e.g. specialist advice, benefit outweighs risk, interacting drug stopped" />
               </label>
             )}
-            {error && <div className="error-box">{error}</div>}
+            {error && <div className="error-box" role="alert">{error}</div>}
           </>
         )}
       </div>
@@ -243,7 +245,7 @@ export function tagLabel(t: string, summary: any) {
 }
 
 // contraindications and interactions of the proposed medicine (server: medicine safety table, label/guideline cited)
-type SafetyHit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string };
+type SafetyHit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source: string; requiresReview?: boolean };
 function SafetyCheck({ hits }: { hits: SafetyHit[] | null }) {
   if (!hits) return null;
   if (!hits.length)
@@ -266,7 +268,7 @@ function SafetyCheck({ hits }: { hits: SafetyHit[] | null }) {
 }
 
 function PreStart({ def, rec, summary, hits }: { def: MedicationDef; rec: any; summary: any; hits: SafetyHit[] | null }) {
-  const contraindicated = hits?.some((h) => h.severity === "red");
+  const contraindicated = hits?.some((h) => (h.severity === "red" || h.requiresReview));
   const items = def.monitoring.map((code) => {
     const r = rec?.results.find((x: any) => x.code === code) ?? rec?.vitals.find((x: any) => x.code === code);
     const m = MEASURES[code];
@@ -463,7 +465,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
             <DateField label="Change made on" value={fromDay} onChange={setFromDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
           </div>
         )}
-        {error && <div className="error-box">{error}</div>}
+        {error && <div className="error-box" role="alert">{error}</div>}
         <div className="q">
           <div className="label" style={{ fontSize: 15 }}>History</div>
           {history.slice().reverse().map((e: any) => (

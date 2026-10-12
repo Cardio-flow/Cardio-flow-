@@ -10,10 +10,10 @@ import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/cata
 
 // one part of a joined pathway, answered and waiting to be recorded with the parts after it
 export type PathwayPart = {
-  wizard: string; answers: Answers; dueDates: Record<string, string>; overrides: Record<string, string>; recommendationId?: string | null;
+  wizard: string; answers: Answers; dueDates: Record<string, string>; overrides: Record<string, string>; recommendationId?: string | null; evidenceKey?: string;
   outcome: string[]; assessment: { heading: string; recommendations: string[] } | null; step: number;
 };
-type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string };
+type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string; requiresReview?: boolean };
 
 export function WizardDrawer({
   patientId, patientName, wizard, recommendationId, contextId, onClose, onDone, onJoin, onBack, carried = [], resume,
@@ -39,12 +39,13 @@ export function WizardDrawer({
   const [autoFilled, setAutoFilled] = useState<string[]>([]);
   const [dueDates, setDueDates] = useState<Record<string, string>>(resume?.dueDates ?? {});
   const [overrides, setOverrides] = useState<Record<string, string>>(resume?.overrides ?? {});
+  const [checkedStart, setCheckedStart] = useState("");
   const [startHits, setStartHits] = useState<Record<string, Hit[]>>({});
   const loaded = useRef(false);
   const opened = useRef<string | null>(null);
   useEffect(() => {
     // a later part of a joined pathway reads the record as it will be after the earlier parts
-    const before = carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides }));
+    const before = carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides, evidenceKey: p.evidenceKey }));
     (before.length ? api(`/patients/${patientId}/wizards/${wizard}/context`, { body: { before } }) : api(`/patients/${patientId}/wizards/${wizard}`)).then((r) => {
       setCtx(r.context);
       setEpisode(r.episode ?? null);
@@ -57,13 +58,15 @@ export function WizardDrawer({
         for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
           const ok = new Set(optionsFor(q, r.context).map((o) => o.value));
           const v = clean[q.id];
-          if (Array.isArray(v)) clean[q.id] = v.filter((x: string) => ok.has(x));
+          if (Array.isArray(v)) { clean[q.id] = v.filter((x: string) => ok.has(x)); if (q.exclusive && clean[q.id].filter((x: string) => q.exclusive!.includes(x)).length > 1) delete clean[q.id]; }
           else if (v != null && !ok.has(String(v))) delete clean[q.id];
         }
         setDueDates(resume?.dueDates ?? (base as Record<string,any>)._dueDates ?? {});
         delete clean._dueDates;
         setAnswers(clean);
-        setStep(resume ? Math.min(resume.step, def.steps.length) : r.draft ? Math.min(r.draft.step, def.steps.length) : 0);
+        const restoredStep = resume ? Math.min(resume.step, def.steps.length) : r.draft ? Math.min(r.draft.step, def.steps.length) : 0;
+        const unanswered = def.steps.findIndex(st => missingRequired(st, clean).length > 0);
+        setStep(unanswered >= 0 ? Math.min(restoredStep,unanswered) : restoredStep);
       } else {
         // everything the record shows, and the guideline's suggestion for every open question, is filled in;
         // the clinician reviews and changes it
@@ -82,6 +85,24 @@ export function WizardDrawer({
   // flight, so a late draft save can never resurrect a pathway that was just completed
   const confirming = useRef(false);
   const draftReq = useRef<Promise<unknown> | null>(null);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDraft = useRef<any>(null);
+  async function flushDraft() {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    await draftReq.current;
+    const body = pendingDraft.current;
+    if (!body) return;
+    pendingDraft.current = null;
+    const request = api(`/patients/${patientId}/wizards/${wizard}/draft`, { method: "PUT", body });
+    draftReq.current = request;
+    try { await request; setSaved(true); } catch (e) { pendingDraft.current = body; throw e; }
+    finally { draftReq.current = null; }
+  }
+  async function closeWithDraft() {
+    if (busy) return;
+    setBusy(true);
+    try { await flushDraft(); onClose(); } catch (e) { setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
+  }
   useEffect(() => {
     if (!loaded.current) return;
     // opening a pathway is not an edit: no draft until the clinician changes something, so the next open
@@ -92,11 +113,9 @@ export function WizardDrawer({
     setDirty(true);
     setSaved(false);
     if (confirming.current) return;
-    const t = setTimeout(() => {
-      if (confirming.current) return;
-      draftReq.current = api(`/patients/${patientId}/wizards/${wizard}/draft`, { method: "PUT", body: { answers: {...answers,_dueDates:dueDates}, step, recommendationId: recommendationId ?? null } }).then(() => setSaved(true)).catch(() => {});
-    }, 500);
-    return () => clearTimeout(t);
+    pendingDraft.current = { answers: {...answers,_dueDates:dueDates}, step, recommendationId: recommendationId ?? null };
+    draftTimer.current = setTimeout(() => { if (!confirming.current) void flushDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 500);
+    return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
   }, [answers, step, dueDates, patientId, wizard, recommendationId]);
   const isReview = step === def.steps.length;
   const allAnswered = def.steps.every((st) => !missingRequired(st, answers).length);
@@ -110,13 +129,14 @@ export function WizardDrawer({
   // medicines this pathway starts go through the pre-start check; a red hit needs a reason (as in the drawer)
   const startKey = outcome.filter((o) => o.kind === "start").map((o) => (o as any).code).join(",");
   useEffect(() => {
-    if (!isReview || !startKey) { setStartHits({}); return; }
+    if (!isReview || !startKey) { setStartHits({}); setCheckedStart(""); return; }
+    setCheckedStart("");
     let live = true;
-    api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers, before: carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides })) } }).then((r) => live && setStartHits(r.hits ?? {}), () => {});
+    api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers, before: carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides })) } }).then((r) => { if (live) { setStartHits(r.hits ?? {}); setCheckedStart(startKey); } }, e => { if (live) setError(`Medication check failed: ${e.message}`); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReview, startKey, patientId, wizard]);
-  const needReason = Object.entries(startHits).filter(([code, hits]) => hits.some((h) => h.severity === "red") && (overrides[code]?.trim().length ?? 0) < 3).map(([c]) => c);
+  }, [isReview, startKey, patientId, wizard, answers]);
+  const needReason = Object.entries(startHits).filter(([code, hits]) => hits.some((h) => (h.severity === "red" || h.requiresReview)) && (overrides[code]?.trim().length ?? 0) < 3).map(([c]) => c);
   const assessment = useMemo(() => (ctx && def.assess ? def.assess(answers, ctx) : null), [ctx, def, answers]);
   // guideline suggestions for every question, from the record and the answers so far
   const suggestions = useMemo(() => {
@@ -142,7 +162,8 @@ export function WizardDrawer({
     const vals = (suggestions[id] ?? []).map((x) => x.value);
     if (!vals.length) return;
     if (qType(id) === "multi") {
-      const cur = ((answers[id] as string[]) ?? []).filter((v) => vals.includes("none") || v !== "none");
+      const exclusive = def.steps.flatMap(st => st.questions).find(q => q.id === id)?.exclusive ?? [];
+      const cur = ((answers[id] as string[]) ?? []).filter((v) => (vals.includes("none") || v !== "none") && !(exclusive.includes(v) && vals.some(x => exclusive.includes(x))));
       set(id, vals.includes("none") ? ["none"] : [...new Set([...cur, ...vals])]);
     } else set(id, vals[0]);
   };
@@ -156,7 +177,7 @@ export function WizardDrawer({
   };
   const tone = def.tone;
   const thisPart = (): PathwayPart => ({
-    wizard, answers, dueDates, overrides, recommendationId: recommendationId ?? null, step,
+    wizard, answers, dueDates, overrides, recommendationId: recommendationId ?? null, evidenceKey: ctx?.evidenceKey, step,
     outcome: outcome.map((o) => o.label || (o as any).title), assessment: assessment ? { heading: assessment.heading, recommendations: assessment.recommendations } : null,
   });
   async function confirm() {
@@ -164,16 +185,16 @@ export function WizardDrawer({
     setBusy(true);
     setError("");
     confirming.current = true;
-    await draftReq.current;
     try {
+      await flushDraft();
       if (carried.length) {
-        const parts = [...carried, thisPart()].map((p) => ({ wizard: p.wizard, answers: p.answers, recommendationId: p.recommendationId ?? null, dueDates: p.dueDates, overrides: p.overrides }));
+        const parts = [...carried, thisPart()].map((p) => ({ wizard: p.wizard, answers: p.answers, recommendationId: p.recommendationId ?? null, dueDates: p.dueDates, overrides: p.overrides, evidenceKey: p.evidenceKey }));
         const r = await api(`/patients/${patientId}/wizards-joined/complete`, { body: { parts, contextId: contextId ?? null } });
         const n = r.outcome?.length ?? 0;
         onDone(`${parts.map((p) => WIZARDS[p.wizard].title).join(" + ")} recorded · ${n} action${n === 1 ? "" : "s"} added to the plan`, r);
         return;
       }
-      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers, recommendationId: recommendationId ?? null, contextId: contextId ?? null, dueDates, overrides } });
+      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers, recommendationId: recommendationId ?? null, contextId: contextId ?? null, dueDates, overrides, evidenceKey: ctx?.evidenceKey } });
       onDone(`${def.title}${r.review ? " review" : ""} recorded · ${outcome.length} action${outcome.length === 1 ? "" : "s"} added to the plan`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -203,7 +224,7 @@ export function WizardDrawer({
       subtitle={`${patientName} · ${episode ? `review, day ${episode.day}` : "prefilled from the record"}`}
       icon={<Icon size={22} />}
       tone={tone}
-      onClose={onClose}
+      onClose={closeWithDraft}
       head={
         <>
         {carried.length > 0 && (
@@ -252,11 +273,11 @@ export function WizardDrawer({
               ) : null)}
               {isReview && join ? (
                 <>
-                  <button className="btn secondary" disabled={busy || needReason.length > 0 || invalidDates} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
-                  <button className="btn primary" disabled={needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
+                  <button className="btn secondary" disabled={busy || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
+                  <button className="btn primary" disabled={(!!startKey && checkedStart !== startKey) || needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
                 </>
               ) : isReview ? (
-                <button className="btn primary" disabled={busy || needReason.length > 0 || invalidDates} title={needReason.length ? "Give the reason to start despite the contraindication" : undefined} onClick={() => confirm()}>
+                <button className="btn primary" disabled={busy || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} title={needReason.length ? "Review medication warnings and give a reason" : undefined} onClick={() => confirm()}>
                   {busy ? "Recording…" : carried.length ? `Confirm all ${carried.length + 1}` : "Confirm plan"}
                 </button>
               ) : (
@@ -279,7 +300,7 @@ export function WizardDrawer({
           {ctx?.trend && ctx.trend.points.length > 0 && (
             <div className="card" style={{ padding: 16, borderColor: tone === "red" && !trendInRange ? "var(--red-line)" : "var(--line)" }}>
               <div className="small" style={{ fontWeight: 700, color: "var(--ink-3)" }}>
-                {ctx.trend.label} · {fmtDay(ctx.trend.points[ctx.trend.points.length - 1].date)}
+                {ctx.trend.label} · {fmtDay(ctx.trend.points[ctx.trend.points.length - 1].date, { year: true })}
               </div>
               <div className="row" style={{ alignItems: "baseline", gap: 6, margin: "6px 0" }}>
                 <span style={{ fontSize: 36, fontWeight: 800, lineHeight: 1, color: trendInRange ? "var(--ink)" : tone === "red" ? "var(--red-ink)" : "var(--orange-ink)" }}>
@@ -290,7 +311,7 @@ export function WizardDrawer({
               <Sparkline values={ctx.trend.points.map((p) => p.value)} tone={trendInRange ? "gray" : tone === "red" ? "red" : "orange"} width={200} height={44} />
               <div className="row small muted" style={{ justifyContent: "space-between", fontWeight: 600 }}>
                 {ctx.trend.points.map((p) => (
-                  <span key={p.date}>{fmtDay(p.date)}</span>
+                  <span key={p.date}>{fmtDay(p.date, { year: true })}</span>
                 ))}
               </div>
             </div>
@@ -302,7 +323,7 @@ export function WizardDrawer({
                 <div style={{ fontSize: 17, fontWeight: 800, color: f.tone === "orange" ? "var(--orange-ink)" : undefined }}>
                   {f.value.split(" ")[0]} <span className="small muted" style={{ fontWeight: 600 }}>{f.value.split(" ").slice(1).join(" ")}</span>
                 </div>
-                {f.date && <div className="small muted" style={{ fontWeight: 600 }}>{fmtDay(f.date)}</div>}
+                {f.date && <div className="small muted" style={{ fontWeight: 600 }}>{fmtDay(f.date, { year: true })}</div>}
               </div>
             ))}
           </div>
@@ -316,10 +337,11 @@ export function WizardDrawer({
           </div>
         </aside>
         <div className="wiz-main">
-          {error && <div className="error-box">{error}</div>}
+          {ctx?.notices?.map(n => <div key={n} className="infobox warn">{n}</div>)}
+          {error && <div className="error-box" role="alert">{error}<button className="btn secondary small" onClick={closeWithDraft}>Save draft and close</button></div>}
           {episode && step === 0 && (
             <div className="wiz-review">
-              <b>Review · day {episode.day}</b> of the episode opened {fmtDay(episode.startedAt)}
+              <b>Review · day {episode.day}</b> of the episode opened {fmtDay(episode.startedAt, { year: true })}
               {episode.reviews ? ` (${episode.reviews} earlier review${episode.reviews === 1 ? "" : "s"})` : ""}. Your last answers are kept: change what is different. New plan items are added; earlier ones stay.
             </div>
           )}
@@ -354,7 +376,7 @@ export function WizardDrawer({
                   </details>
                 )}
                 {q.type === "multi" && (
-                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} rec={recVals} />
+                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} rec={recVals} exclusive={q.exclusive} />
                 )}
                 {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) && !recVals.length ? (
                   <Segmented label={q.label} options={optionsFor(q, ctx)} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} />
@@ -447,14 +469,16 @@ export function WizardDrawer({
             <div className="q">
               <div className="label">This will be recorded</div>
               {invalidDates && <div className="help">Complete the manual date to confirm.</div>}
+              {!!startKey && checkedStart !== startKey && <div className="help" role="status">Checking the proposed medicines together…</div>}
+              {needReason.length > 0 && <div className="infobox warn" role="status">Review the medication warnings below and enter a reason before confirming.</div>}
               <div className="outcome">
                 {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
                 {outcome.map((o, i) => {
                   const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
-                  const red = hits.some((h) => h.severity === "red");
+                  const red = hits.some((h) => (h.severity === "red" || h.requiresReview));
                   return (
                     <div key={i} className={hits.length ? "has-hits" : undefined}>
-                      <div className="out-line">
+                      <div className="out-line" data-plan={o.kind === "plan"}>
                         {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
                         <span className="grow">{o.label}</span>
                         {o.kind === "plan" && (

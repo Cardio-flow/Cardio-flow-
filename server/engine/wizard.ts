@@ -1,3 +1,4 @@
+import { evidenceKey, checkEvidence, checkRecommendation } from "../kernel/evidence.js";
 import { validateLabAnswers } from "../../shared/wizards-lab.js";
 import { labResults } from "./lab-results.js";
 import { validDate } from "../../shared/dates.js";
@@ -26,7 +27,7 @@ import { daptIndication, oacIndication, valveInterventions } from "./valve-rules
 import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
-import { preStartCheck } from "./med-safety.js";
+import { preStartCheck, proposedMedicines } from "./med-safety.js";
 import { latestPhEcho } from "./ph-profile.js";
 import { latestCcsTest } from "./cad-tests.js";
 
@@ -216,7 +217,10 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     else if (morphology === "Tricuspid") base.detected.morphology = ["tricuspid"];
     else if (morphology === "Other morphology") base.detected.morphology = ["other"];
   }
-  return { ...base, lab:labResults(s), hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  const statins = base.meds.filter(m => m.tags.includes("statin"));
+  const ck = s.resolved("ck").current;
+  const notices = wizardId === "statin-ck-result" && ck && statins.length && statins.every(m => m.startedAt && ck.effective_at < m.startedAt) ? ["This CK predates the current statin treatment. Verify a current result before attributing it to this prescription."] : [];
+  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -251,7 +255,7 @@ export async function completeWizard(
   actor: Actor,
   patientId: string,
   wizardId: string,
-  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string>; overrides?: Record<string, string> },
+  input: { answers: Answers; recommendationId?: string | null; contextId?: string | null; dueDates?: Record<string, string>; overrides?: Record<string, string>; evidenceKey?: string },
 ) {
   await liveContext(tx,patientId,input.contextId);
   const def = WIZARDS[wizardId];
@@ -261,11 +265,15 @@ export async function completeWizard(
     if (missing.length) throw new ApiError(400, `Answer "${missing[0].label}" before confirming`);
   }
   const s = await loadState(tx, patientId);
+  checkEvidence(s, input.evidenceKey);
+  await checkRecommendation(tx, patientId, wizardId, input.recommendationId);
   const ctx = wizardContext(s, wizardId);
   // an option that does not fit the patient's medicines cannot be confirmed
   for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
     const allowed = new Set(optionsFor(q, ctx).map((o) => o.value));
     const chosen = input.answers[q.id];
+    if (q.exclusive && Array.isArray(chosen) && chosen.filter(v => q.exclusive!.includes(String(v))).length > 1)
+      throw new ApiError(400, `${q.label}: choose one medication action`);
     for (const v of Array.isArray(chosen) ? chosen : chosen != null ? [String(chosen)] : [])
       if (!allowed.has(String(v))) throw new ApiError(400, `"${q.options!.find((o) => o.value === v)?.label ?? v}" does not apply to this patient's medicines`);
   }
@@ -310,7 +318,7 @@ export async function completeWizard(
   for (const item of outcome) {
     if (item.kind !== "start" || !MEDICATION[item.code]) continue;
     if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
-    const reds = preStartCheck(afterStops, item.code, MEDICATION[item.code]).filter((h) => h.severity === "red");
+    const reds = preStartCheck(afterStops, item.code, MEDICATION[item.code]).filter((h) => h.severity === "red" || h.requiresReview);
     if (!reds.length) continue;
     const why = input.overrides?.[item.code]?.trim();
     if (!why || why.length < 3) throw new ApiError(409, `${MEDICATION[item.code].name}: ${reds[0].title}. Record a reason to start it anyway.`);
@@ -373,6 +381,10 @@ export async function completeWizard(
         medicationId: item.medicationId ?? (await medByRef(item.medicationRef)),
       });
     }
+  }
+  if (wizardId === "rdn-plan" && input.answers.decision === "schedule") {
+    const fulfilled = (await tx.query(`UPDATE cf.plan_action SET status='completed',progress='reviewed',completed_at=$2,completed_by_ref=$3,completion_refs=$4,reviewed_at=$2,reviewed_by=$5,outcome='Specialist assessment confirmed in the RDN approval decision',version=version+1,updated_at=now() WHERE patient_id=$1 AND status='planned' AND title='Resistant hypertension: specialist assessment' RETURNING id`, [patientId, at, decisionId, [decisionId], actor.id])).rows;
+    for (const task of fulfilled) await audit(tx, actor, "specialist-assessment-reviewed", "plan_action", task.id, patientId, {decisionId});
   }
   if (input.recommendationId)
     await tx.query(`UPDATE cf.recommendation SET status='decided', closed_at=now() WHERE id=$1 AND patient_id=$2 AND status='active'`, [input.recommendationId, patientId]);
@@ -506,7 +518,8 @@ export async function resolveEpisode(tx: Q, actor: Actor, patientId: string, epi
 // switched to clopidogrel) does not count against the one being started
 export function startChecksState(s: PatientState, outcome: ReturnType<typeof buildOutcome>): PatientState {
   const stopped = new Set(outcome.flatMap((o) => (o.kind === "medication" && o.event === "stop" ? [o.medicationId] : [])));
-  return stopped.size ? ({ ...s, meds: s.meds.filter((m) => !stopped.has(m.id)) } as PatientState) : s;
+  const after = stopped.size ? ({ ...s, meds: s.meds.filter((m) => !stopped.has(m.id)) } as PatientState) : s;
+  return proposedMedicines(after, outcome.flatMap(o => o.kind === "start" && MEDICATION[o.code] ? [o.code] : []));
 }
 
 // pre-start check of every medicine the answers would start (the Confirm step shows them; red needs a reason)

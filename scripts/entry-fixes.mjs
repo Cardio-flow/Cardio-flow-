@@ -1,5 +1,5 @@
 // Synthetic browser regression: visit continuity, keyboard entry, draft protection.
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 const out = process.argv[2] || "/tmp/entry-fixes";
@@ -137,10 +137,14 @@ try {
   const note = page.getByLabel("Clinic note", { exact: true });
   await note.waitFor();
   await note.fill("Synthetic clinician draft to retain");
-  page.on("dialog", declineDiscard);
+  // Notes now autosave on close instead of prompting to discard clinician edits.
   await page.keyboard.press("Escape");
-  assert.equal(await note.inputValue(), "Synthetic clinician draft to retain");
-  page.off("dialog", declineDiscard);
+  await visit.waitFor({state:"hidden"});
+  await page.getByRole("button",{name:"Continue visit",exact:true}).click();
+  await visit.getByRole("button",{name:"Save and continue",exact:true}).click();
+  await visit.getByRole("button",{name:"Continue to note",exact:true}).click();
+  await expect(note).toBeEnabled();
+  await expect(note).toHaveValue("Synthetic clinician draft to retain");
   await visit
     .getByRole("button", { name: "Finish visit", exact: true })
     .click();

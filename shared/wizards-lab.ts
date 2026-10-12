@@ -450,6 +450,7 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
           {
             id: "actions",
             label: "Actions",
+            exclusive: ["continue", "hold", "stop"],
             type: "multi",
             required: true,
             options: [
@@ -595,6 +596,7 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
           {
             id: "actions",
             label: "Actions",
+            exclusive: ["continue", "hold", "stop"],
             type: "multi",
             required: true,
             options: [

@@ -158,7 +158,7 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
     urgency: "elective", risk: "high", bleeding: "high", active: ["none"], capacity: "poor", pci: "none", rcri: ["hf"],
     tests: ["troponin", "bnp", "echo"], meds: ["doac", "sglt2", "p2y12"], conclusion: "after-tests", review: "none",
   } }));
-  const titles = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).map((r) => r.title);
+  const titles = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
   assert.ok(titles.some((t) => /hs-troponin before surgery/.test(t)));
   assert.ok(titles.some((t) => /Interrupt DOAC/.test(t)));
   assert.ok(titles.some((t) => /Stop SGLT2 inhibitor at least 3 days/.test(t)));
@@ -173,7 +173,7 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
     setting: "cap", curb: ["u", "65"], severity: "moderate", tests: ["cxr", "cultures", "cardiac"], "cap-abx": "amox-mac",
     cardiac: ["qt", "sickday"], recheck: "2", after: ["review", "vaccines"], review: "clinic-7",
   } }));
-  const t2 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).map((r) => r.title);
+  const t2 = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
   assert.ok(t2.some((t) => /CAP \(moderate\): amoxicillin \+ macrolide/.test(t)));
   assert.ok(t2.some((t) => /QTc on ECG/.test(t)));
   assert.equal(await status(p2, "dapagliflozin"), "held");
@@ -191,7 +191,7 @@ test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated
     criteria: ["ecg", "crp"], episode: "first", myocardium: "yes", highrisk: ["oac"], tests: ["ecg", "echo"],
     first: ["aspirin", "colchicine", "ppi"], activity: "myo", crp: "7", review: "clinic-7",
   } }));
-  const t1 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).map((r) => r.title);
+  const t1 = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
   assert.ok(t1.some((t) => /Colchicine for pericarditis: continue at least 3–6 months/.test(t)));
   assert.ok(t1.some((t) => /Cardiac MRI/.test(t)));
   assert.ok(t1.some((t) => /haemopericardium/.test(t)));
@@ -201,7 +201,7 @@ test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated
     features: ["prosthetic", "fever-murmur"], tests: ["cultures", "tte", "toe", "pet"], duke: "possible",
     team: "refer", surgery: ["uncontrolled"], abx: "empirical", monitoring: ["clearance", "dental"], review: "none",
   } }));
-  const t2 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).map((r) => r.title);
+  const t2 = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [p2])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
   assert.ok(t2.some((t) => /Three sets of blood cultures/.test(t)));
   assert.ok(t2.some((t) => /Urgent cardiac surgery \(within 3–5 days\): uncontrolled infection/.test(t)));
   assert.ok(t2.some((t) => /Endocarditis Team discussion/.test(t)));
@@ -211,7 +211,7 @@ test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated
   await tx((q) => completeWizard(q, doc, p3, "amiodarone-thyroid", { answers: {
     situation: "thyrotox", type: "type2", cardiac: ["amio", "rate"], endo: "refer", review: "clinic-14",
   } }));
-  const t3 = ((await db.query(`SELECT title FROM cf.plan_action WHERE patient_id=$1`, [p3])).rows as any[]).map((r) => r.title);
+  const t3 = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [p3])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
   assert.ok(t3.some((t) => /Type 2 amiodarone thyrotoxicosis: oral glucocorticoid/.test(t)));
   assert.ok(t3.some((t) => /Endocrinology referral/.test(t)));
 });

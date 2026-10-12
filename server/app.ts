@@ -7,12 +7,14 @@ import * as K from "./kernel/clinical.js";
 import * as C from "./kernel/corrections.js";
 import { civilIdBirthDate } from "../shared/civil-id.js";
 import { loadState } from "./kernel/state.js";
-import { preStartCheck } from "./engine/med-safety.js";
-import { bookMonitoringAtStart } from "./engine/med-rules.js";
+import { preStartCheck, proposedMedicines } from "./engine/med-safety.js";
+import { bookMonitoringAtStart, monitoringPreview } from "./engine/med-rules.js";
 import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups } from "./kernel/views.js";
+import { getVisitDraft, saveVisitDraft } from "./kernel/visit-drafts.js";
+import { checkEvidence, evidenceKey } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
 import { editContext, removeContext } from "./kernel/context-management.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -240,6 +242,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           today: s.today,
           meds,
           medicationHistory: medicationView.history,
+          medicationWarnings: medicationView.warnings,
           plan: planView(s),
           results: results(s, [...LABS.map((l) => l.code)]),
           procedures: s.procedures,
@@ -487,7 +490,17 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       const s = await loadState(tx, id);
       // mavacamten: the starting dose from the CYP2C19 result on the HCM diagnosis (SmPC 4.2)
       const start = def.code === "mavacamten" ? mavacamtenStart(s.conditions.find((c) => c.code === "hcm" && c.status === "active")?.attributes?.cyp2c19 as string | undefined) : null;
-      return { hits: preStartCheck(s, def.code, def), start };
+      return { hits: preStartCheck(s, def.code, def), start, monitoring: monitoringPreview(s,def.code) };
+    }));
+  }));
+  app.post("/api/patients/:id/medication-check-batch", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { codes } = z.object({ codes: z.array(z.string().max(60)).max(15) }).parse(req.body);
+    for (const code of codes) if (!MEDICATION[code]) throw new ApiError(400, "Unknown medicine");
+    res.json(await db.transaction(async tx => {
+      await patientInSite(tx, actor(res), id);
+      const state = proposedMedicines(await loadState(tx, id), codes);
+      return { hits: Object.fromEntries(codes.map(code => [code, preStartCheck(state, code, MEDICATION[code])])) };
     }));
   }));
   const medStartS = z.object({
@@ -501,6 +514,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     contextId: uuidS.nullish(),
     monitoring: z.object({ dueDate: isoDate.refine((d) => d >= today(), "A monitoring check cannot be dated in the past"), title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
     bookSchedule: z.boolean().optional(),
+    monitoringDates: z.record(z.string().max(80), isoDate.refine(d => d >= today(), "A monitoring check cannot be dated in the past")).optional(),
     // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
     override: z.string().trim().min(3).max(300).optional(),
   });
@@ -509,12 +523,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     if (!def) throw new ApiError(400, "Unknown medicine");
     if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The start date cannot be in the future. Add a plan item to start it later.");
     // the check reads the record as it is now, including medicines started earlier in the same batch
-    const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red");
-    if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title.startsWith(def.name) ? "" : `${def.name}: `}${reds[0].title}. Record a reason to start it anyway.`);
-    const reason = reds.length ? [input.reason, `Started despite: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
+    const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red" || h.requiresReview);
+    if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title.startsWith(def.name) ? "" : `${def.name}: `}${reds[0].title}. Review this warning and record your reason before starting.`);
+    const reason = reds.length ? [input.reason, `${reds.some(h => h.severity === "red") ? "Started despite" : "Medication warnings reviewed"}: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
     const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
     // the medicine's monitoring schedule (label / guideline)
-    if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null);
+    if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null, input.monitoringDates);
     if (input.monitoring)
       await K.addPlanAction(tx, a, id, {
         category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
@@ -533,6 +547,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const { items } = z.object({ items: z.array(medStartS).min(1).max(15) }).parse(req.body);
     if (new Set(items.map((i) => i.code)).size !== items.length) throw new ApiError(400, "The same medicine is listed twice");
     await write(res, id, async (tx, a) => {
+      for (const item of items) if (!MEDICATION[item.code]) throw new ApiError(400, "Unknown medicine");
+      const proposed = proposedMedicines(await loadState(tx, id), items.map(i => i.code));
+      for (const item of items) { const blocked = preStartCheck(proposed, item.code, MEDICATION[item.code]).filter(h => h.severity === "red" || h.requiresReview); if (blocked.length && !item.override) throw new ApiError(409, `${blocked[0].title}. Review this combination before starting it.`); }
       const started: string[] = [];
       for (const item of items) started.push((await startOne(tx, a, id, item)).medicationId);
       return { started, changed: ["meds", "plan"] };
@@ -678,8 +695,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional() }).parse(req.body);
-    await write(res, id, async (tx, a) => ({ changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }));
+    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional() }).parse(req.body);
+    await write(res, id, async (tx, a) => { checkEvidence(await loadState(tx, id), input.evidenceKey); return { changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }; });
   }));
   app.post("/api/patients/:id/status", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -695,6 +712,15 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       .parse(req.body);
     // a status change can empty or refill every reminder: re-run all rules
     await write(res, id, async (tx, a) => ({ ...(await K.recordStatus(tx, a, id, input)), changed: undefined }));
+  }));
+  app.get("/api/patients/:id/contexts/:cid/draft", route(async (req, res) => {
+    const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return getVisitDraft(tx,id,cid); }));
+  }));
+  app.post("/api/patients/:id/contexts/:cid/draft", clinician, route(async (req, res) => {
+    const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
+    const input=z.object({version:z.number().int().min(0),note:z.string().max(8000),narrative:z.string().max(4000),generatedNote:z.string().max(8000),evidenceKey:z.string().regex(/^[a-f0-9]{64}$/)}).parse(req.body);
+    res.json(await db.transaction(async tx => { await patientInSite(tx,actor(res),id); return saveVisitDraft(tx,actor(res),id,cid,input); }));
   }));
   app.get("/api/patients/:id/contexts/:cid/note", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -778,12 +804,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // applied inside a transaction that is always rolled back (nothing is saved here)
   const partS = z.object({ wizard: z.string().max(60), answers: z.record(z.string(), z.any()), overrides: z.record(z.string(), z.string().max(300)).optional() });
   class Rollback { constructor(public value: unknown) {} }
-  async function afterParts<T>(a: Actor, id: string, parts: z.infer<typeof partS>[], fn: (tx: Q) => Promise<T>): Promise<T> {
+  async function afterParts<T>(a: Actor, id: string, parts: z.infer<typeof partS>[], fn: (tx: Q, sourceKey: string) => Promise<T>): Promise<T> {
     try {
       await db.transaction(async (tx) => {
         await patientInSite(tx, a, id);
+        const sourceKey = evidenceKey(await loadState(tx, id));
         for (const p of parts) await completeWizard(tx, a, id, p.wizard, { answers: p.answers, overrides: p.overrides });
-        throw new Rollback(await fn(tx));
+        throw new Rollback(await fn(tx, sourceKey));
       });
     } catch (e) {
       if (e instanceof Rollback) return e.value as T;
@@ -794,7 +821,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.post("/api/patients/:id/wizards/:wizard/context", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z.object({ before: z.array(partS).max(4) }).parse(req.body);
-    res.json(await afterParts(actor(res), id, input.before, (tx) => getWizard(tx, id, String(req.params.wizard))));
+    res.json(await afterParts(actor(res), id, input.before, async (tx, sourceKey) => { const result = await getWizard(tx, id, String(req.params.wizard)); result.context.evidenceKey = sourceKey; return result; }));
   }));
   app.put("/api/patients/:id/wizards/:wizard/draft", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -804,18 +831,20 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/wizards/:wizard/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() }).parse(req.body);
+    const input = z.object({ answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), contextId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() }).parse(req.body);
     await write(res, id, (tx, a) => completeWizard(tx, a, id, String(req.params.wizard), input));
   }));
   // joined pathways (e.g. bleeding, then the antithrombotic plan): every part recorded in one transaction,
   // in order, so the later part sees what the earlier one changed
   app.post("/api/patients/:id/wizards-joined/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const part = z.object({ wizard: z.string().max(60), answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() });
+    const part = z.object({ wizard: z.string().max(60), answers: z.record(z.string(), z.any()), recommendationId: uuidS.nullish(), dueDates: z.record(z.string().max(200), isoDate).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(), overrides: z.record(z.string(), z.string().max(300)).optional() });
     const input = z.object({ parts: z.array(part).min(1).max(4), contextId: uuidS.nullish() }).parse(req.body);
     await write(res, id, async (tx, a) => {
+      const source = await loadState(tx, id);
+      for (const p of input.parts) checkEvidence(source, p.evidenceKey);
       const results = [];
-      for (const p of input.parts) results.push(await completeWizard(tx, a, id, p.wizard, { ...p, contextId: input.contextId }));
+      for (const p of input.parts) results.push(await completeWizard(tx, a, id, p.wizard, { ...p, evidenceKey: undefined, contextId: input.contextId }));
       return { parts: results, review: results.some((r) => r.review), outcome: results.flatMap((r) => r.outcome), changed: [...new Set(results.flatMap((r) => r.changed))] };
     });
   }));

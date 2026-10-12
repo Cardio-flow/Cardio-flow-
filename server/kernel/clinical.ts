@@ -1,5 +1,7 @@
 // Write operations on the kernel. Each returns the list of "inputs" it changed so the
 // engine only re-runs rules that read them.
+import { reuseBooking } from "./plan-bookings.js";
+import { needsExplicitReview } from "../../shared/plan-evidence.js";
 import type { Q } from "../db/db.js";
 import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay } from "../../shared/clinical.js";
@@ -839,17 +841,13 @@ export type PlanInput = {
 
 export async function addPlanAction(tx: Q, actor: Actor, patientId: string, input: PlanInput) {
   await liveContext(tx,patientId,input.contextId);
-  // the same item already planned for the same day is not planned twice (two drawers, two medicines, re-save)
-  const same = (await tx.query(
-    `SELECT id FROM cf.plan_action WHERE patient_id=$1 AND status='planned' AND lower(title)=lower($2) AND due_date IS NOT DISTINCT FROM $3::date LIMIT 1`,
-    [patientId, input.title, input.dueDate ?? null],
-  )).rows[0] as { id: string } | undefined;
-  if (same) return { id: same.id, changed: [] as Changed };
+  const existing = await reuseBooking(tx, actor, patientId, input);
+  if (existing) return existing;
   const id = uuid();
   await tx.query(
-    `INSERT INTO cf.plan_action(id,patient_id,category,title,reason,due_date,completes_on,status,source_context_id,decision_id,medication_id,created_by,created_at,owner)
-     VALUES($1,$2,$3,$4,$5,$6,$7,'planned',$8,$9,$10,$11,$12,$13)`,
-    [id, patientId, input.category, input.title, input.reason ?? "", input.dueDate, JSON.stringify(input.completesOn ?? { type: "manual" }), input.contextId ?? null, input.decisionId ?? null, input.medicationId ?? null, actor.id, input.createdAt ?? nowIso(), input.owner?.trim() || actor.name],
+    `INSERT INTO cf.plan_action(id,patient_id,category,title,reason,due_date,completes_on,status,source_context_id,decision_id,medication_id,created_by,created_at,owner,indications,decision_refs,context_refs)
+     VALUES($1,$2,$3,$4,$5,$6,$7,'planned',$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    [id, patientId, input.category, input.title, input.reason ?? "", input.dueDate, JSON.stringify(input.completesOn ?? { type: "manual" }), input.contextId ?? null, input.decisionId ?? null, input.medicationId ?? null, actor.id, input.createdAt ?? nowIso(), input.owner?.trim() || actor.name, [input.title], input.decisionId ? [input.decisionId] : [], input.contextId ? [input.contextId] : []],
   );
   await audit(tx, actor, "plan", "plan_action", id, patientId, { title: input.title, due: input.dueDate });
   return { id, changed: ["plan"] as Changed };
@@ -914,17 +912,25 @@ export async function completeMatching(
   const done: { id: string; title: string }[] = [];
   // one result closes the earliest waiting action of each kind (a visit closes all that are due)
   open.sort((x, y) => String(x.due_date ?? "9999").localeCompare(String(y.due_date ?? "9999")));
+  let collection: any[] = [];
+  if (trigger.type === "lab") {
+    const source = (await tx.query(`SELECT effective_at,source,context_id,status FROM cf.observation WHERE id::text=$1`, [trigger.ref])).rows[0];
+    if (source?.status !== "final") return [];
+    collection = (await tx.query(`SELECT * FROM (SELECT DISTINCT ON (logical_id) id,logical_id,code,status,effective_at,source,context_id,version FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id,version DESC) o WHERE status='final' AND effective_at=$2::timestamptz AND source=$3 AND context_id IS NOT DISTINCT FROM $4::uuid ORDER BY effective_at DESC,version DESC`, [patientId, source.effective_at, source.source, source.context_id])).rows;
+  }
   const used = new Set<string>();
   const usedDue = new Map<string, string>();
   for (const a of open) {
     const c = a.completes_on ?? {};
     if (c.type !== trigger.type) continue;
+    if (trigger.type === "visit" && needsExplicitReview(a.title, c)) continue;
     if (new Date(trigger.at) < new Date(a.created_at) && trigger.type !== "visit") continue;
     // how early a result may count: never more than half the planned interval (max 7 days; 30 for Echo)
     const interval = a.due_date ? Math.max(0, daysBetween(new Date(a.created_at).toISOString(), String(a.due_date).slice(0, 10))) : 0;
     const windowDays = trigger.type === "procedure" ? 0 : trigger.type === "study" ? 30 : Math.min(7, Math.floor(interval / 2));
     if (trigger.type !== "procedure" && a.due_date && day < addDays(String(a.due_date).slice(0, 10), -windowDays)) continue;
-    if (trigger.type === "lab" && !(c.codes ?? []).every((code: string) => trigger.codes.includes(code))) continue;
+    const collected = trigger.type === "lab" ? (c.codes ?? []).map((code: string) => collection.find(o => o.code === code && new Date(o.effective_at) >= new Date(a.created_at))) : [];
+    if (trigger.type === "lab" && (!collected.length || collected.some((o: any) => !o))) continue;
     // a stress MIBI is a stress test: it completes a planned "stress test", but not an exercise echo (LVOT
     // gradient) nor, when pharmacological, an exercise test; an exercise ECG does not complete stress imaging
     if (trigger.type === "study") {
@@ -948,7 +954,7 @@ export async function completeMatching(
     used.add(signature);
     if (!usedDue.has(signature)) usedDue.set(signature, due);
     const refs = trigger.type === "lab" && trigger.results
-      ? trigger.results.filter((r) => (c.codes ?? []).includes(r.code)).map((r) => r.id)
+      ? collected.map((r: any) => r.id)
       : [trigger.ref];
     await tx.query(`UPDATE cf.plan_action SET status='completed', progress=$5, completed_at=$2, completed_by_ref=$3, completion_refs=$6, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1 AND status='planned'`, [
       a.id, trigger.at, refs[0] ?? trigger.ref, "Completed automatically when the result was recorded", trigger.type === "visit" ? "reviewed" : "performed", refs,
@@ -1146,6 +1152,7 @@ export async function closeVisit(tx: Q, actor: Actor, patientId: string, context
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, version=version+1, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
+  await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, `visit:${contextId}`]);
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;
 }
