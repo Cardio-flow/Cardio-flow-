@@ -20,6 +20,7 @@ import { evidenceKey, checkEvidence } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
 import { editContext, removeContext, recordPastAdmission } from "./kernel/context-management.js";
 import { ADMISSION_HISTORY_SOURCES } from "../shared/admission-history.js";
+import { HTN_DIAGNOSIS_STATUS } from "../shared/hypertension.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
@@ -205,6 +206,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         birthDateEstimated: z.boolean().optional(),
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
+        hypertensionStatus: z.enum(HTN_DIAGNOSIS_STATUS).optional(),
         sample: z.boolean().default(false),
         ...identity,
       })

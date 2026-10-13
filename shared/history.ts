@@ -10,6 +10,7 @@
 // No thresholds live here. Option lists are descriptive categories only.
 
 import { CYP2C19_PHENOTYPES } from "./mavacamten.js";
+import { HTN_DIAGNOSIS_STATUS } from "./hypertension.js";
 export type Answer = "no" | "unknown" | "not-assessed" | "na";
 export const ANSWER_LABEL: Record<string, string> = { yes: "Yes", no: "No", unknown: "Unknown", "not-assessed": "Not assessed", na: "Not applicable" };
 
@@ -125,6 +126,7 @@ const GENETIC: AttrField[] = [
 ];
 const CMP_FIELDS: AttrField[] = GENETIC;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
+  htn: [{ key: "diagnosisStatus", label: "Hypertension status", options: [...HTN_DIAGNOSIS_STATUS], text: v => v === "Newly diagnosed" ? "New diagnosis" : null }],
   hcm: [
     { key: "form", label: "Form", options: ["Obstructive", "Non-obstructive", "Apical", "Unknown"], text: (v) => (v === "Unknown" ? null : v) },
     ...GENETIC,

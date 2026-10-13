@@ -347,12 +347,13 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
             c.hypertension?.office &&
             !officeHigh(c.hypertension.office))) &&
         c.hypertension?.outside?.valid &&
-        c.hypertension.outside.high
+        c.hypertension.outside.high &&
+        !c.dx?.includes("htn")
       )
         out.push({
           kind: "condition",
           code: "htn",
-          attributes: {},
+          attributes: { diagnosisStatus: "Newly diagnosed" },
           label: "Hypertension confirmed by clinician",
         });
       if (selected(a, "actions", "annual"))

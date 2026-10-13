@@ -586,7 +586,7 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
           />
         )}
         {t.bp && (
-          <Goal label="Blood pressure" value={t.bp.sbp != null ? (t.bp.dbp != null ? `${num(t.bp.sbp)}/${num(t.bp.dbp)} mmHg` : `SBP ${num(t.bp.sbp)} mmHg`) : "Not measured"} goal={`Goal SBP ${t.bp.target}`} met={t.bp.met} sub={t.bp.at ? fmtDay(t.bp.at) : ""} />
+          <Goal label="Blood pressure" value={t.bp.sbp != null ? (t.bp.dbp != null ? `${num(t.bp.sbp)}/${num(t.bp.dbp)} mmHg` : `SBP ${num(t.bp.sbp)} mmHg`) : t.bp.dbp != null ? `DBP ${num(t.bp.dbp)} mmHg` : "Not measured"} goal={t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated`} met={t.bp.met} sub={t.bp.at ? fmtDay(t.bp.at) : ""} />
         )}
         {t.metabolic && (
           <Goal

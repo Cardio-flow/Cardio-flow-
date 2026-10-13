@@ -56,6 +56,7 @@ export const HYPERTENSION_RULES: RuleDef[] = [
       )
         return [];
       const known = s.tags.has("htn");
+      if (known && !h.newlyDiagnosed) return [];
       const elevated =
         !!h.office && (h.office.sbp >= 130 || h.office.dbp >= 80);
       if (
@@ -66,7 +67,12 @@ export const HYPERTENSION_RULES: RuleDef[] = [
       )
         return [];
       const review = s.procedureReviews?.["htn-review"]?.answers;
-      if (review?._hypertensionKey === h.key && !severeBp(h.office)) return [];
+      if (
+        (review?._hypertensionKey === h.key ||
+          review?._managementKey === h.managementKey) &&
+        !severeBp(h.office)
+      )
+        return [];
       return [
         finding(
           "htn-management",
@@ -138,6 +144,14 @@ export const HYPERTENSION_RULES: RuleDef[] = [
     evaluate(s) {
       const h = hypertensionProfile(s);
       if (s.patient.age < 18 || !s.tags.has("htn")) return [];
+      // Completed abnormal reports still need review; routine screening offers
+      // are limited to newly diagnosed or apparent resistant hypertension.
+      if (
+        !h.screeningIndicated &&
+        h.pa?.result !== "Positive" &&
+        h.secondary?.result !== "Secondary cause identified"
+      )
+        return [];
       const review = s.procedureReviews?.["htn-secondary"]?.answers;
       if (review?._hypertensionKey === h.key) return [];
       const suspect = h.secondaryClues.length > 0;

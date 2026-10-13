@@ -26,8 +26,8 @@ test("cardiometabolic patient: LDL escalation, SGLT2i, GLP-1 RA, finerenone and 
   const id = await byName("Salem Al-Rashidi");
   const recs = await active(id);
   const ids = recs.map((r) => r.rule_id);
-  for (const r of ["lipids.ldl-goal", "metabolic.diabetes-cv-protection", "cardiorenal.finerenone", "htn.management", "lipids.lpa-once"]) assert.ok(ids.includes(r), r);
-  assert.equal(ids.includes("htn.bp-target"),false,"BP assessment must have one route");
+  for (const r of ["lipids.ldl-goal", "metabolic.diabetes-cv-protection", "cardiorenal.finerenone", "htn.bp-target", "lipids.lpa-once"]) assert.ok(ids.includes(r), r);
+  assert.equal(ids.includes("htn.management"),false,"Established non-resistant hypertension has the BP target route only");
   const ldl = recs.find((r) => r.rule_id === "lipids.ldl-goal");
   assert.match(ldl.title, /above goal <1\.4/);
   assert.equal(act(ldl).type, "titrate"); // moderate-intensity statin → high intensity first

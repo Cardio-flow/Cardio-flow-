@@ -7,6 +7,8 @@ import { loadState, type PatientState } from "../server/kernel/state.js";
 import { today, nowIso, type Actor } from "../server/kernel/base.js";
 import { completeWizard, getWizard } from "../server/engine/wizard.js";
 import { HYPERTENSION_RULES } from "../server/engine/hypertension-rules.js";
+import { GUIDELINE_RULES, targets } from "../server/engine/guidelines.js";
+import { MEASURES, LAB_PRESETS } from "../shared/catalog.js";
 import { ACUTE_RULES } from "../server/engine/acute-rules.js";
 import { hypertensionProfile } from "../server/engine/hypertension-profile.js";
 import { buildOutcome } from "../shared/wizards.js";
@@ -132,7 +134,10 @@ test("manual pathway dates reject incomplete and impossible dates instead of kee
       /choose today or a later date/,
     );
 });
-const patient = (birthDate = "1960-01-01") =>
+const patient = (
+  birthDate = "1960-01-01",
+  hypertensionStatus?: import("../shared/hypertension.js").HypertensionDiagnosisStatus,
+) =>
   tx((q) =>
     K.createPatient(q, a, {
       name: "Synthetic hypertension",
@@ -140,6 +145,7 @@ const patient = (birthDate = "1960-01-01") =>
       sex: "Male",
       birthDate,
       conditions: ["htn"],
+      hypertensionStatus,
     }),
   );
 const obs = (id: string, sbp = 155, dbp = 95) =>
@@ -293,7 +299,11 @@ test("paired office BP, valid ABPM and combination components distinguish white-
   await abpm(id, { sbp24: 135, dbp24: 85 });
   s = await loadState(db, id);
   assert.equal(hypertensionProfile(s).phenotype, "Masked hypertension");
-  assert.match(rules(s, "htn.management")[0].title, /masked/);
+  assert.equal(
+    rules(s, "htn.management").length,
+    0,
+    "Established disease does not reopen the full management pathway",
+  );
   const masked = buildOutcome(
     "htn-review",
     {
@@ -306,7 +316,7 @@ test("paired office BP, valid ABPM and combination components distinguish white-
     (await getWizard(db, id, "htn-review")).context,
   );
   assert(
-    masked.some((item) => item.kind === "condition" && item.code === "htn"),
+    !masked.some((item) => item.kind === "condition" && item.code === "htn"),
   );
 });
 test("RDN blocks missing confirmations, invalid ABPM, low eGFR, secondary disease and unreliable aldosteronism samples", async () => {
@@ -472,10 +482,15 @@ test("RDN scheduling rejects missing anatomy or shared decision and closes only 
   );
   await complete(id, "rdn-plan", rdn);
   let s = await loadState(db, id);
-  const specialist = s.plan.find(p => p.title === "Resistant hypertension: specialist assessment");
+  const specialist = s.plan.find(
+    (p) => p.title === "Resistant hypertension: specialist assessment",
+  );
   assert.ok(specialist);
-  assert.equal(specialist.status,"completed");
-  assert.ok(specialist.reviewed_at,"RDN scheduling records the specialist decision, rather than any clinic attendance");
+  assert.equal(specialist.status, "completed");
+  assert.ok(
+    specialist.reviewed_at,
+    "RDN scheduling records the specialist decision, rather than any clinic attendance",
+  );
   const p = s.plan.find((p) => p.completes_on.kind === "rdn")!;
   assert.equal(p.status, "planned");
   await tx((q) =>
@@ -518,8 +533,8 @@ test("RDN scheduling rejects missing anatomy or shared decision and closes only 
   });
   assert.equal(rules(await loadState(db, id), "htn.rdn-aftercare").length, 0);
 });
-test("aldosteronism screening is offered without hypokalaemia; new results reopen review and purpose matching prevents wrong closure", async () => {
-  const id = await patient();
+test("newly diagnosed hypertension offers aldosteronism screening without hypokalaemia; new results reopen review and purpose matching prevents wrong closure", async () => {
+  const id = await patient("1960-01-01", "Newly diagnosed");
   await obs(id, 125, 75);
   let s = await loadState(db, id);
   assert.equal(rules(s, "htn.secondary").length, 1);
@@ -644,4 +659,234 @@ test("young onset, low potassium and non-dipping generate screening clues; marke
     false,
   );
   assert(outcome.some((i) => i.kind === "plan" && /now/.test(i.title)));
+});
+
+const bpTarget = (s: PatientState) => {
+  const rule = GUIDELINE_RULES.find((r) => r.id === "htn.bp-target")!;
+  return rule.evaluate(s, rule.defaultParams);
+};
+
+test("established and unspecified hypertension offer BP targets without reopening generic screening", async () => {
+  for (const status of ["Established", "Unknown", undefined] as const) {
+    const id = await patient("1990-01-01", status);
+    await obs(id, 148, 88);
+    const s = await loadState(db, id),
+      h = hypertensionProfile(s);
+    assert.equal(h.newlyDiagnosed, false);
+    assert.equal(h.screeningIndicated, false);
+    assert.equal(rules(s, "htn.management").length, 0);
+    assert.equal(rules(s, "htn.secondary").length, 0);
+    assert.equal(bpTarget(s).length, 1);
+    assert.equal(targets(s).bp?.target, "120–129");
+  }
+});
+
+test("new hypertension activates assessment and secondary screening; changing to established resolves those offers", async () => {
+  const id = await patient("1960-01-01", "Newly diagnosed");
+  await obs(id, 148, 88);
+  let s = await loadState(db, id);
+  assert.equal(hypertensionProfile(s).newlyDiagnosed, true);
+  assert.equal(rules(s, "htn.management").length, 1);
+  assert.equal(rules(s, "htn.secondary").length, 1);
+  assert.equal(bpTarget(s).length, 0);
+  await tx((q) => reassess(q, id, "sandbox"));
+  const htn = s.conditions.find((c) => c.code === "htn")!;
+  await tx((q) =>
+    K.updateCondition(q, a, id, htn.logical_id, {
+      attributes: { diagnosisStatus: "Established" },
+    }),
+  );
+  await tx((q) => reassess(q, id, "sandbox"));
+  s = await loadState(db, id);
+  const active = (
+    await db.query(
+      `SELECT rule_id FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id LIKE 'htn.%'`,
+      [id],
+    )
+  ).rows.map((r) => r.rule_id);
+  assert.deepEqual(active, ["htn.bp-target"]);
+  assert.equal(rules(s, "htn.secondary").length, 0);
+});
+
+test("confirmed new diagnosis starts screening without immediately repeating its completed BP assessment", async () => {
+  const id = await tx((q) =>
+    K.createPatient(q, a, {
+      name: "Synthetic newly confirmed hypertension",
+      mrn: "HTN-CONFIRMED-" + ++seq,
+      sex: "Male",
+      birthDate: "1960-01-01",
+    }),
+  );
+  await obs(id);
+  await abpm(id);
+  await complete(id, "htn-review", {
+    safety: "stable",
+    confirmation: "confirmed",
+    risk: "low",
+    lifestyleTrial: "no",
+    target: "standard",
+    actions: ["none"],
+    when: T,
+    reviewDate: addDays(T, 7),
+  });
+  const s = await loadState(db, id);
+  assert.equal(
+    s.conditions.find((c) => c.code === "htn")?.attributes.diagnosisStatus,
+    "Newly diagnosed",
+  );
+  assert.equal(rules(s, "htn.management").length, 0);
+  assert.equal(rules(s, "htn.secondary").length, 1);
+  assert.equal(bpTarget(s).length, 0);
+});
+
+test("apparent resistance reactivates screening in established disease; validated white-coat readings quiet it", async () => {
+  const id = await patient("1960-01-01", "Established");
+  for (const [code, doseValue] of [
+    ["amlodipine-valsartan", 10],
+    ["indapamide", 1.5],
+  ] as const) {
+    await tx((q) =>
+      K.startMedication(q, a, id, {
+        code,
+        doseValue,
+        frequency: "OD",
+        route: "PO",
+        indication: "htn",
+        effectiveAt: past(),
+      }),
+    );
+  }
+  await obs(id);
+  let s = await loadState(db, id);
+  assert.equal(hypertensionProfile(s).apparentResistance, true);
+  assert.equal(rules(s, "htn.secondary").length, 1);
+  assert.equal(rules(s, "htn.resistance").length, 1);
+  assert.equal(bpTarget(s).length, 0);
+  await abpm(id, {
+    sbp24: 120,
+    dbp24: 70,
+    conclusion: "White-coat hypertension",
+  });
+  s = await loadState(db, id);
+  assert.equal(hypertensionProfile(s).screeningIndicated, false);
+  assert.equal(rules(s, "htn.secondary").length, 0);
+  assert.equal(rules(s, "htn.resistance").length, 0);
+  assert.match(bpTarget(s)[0].detail, /white-coat effect before/);
+  assert.equal(bpTarget(s)[0].severity, "blue");
+});
+
+test("incomplete BP at new diagnosis does not duplicate the BP target and full assessment offers", async () => {
+  const id = await patient("1960-01-01", "Newly diagnosed");
+  await tx((q) =>
+    K.recordObservations(q, a, id, {
+      effectiveAt: nowIso(),
+      items: [{ code: "sbp", value: 148 }],
+    }),
+  );
+  const s = await loadState(db, id);
+  assert.equal(rules(s, "htn.management").length, 1);
+  assert.equal(bpTarget(s).length, 0);
+});
+
+test("a known positive screen and severe BP still receive their dedicated review", async () => {
+  const id = await patient("1960-01-01", "Established");
+  await obs(id, 125, 75);
+  await study(id, { ...pa, screenResult: "Positive" });
+  let s = await loadState(db, id);
+  assert.equal(hypertensionProfile(s).screeningIndicated, false);
+  assert.match(rules(s, "htn.secondary")[0].title, /Positive/);
+  await obs(id, 196, 118);
+  s = await loadState(db, id);
+  assert.equal(bpTarget(s).length, 0);
+  const acute = ACUTE_RULES.find((r) => r.id === "htn.severe")!;
+  assert.equal(acute.evaluate(s, acute.defaultParams).length, 1);
+});
+
+test("TFT, bone and urate results retain their reported units and unknown assay limits", async () => {
+  const id = await patient();
+  const values = {
+    ft4: 14,
+    ft3: 4.5,
+    "calcium-total": 2.3,
+    albumin: 40,
+    phosphate: 1.1,
+    urate: 320,
+  };
+  await tx((q) =>
+    K.recordObservations(q, a, id, {
+      effectiveAt: past(),
+      items: Object.entries(values).map(([code, value]) => ({
+        code,
+        value,
+        unit: MEASURES[code].unit,
+      })),
+    }),
+  );
+  let s = await loadState(db, id);
+  for (const [code, value] of Object.entries(values)) {
+    assert.equal(s.resolved(code).current?.value_num, value);
+    assert.equal(s.resolved(code).current?.unit, MEASURES[code].unit);
+    assert.equal(s.resolved(code).current?.reference_high, null);
+  }
+  await tx((q) =>
+    K.recordObservations(q, a, id, {
+      effectiveAt: nowIso(),
+      items: [
+        { code: "urate", value: 400, unit: "µmol/L", referenceHigh: 420 },
+      ],
+    }),
+  );
+  s = await loadState(db, id);
+  assert.equal(s.resolved("urate").current?.value_num, 400);
+  assert.equal(s.resolved("urate").current?.reference_high, 420);
+  assert.equal(s.observations.filter((o) => o.code === "urate").length, 2);
+  await assert.rejects(
+    tx((q) =>
+      K.recordObservations(q, a, id, {
+        effectiveAt: nowIso(),
+        items: [{ code: "ft4", value: 20, unit: "mg/L" }],
+      }),
+    ),
+    /cannot be entered in/,
+  );
+  assert.deepEqual(LAB_PRESETS.find((p) => p.id === "tft")?.codes, [
+    "tsh",
+    "ft4",
+    "ft3",
+  ]);
+});
+
+test("routine BP goals include isolated diastolic elevation and respect individualized targets without mixing readings", async () => {
+  const id = await patient("1960-01-01", "Established");
+  await obs(id, 125, 95);
+  let s = await loadState(db, id);
+  assert.match(bpTarget(s)[0].title, /125\/95/);
+  assert.equal(targets(s).bp?.met, false);
+  assert.equal(targets(s).bp?.diastolicTarget, "70–79");
+  await tx((q) =>
+    K.recordObservations(q, a, id, {
+      effectiveAt: nowIso(),
+      items: [{ code: "sbp", value: 125 }],
+    }),
+  );
+  s = await loadState(db, id);
+  assert.equal(targets(s).bp?.dbp, null);
+  assert.equal(targets(s).bp?.met, null);
+  const elderly = await patient("1935-01-01", "Established");
+  await obs(elderly, 148, 88);
+  const e = await loadState(db, elderly);
+  assert.equal(targets(e).bp?.target, "Individualized");
+  assert.equal(targets(e).bp?.met, null);
+  assert.equal(bpTarget(e)[0].severity, "blue");
+  assert.match(bpTarget(e)[0].detail, /patient-specific/);
+  await tx((q) =>
+    K.recordObservations(q, a, id, {
+      effectiveAt: nowIso(),
+      items: [{ code: "creatinine", value: 350 }],
+    }),
+  );
+  s = await loadState(db, id);
+  assert.ok(hypertensionProfile(s).egfr! < 30);
+  assert.equal(targets(s).bp?.target, "Individualized");
+  assert.match(bpTarget(s)[0].title, /individualized/);
 });

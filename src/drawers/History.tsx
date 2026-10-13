@@ -7,6 +7,7 @@ import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, sibl
 import { ageOn, fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 import { civilIdBirthDate, civilIdCheckDigitOk } from "../../shared/civil-id";
+import { HTN_DIAGNOSIS_STATUS } from "../../shared/hypertension";
 
 // One editable diagnosis: new (add) or existing (update).
 type Dx = { key: string; code: string; logicalId?: string; attributes: Record<string, any>; onset: string; onsetYear: string; dirty?: boolean; label?: string; expanded?: boolean; changeTo?: string };
@@ -245,6 +246,12 @@ function TapRow({ item, row, view, hint, bmi, onChange }: { item: HistoryItem; r
           </button>
         ))}
       </div>
+      {item.key === "hypertension" && row.answer === "yes" && row.dx.filter(d => d.code === "htn").map(d => (
+        <div key={d.key} className="tap-sub" style={{display:"grid",gap:6}}>
+          <span className="small">Hypertension status</span>
+          <Segmented label="Hypertension status" options={HTN_DIAGNOSIS_STATUS.map(value => ({value,label:value}))} value={d.attributes.diagnosisStatus} onChange={value => {if(value !== d.attributes.diagnosisStatus) onChange({dx:row.dx.map(x => x.key === d.key ? {...x,dirty:true,attributes:{...x.attributes,diagnosisStatus:value}} : x)});}} />
+        </div>
+      ))}
       {item.conditions && row.answer === "yes" && codes.length > 1 && (fresh.length > 0 || !row.dx.length) && (
         <div className="tap-sub">
           {codes.map((c) => (

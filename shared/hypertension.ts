@@ -3,6 +3,10 @@
 export type BpPair = { sbp: number; dbp: number; at: string; id: string };
 export type HypertensionContext = {
   key: string;
+  managementKey: string;
+  newlyDiagnosed: boolean;
+  apparentResistance: boolean;
+  screeningIndicated: boolean;
   resistanceKey: string;
   office: BpPair | null;
   outside: (BpPair & { method: string; high: boolean; valid: boolean }) | null;
@@ -21,6 +25,12 @@ export type HypertensionContext = {
   rdnEligible: boolean;
   actual: { id: string; at: string; result: string } | null;
 };
+export const HTN_DIAGNOSIS_STATUS = [
+  "Newly diagnosed",
+  "Established",
+  "Unknown",
+] as const;
+export type HypertensionDiagnosisStatus = (typeof HTN_DIAGNOSIS_STATUS)[number];
 export const officeHigh = (p: BpPair | null) =>
   !!p && (p.sbp >= 140 || p.dbp >= 90);
 export const severeBp = (p: BpPair | null) =>
