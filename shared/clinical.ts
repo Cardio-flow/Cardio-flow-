@@ -46,6 +46,11 @@ export function isoDay(date: Date = new Date(), tz = SITE_TZ) {
 }
 // the site's calendar day of a timestamp (a bare YYYY-MM-DD is returned as is)
 export const localDay = (value: string) => (value.length <= 10 ? value : isoDay(new Date(value)));
+// The site uses Kuwait time (UTC+3, without DST). Move the calendar day while
+// preserving the original local clock and instant when the chosen day is unchanged.
+export function atClinicalDay(timestamp: string, day: string) {
+  return new Date(Date.parse(timestamp) + daysBetween(localDay(timestamp), day) * 86400000).toISOString();
+}
 export function addDays(day: string, days: number) {
   const d = new Date(day.slice(0, 10) + "T12:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);

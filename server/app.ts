@@ -4,6 +4,8 @@ import { z, ZodError } from "zod";
 import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
 import * as K from "./kernel/clinical.js";
+import {confirmAssessment} from "./kernel/assessment.js";
+import {ASSESSMENT_CODES} from "../shared/assessment-entry.js";
 import * as C from "./kernel/corrections.js";
 import { civilIdBirthDate } from "../shared/civil-id.js";
 import { loadState } from "./kernel/state.js";
@@ -236,7 +238,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       const shortValues = z.record(z.string().max(30), z.string().max(20));
       const schema = req.params.scope === "admission-entry"
         ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120),bed:z.string().max(40),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
-        : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60)}).strict();
+        : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60),baselineValues:z.record(z.string(),z.string().max(60)).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional(),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional()}).strict();
       input.answers = schema.parse(input.answers);
     }
     res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return entryDraft(tx, actor(res), id, String(req.params.scope), input); }));
@@ -728,6 +730,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z.object({ reasons: z.array(z.string().max(80)).min(1).max(8), service: z.string().max(60), symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(), narrative: z.string().trim().max(4000).optional() }).parse(req.body);
     await write(res, id, (tx, a) => K.startVisit(tx, a, id, { ...input, startedAt: nowIso() }));
+  }));
+  app.post("/api/patients/:id/visits/:cid/assessment", clinician, route(async (req,res) => {
+    const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
+    const input=z.object({draftVersion:z.number().int().min(0),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))),items:z.array(z.object({code:z.enum(ASSESSMENT_CODES),value:z.number().finite().nullish(),text:z.string().max(60).nullish()})).max(9)}).parse(req.body);
+    await write(res,id,async(tx,a)=>confirmAssessment(tx,a,id,cid,input));
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
+import {EntryDraftStatus} from "../EntryDraftStatus";
+import type {AssessmentAnswers} from "../../shared/assessment-entry";
 import {useEntryDraft} from "../useEntryDraft";
 import { api, useData } from "../api";
 import { Drawer, DateInput, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
@@ -19,7 +21,8 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   const [narrative, setNarrative] = useState("");
   async function close() {
     if (busy) return;
-    try {await entry.flush(); onClose();} catch(e) {setError((e as Error).message);}
+    if(entry.conflict) {if(window.confirm("Close without saving this window’s edits? The saved draft will be kept.")) {entry.complete();onClose();} return;}
+    try {await entry.flush(); onClose();} catch(e) {if((e as any).status!==409) setError((e as Error).message);}
   }
   const [reasons, setReasons] = useState<string[]>([]);
   const [hfChoice, setHfChoice] = useState<string>("");
@@ -58,7 +61,7 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       entry.complete();
       onDone("Admission started", r);
     } catch (e) {
-      setError((e as Error).message);
+      if((e as any).status!==409) setError((e as Error).message);
       setBusy(false);
     }
   }
@@ -73,12 +76,12 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={close}>Cancel</button>
-          <button className="btn primary" disabled={!entry.loaded || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
+          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
         </span>
       }
     >
       <fieldset className="drawer-body" disabled={!entry.loaded || busy} style={{border:0,margin:0}}>
-        <div className="help" role="status">{entry.error || (entry.loaded ? "Entries saved as a draft" : "Restoring draft…")}</div>
+        <EntryDraftStatus draft={entry} showStatus onDiscard={()=>{entry.complete();onClose();}} />
         <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>
         {readmitDays != null && (
           <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
@@ -436,7 +439,8 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
-  const savedRef = useRef<Record<string, string>>({});
+  const [measurementBaseline,setMeasurementBaseline]=useState<AssessmentAnswers["baseline"]>({});
+  const [measurementValues,setMeasurementValues]=useState<AssessmentAnswers["baselineValues"]>({});
   useEffect(() => {
     if (!visitId) return;
     let current = true;
@@ -477,28 +481,6 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     });
   }, [narrative]);
   const [already, setAlready] = useState<string[]>([]);
-  const [prefilled, setPrefilled] = useState(false);
-  // values already recorded today (an earlier part of this visit, quick labs, a reading at the desk): shown
-  // filled in and marked, and not recorded again unless changed
-  useEffect(() => {
-    api(`/patients/${patientId}/record`).then((r) => {
-      const t = r.todayValues ?? {};
-      const num = (c: string) => (t[c]?.value != null ? String(t[c].value) : undefined);
-      const v: Record<string, string> = {};
-      for (const c of ["sbp", "dbp", "hr", "weight"]) if (num(c)) v[c] = num(c)!;
-      const h: Record<string, string> = {};
-      for (const c of ["kccq", "6mwd", "dry-weight"]) if (num(c)) h[c] = num(c)!;
-      setVit((x) => ({ ...v, ...x }));
-      setHfa((x) => ({ ...h, ...x }));
-      if (t.nyha?.text) setNyha((x) => x || t.nyha.text);
-      if (t.congestion?.text) setCong((x) => x || t.congestion.text);
-      for (const [c, val] of Object.entries(v)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
-      for (const [c, val] of Object.entries(h)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
-      if (t.nyha?.text) savedRef.current.nyha = JSON.stringify({ code: "nyha", text: t.nyha.text });
-      if (t.congestion?.text) savedRef.current.congestion = JSON.stringify({ code: "congestion", text: t.congestion.text });
-      setAlready(Object.keys(t));
-    }).catch(() => {}).finally(() => setPrefilled(true));
-  }, [patientId]);
   useEffect(() => {
     let current = true;
     if (step === 3 && visitId && draftLoaded && active) {
@@ -517,7 +499,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch(e => setError(e.message));
     return () => { current = false; };
   }, [step, visitId, patientId, active, draftLoaded]);
-  const assessment = useEntryDraft(patientId, visitId ? `assessment:${visitId}` : null, {vit,hfa,nyha,cong}, d => {setVit(d.vit ?? {});setHfa(d.hfa ?? {});setNyha(d.nyha ?? "");setCong(d.cong ?? "");}, prefilled);
+  const assessment = useEntryDraft(patientId, visitId ? `assessment:${visitId}` : null, {vit,hfa,nyha,cong,baseline:measurementBaseline,baselineValues:measurementValues}, (d,meta) => {setVit(d.vit ?? {});setHfa(d.hfa ?? {});setNyha(d.nyha ?? "");setCong(d.cong ?? "");setMeasurementBaseline(d.baseline ?? {});setMeasurementValues(d.baselineValues ?? {});setAlready(Object.entries(meta?.latestAnswers?.baseline ?? {}).filter(([,id])=>!!id).map(([code])=>code));});
   const previous = summary.plan;
   async function start() {
     setBusy(true);
@@ -543,13 +525,11 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         ...(cong ? [{ code: "congestion", text: cong }] : []),
         ...(isHf ? ["kccq", "6mwd", "dry-weight"].filter((c) => hfa[c]?.trim()).map((c) => ({ code: c, value: Number(hfa[c]) })) : []),
       ];
-      // going Back and saving again records only what changed since the last save (no duplicate vitals)
-      const fresh = items.filter((i: any) => savedRef.current[i.code] !== JSON.stringify(i));
-      if (fresh.length) await api(`/patients/${patientId}/observations`, { body: { effectiveAt: new Date().toISOString(), contextId: visitId, items: fresh } });
-      for (const i of fresh) savedRef.current[i.code] = JSON.stringify(i);
+      const r=await api(`/patients/${patientId}/visits/${visitId}/assessment`, {body:{items,baseline:measurementBaseline,draftVersion:assessment.getVersion()}});
+      assessment.confirmed(r.answers,r.draftVersion);
       setStep(2);
     } catch (e) {
-      setError((e as Error).message);
+      if((e as any).status===409) {setError("");await assessment.refreshConflict((e as Error).message.includes("draft") ? "draft" : "record");} else setError((e as Error).message);
     }
     setBusy(false);
   }
@@ -579,9 +559,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       icon={<Stethoscope size={22} />}
       onClose={async () => {
         if (busy) return;
+        if (assessment.conflict) {if(window.confirm("Close without saving this window’s assessment edits? The saved draft will be kept.")) {assessment.complete();onDone();} return;}
         if (!visitId && narrative !== narrativeAtStart.current && !window.confirm("Discard this unstarted visit narrative?")) return;
         setBusy(true);
-        try { await assessment.flush(); await flushVisitDraft(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
+        try { await assessment.flush(); await flushVisitDraft(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { if((e as any).status!==409) setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
       }}
       head={
         <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
@@ -598,7 +579,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           {step > 1 && <button className="btn secondary" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
           <span className="end">
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
-            {step === 1 && <button className="btn primary" disabled={busy || !prefilled || !assessment.loaded} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
+            {step === 1 && <button className="btn primary" disabled={busy || !assessment.loaded || !!assessment.conflict} onClick={saveAssessment}>{assessment.loaded ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" disabled={busy} onClick={() => setStep(3)}>Continue to note</button>}
             {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!newerDraft || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
           </span>
@@ -606,7 +587,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       }
     >
       <div className="drawer-body">
-        {assessment.error && <div className="error-box">{assessment.error}</div>}
+        <EntryDraftStatus draft={assessment} onDiscard={()=>{assessment.complete();visitId ? onDone() : onClose();}} />
         {step < 3 && narrative && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
         {step === 0 && (
           <>
@@ -641,7 +622,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           </>
         )}
         {step === 1 && (
-          <fieldset disabled={!prefilled || !assessment.loaded || busy} style={{border:0,margin:0,padding:0}}>
+          <fieldset disabled={!assessment.loaded || busy} style={{border:0,margin:0,padding:0}}>
             <div className="q">
               <div className="label">Vital signs today</div>
               {["sbp", "dbp", "hr", "weight"].some((c) => already.includes(c)) && <div className="help">Values already recorded today are filled in; change one only if it is a new reading.</div>}

@@ -75,8 +75,8 @@ export async function undoLastMedicationChange(tx: Q, actor: Actor, patientId: s
   // taking back a stop brings back the medicine's own dated steps the stop cancelled
   let reopened = 0;
   if (last.kind === "stop") {
-    const provenance = (await tx.query(`SELECT detail FROM cf.audit WHERE patient_id=$1 AND entity='medication_event' AND entity_id=$2 AND action='medication-stop-cancellations'`, [patientId, last.id])).rows[0]?.detail;
-    for (const p of provenance?.plans ?? []) {
+    const provenance = (await tx.query(`WITH RECURSIVE lineage(id) AS (SELECT $2::uuid UNION SELECT k.entity_id FROM cf.correction k JOIN lineage l ON k.replaced_by=l.id WHERE k.patient_id=$1 AND k.entity='medication_event') SELECT a.detail FROM cf.audit a JOIN lineage l ON a.entity_id=l.id::text WHERE a.patient_id=$1 AND a.entity='medication_event' AND a.action='medication-stop-cancellations'`, [patientId, last.id])).rows;
+    for (const p of provenance.flatMap(r => r.detail.plans ?? [])) {
       reopened += (await tx.query(`UPDATE cf.plan_action SET status='planned',outcome='',updated_at=now(),version=version+1 WHERE patient_id=$1 AND medication_id=$2 AND id=$3 AND version=$4 AND status='cancelled' RETURNING id`, [patientId, medicationId, p.id, p.version])).rows.length;
     }
   }

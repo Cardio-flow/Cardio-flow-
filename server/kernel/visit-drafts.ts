@@ -1,5 +1,6 @@
 import type { Q } from "../db/db.js";
 import { ApiError, uuid, type Actor } from "./base.js";
+import {assessmentDraftView} from "./assessment.js";
 const keyFor = (contextId: string) => `visit:${contextId}`;
 export async function checkContextDraftVersion(tx: Q, patientId: string, contextId: string, kind: "visit" | "discharge", expected?: number) {
   // Same patient lock as autosave: a save cannot race between validation and close.
@@ -108,8 +109,11 @@ export async function entryDraft(tx: Q, actor: Actor, patientId: string, scope: 
   await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   if (scope.startsWith("assessment:")) await visit(tx, patientId, scope.slice(11));
   const wizard = `entry:${actor.id}:${scope}`;
-  const row = (await tx.query(`SELECT id,answers,version FROM cf.wizard_draft WHERE patient_id=$1 AND wizard=$2 AND status='draft' ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`, [patientId, wizard])).rows[0];
-  if (!input) return row ? {answers: row.answers, version: Number(row.version)} : {version: 0};
+  const row = (await tx.query(`SELECT id,answers,version,updated_at FROM cf.wizard_draft WHERE patient_id=$1 AND wizard=$2 AND status='draft' ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`, [patientId, wizard])).rows[0];
+  if (!input) {
+    if(scope.startsWith("assessment:")) return {...await assessmentDraftView(tx,patientId,scope.slice(11),row),version:Number(row?.version ?? 0)};
+    return row ? {answers:row.answers,version:Number(row.version)} : {version:0};
+  }
   if (Number(row?.version ?? 0) !== input.version) throw new ApiError(409, "This entry draft changed in another window. Reopen it before continuing.");
   if (input.clear) { if (row) await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE id=$1`, [row.id]); return {version: 0}; }
   if (row) await tx.query(`UPDATE cf.wizard_draft SET answers=$2,version=version+1,updated_at=now(),updated_by=$3 WHERE id=$1`, [row.id, JSON.stringify(input.answers), actor.id]);

@@ -8,7 +8,7 @@ import {
   doseLabel,
   formatNumber,
 } from "../../shared/catalog";
-import { fmtDay, localDay } from "../../shared/clinical";
+import { fmtDay, atClinicalDay, localDay } from "../../shared/clinical";
 
 // Correcting medical data. History is append-only: a wrong entry is marked entered in error (or replaced by a
 // corrected copy); it leaves the record, the alerts are recalculated, and the original stays for the audit.
@@ -318,12 +318,9 @@ export function CorrectMedication({
     day === localDay(String(last.effective_at));
   const ok =
     mode === "fix"
-      ? !sameFix && day <= today
+      ? !sameFix && !!day && day <= today
       : mode === "undo" || (mode === "void" && !!reason);
-  const at = (d: string) =>
-    new Date(
-      `${d}T${new Date(last.effective_at).toISOString().slice(11, 19)}Z`,
-    ).toISOString();
+  const at = (d: string) => atClinicalDay(String(last.effective_at), d);
   function save() {
     if (mode === "fix")
       run(

@@ -95,7 +95,7 @@ export const RULES: RuleDef[] = [
             const dose = prior.find(x => x.dose_value != null)?.dose_value ?? null;
             const frequency = prior.find(x => x.frequency)?.frequency ?? null;
             return e.effective_at >= cur.effective_at && (["start", "restart", "resume", "increase"].includes(e.kind) || (e.kind === "continue" && ["increase", "unknown"].includes(exposureChange(dose, frequency, e.dose_value ?? dose, e.frequency ?? frequency))));
-          }).map(e => e.id), ...(m.status === "active" ? (s.medicationCorrections ?? []).filter(c => c.medication_id === m.id && ["hold", "stop", "not_taking"].includes(c.kind) && c.recorded_at >= cur.effective_at).map(c => c.id) : [])]).sort()].join(":"),
+          }).map(e => e.id), ...(m.status === "active" ? (s.medicationCorrections ?? []).filter(c => c.medication_id === m.id && c.recorded_at >= cur.effective_at && (["hold", "stop", "not_taking"].includes(c.kind) || ["increase", "unknown"].includes(exposureChange(c.beforeDose ?? null, c.beforeFrequency ?? null, m.doseValue, m.frequency)))).map(c => c.id) : [])]).sort()].join(":"),
           severity: "red",
           title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}`,
           detail:
