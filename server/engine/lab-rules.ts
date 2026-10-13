@@ -8,6 +8,10 @@ import {
   type LabReview,
 } from "../../shared/lab-review.js";
 import { DIAGNOSIS, MEASURES, formatNumber } from "../../shared/catalog.js";
+// Re-exposure after a result needs a fresh decision; a hold, stop or dose reduction made in answer to the alert
+// does not (it would otherwise bring the same alert straight back).
+const reExposure = (meds: { events: { id: string; kind: string; effective_at: string }[] }[], since: string) =>
+  meds.flatMap((m) => m.events.filter((e) => e.effective_at >= since && ["start", "restart", "resume", "increase"].includes(e.kind)).map((e) => e.id)).sort().join(",");
 const finding = (
   labs: LabReview,
   codes: string[],
@@ -59,10 +63,8 @@ export const LAB_RULES: RuleDef[] = [
             r.id,
             l.calcium?.id,
             l.egfr?.id,
-            s.meds
-              .filter((m) => m.tags.includes("vitamin-d"))
-              .map((m) => m.events.at(-1)?.id)
-              .join(","),
+            // starting replacement is the answer to this alert, not a reason to raise it again
+            "",
           ].join(":"),
         ),
       ];
@@ -164,7 +166,9 @@ export const LAB_RULES: RuleDef[] = [
               : "Elevated liver enzymes: result review",
           missing
             ? "Enter the lab report's upper limits before using statin thresholds."
-            : statins.length && high
+            : high && s.meds.some((m) => m.code === "amiodarone" && m.status === "active")
+              ? `On amiodarone: the label advises reducing the dose or withdrawing it above 3× ULN${statins.length ? "; also review the statin" : ""}. Assess symptoms and other causes.`
+              : statins.length && high
               ? "Suggest pausing the statin pending review; assess symptoms and other causes."
               : "Review symptoms, liver pattern, medicines and other causes; a small rise alone does not require stopping statins.",
           high ? "orange" : "yellow",
@@ -173,7 +177,7 @@ export const LAB_RULES: RuleDef[] = [
             ...rs.map((r) => r.id),
             l.alp?.id,
             l.bilirubin?.id,
-            ...statins.map((m) => m.events.at(-1)?.id),
+            reExposure(s.meds.filter((m) => m.tags.includes("statin")), rs.map((r) => r!.at).sort()[0]),
           ].join(":"),
         ),
       ];
@@ -216,7 +220,7 @@ export const LAB_RULES: RuleDef[] = [
               ? "orange"
               : "yellow",
           LAB_URLS.statin,
-          [r.id, l.egfr?.id, ...meds.map((m) => m.events.at(-1)?.id)].join(":"),
+          [r.id, l.egfr?.id, reExposure(meds, r.at)].join(":"),
         ),
       ];
     },

@@ -28,7 +28,7 @@ import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.
 import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
-import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
+import { completeWizard, declineRecommendation, restoreRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays, localDay } from "../shared/clinical.js";
@@ -955,6 +955,14 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       const reason = input.category ? `${BARRIER_LABEL[input.category]}${input.reason.trim() ? ": " + input.reason.trim() : ""}` : input.reason;
       for (const r of [rid, ...(input.also ?? [])]) await declineRecommendation(tx, a, id, r, { outcome, reason });
       return { changed: input.category ? (null as any) : [] };
+    });
+  }));
+
+  app.post("/api/patients/:id/recommendations/:rid/restore", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    await write(res, id, async (tx, a) => {
+      await restoreRecommendation(tx, a, id, uuidS.parse(req.params.rid));
+      return { changed: [] };
     });
   }));
 

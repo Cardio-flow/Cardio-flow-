@@ -43,6 +43,14 @@ test("LDL ladder moves to the next step when therapy changes, and LDL at goal cl
     await K.startMedication(tx, doc, id, { code: "ezetimibe", doseValue: 10, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at() });
     await reassess(tx, id, "sandbox", ["meds"]);
   });
+  // the LDL-C on file predates the change: recheck before the next step (13 Oct 2026)
+  ldl = (await active(id)).find((r) => r.rule_id === "lipids.ldl-goal");
+  assert.match(ldl.title, /Recheck LDL-C/);
+  assert.equal(act(ldl).type, "add-labs");
+  await db.transaction(async (tx) => {
+    await K.recordObservations(tx, doc, id, { effectiveAt: at(), items: [{ code: "ldl-c", value: 2.2 }] });
+    await reassess(tx, id, "sandbox", ["ldl-c"]);
+  });
   ldl = (await active(id)).find((r) => r.rule_id === "lipids.ldl-goal");
   assert.equal(act(ldl).code, "evolocumab");
   await db.transaction(async (tx) => {

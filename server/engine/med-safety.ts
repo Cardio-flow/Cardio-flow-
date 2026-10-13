@@ -411,6 +411,19 @@ export const SAFETY_ROWS: SafetyRow[] = [
     },
   },
   {
+    id: "start-sglt2-egfr", kind: "prestart", severity: "orange",
+    title: (h) => `${h.meds[0].name}: initiation not recommended at this eGFR`,
+    detail: "Below the label's eGFR for starting, initiation is not recommended (a patient already on it continues).",
+    source: "SmPC dapagliflozin (Forxiga) 4.2 (eGFR <25); empagliflozin (Jardiance) 4.2 (eGFR <20)",
+    check: (_s, f) => {
+      if (f.egfr == null) return [];
+      const out: SafetyHit[] = [];
+      for (const m of pick(f, ["dapagliflozin"])) if (f.egfr < 25) out.push({ meds: [m], reason: `eGFR ${ROUND(f.egfr)} (starting not recommended below 25)` });
+      for (const m of pick(f, ["empagliflozin"])) if (f.egfr < 20) out.push({ meds: [m], reason: `eGFR ${ROUND(f.egfr)} (starting not recommended below 20)` });
+      return out;
+    },
+  },
+  {
     id: "start-era-alt", kind: "prestart", severity: "red",
     title: (h) => `${h.meds[0].name}: do not initiate with ALT above 3 × ULN`,
     detail: "Baseline aminotransferases above 3 × the upper limit of normal are a contraindication.",
@@ -453,6 +466,27 @@ export const SAFETY_ROWS: SafetyRow[] = [
     check: (_s, f) => {
       const low = f.dialysis ? "on dialysis" : f.crcl != null && f.crcl < 15 ? `CrCl ${ROUND(f.crcl)} mL/min` : null;
       return low ? pick(f, DOACS_15).map((m) => ({ meds: [m], reason: low })) : [];
+    },
+  },
+  {
+    // prestart only: once started, valve.doac-contraindicated carries the alert (no duplicate card)
+    id: "doac-mechanical-valve", kind: "prestart", severity: "red",
+    title: (h) => `${h.meds[0].name} with ${h.reason}: contraindicated`,
+    detail: "DOACs are contraindicated with a mechanical heart valve and not recommended with moderate–severe mitral stenosis: a vitamin K antagonist is the anticoagulant.",
+    source: "ESC/EACTS 2021 VHD (DOAC with mechanical valve: III B); ESC 2024 AF (DOAC with mechanical valve or moderate–severe MS: III); SmPC dabigatran (Pradaxa) 4.3",
+    check: (s, f) => {
+      const why = s.tags.has("mechanical-valve") ? "a mechanical heart valve" : s.tags.has("ms-significant") ? "moderate–severe mitral stenosis" : null;
+      return why ? pick(f, ["doac"]).map((m) => ({ meds: [m], reason: why })) : [];
+    },
+  },
+  {
+    id: "two-oral-anticoagulants", kind: "interaction", severity: "red",
+    title: (h) => `${names(h.meds)}: two oral anticoagulants`,
+    detail: "Concomitant treatment with any other anticoagulant is contraindicated except when switching (stop one when the other starts, per the switching rules in the label).",
+    source: "SmPC apixaban (Eliquis) 4.3; rivaroxaban (Xarelto) 4.3; edoxaban (Lixiana) 4.3; dabigatran (Pradaxa) 4.3",
+    check: (_s, f) => {
+      const oac = pick(f, ["oac"]);
+      return oac.length >= 2 ? [{ meds: oac, reason: "" }] : [];
     },
   },
   {

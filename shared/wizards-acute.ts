@@ -379,6 +379,7 @@ export const ACUTE_WIZARDS: Record<string, WizardDef> = {
             options: [
               { value: "emergency", label: "Emergency assessment (major bleeding)", effects: EMERGENCY },
               { value: "omit", label: "Omit dose(s) and adjust (anticoagulation clinic)", effects: { plan: [{ category: "medication", title: "Warfarin dose adjustment (anticoagulation clinic)", days: 0, completesOn: { type: "manual" } }] } },
+              { value: "increase", label: "Increase the weekly warfarin dose (anticoagulation clinic)", effects: { plan: [{ category: "medication", title: "Warfarin weekly dose increase (anticoagulation clinic)", days: 0, completesOn: { type: "manual" } }] } },
               { value: "vitk", label: "Vitamin K per protocol", effects: { plan: [{ category: "medication", title: "Vitamin K per protocol", days: 0, completesOn: { type: "manual" } }] } },
               { value: "bridge", label: "Bridging (mechanical valve, low INR)", effects: { plan: [{ category: "medication", title: "Consider bridging with heparin (mechanical valve)", days: 0, completesOn: { type: "manual" } }] } },
               { value: "education", label: "Adherence, diet and interaction education", effects: { plan: [{ category: "education", title: "Warfarin education: adherence, diet, interactions", days: 0, completesOn: { type: "manual" } }] } },

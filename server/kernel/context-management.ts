@@ -9,7 +9,7 @@ import {
   uuid,
   type Actor,
 } from "./base.js";
-import { completeMatching, type Changed } from "./clinical.js";
+import { LIVE_EVENT, LIVE_MED, completeMatching, type Changed } from "./clinical.js";
 import { reopenCompletedBy } from "./corrections.js";
 import { daysBetween, localDay } from "../../shared/clinical.js";
 import { isHfAdmission, readmissionBand } from "../../shared/encounters.js";
@@ -69,7 +69,10 @@ async function validatePastPeriod(
         "admission_duplicate",
         { contextId: c.id },
       );
-    if (start < endedOn && end > startedOn)
+    // inclusive dates; a readmission on the day of a discharge (or a discharge on the day the next stay
+    // started) is allowed, a stay inside another one is not
+    const touching = startedOn === end || (endedOn === start && startedOn < start);
+    if (start <= endedOn && end >= startedOn && !touching)
       throw new ApiError(
         409,
         "These dates overlap an existing admission. Review that admission before saving.",
@@ -360,17 +363,8 @@ export async function editContext(
     c.kind === "clinic_visit" &&
     +new Date(c.started_at) !== +new Date(input.startedAt)
   ) {
+    // the visit still exists (only its date changed): its own bookings stay with it
     await reopenCompletedBy(tx, patientId, [id]);
-  // A shared study booking also belongs to its other live encounter. Keep it open
-  // when one originating visit is removed, while retaining the historical links.
-  const shared = (await tx.query(`UPDATE cf.plan_action p SET source_context_id=(
-    SELECT c.id FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
-    WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL ORDER BY c.started_at,c.id LIMIT 1),
-    version=p.version+1,updated_at=now()
-    WHERE p.patient_id=$1 AND p.source_context_id=$2 AND p.status='planned' AND EXISTS(
-      SELECT 1 FROM unnest(p.context_refs) AS ref(id) JOIN cf.care_context c ON c.id=ref.id
-      WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL) RETURNING p.id,p.source_context_id`,[patientId,id])).rows;
-  for (const row of shared) await audit(tx,actor,"retain-shared-booking","plan_action",row.id,patientId,{removedContext:id,remainingContext:row.source_context_id});
     await completeMatching(tx, actor, patientId, {
       type: "visit",
       at: input.startedAt,
@@ -421,7 +415,12 @@ export async function removeContext(
       WHERE c.patient_id=$1 AND c.id<>$2 AND c.removed_at IS NULL) RETURNING p.id,p.source_context_id`,[patientId,id])).rows;
   for (const row of shared) await audit(tx,actor,"retain-shared-booking","plan_action",row.id,patientId,{removedContext:id,remainingContext:row.source_context_id});
   await tx.query(
-    `UPDATE cf.plan_action SET status='cancelled',outcome='Originating visit or admission removed',updated_at=now(),version=version+1 WHERE patient_id=$1 AND source_context_id=$2 AND status='planned'`,
+    // monitoring that belongs to a medicine still being taken outlives the visit it was booked in
+    `UPDATE cf.plan_action pa SET status='cancelled',outcome='Originating visit or admission removed',updated_at=now(),version=version+1
+     WHERE patient_id=$1 AND source_context_id=$2 AND status='planned'
+       AND NOT (pa.medication_id IS NOT NULL AND EXISTS (
+         SELECT 1 FROM cf.medication m WHERE m.id=pa.medication_id AND ${LIVE_MED}
+           AND coalesce((SELECT me.kind FROM cf.medication_event me WHERE me.medication_id=m.id AND ${LIVE_EVENT} ORDER BY me.effective_at DESC, me.recorded_at DESC LIMIT 1), 'start') <> 'stop'))`,
     [patientId, id],
   );
   await refreshAdmissions(tx, patientId);

@@ -68,6 +68,7 @@ const v = (code: string, value: number | null | undefined) => {
 };
 const day = (iso: string) => fmtDay(iso);
 
+import { RENAL_DEFAULTS, creatinineTrend } from "./renal-trend.js";
 export const RULES: RuleDef[] = [
   {
     id: "hf.hyperkalaemia-review",
@@ -79,7 +80,8 @@ export const RULES: RuleDef[] = [
     evaluate(s, p) {
       const k = s.resolved("potassium");
       const cur = k.current;
-      if (!cur || cur.value_num == null || cur.value_num < Number(p.review_threshold_mmol)) return [];
+      // ESC: act above 5.5 mmol/L (5.5 itself is not yet "above")
+      if (!cur || cur.value_num == null || cur.value_num <= Number(p.review_threshold_mmol)) return [];
       const hist = k.history.slice(0, 3).reverse();
       const raas = s.meds.filter((m) => m.status === "active" && (m.tags.includes("raas") || m.tags.includes("potassium-sparing")));
       const cr = s.resolved("creatinine").current;
@@ -98,7 +100,8 @@ export const RULES: RuleDef[] = [
             return e.effective_at >= cur.effective_at && (["start", "restart", "resume", "increase"].includes(e.kind) || (e.kind === "continue" && ["increase", "unknown"].includes(exposureChange(dose, frequency, e.dose_value ?? dose, e.frequency ?? frequency))));
           }).map(e => e.id), ...(m.status === "active" ? (s.medicationCorrections ?? []).filter(c => c.medication_id === m.id && c.recorded_at >= cur.effective_at && (["hold", "stop", "not_taking"].includes(c.kind) || ["increase", "unknown"].includes(exposureChange(c.beforeDose ?? null, c.beforeFrequency ?? null, m.doseValue, m.frequency)))).map(c => c.id) : [])]).sort()].join(":"),
           severity: "red",
-          title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}`,
+          // an old result is still the latest: say how old, so it is rechecked rather than acted on blindly
+          title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}${daysBetween(cur.effective_at, s.today) > 14 ? ` (result from ${day(cur.effective_at)} — recheck)` : ""}`,
           detail:
             (hist.length > 1 ? hist.map((o) => formatNumber(o.value_num!, 1)).join(" → ") + " · " : "") +
             (raas.length ? "on " + raas.map((m) => m.name.toLowerCase()).join(" and ") : "no RAAS or MRA therapy recorded"),
@@ -107,7 +110,7 @@ export const RULES: RuleDef[] = [
             ...(cr ? [{ label: "Creatinine", value: v("creatinine", cr.value_num), date: cr.effective_at }] : []),
             ...(egfr ? [{ label: "eGFR", value: v("egfr", egfr.value_num), date: egfr.effective_at }] : []),
             ...raas.map((m) => ({ label: "Therapy", value: `${m.name}${m.startedAt ? " · since " + day(m.startedAt) : ""}` })),
-            { label: "Trigger", value: `K ≥ ${p.review_threshold_mmol} mmol/L` },
+            { label: "Trigger", value: `K > ${p.review_threshold_mmol} mmol/L` },
           ],
           missing,
           action: { type: "wizard", wizard: "hyperkalaemia" },
@@ -121,7 +124,7 @@ export const RULES: RuleDef[] = [
     title: "Creatinine rise on RAAS / MRA therapy",
     inputs: ["creatinine", "egfr", "weight", "meds"],
     defaultParams: RENAL_REVIEW_PARAMS,
-    evidence: "ESC HF practical guidance (2021, retained 2023/2026) for ACEi/ARB/ARNI and MRA: a creatinine rise of up to 50% above baseline, or to 266 µmol/L (3.0 mg/dL) / eGFR 25, whichever is smaller, is acceptable; above that, halve the dose and recheck; a rise >100% or to >310 µmol/L (3.5 mg/dL) / eGFR <20: stop and seek advice. Baseline = the last creatinine before the most recent start or dose increase of these drugs (else the previous result).",
+    evidence: "ESC HF practical guidance (2016 web addenda, retained 2021/2023) for ACEi/ARB/ARNI: a creatinine rise of up to 50% above baseline, or to 266 µmol/L (3.0 mg/dL) / eGFR 25, whichever is smaller, is acceptable; above that, halve the dose and recheck; a rise >100% or to >310 µmol/L (3.5 mg/dL) / eGFR <20: stop and seek advice. MRA: creatinine >221 µmol/L (2.5 mg/dL) or eGFR <30 halve; >310 µmol/L or eGFR <20 stop. Baseline = the last creatinine before the most recent start or dose increase of these drugs (else the oldest result since, within a year). An eGFR limit counts only when crossed.",
     evaluate: renalReview,
   },
   {
@@ -263,7 +266,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-13.cardiorenal-reconciliation1";
+export const RULESET = "2026-10-13.cardiorenal-reconciliation2";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

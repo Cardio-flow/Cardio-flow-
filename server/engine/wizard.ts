@@ -28,6 +28,7 @@ import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { preStartCheck, proposedMedicines } from "./med-safety.js";
+import { creatinineTrend } from "./renal-trend.js";
 import { latestPhEcho } from "./ph-profile.js";
 import { latestCcsTest } from "./cad-tests.js";
 
@@ -220,7 +221,9 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const statins = base.meds.filter(m => m.tags.includes("statin"));
   const ck = s.resolved("ck").current;
   const notices = wizardId === "statin-ck-result" && ck && statins.length && statins.every(m => m.startedAt && ck.effective_at < m.startedAt) ? ["This CK predates the current statin treatment. Verify a current result before attributing it to this prescription."] : [];
-  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  const rt = creatinineTrend(s);
+  const renal = rt ? { baseline: rt.baseline.value_num!, current: rt.cur.value_num!, rise: rt.rel, review: rt.review, stop: rt.stop, mra: rt.mra, reviewCr: rt.reviewCr, reviewE: rt.reviewE } : null;
+  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -423,6 +426,17 @@ export async function declineRecommendation(tx: Q, actor: Actor, patientId: stri
   });
   await tx.query(`UPDATE cf.recommendation SET status='decided', closed_at=now() WHERE id=$1`, [recommendationId]);
   await audit(tx, actor, input.outcome, "recommendation", recommendationId, patientId, { reason: input.reason });
+}
+
+// A dismissal taken back: the alert is shown again (the decision stays in the record; append-only history).
+export async function restoreRecommendation(tx: Q, actor: Actor, patientId: string, recommendationId: string) {
+  const rec = (await tx.query(`SELECT * FROM cf.recommendation WHERE id=$1 AND patient_id=$2 AND status='decided'`, [recommendationId, patientId])).rows[0] as any;
+  if (!rec) throw new ApiError(404, "This alert cannot be restored");
+  const dup = (await tx.query(`SELECT 1 FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id=$2 AND fingerprint=$3`, [patientId, rec.rule_id, rec.fingerprint])).rows[0];
+  if (dup) throw new ApiError(409, "This alert is already shown again");
+  await tx.query(`UPDATE cf.recommendation SET status='active', closed_at=NULL WHERE id=$1`, [recommendationId]);
+  await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "decision", category: "complication", title: `${rec.title} · shown again`, detail: "Dismissal taken back", refType: "recommendation", refId: recommendationId });
+  await audit(tx, actor, "restore", "recommendation", recommendationId, patientId, {});
 }
 
 // Congestion, hypotension and bradycardia: facts, trend and what the record already shows.

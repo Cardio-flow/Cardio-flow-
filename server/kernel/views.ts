@@ -32,6 +32,20 @@ export function mergeKey(r: { action?: any }) {
   return `start:${drugClassOf(a.code)}`;
 }
 
+// Alerts the clinician dismissed (not needed / not now) in the last 90 days, newest first, so a dismissal can
+// be seen and undone. A dismissal ends when the data behind the alert change (the engine raises a new one).
+export async function dismissed(tx: Q, patientId: string) {
+  return (await tx.query(
+    `SELECT r.id, r.rule_id, r.severity, r.title, r.closed_at, d.outcome, d.reason, d.decided_by
+       FROM cf.recommendation r
+       JOIN LATERAL (SELECT outcome, reason, decided_by FROM cf.decision WHERE recommendation_id=r.id ORDER BY decided_at DESC LIMIT 1) d ON true
+      WHERE r.patient_id=$1 AND r.status='decided' AND d.outcome IN ('declined','deferred') AND r.closed_at > now() - interval '90 days'
+        AND NOT EXISTS (SELECT 1 FROM cf.recommendation x WHERE x.patient_id=r.patient_id AND x.status='active' AND x.rule_id=r.rule_id AND x.fingerprint=r.fingerprint)
+      ORDER BY r.closed_at DESC LIMIT 20`,
+    [patientId],
+  )).rows as any[];
+}
+
 export async function recommendations(tx: Q, patientId: string) {
   const rows = (
     await tx.query(
@@ -425,6 +439,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
         .map((m) => ({ id: m.id, name: m.name, dose: m.doseValue == null ? "Dose not recorded" : MEDICATION[m.code] ? doseLabel(MEDICATION[m.code], m.doseValue) : `${m.doseValue} ${m.doseUnit ?? ""}`, frequency: m.frequency, status: m.status })),
     },
     attention,
+    dismissed: await dismissed(tx, patientId),
     changes,
     plan: active,
     planSource: lastSource ? { kind: lastSource.kind, at: lastSource.ended_at ?? lastSource.started_at } : null,

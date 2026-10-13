@@ -321,3 +321,18 @@ test("the copied clinical summary includes non-urgent optimization recommendatio
   assert.match(text, /Non-urgent recommendations:/);
   for (const r of blue) assert.ok(text.includes(r.title), r.title);
 });
+
+test("missing-input dose alerts preserve non-AF indications and held-treatment behavior", async () => {
+  const id = await patient(["af"]);
+  const { medicationId } = await tx(q => K.startMedication(q, actor, id, {code:"apixaban",doseValue:2.5,frequency:"BID",route:"PO",indication:"Extended VTE prevention",alreadyTaking:true,effectiveAt:at(-1)}));
+  await run(id);
+  assert.equal((await alerts(id,"af.doac-dose")).length,0);
+  await tx(q => K.medicationEvent(q, actor, id, medicationId, {kind:"hold",reason:"Procedure",effectiveAt:at()}));
+  await run(id);
+  assert.equal((await alerts(id,"af.doac-dose")).length,0);
+  const af = await patient(["af"]);
+  const current = await medicine(af,"apixaban",true,-1);
+  await tx(q => K.medicationEvent(q, actor, af, current.medicationId, {kind:"hold",reason:"Procedure",effectiveAt:at()}));
+  await run(af);
+  assert.equal((await alerts(af,"af.doac-dose")).length,0);
+});

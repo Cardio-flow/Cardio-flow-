@@ -20,6 +20,7 @@ import { activeBarrier, latestStudy, type PatientState } from "../kernel/state.j
 import type { Fact, Finding, RuleDef } from "./rules.js";
 import { crtClass } from "./study-rules.js";
 import { fmtStatus, hfImprovedEf, hfPhenotype } from "./guidelines.js";
+import { creatinineTrend } from "./renal-trend.js";
 
 // foundational ("prognostic") drug classes whose reduction or withdrawal is the P marker
 const PROGNOSTIC = ["bb", "raas", "arni", "mra"];
@@ -370,6 +371,44 @@ HF_RULES.push(
           ],
           missing: [],
           action: dose != null ? { type: "start-med", code: m.code, dose, label: `Restart ${m.name}${def ? " " + doseLabel(def, dose) : ""}` } : { type: "tab", tab: "medications" },
+        });
+      }
+      return out;
+    },
+  },
+  {
+    id: "hf.rechallenge-after-hold",
+    kind: "clinical",
+    title: "Held RAAS inhibitor / MRA: potassium and creatinine back in range",
+    inputs: ["meds", "potassium", "creatinine", "egfr", "conditions"],
+    defaultParams: { restart_k_max: 5.0 },
+    evidence:
+      "ESC HF 2021 practical guidance (retained 2023/2026): after a hold for hyperkalaemia or worsening renal function, reintroduce the ACEi/ARB/ARNI or MRA (often at a lower dose) once potassium and creatinine allow — the start limit is K ≤5.0 mmol/L; a potassium binder may enable it (IIb).",
+    evaluate(s, p) {
+      if (!s.tags.has("hf")) return [];
+      const out: Finding[] = [];
+      for (const m of s.meds.filter((x) => x.status === "held" && x.tags.some((t) => t === "raas" || t === "mra"))) {
+        const hold = [...m.events].reverse().find((e) => e.kind === "hold");
+        if (!hold) continue;
+        const k = s.resolved("potassium").current;
+        // a result taken after the hold shows the reason for it has settled
+        if (!k || k.value_num == null || k.effective_at <= hold.effective_at || k.value_num > Number(p.restart_k_max)) continue;
+        const t = creatinineTrend(s);
+        if (t?.review) continue;
+        const cr = s.resolved("creatinine").current;
+        const def = MEDICATION[m.code];
+        out.push({
+          key: "rechallenge-" + m.id, signature: `${m.id}:${hold.id}:${k.id}`, severity: "yellow",
+          title: `${m.name} held since ${fmtDay(hold.effective_at)}: potassium now ${formatNumber(k.value_num, 1)} — consider restarting`,
+          detail: `${hold.reason ? `Held for: ${hold.reason}. ` : ""}Restart${def?.doses?.length ? " at a lower dose" : ""} and recheck potassium and creatinine in 1–2 weeks (ESC HF practical guidance).`,
+          facts: [
+            { label: "Held", value: `${m.name}${hold.reason ? ` · ${hold.reason}` : ""}`, date: hold.effective_at },
+            { label: "Potassium", value: `${formatNumber(k.value_num, 1)} mmol/L`, date: k.effective_at },
+            ...(cr?.value_num != null ? [{ label: "Creatinine", value: `${formatNumber(cr.value_num, 0)} µmol/L`, date: cr.effective_at }] : []),
+            { label: "Guideline", value: "ESC HF practical guidance · restart when K ≤5.0" },
+          ],
+          missing: [],
+          action: { type: "med-action", medicationId: m.id, label: `Restart ${m.name}` },
         });
       }
       return out;

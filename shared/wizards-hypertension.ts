@@ -6,6 +6,7 @@ import type {
   WizardDef,
 } from "./wizards.js";
 import { addCalendarMonths } from "./af.js";
+import { localDay } from "./clinical.js";
 import { officeHigh, severeBp } from "./hypertension.js";
 const source =
   "ESC hypertension 2024 (10.1093/eurheartj/ehae178), sections 5–9; ESC CVD/CKD 2026 (10.1093/eurheartj/ehag098), BP recommendations (official slide 24); ESC/EAPCI RDN consensus 2023 (10.1093/eurheartj/ehad054); Endocrine Society PA 2025 (10.1210/clinem/dgaf284); selected current regional device IFU";
@@ -894,7 +895,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
           {
             label: "Actual procedure",
             value: c.hypertension?.actual
-              ? `${c.hypertension.actual.result} · ${c.hypertension.actual.at.slice(0, 10)}`
+              ? `${c.hypertension.actual.result} · ${localDay(c.hypertension.actual.at)}`
               : "Not recorded",
           },
         ],

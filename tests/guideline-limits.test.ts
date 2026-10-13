@@ -39,7 +39,7 @@ test("creatinine: ≤50% rise acceptable, >50% review, >100% stop (ESC HF); base
   await obs(pid, [{ code: "creatinine", value: 140 }], at(addDays(T, -10)));
   const r = await rec(pid, "hf.worsening-renal-function");
   assert.equal(r.severity, "orange");
-  assert.match(r.title, /Creatinine up 56%: cardiorenal review/);
+  assert.match(r.title, /Creatinine up 56% from baseline: cardiorenal review/);
   assert.equal(r.rule_status, "PUBLISHED", "runs on production sites");
   await obs(pid, [{ code: "creatinine", value: 190 }]);
   const s = await rec(pid, "hf.worsening-renal-function");
