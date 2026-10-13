@@ -129,8 +129,11 @@ test("API: follow-up status, validation, and a mistaken death corrected by 'aliv
     assert.equal((await post("status", { kind: "vital", status: "alive", effectiveOn: T, detail: "Entered for the wrong patient" })).status, 200);
     sum = await (await fetch(`${base}/patients/${pid}/summary`, { headers: { cookie } })).json();
     assert.equal(sum.header.deceased, false);
-    const ok = await post("admissions", { startedAt: nowIso(), location: "Ward 3B", reasons: ["Syncope"], route: "Clinic", symptoms: ["Syncope / presyncope"] });
+    const ok = await post("admissions", { startedAt: nowIso(), reasons: ["Syncope"], route: "Clinic", symptoms: ["Syncope / presyncope"] });
     assert.equal(ok.status, 200);
+    sum = await (await fetch(`${base}/patients/${pid}/summary`, { headers: { cookie } })).json();
+    assert.equal(sum.header.openContext.location, null);
+    assert.equal(sum.header.where, "Inpatient");
     assert.equal((await post("admissions", { startedAt: nowIso(), location: "Ward 3B", reasons: ["Syncope"], symptoms: ["Headache"] })).status, 400);
   } finally {
     server.close();

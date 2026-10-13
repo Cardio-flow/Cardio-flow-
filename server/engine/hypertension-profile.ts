@@ -110,6 +110,12 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
     conditions: s.conditions.map((c) => c.id),
     age: s.patient.age,
   });
+  // A confirmed hypertension diagnosis is an output of the initial review.
+  // It must not invalidate that review while its BP, treatment and risk facts stay unchanged.
+  const managementKey = JSON.stringify({
+    ...JSON.parse(key),
+    conditions: s.conditions.filter((c) => c.code !== "htn").map((c) => c.id),
+  });
   const outsideStudy = [...studies]
     .reverse()
     .find((st) => ["abpm", "home_bp"].includes(st.kind));
@@ -220,6 +226,7 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
       : null;
   const secondaryClues: string[] = [];
   const htn = s.conditions.find((c) => c.code === "htn");
+  const newlyDiagnosed = htn?.attributes.diagnosisStatus === "Newly diagnosed";
   if (
     htn &&
     (s.patient.age < 40 ||
@@ -335,21 +342,28 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
       "Completed secondary work-up including interpretable aldosteronism screen",
     );
   const actual = [...s.procedures].reverse().find((p) => p.kind === "rdn");
+  const phenotype =
+    office && outside?.valid
+      ? officeHigh(office)
+        ? outside.high
+          ? "Sustained hypertension"
+          : "White-coat phenotype"
+        : outside.high
+          ? "Masked hypertension"
+          : "Below diagnostic thresholds"
+      : "Confirmation incomplete";
+  const apparentResistance =
+    officeHigh(office) && triple && phenotype !== "White-coat phenotype";
   return {
     key,
+    managementKey,
+    newlyDiagnosed,
+    apparentResistance,
+    screeningIndicated: newlyDiagnosed || apparentResistance,
     resistanceKey,
     office,
     outside,
-    phenotype:
-      office && outside?.valid
-        ? officeHigh(office)
-          ? outside.high
-            ? "Sustained hypertension"
-            : "White-coat phenotype"
-          : outside.high
-            ? "Masked hypertension"
-            : "Below diagnostic thresholds"
-        : "Confirmation incomplete",
+    phenotype,
     egfr: num("egfr"),
     potassium: num("potassium"),
     triple,

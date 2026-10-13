@@ -36,7 +36,7 @@ async function civilIdFree(tx: Q, siteId: string, civilId: string | null | undef
 export async function createPatient(
   tx: Q,
   actor: Actor,
-  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; birthDateEstimated?: boolean; allergies?: string; conditions?: string[]; synthetic?: boolean } & Identity,
+  input: { name: string; mrn: string; sex: "Male" | "Female"; birthDate: string; birthDateEstimated?: boolean; allergies?: string; conditions?: string[]; hypertensionStatus?: import("../../shared/hypertension.js").HypertensionDiagnosisStatus; synthetic?: boolean } & Identity,
 ) {
   if (input.birthDate > today() || input.birthDate < "1900-01-01") throw new ApiError(400, "Check the date of birth");
   // sample patients (the seed, or a test patient) are kept apart: SYN- MRN, never counted with real patients
@@ -57,7 +57,7 @@ export async function createPatient(
     "INSERT INTO cf.patient(id,site_id,mrn,name,sex,birth_date,allergies,created_by,civil_id,nationality,mobile,synthetic,birth_date_estimated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     [id, actor.siteId, mrn, input.name, input.sex, input.birthDate, input.allergies || "Not recorded", actor.id, input.civilId || null, input.nationality || null, input.mobile || null, synthetic, !!input.birthDateEstimated],
   );
-  for (const code of input.conditions ?? []) await addCondition(tx, actor, id, { code });
+  for (const code of input.conditions ?? []) await addCondition(tx, actor, id, { code, ...(code === "htn" && input.hypertensionStatus ? {attributes:{diagnosisStatus:input.hypertensionStatus}} : {}) });
   await audit(tx, actor, "create", "patient", id, id);
   return id;
 }
@@ -1011,7 +1011,7 @@ export async function completeMatching(
 export type AdmissionInput = {
   draftVersion?: number;
   startedAt: string;
-  location: string;
+  location?: string;
   reasons: string[];
   route?: string | null;
   symptoms?: string[];
@@ -1046,7 +1046,7 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
   const summary = { confirmations: input.confirmations ?? [], route: input.route ?? null, symptoms: input.symptoms ?? [], hfRelated, readmission, ...(input.narrative ? { narrative: input.narrative } : {}) };
   await tx.query(
     `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'admission','open',$3,$4,'Cardiology',$5,$6,$7,$8)`,
-    [id, patientId, input.startedAt, input.location, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
+    [id, patientId, input.startedAt, input.location?.trim() || null, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
   );
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.startedAt, kind: "admission", category: "visit",

@@ -1,5 +1,6 @@
 import { LAB_LIMITS } from "../../shared/lab-review.js";
-import { hypertensionProfile } from "./hypertension-profile.js";
+import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
+import { urgentBp } from "./hypertension-rules.js";
 // Guideline-driven decision support. Every rule cites its source and class of
 // recommendation, runs as a governed rule (CLINICAL_REVIEW until a clinician approves it)
 // and only SUGGESTS: the clinician confirms every start, dose change or test.
@@ -31,6 +32,16 @@ const recent = (s: PatientState, code: string, days: number) => {
   return c && daysBetween(c.effective_at, s.today) <= days ? c : null;
 };
 const val = (s: PatientState, code: string, days = 3650) => recent(s, code, days)?.value_num ?? null;
+const bpResult = (s: PatientState, code: string, days: number) => {
+  const o = cur(s, code);
+  const age = o ? daysBetween(o.effective_at, s.today) : null;
+  return o?.status === "final" && o.value_num != null && age != null && age >= 0 && age <= days ? o : null;
+};
+// Existing ESC 2024 / CKD 2026 individualization criteria, also shown by the hypertension wizard.
+const individualBpTarget = (s: PatientState, h: ReturnType<typeof hypertensionProfile>) =>
+  s.patient.age >= 85 || (h.egfr != null && h.egfr < 30) ||
+  s.conditions.some(c => ["ckd-4", "ckd-5", "dialysis"].includes(c.code)) ||
+  s.procedureReviews?.["htn-review"]?.answers.target === "individual";
 // a held medicine is still the patient's therapy (held for a procedure or bleeding): it counts as present
 const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
 const onTag = (s: PatientState, tag: string) => live(s).filter((m) => m.tags.includes(tag));
@@ -608,19 +619,25 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "htn.bp-target",
     kind: "clinical",
     title: "Blood pressure above target",
-    inputs: ["sbp", "dbp", "conditions", "meds"],
-    defaultParams: { treat_sbp: 140, target_high: 130, days: 90 },
-    evidence: "2024 ESC hypertension guidelines: target SBP 120–129 mmHg if tolerated (class I).",
+    inputs: HTN_INPUTS,
+    defaultParams: { treat_sbp: 140, treat_dbp: 90, target_high: 130, target_dbp_high: 80, days: 90 },
+    evidence: "2024 ESC hypertension guidelines: target 120–129/70–79 mmHg if tolerated (class I); individualize at age ≥85, frailty, poor tolerance or limited survival. ESC CKD 2026: individualize with eGFR <30. Recorded clinician target preferences are retained.",
     evaluate(s, p) {
       if (!(has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") || s.tags.has("ckd"))) return [];
-      const sbp = recent(s, "sbp", Number(p.days));
-      if (!sbp || sbp.value_num! < Number(p.target_high)) return [];
+      const sbp = bpResult(s, "sbp", Number(p.days)), dbp = bpResult(s, "dbp", Number(p.days));
+      const aboveSbp = sbp?.value_num != null && sbp.value_num >= Number(p.target_high);
+      const aboveDbp = dbp?.value_num != null && dbp.value_num >= Number(p.target_dbp_high ?? 80);
+      if (!aboveSbp && !aboveDbp) return [];
       const h = hypertensionProfile(s);
-      if (s.patient.age >= 18 && !s.contexts.some(c => c.kind === "admission" && c.status === "open") && h.office && (s.tags.has("htn") || h.office.sbp >= 140 || h.office.dbp >= 90 || h.outside?.high || h.highRisk)) return [];
-      const high = sbp.value_num! >= Number(p.treat_sbp);
-      return [{ key: "bp", signature: sbp.id, severity: high ? "orange" : "blue",
-        title: `SBP ${Math.round(sbp.value_num!)} mmHg above target 120–129`,
-        detail: high ? "Confirm with repeat or home readings and intensify treatment" : "Intensify if tolerated; confirm with home readings",
+      if (urgentBp(s)) return [];
+      if (s.patient.age >= 18 && !s.contexts.some(c => c.kind === "admission" && c.status === "open") && (h.newlyDiagnosed || h.apparentResistance || (!s.tags.has("htn") && h.office && (h.office.sbp >= 140 || h.office.dbp >= 90 || h.outside?.high || h.highRisk)))) return [];
+      const whitecoat = h.phenotype === "White-coat phenotype";
+      const individual = individualBpTarget(s,h);
+      const high = !whitecoat && !individual && ((sbp?.value_num ?? 0) >= Number(p.treat_sbp) || (dbp?.value_num ?? 0) >= Number(p.treat_dbp ?? 90));
+      const reading = h.office ? `BP ${h.office.sbp}/${h.office.dbp}` : aboveSbp ? `SBP ${Math.round(sbp!.value_num!)} mmHg` : `DBP ${Math.round(dbp!.value_num!)} mmHg`;
+      return [{ key: "bp", signature: `${sbp?.id ?? ""}:${dbp?.id ?? ""}:${individual}`, severity: high ? "orange" : "blue",
+        title: individual ? "BP: review individualized target" : whitecoat ? "Office BP above target: review white-coat effect" : `${reading} above target ${h.office ? "120–129/70–79" : aboveSbp ? "120–129" : "70–79"}`,
+        detail: individual ? "Agree a patient-specific BP target and review treatment tolerance before escalating." : whitecoat ? "Valid out-of-office readings are below diagnostic thresholds. Review the white-coat effect before considering treatment escalation." : high ? "Confirm with repeat or home readings and intensify treatment" : "Intensify if tolerated; confirm with home readings",
         facts: facts(fact(s, "sbp", Number(p.days)), fact(s, "dbp", Number(p.days)), ...live(s).filter((m) => m.purpose === "Blood pressure" || m.tags.includes("raas")).map((m) => ({ label: "Therapy", value: medLine(m) })), src("ESC hypertension 2024 · Class I")),
         missing: [], action: { type: "tab", tab: "medications" } }];
     },
@@ -671,7 +688,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
 export function targets(s: PatientState) {
   const risk = lipidRisk(s);
   const ldl = cur(s, "ldl-c");
-  const sbp = recent(s, "sbp", 180), dbp = recent(s, "dbp", 180);
+  const sbp = bpResult(s, "sbp", 180), dbp = bpResult(s, "dbp", 180);
+  const pairedBp = !!sbp && !!dbp && sbp.effective_at === dbp.effective_at;
+  const individualBp = individualBpTarget(s,hypertensionProfile(s));
   const b = patientBmi(s);
   const af = s.tags.has("af") ? cha2ds2va(s) : null;
   return {
@@ -680,7 +699,7 @@ export function targets(s: PatientState) {
       ? { category: risk.category, why: risk.why, goal: risk.goal, value: ldl?.value_num ?? null, at: ldl?.effective_at ?? null, met: ldl?.value_num != null ? ldl.value_num < risk.goal : null,
           therapy: live(s).filter((m) => m.tags.includes("lipid")).map(medLine) }
       : null,
-    bp: has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") ? { target: "120–129", sbp: sbp?.value_num ?? null, dbp: dbp?.value_num ?? null, at: sbp?.effective_at ?? null, met: sbp?.value_num != null ? sbp.value_num < 130 : null } : null,
+    bp: has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") ? { target: individualBp ? "Individualized" : "120–129", diastolicTarget: individualBp ? null : "70–79", sbp: sbp?.value_num ?? null, dbp: pairedBp || !sbp ? dbp?.value_num ?? null : null, at: sbp?.effective_at ?? dbp?.effective_at ?? null, met: !individualBp && pairedBp ? sbp!.value_num! < 130 && dbp!.value_num! < 80 : null } : null,
     metabolic: s.tags.has("dm") || (b != null && b >= 27)
       ? { bmi: b, hba1c: cur(s, "hba1c")?.value_num ?? null, sglt2: onTag(s, "sglt2").map(medLine), glp1: onTag(s, "glp1").map(medLine) }
       : null,

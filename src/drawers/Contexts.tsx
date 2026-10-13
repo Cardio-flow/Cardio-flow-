@@ -15,8 +15,6 @@ import { triage } from "../../shared/triage";
 import { existingClinicReview } from "../../shared/follow-up";
 const VISIT_REASONS = ["Heart failure", "Post-discharge", "Medication titration", "Post-ACS", "Post-PCI", "Valve", "Prosthetic valve problem", "Arrhythmia", "Device", "ICD shock", "Pre-operative assessment", "Chest pain", "Bleeding", "Chest infection", "Myocarditis", "Pericarditis", "Routine cardiology"];
 
-const LOCATIONS = ["CCU", "Ward 3A", "Ward 3B", "Step-down"];
-
 export function Admission({ patientId, summary, onClose, onDone }: { patientId: string; summary: any; onClose(): void; onDone(m?: string, r?: any): void }) {
   const [narrative, setNarrative] = useState("");
   async function close() {
@@ -33,8 +31,6 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   const readmitDays = lastDischarge ? daysBetween(lastDischarge.endedAt, summary.today) : null;
   const hfAuto = reasons.some((r) => HF_REASONS.includes(r));
   const hfRelated = hfChoice ? hfChoice === "yes" : hfAuto;
-  const [loc, setLoc] = useState("Ward 3B");
-  const [bed, setBed] = useState("");
   const meds = summary.medications.groups.flatMap((g: any) => g.meds);
   const [conf, setConf] = useState<Record<string, string>>(() => Object.fromEntries([...summary.header.diagnoses.map((d: any) => [d.id, "unchanged"]), ...meds.map((m: any) => [m.id, "unchanged"])]));
   const [busy, setBusy] = useState(false);
@@ -47,7 +43,6 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       const r = await api(`/patients/${patientId}/admissions`, {
         body: {
           startedAt: new Date().toISOString(), draftVersion: entry.getVersion(),
-          location: bed ? `${loc} · Bed ${bed}` : loc,
           reasons,
           route,
           symptoms,
@@ -67,7 +62,7 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       else {setError((e as Error).message); if((e as any).code === "admission_open") setOpenAdmissionId((e as any).details?.contextId ?? "open");}
     }
   }
-  const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,loc,bed,conf}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "Emergency department");setSymptoms(d.symptoms ?? []);setLoc(d.loc ?? "Ward 3B");setBed(d.bed ?? "");setConf({...conf,...(d.conf ?? {})});});
+  const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,conf}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "Emergency department");setSymptoms(d.symptoms ?? []);setConf({...conf,...(d.conf ?? {})});});
   const opts = [{ value: "unchanged", label: "Confirmed" }, { value: "changed", label: "Changed" }, { value: "unknown", label: "Unknown today" }];
   return (
     <Drawer
@@ -108,16 +103,6 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
         <div className="q">
           <div className="label" style={{ fontSize: 15 }}>Presenting symptoms</div>
           <MultiChoice options={SYMPTOMS.map((r) => ({ value: r, label: r }))} value={symptoms} onChange={setSymptoms} />
-        </div>
-        <div className="row wrap" style={{ gap: 20 }}>
-          <div className="q">
-            <div className="label" style={{ fontSize: 15 }}>Location</div>
-            <Segmented label="Location" options={LOCATIONS.map((l) => ({ value: l, label: l }))} value={loc} onChange={setLoc} />
-          </div>
-          <label className="field">
-            <span>Bed</span>
-            <input className="input" style={{ width: 100 }} value={bed} onChange={(e) => setBed(e.target.value)} />
-          </label>
         </div>
         <div className="q">
           <div className="label">Previously recorded</div>
@@ -268,7 +253,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
     <Drawer
       wide
       title="Discharge"
-      subtitle={ctx ? `Admitted ${fmtDay(ctx.startedAt, { weekday: true })} · ${ctx.location ?? ""}` : "Review, reconcile, plan"}
+      subtitle={ctx ? `Admitted ${fmtDay(ctx.startedAt, { weekday: true })}${ctx.location ? ` · ${ctx.location}` : ""}` : "Review, reconcile, plan"}
       icon={<LogOut size={22} />}
       onClose={closeDischarge}
       footer={

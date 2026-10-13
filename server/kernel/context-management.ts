@@ -6,12 +6,188 @@ import {
   nowIso,
   patientInSite,
   today,
+  uuid,
   type Actor,
 } from "./base.js";
 import { completeMatching, type Changed } from "./clinical.js";
 import { reopenCompletedBy } from "./corrections.js";
 import { daysBetween, localDay } from "../../shared/clinical.js";
 import { isHfAdmission, readmissionBand } from "../../shared/encounters.js";
+import type { PastAdmissionAnswers } from "../../shared/admission-history.js";
+import { checkEntryDraftVersion } from "./visit-drafts.js";
+
+async function validatePastPeriod(
+  tx: Q,
+  patient: any,
+  patientId: string,
+  startedOn: string,
+  endedOn: string,
+  enteredLocation: string,
+  ignoreId: string | null = null,
+) {
+  if (endedOn < startedOn)
+    throw new ApiError(400, "Discharge date cannot be before admission date");
+  if (startedOn > today() || endedOn > today())
+    throw new ApiError(400, "Past admission dates cannot be in the future");
+  if (
+    !patient.birth_date_estimated &&
+    startedOn < localDay(new Date(patient.birth_date).toISOString())
+  )
+    throw new ApiError(
+      400,
+      "Admission date cannot be before the patient's date of birth",
+    );
+  const death = (
+    await tx.query(
+      `SELECT status,effective_on::text AS day FROM cf.status_event WHERE patient_id=$1 AND kind='vital' ORDER BY effective_on DESC,recorded_at DESC LIMIT 1`,
+      [patientId],
+    )
+  ).rows[0];
+  if (death?.status === "died" && endedOn > death.day)
+    throw new ApiError(
+      400,
+      "This admission cannot end after the recorded date of death",
+    );
+  const rows = (
+    await tx.query(
+      `SELECT id,started_at,ended_at,location FROM cf.care_context WHERE patient_id=$1 AND kind='admission' AND removed_at IS NULL AND ($2::uuid IS NULL OR id<>$2)`,
+      [patientId, ignoreId],
+    )
+  ).rows;
+  const location = enteredLocation.trim() || "Not recorded";
+  for (const c of rows) {
+    const start = localDay(new Date(c.started_at).toISOString()),
+      end = c.ended_at ? localDay(new Date(c.ended_at).toISOString()) : today();
+    if (
+      start === startedOn &&
+      end === endedOn &&
+      (!enteredLocation.trim() || (c.location ?? "Not recorded").toLowerCase() === location.toLowerCase())
+    )
+      throw new ApiError(
+        409,
+        "An admission on these dates already exists. Edit that admission instead.",
+        "admission_duplicate",
+        { contextId: c.id },
+      );
+    if (start < endedOn && end > startedOn)
+      throw new ApiError(
+        409,
+        "These dates overlap an existing admission. Review that admission before saving.",
+        "admission_overlap",
+        { contextId: c.id },
+      );
+  }
+}
+
+// A closed historical encounter is added directly. It does not run the live
+// admission/discharge commands or turn reported medicines/labs into current facts.
+export async function recordPastAdmission(
+  tx: Q,
+  actor: Actor,
+  patientId: string,
+  input: PastAdmissionAnswers & { draftVersion: number },
+) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [
+    patientId,
+  ]);
+  const patient = await patientInSite(tx, actor, patientId);
+  await checkEntryDraftVersion(
+    tx,
+    actor,
+    patientId,
+    "past-admission",
+    input.draftVersion,
+  );
+  await validatePastPeriod(
+    tx,
+    patient,
+    patientId,
+    input.startedOn,
+    input.endedOn,
+    input.location,
+  );
+  const location = input.location.trim() || null;
+  const id = uuid(),
+    startedAt = new Date(`${input.startedOn}T00:00:00+03:00`).toISOString(),
+    endedAt = new Date(`${input.endedOn}T00:00:00+03:00`).toISOString();
+  const summary = {
+    historical: true,
+    dateOnly: true,
+    source: input.source,
+    narrative: input.narrative,
+    note: input.note,
+    events: input.events.filter((e) => e !== "None"),
+    dischargeStatus: input.dischargeStatus,
+    destination: input.destination || null,
+    reportedLabs: input.reportedLabs,
+    reportedMedications: input.reportedMedications,
+    hfRelated: isHfAdmission({ reasons: input.reasons }),
+    los: daysBetween(input.startedOn, input.endedOn),
+  };
+  await tx.query(
+    `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,ended_at,location,service,reasons,summary,created_by) VALUES($1,$2,'admission','closed',$3,$4,$5,'Hospital admission',$6,$7,$8)`,
+    [
+      id,
+      patientId,
+      startedAt,
+      endedAt,
+      location,
+      input.reasons,
+      JSON.stringify(summary),
+      actor.id,
+    ],
+  );
+  await refreshAdmissions(tx, patientId);
+  await journeyEvent(tx, actor, {
+    patientId,
+    contextId: id,
+    occurredAt: startedAt,
+    kind: "admission",
+    category: "visit",
+    title: `Past admission · ${input.reasons.join(", ")}`,
+    detail: [location, `Source: ${input.source}`, input.narrative]
+      .filter(Boolean)
+      .join(" · "),
+    refType: "care_context",
+    refId: id,
+  });
+  await journeyEvent(tx, actor, {
+    patientId,
+    contextId: id,
+    occurredAt: endedAt,
+    kind: "discharge",
+    category: "visit",
+    title: "Past admission ended",
+    detail: [
+      input.dischargeStatus,
+      input.destination,
+      input.events.filter((e) => e !== "None").join(", "),
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    refType: "care_context",
+    refId: id,
+  });
+  await audit(
+    tx,
+    actor,
+    "record-past-admission",
+    "care_context",
+    id,
+    patientId,
+    {
+      source: input.source,
+      startedOn: input.startedOn,
+      endedOn: input.endedOn,
+      dateOnly: true,
+    },
+  );
+  await tx.query(
+    `UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`,
+    [patientId, `entry:${actor.id}:past-admission`],
+  );
+  return { id, changed: ["contexts"] as Changed };
+}
 
 async function context(
   tx: Q,
@@ -109,6 +285,9 @@ export type ContextEdit = {
   destination?: string | null;
   events?: string[];
   handover?: string;
+  source?: string;
+  reportedLabs?: string;
+  reportedMedications?: string;
 };
 export async function editContext(
   tx: Q,
@@ -137,11 +316,15 @@ export async function editContext(
     );
   if (input.endedAt && new Date(input.endedAt) < new Date(input.startedAt))
     throw new ApiError(400, "End date cannot be before the start date");
+  if (c.kind === "clinic_visit" && !input.location.trim()) throw new ApiError(400, "Clinic location is required");
+  const location = c.kind === "admission" && !input.location.trim() ? c.location : input.location;
+  if(c.summary.historical && input.endedAt) await validatePastPeriod(tx,await patientInSite(tx,actor,patientId),patientId,localDay(input.startedAt),localDay(input.endedAt),location ?? "",id);
   const summary = {
     ...c.summary,
     symptoms: input.symptoms,
     narrative: input.narrative,
     note: input.note,
+    ...(c.summary.historical ? {source:input.source ?? c.summary.source,reportedLabs:input.reportedLabs ?? c.summary.reportedLabs,reportedMedications:input.reportedMedications ?? c.summary.reportedMedications} : {}),
     ...(c.kind === "admission"
       ? {
           route: input.route ?? null,
@@ -167,7 +350,7 @@ export async function editContext(
       id,
       input.startedAt,
       input.endedAt ?? null,
-      input.location,
+      location,
       input.service,
       input.reasons,
       JSON.stringify(summary),

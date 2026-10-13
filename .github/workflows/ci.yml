@@ -36,6 +36,8 @@ jobs:
           node scripts/round4-flow-check.mjs screenshots/round4-flow
           node scripts/round5-flow-check.mjs screenshots/round5-flow
           node scripts/round6-flow-check.mjs screenshots/round6-flow
+          node scripts/past-admission-check.mjs screenshots/past-admission
+          node scripts/labs-hypertension-check.mjs screenshots/labs-hypertension
       - uses: actions/upload-artifact@v4
         if: always()
         with:

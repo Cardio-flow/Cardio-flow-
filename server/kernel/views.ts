@@ -64,7 +64,7 @@ export function header(s: PatientState) {
   const dis = latestDischarge(s);
   let where = "Outpatient";
   if (s.deceased) where = `Deceased · ${fmtDay(s.status.vital!.effective_on, { year: true })}`;
-  else if (ctx?.kind === "admission") where = `Inpatient · ${ctx.location ?? "ward"}`;
+  else if (ctx?.kind === "admission") where = `Inpatient${ctx.location ? ` · ${ctx.location}` : ""}`;
   else if (ctx?.kind === "clinic_visit") where = `In clinic · ${ctx.service ?? "OPD"}`;
   else if (dis && dis.ended_at && daysBetween(dis.ended_at, s.today) <= 30) where = `Post-discharge · day ${daysBetween(dis.ended_at, s.today)}`;
   return {
@@ -504,13 +504,14 @@ export async function journey(tx: Q, patientId: string) {
   events.splice(0, events.length, ...events.filter(e => e.ref_type !== "care_context" || liveIds.has(String(e.ref_id))).map(e => {
     const c = s.contexts.find(c => c.id === e.ref_id && e.ref_type === "care_context");
     if (c) {
+      e.dateOnly = c.summary.dateOnly === true;
       if (e.kind === "admission" || e.kind === "clinic-visit") {
         e.occurred_at = c.started_at;
-        e.title = c.kind === "admission" ? `Admitted · ${c.reasons.join(", ")}` : `${c.service} visit`;
-        e.detail = [c.location, c.reasons.join(", "), c.summary.narrative].filter(Boolean).join(" · ");
+        e.title = c.kind === "admission" ? `${c.summary.historical ? "Past admission" : "Admitted"} · ${c.reasons.join(", ")}` : `${c.service} visit`;
+        e.detail = [c.location, c.reasons.join(", "), c.summary.historical ? `Source: ${c.summary.source}` : null, c.summary.narrative].filter(Boolean).join(" · ");
       } else if (e.kind === "discharge") {
         e.occurred_at = c.ended_at ?? e.occurred_at;
-        e.title = c.summary.outcome === "died" ? `Died in hospital · day ${c.summary.los}` : `Discharged · day ${c.summary.los}${e.title.match(/ · \d+ plan actions? created$/)?.[0] ?? ""}`;
+        e.title = c.summary.historical ? `Past admission ended · day ${c.summary.los}` : c.summary.outcome === "died" ? `Died in hospital · day ${c.summary.los}` : `Discharged · day ${c.summary.los}${e.title.match(/ · \d+ plan actions? created$/)?.[0] ?? ""}`;
         e.detail = [c.summary.dischargeStatus,c.summary.destination,(c.summary.events as string[] | undefined)?.length ? "Events: " + (c.summary.events as string[]).join(", ") : null].filter(Boolean).join(" · ");
       }
     }
@@ -596,7 +597,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
     const main = conds.filter((d) => ["Heart failure", "Coronary", "Valve", "Arrhythmia"].includes(d.family)).map((d) => d.display);
     const ckd = conds.find((d) => d.code.startsWith("ckd"));
     let where = "Outpatient";
-    if (r.open_kind === "admission") where = `Inpatient · ${r.open_location ?? "ward"}`;
+    if (r.open_kind === "admission") where = `Inpatient${r.open_location ? ` · ${r.open_location}` : ""}`;
     else if (r.open_kind === "clinic_visit") where = `In clinic · ${r.open_service ?? "OPD"}`;
     else if (r.last_discharge && daysBetween(new Date(r.last_discharge).toISOString(), today) <= 30)
       where = `Post-discharge · day ${daysBetween(new Date(r.last_discharge).toISOString(), today)}`;

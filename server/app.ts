@@ -18,7 +18,9 @@ import { attentionCount, historyView, journey, summary, worklist, planView, resu
 import { entryDraft, getVisitDraft, saveVisitDraft, getDischargeDraft, saveDischargeDraft } from "./kernel/visit-drafts.js";
 import { evidenceKey, checkEvidence } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
-import { editContext, removeContext } from "./kernel/context-management.js";
+import { editContext, removeContext, recordPastAdmission } from "./kernel/context-management.js";
+import { ADMISSION_HISTORY_SOURCES } from "../shared/admission-history.js";
+import { HTN_DIAGNOSIS_STATUS } from "../shared/hypertension.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
 import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
@@ -30,7 +32,7 @@ import { completeWizard, declineRecommendation, getWizard, resolveEpisode, saveD
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
 import { addDays, localDay } from "../shared/clinical.js";
-import { ADMISSION_ROUTES, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
+import { ADMISSION_REASONS, ADMISSION_ROUTES, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS, SYMPTOMS } from "../shared/encounters.js";
 
 export type Session = Actor & { email: string; expires: number; csrf: string };
 export type HostedAuth = {
@@ -204,6 +206,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         birthDateEstimated: z.boolean().optional(),
         allergies: z.string().max(300).optional(),
         conditions: z.array(z.string()).max(30).default([]),
+        hypertensionStatus: z.enum(HTN_DIAGNOSIS_STATUS).optional(),
         sample: z.boolean().default(false),
         ...identity,
       })
@@ -232,12 +235,14 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/entry-draft/:scope", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({version: z.number().int().min(0), answers: z.record(z.string().max(60), z.unknown()).refine(v => JSON.stringify(v).length <= 16000, "Entry draft is too long"), clear: z.boolean().optional()}).parse(req.body);
+    const input = z.object({version: z.number().int().min(0), answers: z.record(z.string().max(60), z.unknown()).refine(v => JSON.stringify(v).length <= (req.params.scope === "past-admission" ? 200000 : 16000), "Entry draft is too long"), clear: z.boolean().optional()}).parse(req.body);
     if (!input.clear) {
       const strings = z.array(z.string().max(120)).max(30);
       const shortValues = z.record(z.string().max(30), z.string().max(20));
-      const schema = req.params.scope === "admission-entry"
-        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120),bed:z.string().max(40),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
+      const schema = req.params.scope === "past-admission"
+        ? z.object({startedOn:z.union([isoDate,z.literal("")]),endedOn:z.union([isoDate,z.literal("")]),location:z.string().max(80),reasons:strings,source:z.string().max(160),narrative:z.string().max(4000),note:z.string().max(64000),events:strings,dischargeStatus:z.string().max(120),destination:z.string().max(120),reportedLabs:z.string().max(4000),reportedMedications:z.string().max(4000)}).strict()
+        : req.params.scope === "admission-entry"
+        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120).optional(),bed:z.string().max(40).optional(),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
         : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60),baselineValues:z.record(z.string(),z.string().max(60)).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional(),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional()}).strict();
       input.answers = schema.parse(input.answers);
     }
@@ -664,13 +669,14 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z.object({
       version: z.number().int().positive(), reason: z.string().trim().min(1).max(300),
       startedAt: isoDateTime, endedAt: isoDateTime.nullish(),
-      location: z.string().trim().min(1).max(80), service: z.string().trim().min(1).max(60),
+      location: z.string().trim().max(80), service: z.string().trim().min(1).max(60),
       reasons: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
       symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10),
       narrative: z.string().max(4000), note: z.string().max(64000),
       route: z.enum(ADMISSION_ROUTES as [string,...string[]]).nullish(), hfRelated: z.boolean().nullish(),
       dischargeStatus: z.string().max(120).optional(), destination: z.enum(DISCHARGE_DESTINATION as [string,...string[]]).nullish(),
       events: z.array(z.enum(IN_HOSPITAL_EVENTS as [string,...string[]])).max(20).optional(), handover: z.string().max(4000).optional(),
+      source:z.enum(ADMISSION_HISTORY_SOURCES).optional(),reportedLabs:z.string().max(4000).optional(),reportedMedications:z.string().max(4000).optional(),
     }).parse(req.body);
     await write(res,id,(tx,a)=>editContext(tx,a,id,uuidS.parse(req.params.cid),input));
   }));
@@ -679,12 +685,17 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input=z.object({version:z.number().int().positive(),reason:z.string().trim().min(1).max(300)}).parse(req.body);
     await write(res,id,(tx,a)=>removeContext(tx,a,id,uuidS.parse(req.params.cid),input));
   }));
+  app.post("/api/patients/:id/admissions/history",clinician,route(async(req,res)=>{
+    const id=uuidS.parse(req.params.id);
+    const input=z.object({draftVersion:z.number().int().min(0),startedOn:isoDate,endedOn:isoDate,location:z.string().trim().max(80),reasons:z.array(z.enum(ADMISSION_REASONS as [string,...string[]])).min(1).max(6),source:z.enum(ADMISSION_HISTORY_SOURCES),narrative:z.string().max(4000),note:z.string().max(64000),events:z.array(z.enum(IN_HOSPITAL_EVENTS as [string,...string[]])).max(20),dischargeStatus:z.union([z.enum(DISCHARGE_CONDITION as [string,...string[]]),z.literal("")]),destination:z.union([z.enum(DISCHARGE_DESTINATION as [string,...string[]]),z.literal("")]),reportedLabs:z.string().max(4000),reportedMedications:z.string().max(4000)}).strict().parse(req.body);
+    await write(res,id,(tx,a)=>recordPastAdmission(tx,a,id,input));
+  }));
   app.post("/api/patients/:id/admissions", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
         startedAt: isoDateTime,
-        location: z.string().trim().min(1).max(80),
+        location: z.string().trim().min(1).max(80).optional(),
         reasons: z.array(z.string().max(80)).min(1).max(6),
         route: z.enum(ADMISSION_ROUTES as [string, ...string[]]).nullish(),
         symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(),

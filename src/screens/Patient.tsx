@@ -34,6 +34,7 @@ import { AddPlan, PlanItem } from "../drawers/PlanDrawers";
 import { AddEcho } from "../drawers/AddEcho";
 import { AddStudy } from "../drawers/AddStudy";
 import { Admission, Discharge, ClinicVisit } from "../drawers/Contexts";
+import { PastAdmission } from "../drawers/PastAdmission";
 import { ContextEdit } from "../drawers/ContextEdit";
 import { AddDiagnosis } from "../drawers/NewPatient";
 import { HistoryDrawer, IdentityDrawer } from "../drawers/History";
@@ -76,6 +77,7 @@ export type Open =
   | { kind: "echo" }
   | { kind: "study"; studyKind?: string; initial?: Record<string, any> }
   | { kind: "admit" }
+  | { kind: "past-admission" }
   | { kind: "discharge"; contextId: string }
   | { kind: "visit"; contextId?: string }
   | { kind: "context-edit"; context: any; remove?: boolean }
@@ -592,6 +594,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               onClose={close}
               onDone={done}
             />
+          )}
+          {open?.kind === "past-admission" && (
+            <PastAdmission patientId={id} today={s.today} onClose={close} onDone={done} />
           )}
           {open?.kind === "discharge" && (
             <Discharge

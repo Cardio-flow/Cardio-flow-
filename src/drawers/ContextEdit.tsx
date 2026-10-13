@@ -3,6 +3,7 @@ import { PencilLine, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { DateInput, Drawer, MultiChoice, SingleChoice } from "../ui";
 import { localDay } from "../../shared/clinical";
+import { ADMISSION_HISTORY_SOURCES } from "../../shared/admission-history";
 import {
   ADMISSION_REASONS,
   ADMISSION_ROUTES,
@@ -64,6 +65,9 @@ export function ContextEdit({
     destination: c.summary.destination ?? "",
     events: c.summary.events ?? [],
     handover: c.summary.handover ?? "",
+    source: c.summary.source ?? "",
+    reportedLabs: c.summary.reportedLabs ?? "",
+    reportedMedications: c.summary.reportedMedications ?? "",
   });
   const set = (k: string, x: any) => setV((old: any) => ({ ...old, [k]: x }));
   const [reason, setReason] = useState("");
@@ -74,7 +78,7 @@ export function ContextEdit({
     (remove ||
       (v.start &&
         v.startTime &&
-        v.location.trim() &&
+        (admission || v.location.trim()) &&
         v.service.trim() &&
         v.reasons.length &&
         (c.status !== "closed" || (v.end && v.endTime))));
@@ -107,6 +111,13 @@ export function ContextEdit({
                   destination: v.destination || null,
                   events: v.events,
                   handover: v.handover,
+                  ...(c.summary.historical
+                    ? {
+                        source: v.source,
+                        reportedLabs: v.reportedLabs,
+                        reportedMedications: v.reportedMedications,
+                      }
+                    : {}),
                 }
               : {}),
           };
@@ -166,8 +177,32 @@ export function ContextEdit({
     >
       <div className="drawer-body">
         <div className="row wrap" style={{ gap: 8 }}>
-          <button className="btn secondary small" aria-pressed={!remove} disabled={busy} onClick={() => { setRemove(false); setReason(""); setError(""); }}><PencilLine size={16} />Edit details</button>
-          <button className="btn ghost small" aria-pressed={remove} disabled={busy} onClick={() => { setRemove(true); setReason(""); setError(""); }}><Trash2 size={16} />Delete this {label}…</button>
+          <button
+            className="btn secondary small"
+            aria-pressed={!remove}
+            disabled={busy}
+            onClick={() => {
+              setRemove(false);
+              setReason("");
+              setError("");
+            }}
+          >
+            <PencilLine size={16} />
+            Edit details
+          </button>
+          <button
+            className="btn ghost small"
+            aria-pressed={remove}
+            disabled={busy}
+            onClick={() => {
+              setRemove(true);
+              setReason("");
+              setError("");
+            }}
+          >
+            <Trash2 size={16} />
+            Delete this {label}…
+          </button>
         </div>
         {remove ? (
           <div className="infobox">
@@ -187,15 +222,17 @@ export function ContextEdit({
                   onChange={(e) => set("start", e.target.value)}
                 />
               </label>
-              <label className="q">
-                <span className="label">Start time (Kuwait)</span>
-                <input
-                  type="time"
-                  className="input"
-                  value={v.startTime}
-                  onChange={(e) => set("startTime", e.target.value)}
-                />
-              </label>
+              {!c.summary.dateOnly && (
+                <label className="q">
+                  <span className="label">Start time (Kuwait)</span>
+                  <input
+                    type="time"
+                    className="input"
+                    value={v.startTime}
+                    onChange={(e) => set("startTime", e.target.value)}
+                  />
+                </label>
+              )}
             </div>
             {c.status === "closed" && (
               <div className="row wrap">
@@ -207,21 +244,20 @@ export function ContextEdit({
                     onChange={(e) => set("end", e.target.value)}
                   />
                 </label>
-                <label className="q">
-                  <span className="label">End time (Kuwait)</span>
-                  <input
-                    type="time"
-                    className="input"
-                    value={v.endTime}
-                    onChange={(e) => set("endTime", e.target.value)}
-                  />
-                </label>
+                {!c.summary.dateOnly && (
+                  <label className="q">
+                    <span className="label">End time (Kuwait)</span>
+                    <input
+                      type="time"
+                      className="input"
+                      value={v.endTime}
+                      onChange={(e) => set("endTime", e.target.value)}
+                    />
+                  </label>
+                )}
               </div>
             )}
-            {field(
-              "location",
-              admission ? "Ward / location" : "Clinic location",
-            )}
+            {!admission && field("location", "Clinic location")}
             {field("service", "Service")}
             <div className="q">
               <div className="label">Reasons</div>
@@ -266,6 +302,33 @@ export function ContextEdit({
               </>
             )}
             {field("narrative", "Clinical narrative", true)}
+            {c.summary.historical && (
+              <>
+                <label className="field">
+                  <span>Historical source</span>
+                  <select
+                    className="input"
+                    aria-label="Historical source"
+                    value={v.source}
+                    onChange={(e) => set("source", e.target.value)}
+                  >
+                    {ADMISSION_HISTORY_SOURCES.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </label>
+                {field(
+                  "reportedLabs",
+                  "Labs during admission (reported)",
+                  true,
+                )}
+                {field(
+                  "reportedMedications",
+                  "Medicines at discharge (historical)",
+                  true,
+                )}
+              </>
+            )}
             {c.status === "closed" && (
               <>
                 {admission && (

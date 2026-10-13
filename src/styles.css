@@ -1596,7 +1596,6 @@ table.data.meds td.med-compact { display: none; }
   .admission-actions .admission-medicines { order: -1; }
 }
 @media (max-width: 640px) {
-  .admissions-page:has(.admission-card.current[data-admission-id]) > .page-head { display: none; }
   .admission-card.current[data-admission-id] { display: flex; flex-direction: column; }
   .admission-card.current .admission-actions { order: 1; margin-top: 4px !important; }
   .admission-card.current .admission-timeline { order: 2; }

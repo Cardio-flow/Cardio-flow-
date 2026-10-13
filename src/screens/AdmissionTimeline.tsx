@@ -37,6 +37,6 @@ export function AdmissionBrief({ id, contextId, header, attention, version }: { 
     <div className="row"><BedDouble size={20} /><h2>Current admission</h2></div>
     {error && <div className="error-box">Admission context could not load: {error}</div>}
     {!error && !c && <p role="status">Loading admission…</p>}
-    {c && <><p className="meta">{fmtDay(c.startedAt, { year: true })} · {c.location}</p><div className="row wrap">{c.reasons.map((r: string) => <span key={r} className="chip dx">{r}</span>)}</div><AdmissionTimeline context={c} events={data.events} /></>}
+    {c && <><p className="meta">{fmtDay(c.startedAt, { year: true })}{c.location ? ` · ${c.location}` : ""}</p><div className="row wrap">{c.reasons.map((r: string) => <span key={r} className="chip dx">{r}</span>)}</div><AdmissionTimeline context={c} events={data.events} /></>}
   </section>;
 }

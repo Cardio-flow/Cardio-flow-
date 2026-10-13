@@ -6,6 +6,7 @@ import { ONE_OF } from "../../shared/history";
 import { DIAGNOSES, DIAGNOSIS } from "../../shared/catalog";
 import { BirthFields, IdentityFields } from "./History";
 import { civilIdBirthDate } from "../../shared/civil-id";
+import { HTN_DIAGNOSIS_STATUS, type HypertensionDiagnosisStatus } from "../../shared/hypertension";
 
 // Diagnoses grouped as clinicians think of them: cardiac families, then comorbidities in small groups.
 // Mutually exclusive sets pick one (HF phenotype, diabetes type, CKD stage); search narrows every group.
@@ -37,7 +38,8 @@ export function DiagnosisPicker({ value, onChange, risk = false, existing = [] }
       ];
   const match = (code: string) => {
     const d = DIAGNOSIS[code];
-    return !!d && (!q || (d.display + " " + d.family).toLowerCase().includes(q.toLowerCase()));
+    const search = q.toLowerCase().replace(/anaemia/g, "anemia").trim();
+    return !!d && (!search || (d.display + " " + d.family).toLowerCase().replace(/anaemia/g,"anemia").includes(search));
   };
   const toggle = (code: string) => {
     if (value.includes(code)) return onChange(value.filter((v) => v !== code));
@@ -108,17 +110,18 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
   const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", birthDateEstimated: false, allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
   const [rf, setRf] = useState<string[]>([]);
+  const [hypertensionStatus, setHypertensionStatus] = useState<HypertensionDiagnosisStatus | "">("");
   const [smoking, setSmoking] = useState("");
   const [fhx, setFhx] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
-  const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate && (!f.civilId || (/^\d{12}$/.test(f.civilId) && !!civilIdBirthDate(f.civilId)));
+  const valid = f.name.trim().length > 1 && f.mrn.trim() && f.sex && f.birthDate && (!rf.includes("htn") || !!hypertensionStatus) && (!f.civilId || (/^\d{12}$/.test(f.civilId) && !!civilIdBirthDate(f.civilId)));
   async function save() {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await api("/patients", { body: { ...f, conditions: [...dx, ...rf], sample: test } });
+      const r = await api("/patients", { body: { ...f, conditions: [...dx, ...rf], ...(rf.includes("htn") && hypertensionStatus ? {hypertensionStatus} : {}), sample: test } });
       // smoking and family history are history answers, not diagnoses
       const answers = [smoking && { item: "smoking", answer: smoking }, fhx && { item: "fhx-cad", answer: fhx }].filter(Boolean);
       if (answers.length) {
@@ -199,6 +202,7 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
             </div>
           </section>
           <DiagnosisPicker value={rf} onChange={setRf} risk />
+          {rf.includes("htn") && <div className="q"><div className="label">Hypertension status</div><Segmented label="Hypertension status" options={HTN_DIAGNOSIS_STATUS.map(value => ({value,label:value}))} value={hypertensionStatus} onChange={v => setHypertensionStatus(v as HypertensionDiagnosisStatus)} /></div>}
         </details>
         <label className="check-line">
           <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />

@@ -114,7 +114,7 @@ export async function saveVisitDraft(
 // Unconfirmed form entries share the draft store, scoped to the clinician and patient.
 // They never enter observations, decisions or the rule engine.
 export async function entryDraft(tx: Q, actor: Actor, patientId: string, scope: string, input?: {version: number; answers: Record<string, unknown>; clear?: boolean}) {
-  if (!/^(admission-entry|assessment:[a-f0-9-]{36})$/.test(scope)) throw new ApiError(400, "Unknown entry draft");
+  if (!/^(admission-entry|past-admission|assessment:[a-f0-9-]{36})$/.test(scope)) throw new ApiError(400, "Unknown entry draft");
   await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   if (scope.startsWith("assessment:")) await visit(tx, patientId, scope.slice(11));
   const wizard = `entry:${actor.id}:${scope}`;
