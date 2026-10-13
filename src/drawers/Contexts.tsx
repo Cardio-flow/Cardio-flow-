@@ -274,7 +274,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       }
     >
       <>
-      {reviewChanged && <div className="infobox warn" role="alert">Record updated. Review results and bookings.<button className="btn secondary" onClick={() => {setReviewChanged(false); setError("");}} aria-label="Updated record reviewed">Reviewed</button></div>}
+      {reviewChanged && <div className="infobox warn" role="alert" style={{flexWrap:"wrap",alignItems:"center",flexShrink:0}}><span style={{flex:"1 1 180px",minWidth:0}}>Record updated. Review results and bookings.</span><button className="btn secondary" onClick={() => {setReviewChanged(false); setError("");}} aria-label="Updated record reviewed">Reviewed</button></div>}
       <fieldset className="drawer-body" disabled={!draftLoaded || busy} style={{border:0,margin:0}}>
         <div className="help" role="status">{!draftLoaded ? "Restoring discharge draft…" : draftSaved ? "Draft saved" : "Changes are saved as a draft"}</div>
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
