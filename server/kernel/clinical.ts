@@ -1011,7 +1011,7 @@ export async function completeMatching(
 export type AdmissionInput = {
   draftVersion?: number;
   startedAt: string;
-  location: string;
+  location?: string;
   reasons: string[];
   route?: string | null;
   symptoms?: string[];
@@ -1046,7 +1046,7 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
   const summary = { confirmations: input.confirmations ?? [], route: input.route ?? null, symptoms: input.symptoms ?? [], hfRelated, readmission, ...(input.narrative ? { narrative: input.narrative } : {}) };
   await tx.query(
     `INSERT INTO cf.care_context(id,patient_id,kind,status,started_at,location,service,reasons,previous_context_id,summary,created_by) VALUES($1,$2,'admission','open',$3,$4,'Cardiology',$5,$6,$7,$8)`,
-    [id, patientId, input.startedAt, input.location, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
+    [id, patientId, input.startedAt, input.location?.trim() || null, input.reasons, prev?.id ?? null, JSON.stringify(summary), actor.id],
   );
   await journeyEvent(tx, actor, {
     patientId, occurredAt: input.startedAt, kind: "admission", category: "visit",

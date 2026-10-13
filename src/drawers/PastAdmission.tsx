@@ -37,7 +37,7 @@ export function PastAdmission({
     patientId,
     "past-admission",
     form as unknown as Record<string, unknown>,
-    (d) => setForm({ ...emptyPastAdmission(), ...d }),
+    (d) => setForm({ ...emptyPastAdmission(), ...d, location: "" }),
   );
   const valid =
     draft.loaded &&
@@ -159,16 +159,6 @@ export function PastAdmission({
             Discharge must be on or after admission.
           </div>
         )}
-        <label className="field">
-          <span>Hospital / ward (optional)</span>
-          <input
-            className="input"
-            aria-label="Hospital / ward"
-            maxLength={80}
-            value={form.location}
-            onChange={(e) => set("location", e.target.value)}
-          />
-        </label>
         <label className="field">
           <span>Source</span>
           <select

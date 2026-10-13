@@ -240,7 +240,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       const schema = req.params.scope === "past-admission"
         ? z.object({startedOn:z.union([isoDate,z.literal("")]),endedOn:z.union([isoDate,z.literal("")]),location:z.string().max(80),reasons:strings,source:z.string().max(160),narrative:z.string().max(4000),note:z.string().max(64000),events:strings,dischargeStatus:z.string().max(120),destination:z.string().max(120),reportedLabs:z.string().max(4000),reportedMedications:z.string().max(4000)}).strict()
         : req.params.scope === "admission-entry"
-        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120),bed:z.string().max(40),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
+        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120).optional(),bed:z.string().max(40).optional(),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
         : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60),baselineValues:z.record(z.string(),z.string().max(60)).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional(),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional()}).strict();
       input.answers = schema.parse(input.answers);
     }
@@ -667,7 +667,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z.object({
       version: z.number().int().positive(), reason: z.string().trim().min(1).max(300),
       startedAt: isoDateTime, endedAt: isoDateTime.nullish(),
-      location: z.string().trim().min(1).max(80), service: z.string().trim().min(1).max(60),
+      location: z.string().trim().max(80), service: z.string().trim().min(1).max(60),
       reasons: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
       symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10),
       narrative: z.string().max(4000), note: z.string().max(64000),
@@ -693,7 +693,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         startedAt: isoDateTime,
-        location: z.string().trim().min(1).max(80),
+        location: z.string().trim().min(1).max(80).optional(),
         reasons: z.array(z.string().max(80)).min(1).max(6),
         route: z.enum(ADMISSION_ROUTES as [string, ...string[]]).nullish(),
         symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(),

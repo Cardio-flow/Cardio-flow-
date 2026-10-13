@@ -78,7 +78,7 @@ export function ContextEdit({
     (remove ||
       (v.start &&
         v.startTime &&
-        v.location.trim() &&
+        (admission || v.location.trim()) &&
         v.service.trim() &&
         v.reasons.length &&
         (c.status !== "closed" || (v.end && v.endTime))));
@@ -257,10 +257,7 @@ export function ContextEdit({
                 )}
               </div>
             )}
-            {field(
-              "location",
-              admission ? "Ward / location" : "Clinic location",
-            )}
+            {!admission && field("location", "Clinic location")}
             {field("service", "Service")}
             <div className="q">
               <div className="label">Reasons</div>

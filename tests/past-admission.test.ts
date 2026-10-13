@@ -113,6 +113,7 @@ test("a past admission is closed and leaves the open encounter, current medicine
   const r = await post(
     `/patients/${id}/admissions/history`,
     history({
+      location: "",
       events: ["IV diuretics"],
       note: "Historical discharge report",
       reportedLabs: "Potassium 3.1 in the old admission",
@@ -125,6 +126,7 @@ test("a past admission is closed and leaves the open encounter, current medicine
   assert.equal(old.status, "closed");
   assert.equal(old.summary.historical, true);
   assert.equal(old.summary.dateOnly, true);
+  assert.equal(old.location, null);
   assert.equal(after.contexts.find((c) => c.id === active.id)!.status, "open");
   assert.deepEqual(after.meds, before.meds);
   assert.deepEqual(after.observations, before.observations);
@@ -197,6 +199,10 @@ test("duplicate and overlapping admissions are refused while adjacent transfers 
   await tx((q) => recordPastAdmission(q, actor, id, history()));
   await assert.rejects(
     tx((q) => recordPastAdmission(q, actor, id, history())),
+    (e: any) => e.code === "admission_duplicate",
+  );
+  await assert.rejects(
+    tx((q) => recordPastAdmission(q, actor, id, history({ location: "" }))),
     (e: any) => e.code === "admission_duplicate",
   );
   await assert.rejects(
@@ -293,7 +299,7 @@ test("historical reports can be corrected and removed without changing clinical 
       reason: "Corrected source transcription",
       startedAt: c.started_at,
       endedAt: c.ended_at,
-      location: c.location!,
+      location: "",
       service: c.service!,
       reasons: c.reasons,
       symptoms: [],
@@ -305,6 +311,7 @@ test("historical reports can be corrected and removed without changing clinical 
     }),
   );
   c = (await loadState(db, id)).contexts[0];
+  assert.equal(c.location, "Hospital A");
   assert.equal(c.summary.reportedLabs, "Corrected old labs");
   assert.equal(c.summary.reportedMedications, "Corrected old medicines");
   assert.equal((await loadState(db, id)).observations.length, 0);

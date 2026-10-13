@@ -59,6 +59,7 @@ try {
     .getByRole("heading", { name: "Admissions & visits", exact: true })
     .waitFor();
   await p.getByRole("button", { name: "New admission", exact: true }).click();
+  if (await p.getByRole("dialog").getByText(/^(Location|Bed)$/).count()) throw Error("Admission still asks for bed or location");
   await p
     .getByRole("dialog", { name: "Start admission" })
     .getByRole("button", { name: "Acute decompensated HF", exact: true })

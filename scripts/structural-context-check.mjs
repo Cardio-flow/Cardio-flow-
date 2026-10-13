@@ -140,15 +140,14 @@ try {
   await page
     .getByRole("button", { name: "Edit admission", exact: true })
     .click();
-  await page
-    .getByLabel("Ward / location", { exact: true })
-    .fill("Synthetic structural ward");
+  assert.equal(await page.getByLabel("Ward / location", { exact: true }).count(), 0);
+  await page.getByLabel("Clinical narrative", { exact: true }).fill("Synthetic corrected admission narrative");
   await radio("Reason for correction", "Wrong details");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await dialog("Edit admission").waitFor({ state: "hidden" });
   assert.equal(
     (await api(`/patients/${pat.id}/journey`)).contexts[0].location,
-    "Synthetic structural ward",
+    "CCU",
   );
   await api(`/patients/${pat.id}/admissions/${a.id}/discharge`, {
     endedAt: new Date().toISOString(),

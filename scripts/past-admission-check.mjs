@@ -55,9 +55,9 @@ const open = async () => {
 const fill = async () => {
   await page.getByLabel("Admission date", { exact: true }).fill("01/03/2025");
   await page.getByLabel("Discharge date", { exact: true }).fill("05/03/2025");
-  await page
-    .getByLabel("Hospital / ward", { exact: true })
-    .fill("Previous hospital / ward 2");
+  await expect(page.getByLabel("Hospital / ward", { exact: true })).toHaveCount(
+    0,
+  );
   await page
     .getByLabel("Source", { exact: true })
     .selectOption("Discharge summary");
@@ -158,6 +158,7 @@ try {
       const journey = await api(`/patients/${patient.id}/journey`);
       historical = journey.contexts.find((c) => c.summary.historical);
       expect(historical.status).toBe("closed");
+      expect(historical.location).toBeNull();
       expect(journey.contexts.find((c) => c.id === live.id).status).toBe(
         "open",
       );
@@ -261,6 +262,9 @@ try {
       await card
         .getByRole("button", { name: "Edit admission", exact: true })
         .click();
+      await expect(
+        page.getByLabel("Ward / location", { exact: true }),
+      ).toHaveCount(0);
       await expect(
         page.getByLabel("Labs during admission (reported)", { exact: true }),
       ).toHaveValue("Synthetic old potassium 3.1 mmol/L");

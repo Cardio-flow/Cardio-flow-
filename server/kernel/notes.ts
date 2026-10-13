@@ -20,7 +20,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
   lines.push(`${title} — ${s.patient.name}, ${s.patient.age} y ${s.patient.sex.toLowerCase()}, MRN ${s.patient.mrn}`);
   lines.push(
     c.kind === "admission"
-      ? `Admitted ${fmtDay(c.started_at, { year: true })}${c.ended_at ? `, discharged ${fmtDay(c.ended_at, { year: true })}` : ""} · ${c.location ?? ""}`
+      ? `Admitted ${fmtDay(c.started_at, { year: true })}${c.ended_at ? `, discharged ${fmtDay(c.ended_at, { year: true })}` : ""}${c.location ? ` · ${c.location}` : ""}`
       : `Seen ${fmtDay(c.started_at, { year: true })} · ${c.service ?? "Cardiology"} · ${c.reasons.join(", ")}`,
   );
   const sm = (c.summary ?? {}) as any;

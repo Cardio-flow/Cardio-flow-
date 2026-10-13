@@ -785,7 +785,7 @@ export function VisitsTab({
               {fmtDay(c.startedAt, { weekday: true, year: true })}
               {c.endedAt
                 ? ` → ${fmtDay(c.endedAt, { weekday: true, year: true })}`
-                : ""} · {c.location}
+                : ""}{c.location ? ` · ${c.location}` : ""}
             </span>
           </div>
           <div className="row wrap" style={{ gap: 8, marginBottom: 10 }}>

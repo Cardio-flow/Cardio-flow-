@@ -61,11 +61,11 @@ async function validatePastPeriod(
     if (
       start === startedOn &&
       end === endedOn &&
-      (c.location ?? "Not recorded").toLowerCase() === location.toLowerCase()
+      (!enteredLocation.trim() || (c.location ?? "Not recorded").toLowerCase() === location.toLowerCase())
     )
       throw new ApiError(
         409,
-        "An admission on these dates at this location already exists. Edit that admission instead.",
+        "An admission on these dates already exists. Edit that admission instead.",
         "admission_duplicate",
         { contextId: c.id },
       );
@@ -106,7 +106,7 @@ export async function recordPastAdmission(
     input.endedOn,
     input.location,
   );
-  const location = input.location.trim() || "Not recorded";
+  const location = input.location.trim() || null;
   const id = uuid(),
     startedAt = new Date(`${input.startedOn}T00:00:00+03:00`).toISOString(),
     endedAt = new Date(`${input.endedOn}T00:00:00+03:00`).toISOString();
@@ -316,7 +316,9 @@ export async function editContext(
     );
   if (input.endedAt && new Date(input.endedAt) < new Date(input.startedAt))
     throw new ApiError(400, "End date cannot be before the start date");
-  if(c.summary.historical && input.endedAt) await validatePastPeriod(tx,await patientInSite(tx,actor,patientId),patientId,localDay(input.startedAt),localDay(input.endedAt),input.location,id);
+  if (c.kind === "clinic_visit" && !input.location.trim()) throw new ApiError(400, "Clinic location is required");
+  const location = c.kind === "admission" && !input.location.trim() ? c.location : input.location;
+  if(c.summary.historical && input.endedAt) await validatePastPeriod(tx,await patientInSite(tx,actor,patientId),patientId,localDay(input.startedAt),localDay(input.endedAt),location ?? "",id);
   const summary = {
     ...c.summary,
     symptoms: input.symptoms,
@@ -348,7 +350,7 @@ export async function editContext(
       id,
       input.startedAt,
       input.endedAt ?? null,
-      input.location,
+      location,
       input.service,
       input.reasons,
       JSON.stringify(summary),
