@@ -1,7 +1,9 @@
+import { selectLabGroup } from "./select-lab-group.mjs";
 // Synthetic browser regression: visit continuity, keyboard entry, draft protection.
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+const base = process.env.CARDIO_BASE_URL || "http://127.0.0.1:4310";
 const out = process.argv[2] || "/tmp/entry-fixes";
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch(
@@ -12,7 +14,7 @@ page.setDefaultTimeout(15000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 try {
-  await page.goto("http://127.0.0.1:4310");
+  await page.goto(base);
   await page.getByText("Dr. Ahmed", { exact: true }).click();
   await page.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
   const pat = await page.evaluate(async () => {
@@ -35,7 +37,7 @@ try {
     if (!response.ok) throw Error(await response.text());
     return response.json();
   });
-  await page.goto(`http://127.0.0.1:4310/patients/${pat.id}`);
+  await page.goto(`${base}/patients/${pat.id}`);
   await page
     .getByRole("button", { name: "Start clinic visit", exact: true })
     .click();
@@ -72,7 +74,7 @@ try {
     await page.evaluate(() => document.activeElement.id),
     "lab-urea",
   );
-  await page.getByLabel("Lab panel").selectOption("hf");
+  await selectLabGroup(page, "HF monitoring");
   assert.equal(
     await page.getByLabel("Creatinine", { exact: true }).inputValue(),
     "100",
