@@ -690,6 +690,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10).optional(),
         hfRelated: z.boolean().nullish(),
         narrative: z.string().trim().max(4000).optional(),
+        draftVersion: z.number().int().min(0).optional(),
         vitals: z.array(z.object({ code: z.enum(["sbp", "dbp", "hr", "weight"]), value: z.number().finite() })).max(4).optional(),
         confirmations: z.array(z.object({ kind: z.enum(["condition", "medication"]), id: uuidS, answer: z.enum(["unchanged", "changed", "unknown", "not-assessed"]) })).optional(),
       })
@@ -733,7 +734,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits/:cid/assessment", clinician, route(async (req,res) => {
     const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
-    const input=z.object({draftVersion:z.number().int().min(0),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))),items:z.array(z.object({code:z.enum(ASSESSMENT_CODES),value:z.number().finite().nullish(),text:z.string().max(60).nullish()})).max(9)}).parse(req.body);
+    const input=z.object({draftVersion:z.number().int().min(0),confirmBpPair:z.boolean().optional(),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))),items:z.array(z.object({code:z.enum(ASSESSMENT_CODES),value:z.number().finite().nullish(),text:z.string().max(60).nullish()})).max(9)}).parse(req.body);
     await write(res,id,async(tx,a)=>confirmAssessment(tx,a,id,cid,input));
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
@@ -771,7 +772,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/contexts/:cid/draft", clinician, route(async (req, res) => {
     const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
-    const input=z.object({version:z.number().int().min(0),note:z.string().max(64000),narrative:z.string().max(4000),generatedNote:z.string().max(64000),evidenceKey:z.string().regex(/^[a-f0-9]{64}$/)}).parse(req.body);
+    const input=z.object({version:z.number().int().min(0),note:z.string().max(64000),narrative:z.string().max(4000),generatedNote:z.string().max(64000),evidenceKey:z.union([z.string().regex(/^[a-f0-9]{64}$/),z.literal("")])}).parse(req.body);
     res.json(await db.transaction(async tx => { await patientInSite(tx,actor(res),id); return saveVisitDraft(tx,actor(res),id,cid,input); }));
   }));
   app.get("/api/patients/:id/contexts/:cid/note", route(async (req, res) => {
@@ -971,7 +972,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (res.headersSent) return;
     if (error instanceof ZodError) return res.status(400).json({ error: "Please check the entry: " + error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ") });
-    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message, code: error.code, details: error.details });
     console.error(error);
     res.status(500).json({ error: "Something went wrong. Nothing was saved." });
   });

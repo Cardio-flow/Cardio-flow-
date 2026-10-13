@@ -22,6 +22,17 @@ export type AssessmentAnswers = {
   baselineValues?: Partial<Record<AssessmentCode, string>>;
   baseline?: Partial<Record<AssessmentCode, string | null>>;
 };
+// Presentation of the server's paired-reading confirmation, without clinical thresholds.
+export function bpPairNeedsReview(answers: AssessmentAnswers) {
+  const values = [answers.vit.sbp, answers.vit.dbp];
+  if (values.some((v) => !v?.trim())) return false;
+  const changed = ["sbp", "dbp"].filter(
+    (c, i) =>
+      !answers.baselineValues?.[c as AssessmentCode]?.trim() ||
+      Number(values[i]) !== Number(answers.baselineValues[c as AssessmentCode]),
+  );
+  return changed.length === 1;
+}
 export function assessmentValue(
   answers: AssessmentAnswers,
   code: AssessmentCode,

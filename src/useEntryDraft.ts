@@ -12,7 +12,11 @@ const keyFor = (value: any): string =>
         )
       : v,
   );
-type Conflict = { kind: "draft" | "record"; latest?: any };
+type Conflict = {
+  kind: "draft" | "record" | "closed";
+  latest?: any;
+  message?: string;
+};
 
 // Current form intent always wins over an older queued/in-flight save. Conflicting
 // drafts are replaced only after an explicit clinician choice.
@@ -22,6 +26,7 @@ export function useEntryDraft(
   answers: Record<string, unknown>,
   restore: (answers: any, snapshot?: any) => void,
   ready = true,
+  transport?: { path: string | null; flat: true },
 ) {
   const [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
@@ -41,7 +46,23 @@ export function useEntryDraft(
     restoreRef = useRef(restore);
   restoreRef.current = restore;
   const key = keyFor(answers),
-    path = scope ? `/patients/${patientId}/entry-draft/${scope}` : null;
+    path = transport
+      ? transport.path
+      : scope
+        ? `/patients/${patientId}/entry-draft/${scope}`
+        : null;
+  const read = async () => {
+    const d = await api(path!);
+    if (!transport?.flat) return d;
+    const { version, updatedAt, originalNarrative, ...answers } = d;
+    return { version, answers, originalNarrative };
+  };
+  function closedError(e: any) {
+    if (!["visit_closed", "visit_unavailable"].includes(e.code)) return false;
+    setBlocked({ kind: "closed", message: e.message });
+    setError("");
+    return true;
+  }
   function setBlocked(next: Conflict | null) {
     blocked.current = next;
     setConflict(next);
@@ -60,15 +81,31 @@ export function useEntryDraft(
     isLoaded.current = true;
     setLoaded(true);
   }
-  async function refreshConflict(kind: "draft" | "record" = "record") {
-    setBlocked({ kind });
+  async function refreshConflict(
+    kind: "draft" | "record" | "closed" = "record",
+    message?: string,
+  ) {
+    if (kind === "closed") {
+      setBlocked({ kind, message });
+      setError("");
+      if (timer.current) clearTimeout(timer.current);
+      return;
+    }
+    const pendingConflict: Conflict = { kind };
+    setBlocked(pendingConflict);
     if (timer.current) clearTimeout(timer.current);
     if (!path) return;
     try {
-      const d = await api(path);
-      if (!stopped.current) setBlocked({ kind, latest: d });
+      const d = await read();
+      if (!stopped.current && blocked.current === pendingConflict)
+        setBlocked({ kind, latest: d });
     } catch (e) {
-      if (!stopped.current) setError((e as Error).message);
+      if (
+        !stopped.current &&
+        blocked.current === pendingConflict &&
+        !closedError(e)
+      )
+        setError((e as Error).message);
     }
   }
   const flushTask = useRef<Promise<void> | null>(null);
@@ -99,7 +136,9 @@ export function useEntryDraft(
     pending.current = null;
     setStatus("Saving draft…");
     const req = api(path, {
-      body: { version: version.current, answers: body },
+      body: transport?.flat
+        ? { ...body, version: version.current }
+        : { version: version.current, answers: body },
     });
     request.current = req;
     try {
@@ -117,7 +156,9 @@ export function useEntryDraft(
     } catch (e) {
       pending.current = latest.current;
       if (!stopped.current) {
-        if ((e as any).status === 409) await refreshConflict("draft");
+        if (closedError(e)) {
+          /* preserve the form and offer the saved visit */
+        } else if ((e as any).status === 409) await refreshConflict("draft");
         else setError(`Draft not saved: ${(e as Error).message}`);
       }
       throw e;
@@ -133,12 +174,12 @@ export function useEntryDraft(
     stopped.current = false;
     isLoaded.current = false;
     setLoaded(false);
-    api(path)
+    read()
       .then((d) => {
         if (live) install(d);
       })
       .catch((e) => {
-        if (live) setError(e.message);
+        if (live && !closedError(e)) setError(e.message);
       });
     return () => {
       live = false;
@@ -179,7 +220,7 @@ export function useEntryDraft(
     if (!path) return;
     try {
       const kind = blocked.current?.kind;
-      const d = await api(path);
+      const d = await read();
       const body = keepEdits
         ? {
             ...latest.current,
@@ -196,6 +237,7 @@ export function useEntryDraft(
       install(
         {
           ...d,
+          resolution: keepEdits ? "keep" : "load",
           recordChanged: !keepEdits && kind !== "record" && d.recordChanged,
         },
         body,
@@ -207,7 +249,7 @@ export function useEntryDraft(
         baseline.current = keyFor(d.answers ?? {});
       setRevision((n) => n + 1);
     } catch (e) {
-      setError((e as Error).message);
+      if (!closedError(e)) setError((e as Error).message);
     }
   }
   function complete() {
@@ -219,7 +261,7 @@ export function useEntryDraft(
     install({ version: nextVersion, answers: body, latestAnswers: body });
   }
   return {
-    loaded: loaded || !scope,
+    loaded: loaded || !path,
     error,
     conflict,
     status,

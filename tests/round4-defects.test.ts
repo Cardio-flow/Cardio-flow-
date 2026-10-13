@@ -396,6 +396,7 @@ test("unconfirmed admission and assessment drafts restore without creating clini
   );
   const a = await tx((q) =>
     K.startAdmission(q, actor, id, {
+      draftVersion: 1,
       startedAt: nowIso(),
       location: "Ward",
       reasons: ["Heart failure"],

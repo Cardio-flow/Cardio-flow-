@@ -17,7 +17,7 @@ import { loadState } from "./state.js";
 import { exposureChange } from "../../shared/medication-exposure.js";
 import { checkEvidence } from "./evidence.js";
 import { preStartCheck } from "../engine/med-safety.js";
-import { checkContextDraftVersion } from "./visit-drafts.js";
+import { checkContextDraftVersion, checkEntryDraftVersion } from "./visit-drafts.js";
 
 export type Changed = string[];
 // medicines and medication events not corrected away (migration 008); aliases m and me
@@ -1009,6 +1009,7 @@ export async function completeMatching(
 
 // ---------- care contexts ----------
 export type AdmissionInput = {
+  draftVersion?: number;
   startedAt: string;
   location: string;
   reasons: string[];
@@ -1020,11 +1021,13 @@ export type AdmissionInput = {
 };
 
 export async function startAdmission(tx: Q, actor: Actor, patientId: string, input: AdmissionInput) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   await patientInSite(tx, actor, patientId);
   notFuture(input.startedAt, "An admission");
   await notDeceased(tx, patientId);
-  const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='open'`, [patientId])).rows[0];
-  if (open) throw new ApiError(409, "This patient already has an open admission");
+  const open = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='open'`, [patientId])).rows[0];
+  if (open) throw new ApiError(409, "This patient already has an open admission", "admission_open", {contextId: open.id});
+  await checkEntryDraftVersion(tx, actor, patientId, "admission-entry", input.draftVersion);
   const prev = (
     await tx.query(
       `SELECT id, ended_at, reasons, summary FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='closed' AND ended_at <= $2 ORDER BY ended_at DESC LIMIT 1`,

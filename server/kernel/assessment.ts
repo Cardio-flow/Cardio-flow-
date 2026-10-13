@@ -105,6 +105,7 @@ export async function confirmAssessment(
     items: ObsInput[];
     baseline: Partial<Record<AssessmentCode, string | null>>;
     draftVersion: number;
+    confirmBpPair?: boolean;
   },
 ) {
   await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [
@@ -117,7 +118,12 @@ export async function confirmAssessment(
     )
   ).rows[0];
   if (!ctx || ctx.kind !== "clinic_visit" || ctx.status !== "open")
-    throw new ApiError(409, "This visit is not open");
+    throw new ApiError(
+      409,
+      "This visit is no longer open. Your local edits have not been added to it.",
+      "visit_closed",
+      { contextId },
+    );
   const key = `entry:${actor.id}:assessment:${contextId}`;
   const draft = (
     await tx.query(
@@ -129,8 +135,14 @@ export async function confirmAssessment(
     throw new ApiError(
       409,
       "This entry draft changed in another window. Review the saved draft before continuing.",
+      "entry_draft_changed",
     );
   const current = currentMeasurements(await loadState(tx, patientId));
+  if (new Set(input.items.map((i) => i.code)).size !== input.items.length)
+    throw new ApiError(
+      400,
+      "Each assessment measurement can be entered only once",
+    );
   for (const item of input.items) {
     const code = item.code as AssessmentCode;
     if (!ASSESSMENT_CODES.includes(code))
@@ -145,6 +157,7 @@ export async function confirmAssessment(
       throw new ApiError(
         409,
         "New readings are available. Review the latest measurements before saving this assessment.",
+        "assessment_changed",
       );
   }
   const fresh = input.items.filter(
@@ -152,9 +165,25 @@ export async function confirmAssessment(
       valueOf(current[item.code as AssessmentCode]) !==
       (item.value != null ? String(item.value) : (item.text ?? "")),
   );
-  const r = fresh.length
+  const bp = input.items.filter(
+    (i) => ["sbp", "dbp"].includes(i.code) && i.value != null,
+  );
+  const changedBp = fresh.filter((i) => ["sbp", "dbp"].includes(i.code));
+  if (bp.length === 2 && changedBp.length === 1 && !input.confirmBpPair)
+    throw new ApiError(
+      409,
+      "Check both BP values and confirm the new reading before saving.",
+      "bp_pair_review",
+    );
+  // The submitted, clinician-confirmed pair is one reading. Never infer a missing
+  // component from the record or pair unrelated readings. Untouched pairs stay untouched.
+  const observations =
+    bp.length === 2 && changedBp.length
+      ? [...fresh.filter((i) => !["sbp", "dbp"].includes(i.code)), ...bp]
+      : fresh;
+  const r = observations.length
     ? await recordObservations(tx, actor, patientId, {
-        items: fresh,
+        items: observations,
         effectiveAt: nowIso(),
         contextId,
       })

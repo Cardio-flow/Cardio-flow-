@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import {EntryDraftStatus} from "../EntryDraftStatus";
-import type {AssessmentAnswers} from "../../shared/assessment-entry";
+import {bpPairNeedsReview, type AssessmentAnswers} from "../../shared/assessment-entry";
 import {useEntryDraft} from "../useEntryDraft";
 import { api, useData } from "../api";
-import { Drawer, DateInput, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
+import { Drawer, DateInput, navigate, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
@@ -39,13 +39,14 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   const [conf, setConf] = useState<Record<string, string>>(() => Object.fromEntries([...summary.header.diagnoses.map((d: any) => [d.id, "unchanged"]), ...meds.map((m: any) => [m.id, "unchanged"])]));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [openAdmissionId,setOpenAdmissionId] = useState<string | null>(null);
   async function save() {
     setBusy(true);
     try {
       await entry.flush();
       const r = await api(`/patients/${patientId}/admissions`, {
         body: {
-          startedAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(), draftVersion: entry.getVersion(),
           location: bed ? `${loc} · Bed ${bed}` : loc,
           reasons,
           route,
@@ -61,8 +62,9 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       entry.complete();
       onDone("Admission started", r);
     } catch (e) {
-      if((e as any).status!==409) setError((e as Error).message);
       setBusy(false);
+      if((e as any).code === "entry_draft_changed") {setError("");await entry.refreshConflict("draft");}
+      else {setError((e as Error).message); if((e as any).code === "admission_open") setOpenAdmissionId((e as any).details?.contextId ?? "open");}
     }
   }
   const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,loc,bed,conf}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "Emergency department");setSymptoms(d.symptoms ?? []);setLoc(d.loc ?? "Ward 3B");setBed(d.bed ?? "");setConf({...conf,...(d.conf ?? {})});});
@@ -76,12 +78,13 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={close}>Cancel</button>
-          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
+          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !!openAdmissionId || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
         </span>
       }
     >
       <fieldset className="drawer-body" disabled={!entry.loaded || busy} style={{border:0,margin:0}}>
         <EntryDraftStatus draft={entry} showStatus onDiscard={()=>{entry.complete();onClose();}} />
+        {error && !entry.conflict && <div className="error-box" role="alert">{error}{openAdmissionId && <button type="button" className="btn secondary small" onClick={()=>{entry.complete();onDone();navigate(`/patients/${patientId}/visits`);}}>View existing admission</button>}</div>}
         <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>
         {readmitDays != null && (
           <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
@@ -129,7 +132,6 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
             </div>
           ))}
         </div>
-        {error && <div className="error-box">{error}</div>}
       </fieldset>
     </Drawer>
   );
@@ -396,6 +398,8 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
 
 export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted, active = true }: { patientId: string; summary: any; contextId?: string; active?: boolean; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
   const [narrative, setNarrative] = useState("");
+  const [narrativeOpen,setNarrativeOpen] = useState(false);
+  const [bpPairConfirmed,setBpPairConfirmed] = useState(false);
   const narrativeAtStart = useRef("");
   const narrativeInNote = useRef("");
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
@@ -415,62 +419,30 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const generatedNote = useRef("");
   const [noteKey, setNoteKey] = useState("");
   const [freshNote, setFreshNote] = useState<{ text: string; key: string } | null>(null);
-  const draftVersion = useRef(0);
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
-  const [newerDraft, setNewerDraft] = useState<any>(null);
-  const draftPending = useRef<any>(null);
-  const draftRequest = useRef<Promise<any> | null>(null);
-  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closed = useRef(false);
-  async function flushVisitDraft() {
-    if (draftTimer.current) clearTimeout(draftTimer.current);
-    await draftRequest.current;
-    const body = draftPending.current;
-    if (!body || !visitId || closed.current) return;
-    draftPending.current = null;
-    const req = api(`/patients/${patientId}/contexts/${visitId}/draft`, { body: {...body, version: draftVersion.current} });
-    draftRequest.current = req;
-    try { const r = await req; draftVersion.current = r.version; setDraftSaved(!draftPending.current); }
-    catch(e) { draftPending.current = body; if ((e as any).status === 409) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {}); throw e; }
-    finally { draftRequest.current = null; }
-    if (draftPending.current) await flushVisitDraft();
-  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
   const [measurementBaseline,setMeasurementBaseline]=useState<AssessmentAnswers["baseline"]>({});
   const [measurementValues,setMeasurementValues]=useState<AssessmentAnswers["baselineValues"]>({});
-  useEffect(() => {
-    if (!visitId) return;
-    let current = true;
-    api(`/patients/${patientId}/contexts/${visitId}/draft`).then(d => {
-      if (!current) return;
-      draftVersion.current = d.version;
-      if (d.note !== undefined) { setNote(d.note); setNarrative(d.narrative); narrativeInNote.current = d.narrative; generatedNote.current = d.generatedNote; setNoteKey(d.evidenceKey); }
-      setDraftLoaded(true);
-    }).catch(e => setError(`Draft could not be restored: ${e.message}`));
-    return () => { current = false; };
-  }, [visitId, patientId]);
-  useEffect(() => {
-    if (!draftLoaded || !visitId || !noteKey || closed.current || newerDraft) return;
-    draftPending.current = { note, narrative, generatedNote: generatedNote.current, evidenceKey: noteKey };
-    setDraftSaved(false);
-    draftTimer.current = setTimeout(() => { void flushVisitDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 300);
-    return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [note, narrative, noteKey, visitId, draftLoaded, newerDraft]);
-  useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if (draftPending.current || draftRequest.current) { e.preventDefault(); e.returnValue = ""; } };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, []);
-  useEffect(() => {
-    if (contextId) api(`/patients/${patientId}/journey`).then(j => {
-      const text = j.contexts.find((c: any) => c.id === contextId)?.summary?.narrative ?? "";
-      narrativeAtStart.current = text;
-      setNarrative(x => x || text);
-    }).catch(() => {});
-  }, [contextId, patientId]);
+  const noteDraft = useEntryDraft(patientId, visitId ? `note:${visitId}` : null,
+    {note,narrative,generatedNote:generatedNote.current,evidenceKey:noteKey}, (d,meta)=>{
+      setNote(d.note ?? "");setNarrative(d.narrative ?? "");
+      if(d.narrative) setNarrativeOpen(true);
+      narrativeAtStart.current=meta?.originalNarrative ?? "";
+      narrativeInNote.current=d.narrative ?? "";
+      generatedNote.current=d.generatedNote ?? "";setNoteKey(d.evidenceKey ?? "");setFreshNote(null);setError("");
+      if(meta?.resolution && step === 3) setStep(2);
+    }, true, {path:visitId ? `/patients/${patientId}/contexts/${visitId}/draft` : null,flat:true});
+  const draftLoaded=noteDraft.loaded;
+  function discardVisit() {assessment.complete();noteDraft.complete();visitId ? onDone() : onClose();}
+  function viewSavedVisit() {discardVisit();navigate(`/patients/${patientId}/visits`);}
+  async function recoverVisitError(e:any, draft=noteDraft) {
+    if(["visit_closed","visit_unavailable"].includes(e.code)) {setError("");await draft.refreshConflict("closed",e.message);}
+    else if(["entry_draft_changed","visit_draft_changed"].includes(e.code)) {setError("");await draft.refreshConflict("draft");}
+    else if(e.code === "assessment_changed") {setError("");await assessment.refreshConflict("record");}
+    else setError(e.message);
+  }
+  useEffect(()=>setBpPairConfirmed(false),[vit.sbp,vit.dbp,measurementBaseline]);
   useEffect(() => {
     setNote(x => {
       if (!x || narrative === narrativeInNote.current) return x;
@@ -500,6 +472,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     return () => { current = false; };
   }, [step, visitId, patientId, active, draftLoaded]);
   const assessment = useEntryDraft(patientId, visitId ? `assessment:${visitId}` : null, {vit,hfa,nyha,cong,baseline:measurementBaseline,baselineValues:measurementValues}, (d,meta) => {setVit(d.vit ?? {});setHfa(d.hfa ?? {});setNyha(d.nyha ?? "");setCong(d.cong ?? "");setMeasurementBaseline(d.baseline ?? {});setMeasurementValues(d.baselineValues ?? {});setAlready(Object.entries(meta?.latestAnswers?.baseline ?? {}).filter(([,id])=>!!id).map(([code])=>code));});
+  const needsBpReview=bpPairNeedsReview({vit,hfa,nyha,cong,baselineValues:measurementValues});
   const previous = summary.plan;
   async function start() {
     setBusy(true);
@@ -525,26 +498,25 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         ...(cong ? [{ code: "congestion", text: cong }] : []),
         ...(isHf ? ["kccq", "6mwd", "dry-weight"].filter((c) => hfa[c]?.trim()).map((c) => ({ code: c, value: Number(hfa[c]) })) : []),
       ];
-      const r=await api(`/patients/${patientId}/visits/${visitId}/assessment`, {body:{items,baseline:measurementBaseline,draftVersion:assessment.getVersion()}});
+      const r=await api(`/patients/${patientId}/visits/${visitId}/assessment`, {body:{items,baseline:measurementBaseline,draftVersion:assessment.getVersion(),confirmBpPair:bpPairConfirmed}});
       assessment.confirmed(r.answers,r.draftVersion);
       setStep(2);
     } catch (e) {
-      if((e as any).status===409) {setError("");await assessment.refreshConflict((e as Error).message.includes("draft") ? "draft" : "record");} else setError((e as Error).message);
+      await recoverVisitError(e,assessment);
     }
     setBusy(false);
   }
   async function finish() {
     setBusy(true);
     try {
-      await flushVisitDraft();
+      await noteDraft.flush();
       await assessment.flush();
-      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey, draftVersion: draftVersion.current } });
+      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey, draftVersion: noteDraft.getVersion() } });
       assessment.complete();
-      closed.current = true;
+      noteDraft.complete();
       onDone("Visit closed · note saved", r);
     } catch (e) {
-      setError((e as Error).message);
-      if ((e as any).status === 409 && (e as Error).message.includes("another window")) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {});
+      await recoverVisitError(e);
       setBusy(false);
     }
   }
@@ -559,10 +531,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       icon={<Stethoscope size={22} />}
       onClose={async () => {
         if (busy) return;
-        if (assessment.conflict) {if(window.confirm("Close without saving this window’s assessment edits? The saved draft will be kept.")) {assessment.complete();onDone();} return;}
+        if (assessment.conflict || noteDraft.conflict) {if(window.confirm("Close without saving this window’s edits? The saved draft will be kept.")) discardVisit(); return;}
         if (!visitId && narrative !== narrativeAtStart.current && !window.confirm("Discard this unstarted visit narrative?")) return;
         setBusy(true);
-        try { await assessment.flush(); await flushVisitDraft(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { if((e as any).status!==409) setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
+        try { await assessment.flush(); await noteDraft.flush(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { await recoverVisitError(e); setBusy(false); }
       }}
       head={
         <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
@@ -579,16 +551,18 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           {step > 1 && <button className="btn secondary" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
           <span className="end">
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
-            {step === 1 && <button className="btn primary" disabled={busy || !assessment.loaded || !!assessment.conflict} onClick={saveAssessment}>{assessment.loaded ? "Save and continue" : "Loading…"}</button>}
+            {step === 1 && <button className="btn primary" disabled={busy || !assessment.loaded || !!assessment.conflict || !noteDraft.loaded || !!noteDraft.conflict || (needsBpReview && !bpPairConfirmed)} onClick={saveAssessment}>{assessment.loaded ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" disabled={busy} onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!newerDraft || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!noteDraft.conflict || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
     >
       <div className="drawer-body">
-        <EntryDraftStatus draft={assessment} onDiscard={()=>{assessment.complete();visitId ? onDone() : onClose();}} />
-        {step < 3 && narrative && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
+        <EntryDraftStatus draft={noteDraft} label="Visit note" savedLabel="Use newer saved note" onDiscard={discardVisit} onViewClosed={viewSavedVisit} />
+        {noteDraft.conflict?.kind !== "closed" && <EntryDraftStatus draft={assessment} onDiscard={discardVisit} onViewClosed={viewSavedVisit} />}
+        {step < 3 && !narrativeOpen && <button type="button" className="btn ghost small" onClick={()=>setNarrativeOpen(true)}>Add narrative</button>}
+        {step < 3 && narrativeOpen && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" disabled={!noteDraft.loaded || busy} className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
         {step === 0 && (
           <>
             <div className="q">
@@ -638,6 +612,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 ))}
               </div>
             </div>
+            {needsBpReview && <label className="infobox" style={{display:"flex",gap:10,alignItems:"center"}}><input type="checkbox" aria-label="Both BP values checked" checked={bpPairConfirmed} onChange={e=>setBpPairConfirmed(e.target.checked)} />New BP {vit.sbp}/{vit.dbp} mmHg · both values checked</label>}
             <div className="q">
               <div className="label">NYHA class</div>
               <Segmented label="NYHA class" options={FINDINGS.nyha.options.map((o) => ({ value: o, label: o }))} value={nyha} onChange={setNyha} />
@@ -724,12 +699,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         {step === 3 && (
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
-            <div className="help">Edit before finishing. {draftSaved ? "Draft saved" : "Saving draft…"}</div>
-            {newerDraft && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
-              <b>A newer note was saved in another window.</b>
-              <details><summary>Newer saved note</summary><pre style={{whiteSpace:"pre-wrap"}}>{newerDraft.note}</pre></details>
-              <button className="btn secondary" onClick={() => {if (!window.confirm("Replace this window’s note with the newer saved draft?")) return; draftPending.current = null; draftVersion.current = newerDraft.version; generatedNote.current = newerDraft.generatedNote; narrativeInNote.current = newerDraft.narrative; setNote(newerDraft.note); setNarrative(newerDraft.narrative); setNoteKey(newerDraft.evidenceKey); setNewerDraft(null); setError(""); setStep(2);}}>Use newer saved note</button>
-            </div>}
+            <div className="help">Edit before finishing. {noteDraft.status}</div>
             {freshNote && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
               <b>Patient data changed. Review the note before finishing.</b>
               <details><summary>Latest generated note</summary><pre style={{whiteSpace:"pre-wrap"}}>{freshNote.text}</pre></details>
@@ -741,7 +711,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
             <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} maxLength={64000} aria-label="Clinic note" />
           </div>
         )}
-        {error && <div className="error-box" role="alert">{error}</div>}
+        {error && !noteDraft.conflict && !assessment.conflict && <div className="error-box" role="alert">{error}</div>}
       </div>
     </Drawer>
   );

@@ -4,7 +4,7 @@ let csrf = "";
 export const setCsrf = (token: string) => (csrf = token);
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string, public details?: {contextId?: string}) {
     super(message);
   }
 }
@@ -25,7 +25,7 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
     if (!response.ok) throw new HttpError(response.status, response.status >= 500 ? "The server did not answer. Nothing was saved — try again." : `Request failed (${response.status})`);
     throw new HttpError(response.status, "Unexpected answer from the server");
   }
-  if (!response.ok) throw new HttpError(response.status, data?.error ?? "Request failed");
+  if (!response.ok) throw new HttpError(response.status, data?.error ?? "Request failed", data?.code, data?.details);
   return data as T;
 }
 

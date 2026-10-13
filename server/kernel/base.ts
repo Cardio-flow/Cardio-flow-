@@ -5,7 +5,7 @@ import { isoDay } from "../../shared/clinical.js";
 export const uuid = () => randomUUID();
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string, public details?: {contextId?: string}) {
     super(message);
   }
 }
