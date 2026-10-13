@@ -26,7 +26,7 @@ export function QuickLabs({
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const { data: sum } = useData<any>(`/patients/${patientId}/summary`);
   const [preset, setPreset] = useState<string | null>(codes ? null : "renal");
-  const [rows, setRows] = useState<string[]>(codes ?? LAB_PRESETS[0].codes);
+  const [rows, setRows] = useState<string[]>([...new Set((codes ?? LAB_PRESETS[0].codes).map(c => c === "egfr" ? "creatinine" : c))]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [units, setUnits] = useState<Record<string, string>>({});

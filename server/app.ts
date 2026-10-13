@@ -13,8 +13,8 @@ import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
 import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups } from "./kernel/views.js";
-import { getVisitDraft, saveVisitDraft, getDischargeDraft, saveDischargeDraft } from "./kernel/visit-drafts.js";
-import { checkEvidence, evidenceKey } from "./kernel/evidence.js";
+import { entryDraft, getVisitDraft, saveVisitDraft, getDischargeDraft, saveDischargeDraft } from "./kernel/visit-drafts.js";
+import { evidenceKey, checkEvidence } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
 import { editContext, removeContext } from "./kernel/context-management.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
@@ -224,6 +224,27 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     res.json((await patientInSite(db, actor(res), id), await summary(db, id, await siteMode(db, actor(res).siteId))));
   }));
+  app.get("/api/patients/:id/entry-draft/:scope", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return entryDraft(tx, actor(res), id, String(req.params.scope)); }));
+  }));
+  app.post("/api/patients/:id/entry-draft/:scope", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({version: z.number().int().min(0), answers: z.record(z.string().max(60), z.unknown()).refine(v => JSON.stringify(v).length <= 16000, "Entry draft is too long"), clear: z.boolean().optional()}).parse(req.body);
+    if (!input.clear) {
+      const strings = z.array(z.string().max(120)).max(30);
+      const shortValues = z.record(z.string().max(30), z.string().max(20));
+      const schema = req.params.scope === "admission-entry"
+        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120),bed:z.string().max(40),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
+        : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60)}).strict();
+      input.answers = schema.parse(input.answers);
+    }
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return entryDraft(tx, actor(res), id, String(req.params.scope), input); }));
+  }));
+  app.get("/api/patients/:id/discharge-review", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); const state = await loadState(tx, id); return {summary: await summary(tx, id, await siteMode(tx, actor(res).siteId)), evidenceKey: evidenceKey(state)}; }));
+  }));
   app.get("/api/patients/:id/journey", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     res.json((await patientInSite(db, actor(res), id), await journey(db, id)));
@@ -243,7 +264,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           labCollections: (() => {
             const groups = new Map<string, {ref: string; at: string; source: string; contextId: string | null; codes: string[]}>();
             for (const o of [...s.observations].sort((a,b) => b.effective_at.localeCompare(a.effective_at))) {
-              if (o.status !== "final" || o.derived_from || o.study_id || !LABS.some(l => l.code === o.code && !l.derived)) continue;
+              if (o.status !== "final" || o.derived_from?.length || o.study_id || !LABS.some(l => l.code === o.code && !l.derived)) continue;
               const key = JSON.stringify([o.effective_at, o.source, o.context_id]);
               const g = groups.get(key);
               if (g) g.codes.push(o.code);
@@ -644,7 +665,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       location: z.string().trim().min(1).max(80), service: z.string().trim().min(1).max(60),
       reasons: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
       symptoms: z.array(z.enum(SYMPTOMS as [string, ...string[]])).max(10),
-      narrative: z.string().max(4000), note: z.string().max(8000),
+      narrative: z.string().max(4000), note: z.string().max(64000),
       route: z.enum(ADMISSION_ROUTES as [string,...string[]]).nullish(), hfRelated: z.boolean().nullish(),
       dischargeStatus: z.string().max(120).optional(), destination: z.enum(DISCHARGE_DESTINATION as [string,...string[]]).nullish(),
       events: z.array(z.enum(IN_HOSPITAL_EVENTS as [string,...string[]])).max(20).optional(), handover: z.string().max(4000).optional(),
@@ -685,6 +706,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z
       .object({
         endedAt: isoDateTime,
+        evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
         draftVersion: z.number().int().min(0).optional(),
         outcome: z.enum(["alive", "died"]).default("alive"),
         status: z.string().max(120),
@@ -709,7 +731,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/visits/:cid/close", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ note: z.string().max(8000).optional(), narrative: z.string().trim().max(4000).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(), draftVersion: z.number().int().min(0).optional() }).parse(req.body);
+    const input = z.object({ note: z.string().max(64000).optional(), narrative: z.string().trim().max(4000).optional(), evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(), draftVersion: z.number().int().min(0).optional() }).parse(req.body);
     await write(res, id, async (tx, a) => { checkEvidence(await loadState(tx, id), input.evidenceKey); return { changed: await K.closeVisit(tx, a, id, uuidS.parse(req.params.cid), input) }; });
   }));
   app.post("/api/patients/:id/status", clinician, route(async (req, res) => {
@@ -737,12 +759,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.post("/api/patients/:id/admissions/:cid/draft", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id), cid = uuidS.parse(req.params.cid);
-    const input = z.object({version: z.number().int().min(0), outcome: z.enum(["alive", "died"]), status: z.string().max(60), destination: z.string().max(60), events: z.array(z.string().max(80)).max(20), cause: z.string().max(60), weight: z.string().max(20), reuseClinicFollowUp: z.boolean(), handover: z.string().max(4000), picked: z.record(z.string().max(60), z.union([z.number().int().min(0).max(3650), isoDate, z.literal(""), z.null()])).refine(p => Object.keys(p).every(k => PLAN_TEMPLATES.some(t => t.id === k)), "Unknown follow-up template")}).parse(req.body);
+    const input = z.object({evidenceKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),version: z.number().int().min(0), outcome: z.enum(["alive", "died"]), status: z.string().max(60), destination: z.string().max(60), events: z.array(z.string().max(80)).max(20), cause: z.string().max(60), weight: z.string().max(20), reuseClinicFollowUp: z.boolean(), handover: z.string().max(4000), picked: z.record(z.string().max(60), z.union([z.number().int().min(0).max(3650), isoDate, z.literal(""), z.null()])).refine(p => Object.keys(p).every(k => PLAN_TEMPLATES.some(t => t.id === k)), "Unknown follow-up template")}).parse(req.body);
     res.json(await db.transaction(async tx => { await patientInSite(tx, actor(res), id); return saveDischargeDraft(tx, actor(res), id, cid, input); }));
   }));
   app.post("/api/patients/:id/contexts/:cid/draft", clinician, route(async (req, res) => {
     const id=uuidS.parse(req.params.id), cid=uuidS.parse(req.params.cid);
-    const input=z.object({version:z.number().int().min(0),note:z.string().max(8000),narrative:z.string().max(4000),generatedNote:z.string().max(8000),evidenceKey:z.string().regex(/^[a-f0-9]{64}$/)}).parse(req.body);
+    const input=z.object({version:z.number().int().min(0),note:z.string().max(64000),narrative:z.string().max(4000),generatedNote:z.string().max(64000),evidenceKey:z.string().regex(/^[a-f0-9]{64}$/)}).parse(req.body);
     res.json(await db.transaction(async tx => { await patientInSite(tx,actor(res),id); return saveVisitDraft(tx,actor(res),id,cid,input); }));
   }));
   app.get("/api/patients/:id/contexts/:cid/note", route(async (req, res) => {

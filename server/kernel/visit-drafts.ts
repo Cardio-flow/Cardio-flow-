@@ -100,3 +100,19 @@ export async function saveVisitDraft(
     );
   return { version: version + 1 };
 }
+
+// Unconfirmed form entries share the draft store, scoped to the clinician and patient.
+// They never enter observations, decisions or the rule engine.
+export async function entryDraft(tx: Q, actor: Actor, patientId: string, scope: string, input?: {version: number; answers: Record<string, unknown>; clear?: boolean}) {
+  if (!/^(admission-entry|assessment:[a-f0-9-]{36})$/.test(scope)) throw new ApiError(400, "Unknown entry draft");
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
+  if (scope.startsWith("assessment:")) await visit(tx, patientId, scope.slice(11));
+  const wizard = `entry:${actor.id}:${scope}`;
+  const row = (await tx.query(`SELECT id,answers,version FROM cf.wizard_draft WHERE patient_id=$1 AND wizard=$2 AND status='draft' ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`, [patientId, wizard])).rows[0];
+  if (!input) return row ? {answers: row.answers, version: Number(row.version)} : {version: 0};
+  if (Number(row?.version ?? 0) !== input.version) throw new ApiError(409, "This entry draft changed in another window. Reopen it before continuing.");
+  if (input.clear) { if (row) await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE id=$1`, [row.id]); return {version: 0}; }
+  if (row) await tx.query(`UPDATE cf.wizard_draft SET answers=$2,version=version+1,updated_at=now(),updated_by=$3 WHERE id=$1`, [row.id, JSON.stringify(input.answers), actor.id]);
+  else await tx.query(`INSERT INTO cf.wizard_draft(id,patient_id,wizard,answers,status,updated_by) VALUES($1,$2,$3,$4,'draft',$5)`, [uuid(), patientId, wizard, JSON.stringify(input.answers), actor.id]);
+  return {version: input.version + 1};
+}
