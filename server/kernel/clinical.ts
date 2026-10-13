@@ -3,7 +3,7 @@
 import { reuseBooking } from "./plan-bookings.js";
 import { needsExplicitReview } from "../../shared/plan-evidence.js";
 import type { Q } from "../db/db.js";
-import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, liveContext, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
@@ -13,6 +13,9 @@ import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, l
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 import { existingClinicReview } from "../../shared/follow-up.js";
+import { loadState } from "./state.js";
+import { preStartCheck } from "../engine/med-safety.js";
+import { checkContextDraftVersion } from "./visit-drafts.js";
 
 export type Changed = string[];
 // medicines and medication events not corrected away (migration 008); aliases m and me
@@ -322,6 +325,7 @@ export async function recordObservations(
   input: {
     effectiveAt: string;
     items: ObsInput[];
+    collectionRef?: string;
     contextId?: string | null;
     quality?: "standard" | "formal" | "limited" | "bedside";
     studyId?: string | null;
@@ -331,6 +335,16 @@ export async function recordObservations(
   },
 ) {
   const patient = await patientInSite(tx, actor, patientId);
+  if (input.collectionRef) {
+    const s = await loadState(tx, patientId);
+    const sample = s.observations.find(o => o.id === input.collectionRef);
+    if (!sample || sample.status !== "final" || sample.derived_from || sample.study_id || !LABS.some(l => l.code === sample.code && !l.derived) ||
+      (sample.context_id ?? null) !== (input.contextId ?? null)) throw new ApiError(409, "This blood draw is no longer available in this context. Choose a current draw or record a new one.");
+    if (input.items.some(i => !LABS.some(l => l.code === i.code && !l.derived))) throw new ApiError(400, "Only laboratory results can join a blood draw.");
+    const codes = s.observations.filter(o => o.status === "final" && o.effective_at === sample.effective_at && o.source === sample.source && (o.context_id ?? null) === (sample.context_id ?? null)).map(o => o.code);
+    if (input.items.some(i => codes.includes(i.code))) throw new ApiError(409, "This draw already has one of these results. Correct that result or record a new draw.");
+    input = {...input, effectiveAt: sample.effective_at, source: sample.source};
+  }
   await liveContext(tx,patientId,input.contextId);
   notFuture(input.effectiveAt, "A result");
   const ids: string[] = [];
@@ -704,8 +718,9 @@ export async function startMedication(
   ).rows[0];
   let medicationId = existing?.id as string | undefined;
   if (medicationId) {
-    const last = (await tx.query(`SELECT kind FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
+    const last = (await tx.query(`SELECT kind,effective_at FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
     if (last && last.kind !== "stop") throw new ApiError(409, `${def.name} is already on the medication list. Change its dose instead.`);
+    if (last && new Date(input.effectiveAt) < new Date(last.effective_at)) throw new ApiError(400, "The restart cannot precede the last medication change. Correct the history first.");
   } else {
     medicationId = uuid();
     await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication) VALUES($1,$2,$3,$4)`, [medicationId, patientId, input.code, input.indication]);
@@ -737,28 +752,40 @@ export async function medicationEvent(
   actor: Actor,
   patientId: string,
   medicationId: string,
-  input: { kind: "increase" | "decrease" | "hold" | "restart" | "stop" | "continue" | "not_taking" | "resume"; doseValue?: number | null; frequency?: string | null; reason?: string; effectiveAt: string; contextId?: string | null; decisionId?: string | null },
+  input: { kind: "increase" | "decrease" | "hold" | "restart" | "stop" | "continue" | "not_taking" | "resume"; doseValue?: number | null; frequency?: string | null; reason?: string; override?: string; effectiveAt: string; contextId?: string | null; decisionId?: string | null },
 ) {
+  await tx.query("SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE", [patientId]);
   const med = (await tx.query(`SELECT * FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0];
   if (!med) throw new ApiError(404, "Medication not found");
   const def = MEDICATION[med.drug];
+  const state = await loadState(tx, patientId);
+  const current = state.meds.find(m => m.id === medicationId)!;
   const last = (
     await tx.query(`SELECT * FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} AND kind IN ('start','restart','increase','decrease') ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])
   ).rows[0];
-  const lastAny = (await tx.query(`SELECT kind FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
+  const lastAny = (await tx.query(`SELECT kind,effective_at FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [medicationId])).rows[0];
+  if (lastAny && new Date(input.effectiveAt) < new Date(lastAny.effective_at)) throw new ApiError(400, "The change cannot precede the last medication change. Correct the history first.");
   if (lastAny?.kind === "stop" && input.kind !== "restart") throw new ApiError(409, `${def?.name} has been stopped`);
+  if (["increase", "decrease"].includes(input.kind) && ["held", "not_taking"].includes(current.status)) throw new ApiError(409, "Review restarting or resuming this medicine before changing its dose.");
   if ((input.kind === "increase" || input.kind === "decrease") && input.doseValue == null) throw new ApiError(400, "Choose the new dose");
+  if (current.doseValue != null && input.doseValue != null && ((input.kind === "increase" && input.doseValue <= current.doseValue) || (input.kind === "decrease" && input.doseValue >= current.doseValue))) throw new ApiError(400, `Choose a ${input.kind === "increase" ? "higher" : "lower"} dose for this change.`);
   // exceptions reported by the patient: only against the current state
   if (input.kind === "not_taking" && !["start", "restart", "increase", "decrease", "continue", "resume"].includes(lastAny?.kind)) throw new ApiError(409, `${def?.name} is not currently being taken as prescribed`);
   if (input.kind === "resume" && lastAny?.kind !== "not_taking") throw new ApiError(409, `${def?.name} is not marked as not taken`);
   if (input.kind === "not_taking" && !input.reason?.trim()) throw new ApiError(400, "Give the reason the patient is not taking it");
+  let reason = input.reason ?? "";
+  if (["restart", "resume", "increase"].includes(input.kind)) {
+    const warnings = preStartCheck(state, med.drug, def).filter(h => h.severity === "red" || h.requiresReview);
+    if (warnings.length && (input.override?.trim().length ?? 0) < 3) throw new ApiError(409, `${warnings[0].title}. Review this warning and record your reason before changing treatment.`);
+    if (warnings.length) reason = [reason, `Medication warnings reviewed: ${warnings.map(h => h.title).join("; ")} — ${input.override!.trim()}`].filter(Boolean).join(" · ");
+  }
   const dose = input.kind === "increase" || input.kind === "decrease" || input.kind === "restart" ? input.doseValue ?? last?.dose_value ?? null : null;
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
       uuid(), medicationId, patientId, input.kind, dose, last?.dose_unit ?? def?.unit ?? null, input.frequency ?? last?.frequency ?? null, last?.route ?? null,
-      input.reason ?? "", input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id,
+      reason, input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id,
     ],
   );
   if (input.kind !== "continue") {
@@ -771,13 +798,13 @@ export async function medicationEvent(
       title: `${def?.name ?? med.drug} ${verb}`,
       detail:
         (dose != null && last ? `${doseLabel(def, last.dose_value)} → ${doseLabel(def, dose)}` : dose != null ? doseLabel(def, dose) : "") +
-        (input.reason ? ` · ${input.reason}` : ""),
+        (reason ? ` · ${reason}` : ""),
       refType: "medication",
       refId: medicationId,
       contextId: input.contextId,
     });
   }
-  await audit(tx, actor, input.kind, "medication", medicationId, patientId, { dose });
+  await audit(tx, actor, input.kind, "medication", medicationId, patientId, { dose, ...(input.override ? { override: input.override } : {}) });
   // a stopped medicine takes its own dated medication steps with it (titration reviews, a planned stop);
   // monitoring checks linked to it stay (e.g. thyroid after amiodarone)
   if (input.kind === "stop") {
@@ -1013,6 +1040,7 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
 }
 
 export type DischargeInput = {
+  draftVersion?: number;
   endedAt: string;
   outcome?: "alive" | "died";
   status: string; // condition at discharge
@@ -1027,6 +1055,7 @@ export type DischargeInput = {
 };
 
 export async function discharge(tx: Q, actor: Actor, patientId: string, contextId: string, input: DischargeInput) {
+  await checkContextDraftVersion(tx, patientId, contextId, "discharge", input.draftVersion);
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.kind !== "admission") throw new ApiError(404, "Admission not found");
   if (ctx.status !== "open") throw new ApiError(409, "This admission is already closed");
@@ -1041,6 +1070,7 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
     contextId, input.endedAt,
     JSON.stringify({ outcome: died ? "died" : "alive", dischargeStatus: input.status, destination: died ? null : input.destination ?? null, events, los, note: input.note ?? "", handover: input.handover ?? "" }),
   ]);
+  await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, `discharge:${contextId}`]);
   const changed: Changed = ["contexts", "plan"];
   if (input.dischargeWeight != null && !died) {
     const r = await recordObservations(tx, actor, patientId, { effectiveAt: input.endedAt, items: [{ code: "weight", value: input.dischargeWeight }], contextId, source: "discharge weight", silentEvent: true });
@@ -1147,7 +1177,8 @@ export async function startVisit(
   return { id, changed: ["contexts", ...(completed.length ? ["plan"] : [])] as Changed, completed };
 }
 
-export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string; narrative?: string }) {
+export async function closeVisit(tx: Q, actor: Actor, patientId: string, contextId: string, input: { note?: string; narrative?: string; draftVersion?: number }) {
+  await checkContextDraftVersion(tx, patientId, contextId, "visit", input.draftVersion);
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");

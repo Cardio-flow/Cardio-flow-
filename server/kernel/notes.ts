@@ -53,7 +53,7 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     lines.push("Assessment: " + [...vitals, nyha ? `NYHA ${nyha.value_text}` : null, cong ? `congestion ${cong.value_text!.toLowerCase()}` : null].filter(Boolean).join(" · "));
   const labs = ["potassium", "creatinine", "egfr", "sodium", "nt-probnp", "haemoglobin"].map((code) => {
     const o = s.resolved(code).current;
-    return o ? `${MEASURES[code].short} ${formatNumber(o.value_num!, MEASURES[code].decimals)} (${fmtDay(o.effective_at)})` : null;
+    return o ? `${MEASURES[code].short} ${formatNumber(o.value_num!, MEASURES[code].decimals)} (${fmtDay(o.effective_at, { year: true })})` : null;
   }).filter(Boolean);
   if (labs.length) lines.push("Latest results: " + labs.join(", "));
   lines.push("");

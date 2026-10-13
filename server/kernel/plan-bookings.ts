@@ -22,13 +22,19 @@ export async function reuseBooking(
     input.category === "investigation" && !input.medicationId
       ? studyBookingKey(input.completesOn ?? {})
       : null;
+  const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map(k => [k, k === "codes" && Array.isArray(value[k]) ? [...new Set(value[k])].sort() : canonical(value[k])])) : value;
+  const criterion = JSON.stringify(canonical(input.completesOn ?? {type: "manual"}));
   const same = rows.find(
-    (row) =>
-      row.title.toLowerCase() === input.title.toLowerCase() ||
+    (row) => row.category === input.category &&
+      (row.medication_id ?? null) === (input.medicationId ?? null) &&
+      (!input.owner || row.owner === input.owner.trim()) && (
+      (row.title.toLowerCase() === input.title.toLowerCase() && JSON.stringify(canonical(row.completes_on)) === criterion &&
+        needsExplicitReview(row.title, row.completes_on) === needsExplicitReview(input.title, input.completesOn ?? {})) ||
       (key &&
         row.category === "investigation" &&
         !row.medication_id &&
-        studyBookingKey(row.completes_on) === key),
+        studyBookingKey(row.completes_on) === key)),
   );
   if (!same) return null;
   const indications = [

@@ -32,11 +32,14 @@ export function QuickLabs({
   const [units, setUnits] = useState<Record<string, string>>({});
   const [date, setDate] = useState<string>("today");
   const [dateEditing, setDateEditing] = useState(false);
+  const [collectionRef, setCollectionRef] = useState("");
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const today = rec?.today;
+  const collections = (rec?.labCollections ?? []).filter((c: any) => c.contextId === (contextId ?? null));
+  const selectedDraw = collections.find((c: any) => c.ref === collectionRef);
   const prev = (code: string) =>
     rec?.results.find((r: any) => r.code === code)?.current;
   const num = (code: string) => {
@@ -94,12 +97,13 @@ export function QuickLabs({
     setError("");
     try {
       const effectiveAt =
-        date === "today"
+        selectedDraw ? selectedDraw.at : date === "today"
           ? new Date().toISOString()
           : new Date(`${date}T08:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/observations`, {
         body: {
           effectiveAt,
+          ...(collectionRef ? {collectionRef} : {}),
           contextId: contextId ?? null,
           items: filled.map((code) => ({
             code,
@@ -185,13 +189,17 @@ export function QuickLabs({
       }
     >
       <form id="labs-form" className="drawer-body" onSubmit={save}>
+        {!!collections.length && <label className="field"><span>Blood draw</span><select className="input" value={collectionRef} aria-label="Blood draw" onChange={e => {setCollectionRef(e.target.value); setDateEditing(false);}}>
+          <option value="">New blood draw</option>
+          {collections.map((c: any) => <option key={c.ref} value={c.ref}>Add to {fmtDay(c.at, {year: true})} · {new Intl.DateTimeFormat("en-GB", {timeZone: "Asia/Kuwait", hour: "2-digit", minute: "2-digit", second: "2-digit"}).format(new Date(c.at))} · {c.codes.map((code: string) => MEASURES[code]?.short ?? code).join(" / ")} · {c.source}</option>)}
+        </select>{selectedDraw && <span className="help">Same recorded collection time and source.</span>}</label>}
         <div className="lab-date">
           <div className="lab-date-current">
             <Calendar size={17} aria-hidden="true" />
             <span>
               <b>Result date</b>
               <span>
-                {date === "today"
+                {selectedDraw ? fmtDay(selectedDraw.at, {weekday: true, year: true}) : date === "today"
                   ? `Today${today ? ` · ${fmtDay(today, { weekday: true })}` : ""}`
                   : date
                     ? fmtDay(date, { weekday: true, year: true })
@@ -203,6 +211,7 @@ export function QuickLabs({
               className="btn ghost small"
               aria-expanded={dateEditing}
               aria-controls="lab-date-edit"
+              disabled={!!selectedDraw}
               onClick={() => setDateEditing(!dateEditing)}
             >
               {dateEditing ? "Hide date entry" : "Change date"}
@@ -425,22 +434,6 @@ export function QuickLabs({
             );
           })}
         </div>
-        <details>
-          <summary
-            style={{
-              fontWeight: 700,
-              color: "var(--action)",
-              cursor: "pointer",
-            }}
-          >
-            Advanced details · lab, specimen, collection time
-          </summary>
-          <p className="muted small" style={{ fontWeight: 500 }}>
-            Source is recorded as clinician entry with your name and the time.
-            Laboratory interface import is planned; nothing else is needed for
-            routine entry.
-          </p>
-        </details>
         {filled.length > 0 && (
           <div className="infobox">
             <Check size={18} color="var(--green)" style={{ flexShrink: 0 }} />
