@@ -37,7 +37,8 @@ export function DiagnosisPicker({ value, onChange, risk = false, existing = [] }
       ];
   const match = (code: string) => {
     const d = DIAGNOSIS[code];
-    return !!d && (!q || (d.display + " " + d.family).toLowerCase().includes(q.toLowerCase()));
+    const search = q.toLowerCase().replace(/anaemia/g, "anemia").trim();
+    return !!d && (!search || (d.display + " " + d.family).toLowerCase().replace(/anaemia/g,"anemia").includes(search));
   };
   const toggle = (code: string) => {
     if (value.includes(code)) return onChange(value.filter((v) => v !== code));

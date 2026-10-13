@@ -147,12 +147,14 @@ export function JourneyTab({ id, version }: { id: string; version: number }) {
                           <span>
                             {e.planned
                               ? "Planned"
-                              : isToday
-                                ? "Today"
-                                : new Date(day).getFullYear() !==
-                                    new Date(data.today).getFullYear()
-                                  ? new Date(day).getFullYear()
-                                  : fmtTime(e.occurred_at)}
+                              : e.dateOnly
+                                ? new Date(day).getFullYear()
+                                : isToday
+                                  ? "Today"
+                                  : new Date(day).getFullYear() !==
+                                      new Date(data.today).getFullYear()
+                                    ? new Date(day).getFullYear()
+                                    : fmtTime(e.occurred_at)}
                           </span>
                         </>
                       )}

@@ -714,7 +714,10 @@ export function VisitsTab({
           <h1 style={{ fontSize: 22 }}>Admissions & visits</h1>
           <p>Admissions, clinic visits and follow-up belong to one journey.</p>
         </div>
-        {!summary.header.deceased && (
+        <button className="btn secondary" onClick={() => open({ kind: "past-admission" })}>
+          <Plus size={18} />Past admission
+        </button>
+        {!summary.header.deceased && !summary.header.openContext && (
           <span className="row wrap" style={{ gap: 8 }}>
             <button
               className="btn secondary"
@@ -766,6 +769,7 @@ export function VisitsTab({
               <Tag sev={c.status === "open" ? "yellow" : "gray"}>
                 {c.status === "open" ? "Open" : "Closed"}
               </Tag>
+              {c.summary?.historical && <Tag sev="blue">Historical</Tag>}
               <button
                 className="encounter-edit"
                 aria-label={
@@ -780,7 +784,7 @@ export function VisitsTab({
             <span className="meta">
               {fmtDay(c.startedAt, { weekday: true, year: true })}
               {c.endedAt
-                ? ` → ${fmtDay(c.endedAt, { weekday: true })}`
+                ? ` → ${fmtDay(c.endedAt, { weekday: true, year: true })}`
                 : ""} · {c.location}
             </span>
           </div>
@@ -869,7 +873,7 @@ export function VisitsTab({
                 className="btn secondary small"
                 onClick={() =>
                   api(`/patients/${id}/contexts/${c.id}/note`).then((n) =>
-                    setNote({ ...note, [c.id]: c.summary?.note || n.text }),
+                    setNote({ ...note, [c.id]: c.summary?.historical ? n.text : c.summary?.note || n.text }),
                   )
                 }
               >

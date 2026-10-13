@@ -504,13 +504,14 @@ export async function journey(tx: Q, patientId: string) {
   events.splice(0, events.length, ...events.filter(e => e.ref_type !== "care_context" || liveIds.has(String(e.ref_id))).map(e => {
     const c = s.contexts.find(c => c.id === e.ref_id && e.ref_type === "care_context");
     if (c) {
+      e.dateOnly = c.summary.dateOnly === true;
       if (e.kind === "admission" || e.kind === "clinic-visit") {
         e.occurred_at = c.started_at;
-        e.title = c.kind === "admission" ? `Admitted · ${c.reasons.join(", ")}` : `${c.service} visit`;
-        e.detail = [c.location, c.reasons.join(", "), c.summary.narrative].filter(Boolean).join(" · ");
+        e.title = c.kind === "admission" ? `${c.summary.historical ? "Past admission" : "Admitted"} · ${c.reasons.join(", ")}` : `${c.service} visit`;
+        e.detail = [c.location, c.reasons.join(", "), c.summary.historical ? `Source: ${c.summary.source}` : null, c.summary.narrative].filter(Boolean).join(" · ");
       } else if (e.kind === "discharge") {
         e.occurred_at = c.ended_at ?? e.occurred_at;
-        e.title = c.summary.outcome === "died" ? `Died in hospital · day ${c.summary.los}` : `Discharged · day ${c.summary.los}${e.title.match(/ · \d+ plan actions? created$/)?.[0] ?? ""}`;
+        e.title = c.summary.historical ? `Past admission ended · day ${c.summary.los}` : c.summary.outcome === "died" ? `Died in hospital · day ${c.summary.los}` : `Discharged · day ${c.summary.los}${e.title.match(/ · \d+ plan actions? created$/)?.[0] ?? ""}`;
         e.detail = [c.summary.dischargeStatus,c.summary.destination,(c.summary.events as string[] | undefined)?.length ? "Events: " + (c.summary.events as string[]).join(", ") : null].filter(Boolean).join(" · ");
       }
     }

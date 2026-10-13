@@ -24,6 +24,18 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
       : `Seen ${fmtDay(c.started_at, { year: true })} · ${c.service ?? "Cardiology"} · ${c.reasons.join(", ")}`,
   );
   const sm = (c.summary ?? {}) as any;
+  if(sm.historical) {
+    lines[0]=`${title} — ${s.patient.name}, MRN ${s.patient.mrn}`;
+    lines.push(`Historical record · ${sm.source ?? "source not recorded"} · dates only`,"Reason: "+c.reasons.join(", "));
+    if(sm.narrative) lines.push("Admission history: "+sm.narrative);
+    if(sm.events?.length) lines.push("In-hospital events: "+sm.events.join(", "));
+    if(sm.dischargeStatus) lines.push("Condition at discharge: "+sm.dischargeStatus);
+    if(sm.destination) lines.push("Destination: "+sm.destination);
+    if(sm.note) lines.push("Discharge summary:\n"+sm.note);
+    if(sm.reportedLabs) lines.push("Labs during admission (reported):\n"+sm.reportedLabs);
+    if(sm.reportedMedications) lines.push("Medicines at discharge (historical):\n"+sm.reportedMedications);
+    return {title,text:lines.join("\n"),evidenceKey:evidenceKey(s)};
+  }
   if (c.kind === "admission") {
     const r = sm.readmission;
     const facts = [
