@@ -67,6 +67,18 @@ export const LABS: LabDef[] = [
   { code: "wbc", display: "White cell count", short: "WBC", unit: "10⁹/L", category: "Haematology", ref: { low: 4, high: 11 }, decimals: 1 },
   { code: "crp", display: "CRP", short: "CRP", unit: "mg/L", category: "Inflammation", ref: { high: 5 }, decimals: 0 },
   { code: "digoxin-level", display: "Digoxin level", short: "Digoxin", unit: "ng/mL", category: "Drug levels", decimals: 1 },
+  // 13 Oct 2026 (Ahmed: "cover all labs needed"): assay-dependent ranges, so the report's own limit is entered
+  { code: "haematocrit", display: "Haematocrit", short: "Hct", unit: "%", category: "Haematology", decimals: 1, reportLimit: true },
+  { code: "neutrophils", display: "Neutrophils", short: "Neut", unit: "10⁹/L", category: "Haematology", decimals: 1, reportLimit: true },
+  { code: "chloride", display: "Chloride", short: "Cl", unit: "mmol/L", category: "Renal", decimals: 0, reportLimit: true },
+  { code: "ggt", display: "Gamma-GT", short: "GGT", unit: "U/L", category: "Liver", decimals: 0, reportLimit: true },
+  { code: "ldh", display: "LDH", short: "LDH", unit: "U/L", category: "Liver", decimals: 0, reportLimit: true },
+  { code: "ck-mb", display: "CK-MB", short: "CK-MB", unit: "ng/mL", category: "Cardiac", decimals: 1, reportLimit: true },
+  { code: "d-dimer", display: "D-dimer", short: "D-dimer", unit: "mg/L FEU", category: "Coagulation", decimals: 2, reportLimit: true },
+  { code: "aptt", display: "APTT", short: "APTT", unit: "s", category: "Coagulation", decimals: 1, reportLimit: true },
+  { code: "fibrinogen", display: "Fibrinogen", short: "Fib", unit: "g/L", category: "Coagulation", decimals: 1, reportLimit: true },
+  { code: "apob", display: "Apolipoprotein B", short: "ApoB", unit: "g/L", category: "Lipids", decimals: 2 },
+  { code: "procalcitonin", display: "Procalcitonin", short: "PCT", unit: "ng/mL", category: "Inflammation", decimals: 2, reportLimit: true },
 ];
 
 export const VITALS: LabDef[] = [
@@ -143,17 +155,23 @@ export const FINDINGS = {
 } as const;
 
 export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
-  { id: "renal", label: "Renal profile", codes: ["creatinine", "urea", "sodium", "potassium"] },
+  { id: "routine", label: "Routine clinic bloods", codes: ["creatinine", "urea", "sodium", "potassium", "haemoglobin", "wbc", "platelets", "alt", "hba1c", "total-cholesterol", "ldl-c", "hdl-c", "triglycerides"] },
+  { id: "renal", label: "Renal profile", codes: ["creatinine", "urea", "sodium", "potassium", "chloride", "bicarbonate", "magnesium"] },
+  { id: "cbc", label: "CBC", codes: ["haemoglobin", "wbc", "neutrophils", "platelets", "haematocrit", "mcv"] },
   { id: "hf", label: "HF monitoring", codes: ["creatinine", "potassium", "sodium", "nt-probnp"] },
-  { id: "lipids", label: "Lipids", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"] },
-  { id: "metabolic", label: "Diabetes & kidney", codes: ["hba1c", "creatinine", "uacr"] },
-  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat", "mcv"] },
+  { id: "cardiac", label: "Cardiac markers", codes: ["hs-troponin", "ck-mb", "nt-probnp", "bnp", "d-dimer"] },
+  { id: "lipids", label: "Lipids", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides", "apob", "lpa"] },
+  { id: "metabolic", label: "Diabetes & kidney", codes: ["hba1c", "glucose", "creatinine", "uacr"] },
+  { id: "liver", label: "Liver", codes: ["alt", "ast", "alp", "ggt", "bilirubin", "albumin", "ldh"] },
+  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat", "mcv", "b12", "folate"] },
+  { id: "coag", label: "Coagulation", codes: ["inr", "aptt", "fibrinogen", "d-dimer", "platelets"] },
+  { id: "tft", label: "TFT", codes: ["tsh", "ft4", "ft3"] },
   { id: "bone", label: "Vitamin D / calcium", codes: ["vitamin-d", "calcium", "creatinine"] },
   { id: "bone-profile", label: "Bone profile", codes: ["calcium-total", "calcium", "albumin", "phosphate", "alp"] },
-  { id: "tft", label: "TFT", codes: ["tsh", "ft4", "ft3"] },
-  { id: "liver", label: "Liver enzymes", codes: ["alt", "ast", "alp", "bilirubin"] },
-  { id: "statin-safety", label: "Statin symptoms / safety", codes: ["ck", "alt", "creatinine"] },
+  { id: "inflammation", label: "Inflammation", codes: ["crp", "hs-crp", "wbc", "procalcitonin"] },
+  { id: "statin-safety", label: "Statin safety", codes: ["ck", "alt", "creatinine"] },
   { id: "anticoag", label: "Anticoagulation", codes: ["inr", "haemoglobin", "creatinine"] },
+  { id: "drug-levels", label: "Drug levels", codes: ["digoxin-level"] },
   { id: "sepsis", label: "Sepsis / shock", codes: ["lactate", "wbc", "crp", "creatinine", "potassium"] },
   { id: "dka", label: "Glucose crisis", codes: ["glucose", "ketones", "bicarbonate", "ph", "potassium", "sodium"] },
 ];
@@ -442,6 +460,8 @@ export const MEDICATIONS: MedicationDef[] = [
   m("rifampicin", "Rifampicin", "Rifamycin", "Infection", ["antibiotic", "strong-inducer"], [], "mg", [300, 450, 600], ["OD", "BID"], ["alt"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
   m("allopurinol", "Allopurinol", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [100, 200, 300], ["OD"], ["creatinine"], { indicationChoices: ["Gout", "Other"] }),
   m("colecalciferol", "Colecalciferol (vitamin D3)", "Vitamin D", "General medicine", ["vitamin-d"], [], "IU", [800, 1000, 2000], ["OD"], ["calcium"], { indicationChoices: ["Vitamin D deficiency maintenance", "Other"] }),
+  // Caltrate 600+D3 (Ahmed, 13 Oct 2026): dose as elemental calcium; the D3 content differs between products
+  m("calcium-d3", "Calcium carbonate + vitamin D3", "Calcium and vitamin D", "General medicine", ["calcium", "vitamin-d"], [], "mg", [600, 1200], ["OD", "BID"], ["calcium", "vitamin-d"], { doseLabels: ["600 mg calcium (1 tablet)", "1200 mg calcium (2 tablets)"], indicationChoices: ["Osteoporosis / bone health", "Vitamin D deficiency maintenance", "Calcium supplementation", "Other"] }),
   m("ferrous-sulfate", "Ferrous sulfate (200 mg ≈ 65 mg elemental iron)", "Oral iron", "General medicine", ["oral-iron"], [], "mg", [200], ["OD", "Alternate days"], ["haemoglobin"], { indicationChoices: ["Confirmed iron deficiency anaemia", "Other"] }),
   m("febuxostat", "Febuxostat", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [40, 80, 120], ["OD"], ["alt"], { indicationChoices: ["Gout", "Other"] }),
   m("levothyroxine", "Levothyroxine", "Thyroid hormone", "General medicine", [], [], "mcg", [25, 50, 75, 100, 125, 150], ["OD"], ["tsh"], { indicationChoices: ["Hypothyroidism", "Amiodarone-induced hypothyroidism", "Other"] }),
@@ -469,6 +489,7 @@ const BRANDS: Record<string, string[]> = {
   aspirin: ["Aspirin Protect"], clopidogrel: ["Plavix"], ticagrelor: ["Brilinta"], prasugrel: ["Effient"],
   atorvastatin: ["Lipitor"], rosuvastatin: ["Crestor"], ezetimibe: ["Ezetrol"], evolocumab: ["Repatha"], alirocumab: ["Praluent"], inclisiran: ["Leqvio"],
   "bempedoic-acid": ["Nilemdo", "Nexletol"], "icosapent-ethyl": ["Vazkepa", "Vascepa"],
+  "calcium-d3": ["Caltrate 600+D3", "Caltrate"],
   apixaban: ["Eliquis"], rivaroxaban: ["Xarelto"], edoxaban: ["Lixiana"], dabigatran: ["Pradaxa"], warfarin: ["Marevan", "Coumadin"],
   amiodarone: ["Cordarone"], sotalol: ["Sotalex"], flecainide: ["Tambocor"], diltiazem: ["Cardizem"], amlodipine: ["Norvasc"],
   sildenafil: ["Revatio"],

@@ -25,8 +25,11 @@ export function QuickLabs({
 }) {
   const { data: rec } = useData<any>(`/patients/${patientId}/record`);
   const { data: sum } = useData<any>(`/patients/${patientId}/summary`);
-  const [preset, setPreset] = useState<string | null>(codes ? null : "renal");
-  const [rows, setRows] = useState<string[]>([...new Set((codes ?? LAB_PRESETS[0].codes).map(c => c === "egfr" ? "creatinine" : c))]);
+  // several groups can be open at once; values typed in one group stay when another is opened, and one
+  // save records them all with the same date (Ahmed, 13 Oct 2026)
+  const initialGroup = codes ? null : "renal";
+  const [groups, setGroups] = useState<string[]>(initialGroup ? [initialGroup] : []);
+  const [rows, setRows] = useState<string[]>([...new Set((codes ?? LAB_PRESETS.find((p) => p.id === "renal")!.codes).map(c => c === "egfr" ? "creatinine" : c))]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [units, setUnits] = useState<Record<string, string>>({});
@@ -73,13 +76,34 @@ export function QuickLabs({
       return;
     onClose();
   };
-  const choosePreset = (id: string) => {
-    const p = LAB_PRESETS.find((x) => x.id === id)!;
-    setPreset(id);
-    setRows([
-      ...new Set([...p.codes, ...rows.filter((c) => values[c]?.trim())]),
-    ]);
+  const groupCodes = (id: string) => LAB_PRESETS.find((x) => x.id === id)!.codes;
+  const toggleGroup = (id: string) => {
+    if (groups.includes(id)) {
+      // closing a group keeps every result already typed, and tests other open groups still need
+      const keep = new Set(groups.filter((g) => g !== id).flatMap(groupCodes));
+      setGroups(groups.filter((g) => g !== id));
+      setRows(rows.filter((c) => !groupCodes(id).includes(c) || values[c]?.trim() || keep.has(c)));
+    } else {
+      setGroups([...groups, id]);
+      setRows([...new Set([...rows, ...groupCodes(id)])]);
+    }
   };
+  // rows shown under the group that first lists them; the rest under "Other tests"
+  const sections = (() => {
+    const shown = new Set<string>();
+    const out: { id: string; label: string; codes: string[] }[] = [];
+    for (const g of groups) {
+      const p = LAB_PRESETS.find((x) => x.id === g)!;
+      const cs = p.codes.filter((c) => rows.includes(c) && !shown.has(c));
+      cs.forEach((c) => shown.add(c));
+      if (cs.length) out.push({ id: g, label: p.label, codes: cs });
+    }
+    const rest = rows.filter((c) => !shown.has(c));
+    if (rest.length) out.push({ id: "other", label: groups.length ? "Other tests" : "Tests", codes: rest });
+    return out;
+  })();
+  const ordered = sections.flatMap((x) => x.codes);
+  const enteredIn = (id: string) => groupCodes(id).filter((c) => values[c]?.trim()).length;
   const addable = useMemo(
     () =>
       LABS.filter(
@@ -134,23 +158,15 @@ export function QuickLabs({
       icon={<FlaskConical size={22} />}
       onClose={close}
       head={
-        <div className="row wrap" style={{ gap: 8 }}>
-          <select
-            className="input"
-            style={{ width: "auto", minHeight: 38 }}
-            aria-label="Lab panel"
-            value={preset ?? "custom"}
-            onChange={(e) => choosePreset(e.target.value)}
-          >
-            <option value="custom" disabled>
-              Selected tests
-            </option>
-            {LAB_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+        <div className="lab-groups" role="group" aria-label="Lab groups">
+          {LAB_PRESETS.map((p) => {
+            const on = groups.includes(p.id), n = enteredIn(p.id);
+            return (
+              <button key={p.id} type="button" className="choice lab-group" aria-pressed={on} onClick={() => toggleGroup(p.id)}>
+                {p.label}{n ? <b className="lab-group-n">{n}</b> : null}
+              </button>
+            );
+          })}
           <button
             type="button"
             className="choice"
@@ -193,6 +209,11 @@ export function QuickLabs({
           <option value="">New blood draw</option>
           {collections.map((c: any) => <option key={c.ref} value={c.ref}>Add to {fmtDay(c.at, {year: true})} · {new Intl.DateTimeFormat("en-GB", {timeZone: "Asia/Kuwait", hour: "2-digit", minute: "2-digit", second: "2-digit"}).format(new Date(c.at))} · {c.codes.map((code: string) => MEASURES[code]?.short ?? code).join(" / ")} · {c.source}</option>)}
         </select>{selectedDraw && <span className="help">Same recorded collection time and source.</span>}</label>}
+        {filled.length > 0 && (
+          <div className="lab-groups-note" role="status">
+            {filled.length} result{filled.length === 1 ? "" : "s"} entered{groups.length > 1 ? ` across ${sections.filter((x) => x.codes.some((c) => values[c]?.trim())).length} groups` : ""} · open another group and keep going — one save records them all on this date
+          </div>
+        )}
         <div className="lab-date">
           <div className="lab-date-current">
             <Calendar size={17} aria-hidden="true" />
@@ -262,7 +283,6 @@ export function QuickLabs({
                   key={l.code}
                   onClick={() => (
                     setRows([...rows, l.code]),
-                    setPreset(null),
                     setQ(""),
                     setAdding(false)
                   )}
@@ -284,7 +304,11 @@ export function QuickLabs({
             <span>PREVIOUS</span>
             <span />
           </div>
-          {rows.map((code, i) => {
+          {sections.map((sec) => (
+            <div key={sec.id} className="lab-section">
+              {sections.length > 1 && <div className="lab-section-head">{sec.label}</div>}
+          {sec.codes.map((code) => {
+            const i = ordered.indexOf(code);
             const def = MEASURES[code];
             const v = num(code);
             const factor =
@@ -335,7 +359,7 @@ export function QuickLabs({
                         !e.ctrlKey &&
                         !e.metaKey
                       ) {
-                        const next = rows[i + (e.shiftKey ? -1 : 1)];
+                        const next = ordered[i + (e.shiftKey ? -1 : 1)];
                         if (next) {
                           e.preventDefault();
                           document.getElementById(`lab-${next}`)?.focus();
@@ -433,6 +457,8 @@ export function QuickLabs({
               </div>
             );
           })}
+            </div>
+          ))}
         </div>
         {filled.length > 0 && (
           <div className="infobox">

@@ -753,6 +753,14 @@ export function targets(s: PatientState) {
         })()
       : null,
     af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), inrTarget: s.tags.has("mechanical-valve") ? (mechanicalInrTarget(s) ?? "unset") : null, inr: recent(s, "inr", 30)?.value_num ?? null, onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
-    kidney: { egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null },
+    kidney: (() => {
+      const t = creatinineTrend(s);
+      return {
+        egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null,
+        k: cur(s, "potassium")?.value_num ?? null, kAt: cur(s, "potassium")?.effective_at ?? null,
+        // creatinine against its RAAS/MRA baseline (renal-trend.ts), when there is an earlier result
+        creatinine: t ? { baseline: t.baseline.value_num, current: t.cur.value_num, rise: Math.round(t.rel * 100), review: t.review, at: t.cur.effective_at } : null,
+      };
+    })(),
   };
 }

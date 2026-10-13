@@ -135,3 +135,22 @@ test("LDL-C at goal but less than 50% below the pre-treatment baseline is flagge
   assert.ok(r, "1.35 is under 1.4 but only 44% below 2.4");
   assert.match(r.title, /44% below baseline/);
 });
+
+test("an alert dismissed as not needed is listed and can be shown again", async () => {
+  const { declineRecommendation, restoreRecommendation } = await import("../server/engine/wizard.js");
+  const { dismissed } = await import("../server/kernel/views.js");
+  const pid = await newPatient(["hfref"]);
+  await start(pid, "spironolactone", 25, "OD", addDays(T, -20));
+  await obs(pid, [{ code: "potassium", value: 5.8 }, { code: "creatinine", value: 100 }]);
+  const r = await rec(pid, "hf.hyperkalaemia-review");
+  const id = ((await db.query(`SELECT id FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id='hf.hyperkalaemia-review'`, [pid])).rows[0] as any).id;
+  assert.ok(r);
+  await tx((q) => declineRecommendation(q, doc, pid, id, { outcome: "declined", reason: "Not relevant for this patient" }));
+  await tx((q) => reassess(q, pid, "production"));
+  assert.equal(await rec(pid, "hf.hyperkalaemia-review"), undefined, "stays closed while the data are unchanged");
+  assert.equal((await dismissed(db, pid))[0].id, id);
+  await tx((q) => restoreRecommendation(q, doc, pid, id));
+  await tx((q) => reassess(q, pid, "production"));
+  assert.ok(await rec(pid, "hf.hyperkalaemia-review"), "shown again");
+  assert.equal((await dismissed(db, pid)).length, 0);
+});
