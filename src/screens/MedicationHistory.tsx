@@ -13,6 +13,7 @@ const LABEL: Record<string, string> = {
   resume: "Taken again",
   frequency: "Frequency changed",
   continue: "Continued",
+  reconciliation: "Already taking · recorded",
   planned: "Planned",
 };
 export function MedicationHistory({

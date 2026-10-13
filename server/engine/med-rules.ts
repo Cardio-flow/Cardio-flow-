@@ -73,9 +73,9 @@ export function monContext(s: PatientState, m: MedState): MonContext {
 const latestOf = (s: PatientState, k: MonCheck): Record<string, string | null> =>
   "study" in k.target
     ? { [k.target.study]: s.studies.filter((x) => x.kind === (k.target as { study: string }).study).map((x) => x.performed_at).sort().pop() ?? null }
-    : Object.fromEntries(k.target.lab.map((c) => [c, s.observations.filter((o) => o.code === c && o.status !== "entered_in_error").map((o) => o.effective_at).sort().pop() ?? null]));
+    : Object.fromEntries(k.target.lab.map((c) => [c, s.observations.filter((o) => o.code === c && o.status === "final" && localDay(o.effective_at) <= s.today).map((o) => o.effective_at).sort().pop() ?? null]));
 const plannedFor = (s: PatientState, k: MonCheck) =>
-  s.plan.some((p) => p.status === "planned" && ("study" in k.target ? p.completes_on?.type === "study" && p.completes_on.kind === k.target.study : p.completes_on?.type === "lab" && (p.completes_on.codes ?? []).some((c) => targetCodes(k.target).includes(c))));
+  s.plan.some((p) => p.status === "planned" && ("study" in k.target ? p.completes_on?.type === "study" && p.completes_on.kind === k.target.study : p.completes_on?.type === "lab" && targetCodes(k.target).every((c) => (p.completes_on.codes ?? []).includes(c))));
 const plusDays = (iso: string, d: number) => new Date(new Date(iso).getTime() + d * 86400000).toISOString();
 
 // the due item for one medicine and one check, or null
@@ -84,6 +84,13 @@ export function monitoringDue(s: PatientState, m: MedState, k: MonCheck) {
   if (k.when && !k.when(c)) return null;
   const startEv = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart");
   const changeEv = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "restart" || e.kind === "increase");
+  if (!startEv && !changeEv && m.events.some(e => e.kind === "continue" && /^Medication reconciliation:/.test(e.reason))) {
+    const every = k.every?.(c);
+    if (!every) return null; // a schedule after initiation needs an actual initiation date
+    const latest = latestOf(s, k);
+    const missing = Object.keys(latest).filter(code => !latest[code] || daysBetween(latest[code]!, s.today) > every);
+    return missing.length ? { missing, dueDay: s.today, why: "routine monitoring; historical start date unknown", last: latest[missing[0]] } : null;
+  }
   const anchor = (k.on === "start" ? startEv : changeEv ?? startEv)?.effective_at ?? m.startedAt;
   if (!anchor) return null;
   const latest = latestOf(s, k);
@@ -184,7 +191,7 @@ export const MED_RULES: RuleDef[] = [
           const labs = targetCodes(k.target);
           // left to ops.monitoring-after-change: the first K/Cr check within 30 days of a RAAS/MRA change
           if ((m.tags.includes("raas") || m.tags.includes("mra")) && labs.some((x) => x === "potassium" || x === "creatinine") && change && daysBetween(localDay(change.effective_at), s.today) <= 30
-            && !s.observations.some((o) => (o.code === "potassium" || o.code === "creatinine") && o.effective_at > change.effective_at && o.status !== "entered_in_error")) continue;
+            && !["potassium", "creatinine"].every(code => s.observations.some((o) => o.code === code && o.effective_at > change.effective_at && o.status === "final" && localDay(o.effective_at) <= s.today))) continue;
           if (k.id === "amiodarone-tsh" && !s.resolved("tsh").current) continue;
           // LDL-C after a lipid-therapy change: the ACS bundle owns lipids for 90 days after an ACS, and with no LDL-C in
           // the last 12 months the lipid rule (lipids.ldl-goal) already asks for a lipid profile
@@ -196,7 +203,7 @@ export const MED_RULES: RuleDef[] = [
           out.push({
             key: `${k.id}:${m.id}`, signature: `${d.dueDay}:${d.missing.join(",")}`, severity: "yellow",
             title: `${what[0].toUpperCase()}${what.slice(1)} due on ${m.name}`,
-            detail: `${d.last ? `Last ${fmtDay(d.last, { year: true })}. ` : "No result since the medicine was started or changed. "}Schedule: ${k.schedule} (${k.source}).`,
+            detail: `${d.why.includes("historical start date unknown") ? "Existing treatment; historical start date unknown. " : ""}${d.last ? `Last ${fmtDay(d.last, { year: true })}. ` : d.why.includes("historical start date unknown") ? "Required routine results are not recorded. " : "No result since the medicine was started or changed. "}Schedule: ${k.schedule} (${k.source}).`,
             facts: [
               { label: "Medicine", value: m.name },
               { label: "Due", value: `${fmtDay(d.dueDay, { year: true })} · ${d.why}` },

@@ -102,7 +102,7 @@ export function cha2ds2va(s: PatientState) {
 // what the criteria need: the dose the label gives and why.
 export function doacDoseCheck(s: PatientState): { med: MedState; right: number; why: string }[] {
   const out: { med: MedState; right: number; why: string }[] = [];
-  const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
+  const cr = bpResult(s, "creatinine", 180)?.value_num ?? null, wt = bpResult(s, "weight", 365)?.value_num ?? null, age = s.patient.age;
   const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
   for (const m of onTag(s, "oac")) {
     // apixaban (EU SmPC 4.2): 2.5 mg with ≥2 of age/weight/creatinine criteria or CrCl 15–29; below 15 not recommended (no dose)
@@ -456,6 +456,22 @@ export const GUIDELINE_RULES: RuleDef[] = [
     },
   },
   {
+    id: "cardiorenal.stage-review", kind: "clinical", title: "Recorded CKD stage and current kidney function",
+    inputs: ["egfr", "conditions"], defaultParams: {},
+    evidence: "KDIGO CKD 2024: classify CKD by cause, GFR and albuminuria; G3a 45–59, G3b 30–44, G4 15–29, G5 <15 mL/min/1.73m². Establish chronicity for at least 3 months; do not infer a new chronic stage from a single abnormal result.",
+    evaluate(s) {
+      const e = bpResult(s, "egfr", 365);
+      const recorded = s.conditions.find(c => ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5"].includes(c.code));
+      if (!e || !recorded) return [];
+      const band = e.value_num! >= 60 ? "ckd-1-2" : e.value_num! >= 45 ? "ckd-3a" : e.value_num! >= 30 ? "ckd-3b" : e.value_num! >= 15 ? "ckd-4" : "ckd-5";
+      if (band === recorded.code) return [];
+      return [{key:"stage",signature:`${e.id}:${recorded.id}`,severity:"orange",title:"Recorded CKD stage differs from latest eGFR: review chronicity",
+        detail:`eGFR ${Math.round(e.value_num!)}; recorded ${DIAGNOSIS[recorded.code]?.display}. Check prior results and acute illness before changing the chronic diagnosis.`,
+        facts:facts(fact(s,"egfr"),src("KDIGO CKD 2024 · classification and chronicity")),missing:["Prior renal results and clinical assessment"],
+        action:{type:"edit-dx",code:recorded.code,label:"Review CKD diagnosis"}}];
+    },
+  },
+  {
     id: "metabolic.diabetes-cv-protection",
     kind: "clinical",
     title: "Type 2 diabetes: agents with proven CV benefit",
@@ -601,8 +617,13 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "2024 ESC AF / EHRA practical guide: apixaban 2.5 mg BID only if ≥2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L; rivaroxaban 15 mg if CrCl 15–49; edoxaban 30 mg if CrCl 15–50 or weight ≤60 kg; dabigatran 110 mg if age ≥80.",
     evaluate(s) {
       const out: Finding[] = [];
-      const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
+      const cr = bpResult(s, "creatinine", 180)?.value_num ?? null, wt = bpResult(s, "weight", 365)?.value_num ?? null, age = s.patient.age;
       const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
+      for (const m of onTag(s, "oac").filter(m => ["apixaban", "rivaroxaban", "edoxaban", "dabigatran"].includes(m.code))) {
+        const missing = [!bpResult(s,"creatinine",180) && "Verified recent creatinine", !bpResult(s,"weight",365) && "Current weight"].filter(Boolean) as string[];
+        if (!missing.length) continue;
+        out.push({key:`missing-${m.id}`,signature:`${m.id}:${missing.join(",")}`,severity:"orange",title:`${m.name}: dose check incomplete`,detail:"Confirm weight and renal function before validating the dose; eGFR does not replace Cockcroft–Gault CrCl for DOAC dosing.",facts:facts({label:"Current treatment",value:medLine(m)},src("ESC AF 2024 / EHRA DOAC guide")),missing,action:{type:"tab",tab:"overview"}});
+      }
       for (const { med: m, right, why } of doacDoseCheck(s)) {
         if (m.doseValue == null || m.doseValue === right) continue;
         const def = MEDICATION[m.code];

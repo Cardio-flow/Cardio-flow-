@@ -123,6 +123,12 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
     L.push("Open issues:");
     for (const a of open) L.push(`- ${a.title}`);
   }
+  const opportunities = attention.filter(a => a.severity === "blue");
+  if (opportunities.length) {
+    L.push("");
+    L.push("Non-urgent recommendations:");
+    for (const a of opportunities) L.push(`- ${a.title}`);
+  }
   const plan = planView(s).filter((p) => p.status === "planned");
   if (plan.length) {
     L.push("");

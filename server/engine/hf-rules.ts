@@ -12,6 +12,7 @@
 // events, not from a threshold. Confirm against 2026 Tables 14–15 when the full text is at hand.
 //
 // Ahmed (2 Oct 2026): shown under Needs attention (orange), not as a quiet card.
+import { renalReview } from "./renal-review.js";
 import { MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
@@ -105,7 +106,7 @@ export const HF_RULES: RuleDef[] = [
     id: "hf.advanced-hf",
     kind: "clinical",
     title: "Advanced HF markers: advanced HF centre consultation",
-    inputs: ["contexts", "nyha", "lvef", "sbp", "congestion", "meds", "conditions", "plan"],
+    inputs: ["contexts", "nyha", "lvef", "sbp", "congestion", "meds", "conditions", "plan", "creatinine", "egfr"],
     defaultParams: { lvef_max: 25, sbp_below: 90, hf_admissions: 2, lookback_days: 365 },
     evidence:
       "2026 ESC HF, Rec. Table 11 (Class I, A): early consultation with an advanced HF centre for patients with advanced HF or at risk of it, who are motivated and have no absolute contraindication to transplant or durable MCS. Markers: I-NEED-HELP (HFA-ESC 2018 position statement; HELP-HF registry, ≥1 marker): inotropes, NYHA III–IV, LVEF ≤25%, end-organ dysfunction, defibrillator shocks / ventricular arrhythmia, >1 HF hospitalisation in 12 months, oedema despite escalating diuretics, SBP <90 mmHg, prognostic medication reduced or not tolerated.",
@@ -126,17 +127,21 @@ export const HF_RULES: RuleDef[] = [
       if (!s.resolved("nyha").current) missing.push("NYHA class");
       if (!s.resolved("lvef").current) missing.push("LVEF");
       if (s.tags.has("icd") || s.tags.has("crt")) missing.push("ICD shocks since the last device check (not recorded in CardioFlow yet)");
+      const renalOnly = markers.every(m => m.key === "end-organ");
+      // A recorded AKI is a risk clue, not proof of advanced HF. The renal pathway
+      // owns current deterioration; otherwise assess the cardiorenal context first.
+      if (renalOnly && renalReview(s).length > 0) return [];
       return [{
         key: "advanced-hf",
-        signature: markers.map((m) => m.key).sort().join("+"),
+        signature: markers.map((m) => `${m.key}:${m.date ?? m.value}`).sort().join("+"),
         severity: "orange",
-        title: `Advanced HF marker${markers.length > 1 ? "s" : ""}: ${markers.map((m) => m.short).join(", ")} · consider advanced HF centre consultation`,
+        title: renalOnly ? "HF with recorded kidney injury: review cardiorenal status" : `Advanced HF marker${markers.length > 1 ? "s" : ""}: ${markers.map((m) => m.short).join(", ")} · consider advanced HF centre consultation`,
         detail:
-          "Early consultation with an advanced HF centre is recommended (ESC 2026, I A) for patients with or at risk of advanced HF who are motivated and have no absolute contraindication to transplant or durable MCS. " +
+          (renalOnly ? "Kidney injury alone does not establish advanced HF. Review recovery, congestion, functional limitation and other risk markers before deciding on HF-centre consultation. " : "Early consultation with an advanced HF centre is recommended (ESC 2026, I A) for patients with or at risk of advanced HF who are motivated and have no absolute contraindication to transplant or durable MCS. ") +
           "If they are not candidates, plan symptom-focused care and discuss goals with the patient.",
         facts,
         missing,
-        action: { type: "add-plan", template: "advanced-hf" },
+        action: renalOnly ? { type: "wizard", wizard: "renal-function" } : { type: "add-plan", template: "advanced-hf" },
       }];
     },
   },

@@ -711,6 +711,7 @@ export async function startMedication(
     contextId?: string | null;
     decisionId?: string | null;
     planned?: boolean;
+    alreadyTaking?: boolean;
   },
 ) {
   const def = MEDICATION[input.code];
@@ -728,24 +729,26 @@ export async function startMedication(
     await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication) VALUES($1,$2,$3,$4)`, [medicationId, patientId, input.code, input.indication]);
   }
   const eventId = uuid();
-  const kind = input.planned ? "planned" : existing ? "restart" : "start";
+  if (input.alreadyTaking && (input.planned || existing)) throw new ApiError(400, "Reconcile an existing medicine only when adding it to the list for the first time.");
+  const kind = input.alreadyTaking ? "continue" : input.planned ? "planned" : existing ? "restart" : "start";
+  const reason = input.alreadyTaking ? `Medication reconciliation: already taking; start date unknown${input.reason ? ` · ${input.reason}` : ""}`.slice(0, 300) : input.reason ?? "";
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [eventId, medicationId, patientId, kind, input.doseValue, def.unit, input.frequency, input.route, input.reason ?? "", input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id],
+    [eventId, medicationId, patientId, kind, input.doseValue, def.unit, input.frequency, input.route, reason, input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id],
   );
   await journeyEvent(tx, actor, {
     patientId,
     occurredAt: input.effectiveAt,
-    kind: "medication-start",
+    kind: input.alreadyTaking ? "medication-reconciliation" : "medication-start",
     category: "medication",
-    title: `${def.name} ${kind === "restart" ? "restarted" : "started"}`,
-    detail: `${doseLabel(def, input.doseValue)} ${input.frequency} ${input.route}`.trim() + (input.reason ? ` · ${input.reason}` : ""),
+    title: `${def.name} ${input.alreadyTaking ? "already taking" : kind === "restart" ? "restarted" : "started"}`,
+    detail: `${doseLabel(def, input.doseValue)} ${input.frequency} ${input.route}`.trim() + (reason ? ` · ${reason}` : ""),
     refType: "medication",
     refId: medicationId,
     contextId: input.contextId,
   });
-  await audit(tx, actor, "start", "medication", medicationId, patientId, { code: input.code, dose: input.doseValue });
+  await audit(tx, actor, input.alreadyTaking ? "reconcile" : "start", "medication", medicationId, patientId, { code: input.code, dose: input.doseValue });
   return { medicationId, changed: ["meds"] as Changed };
 }
 

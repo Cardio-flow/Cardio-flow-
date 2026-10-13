@@ -39,12 +39,12 @@ test("creatinine: ≤50% rise acceptable, >50% review, >100% stop (ESC HF); base
   await obs(pid, [{ code: "creatinine", value: 140 }], at(addDays(T, -10)));
   const r = await rec(pid, "hf.worsening-renal-function");
   assert.equal(r.severity, "orange");
-  assert.match(r.title, /Creatinine up 56%: beyond the acceptable rise/);
+  assert.match(r.title, /Creatinine up 56%: cardiorenal review/);
   assert.equal(r.rule_status, "PUBLISHED", "runs on production sites");
   await obs(pid, [{ code: "creatinine", value: 190 }]);
   const s = await rec(pid, "hf.worsening-renal-function");
   assert.equal(s.severity, "red");
-  assert.match(s.title, /stop RAAS\/MRA/);
+  assert.match(s.title, /urgent cardiorenal review/);
   // the absolute limit: 266 µmol/L is reached before +50% when the baseline is high
   const p2 = await newPatient(["hfref"]);
   await start(p2, "spironolactone", 25, "OD", addDays(T, -60));
