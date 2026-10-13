@@ -544,6 +544,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     }));
   }));
   const medStartS = z.object({
+    alreadyTaking: z.boolean().optional(),
     code: z.string().max(60),
     doseValue: z.number().positive().nullable(),
     frequency: z.string().max(60),
@@ -561,17 +562,18 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   async function startOne(tx: Q, a: Actor, id: string, input: z.infer<typeof medStartS>) {
     const def = MEDICATION[input.code];
     if (!def) throw new ApiError(400, "Unknown medicine");
+    if (input.alreadyTaking && input.bookSchedule) throw new ApiError(400, "An unknown historical start date cannot anchor a new-start monitoring schedule. Book a current check separately.");
     if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The start date cannot be in the future. Add a plan item to start it later.");
     // the check reads the record as it is now, including medicines started earlier in the same batch
     const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red" || h.requiresReview);
     if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title.startsWith(def.name) ? "" : `${def.name}: `}${reds[0].title}. Review this warning and record your reason before starting.`);
-    const reason = reds.length ? [input.reason, `${reds.some(h => h.severity === "red") ? "Started despite" : "Medication warnings reviewed"}: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
+    const reason = reds.length ? [input.reason, `${!input.alreadyTaking && reds.some(h => h.severity === "red") ? "Started despite" : "Medication warnings reviewed"}: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
     const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
     // the medicine's monitoring schedule (label / guideline)
     if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null, input.monitoringDates);
     if (input.monitoring)
       await K.addPlanAction(tx, a, id, {
-        category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
+        category: "monitoring", title: input.monitoring.title, reason: input.alreadyTaking ? `Current treatment review: ${input.code}` : `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
         completesOn: { type: "lab", codes: input.monitoring.codes }, contextId: input.contextId, medicationId: r.medicationId,
       });
     return r;

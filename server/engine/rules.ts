@@ -1,3 +1,4 @@
+import { renalReview, RENAL_REVIEW_PARAMS } from "./renal-review.js";
 import { exposureChange } from "../../shared/medication-exposure.js";
 // The rules engine. Rule LOGIC is code (reviewable, testable); rule THRESHOLDS and
 // wording are versioned parameters in cf.rule_version with a governance status.
@@ -122,38 +123,9 @@ export const RULES: RuleDef[] = [
     kind: "clinical",
     title: "Creatinine rise on RAAS / MRA therapy",
     inputs: ["creatinine", "egfr", "weight", "meds"],
-    defaultParams: { ...RENAL_DEFAULTS },
+    defaultParams: RENAL_REVIEW_PARAMS,
     evidence: "ESC HF practical guidance (2016 web addenda, retained 2021/2023) for ACEi/ARB/ARNI: a creatinine rise of up to 50% above baseline, or to 266 µmol/L (3.0 mg/dL) / eGFR 25, whichever is smaller, is acceptable; above that, halve the dose and recheck; a rise >100% or to >310 µmol/L (3.5 mg/dL) / eGFR <20: stop and seek advice. MRA: creatinine >221 µmol/L (2.5 mg/dL) or eGFR <30 halve; >310 µmol/L or eGFR <20 stop. Baseline = the last creatinine before the most recent start or dose increase of these drugs (else the oldest result since, within a year). An eGFR limit counts only when crossed.",
-    evaluate(s, p) {
-      const t = creatinineTrend(s, p);
-      // the rule is about RAAS/ARNI/MRA dosing: only while one is taken
-      if (!t || !t.onTherapy || !t.review) return [];
-      const { cur, baseline, change, rel, stop } = t;
-      const egfr = s.resolved("egfr");
-      const wt = series(s, "weight");
-      const facts: Fact[] = [
-        { label: change ? "Creatinine before the last RAAS/MRA change" : "Previous creatinine", value: v("creatinine", baseline.value_num), date: baseline.effective_at },
-        { label: "Creatinine now", value: v("creatinine", cur.value_num), date: cur.effective_at, tone: stop ? "red" : "orange" },
-      ];
-      if (egfr.current) facts.push({ label: "eGFR", value: v("egfr", egfr.current.value_num), date: egfr.current.effective_at });
-      if (wt.length > 1) facts.push({ label: "Weight", value: `${formatNumber(wt[wt.length - 1].value_num!, 1)} → ${formatNumber(wt[0].value_num!, 1)} kg` });
-      for (const m of s.meds.filter((m) => m.status === "active" && (m.tags.includes("raas") || m.tags.includes("mra") || m.tags.includes("sglt2") || m.tags.includes("loop"))))
-        facts.push({ label: "Therapy", value: `${m.name}${m.lastChange ? " · " + m.lastChange.kind + " " + day(m.lastChange.effective_at) : ""}` });
-      facts.push({ label: "Guideline", value: `ESC HF practical guidance · acceptable rise ≤50% or ≤${t.reviewCr} µmol/L${t.mra ? " (MRA)" : ""}` });
-      return [
-        {
-          key: "cr",
-          signature: cur.id,
-          severity: stop ? "red" : "orange",
-          title: stop ? `Creatinine up ${Math.round(rel * 100)}% from baseline: stop RAAS/MRA and review` : `Creatinine up ${Math.round(rel * 100)}% from baseline: beyond the acceptable rise`,
-          detail: `${formatNumber(baseline.value_num!, 0)} → ${formatNumber(cur.value_num!, 0)} µmol/L` + (egfr.current ? ` · eGFR ${formatNumber(egfr.current.value_num!, 0)}` : "") +
-            (stop ? " · ESC: stop the ACEi/ARB/ARNI/MRA and seek advice." : " · ESC: halve the RAAS/MRA dose, look for nephrotoxins and over-diuresis, recheck in 1–2 weeks."),
-          facts,
-          missing: [],
-          action: { type: "wizard", wizard: "renal-function" },
-        },
-      ];
-    },
+    evaluate: renalReview,
   },
   {
     id: "hf.lvef-change",
@@ -201,15 +173,15 @@ export const RULES: RuleDef[] = [
       for (const m of s.meds.filter((m) => m.status === "active" && (m.tags.includes("raas") || m.tags.includes("mra")))) {
         const change = [...m.events].reverse().find((e) => e.kind === "start" || e.kind === "increase" || e.kind === "restart");
         if (!change || daysBetween(change.effective_at, s.today) > Number(p.window_days)) continue;
-        const after = s.observations.some((o) => (o.code === "potassium" || o.code === "creatinine") && o.effective_at > change.effective_at && o.status !== "entered_in_error");
-        const planned = s.plan.some((a) => a.status === "planned" && a.completes_on?.type === "lab" && a.completes_on.codes?.includes("potassium"));
+        const after = ["potassium", "creatinine"].every(code => s.observations.some((o) => o.code === code && o.effective_at > change.effective_at && o.status === "final" && daysBetween(o.effective_at, s.today) >= 0));
+        const planned = s.plan.some((a) => a.status === "planned" && a.due_date != null && a.due_date >= s.today && a.completes_on?.type === "lab" && ["potassium", "creatinine"].every(code => a.completes_on.codes?.includes(code)));
         if (after || planned) continue;
         out.push({
           key: "mon-" + m.id,
           signature: change.id,
           severity: "orange",
           title: `No renal/K check planned after ${m.name.toLowerCase()} ${change.kind === "start" ? "start" : "change"}`,
-          detail: `${change.kind === "start" ? "Started" : "Changed"} ${day(change.effective_at)} · no later potassium or creatinine and no check booked`,
+          detail: `${change.kind === "start" ? "Started" : "Changed"} ${day(change.effective_at)} · both verified potassium and creatinine are needed after the change, or a paired check booked`,
           facts: [{ label: "Change", value: `${m.name} ${change.kind}`, date: change.effective_at }],
           missing: ["Planned potassium and creatinine check"],
           action: { type: "add-plan", template: "renal-k", medicationId: m.id },
@@ -294,7 +266,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-13.engine1";
+export const RULESET = "2026-10-13.cardiorenal-reconciliation2";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

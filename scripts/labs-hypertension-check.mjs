@@ -1,4 +1,6 @@
+import { selectLabGroup } from "./select-lab-group.mjs";
 import fs from "node:fs";
+const base = process.env.CARDIO_BASE_URL || "http://127.0.0.1:4310";
 import { chromium, expect } from "@playwright/test";
 
 const out = process.argv[2] ?? "screenshots/labs-hypertension";
@@ -44,7 +46,7 @@ const create = (label, status) =>
     ...(status ? { hypertensionStatus: status } : {}),
   });
 const go = (id, tab = "") =>
-  page.goto(`http://127.0.0.1:4310/patients/${id}${tab ? "/" + tab : ""}`);
+  page.goto(`${base}/patients/${id}${tab ? "/" + tab : ""}`);
 const bp = (id, sbp = 148, dbp = 88) =>
   api(`/patients/${id}/observations`, {
     effectiveAt: new Date().toISOString(),
@@ -74,7 +76,7 @@ const openLabs = async (id, panel) => {
     .getByRole("button", { name: "Add labs", exact: true })
     .first()
     .click();
-  await page.getByLabel("Lab panel", { exact: true }).selectOption(panel);
+  await selectLabGroup(page, { tft: "TFT", "bone-profile": "Bone profile", renal: "Renal profile" }[panel]);
 };
 const saveLabs = async (n) => {
   await page
@@ -99,7 +101,7 @@ const run = async (name, fn) => {
   }
 };
 try {
-  await page.goto("http://127.0.0.1:4310");
+  await page.goto(base);
   await page.getByText("Dr. Ahmed", { exact: true }).click();
   await page.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
   const labPatient = await create("lab profiles");
@@ -293,7 +295,7 @@ try {
   await run(
     "Registration records new hypertension status explicitly and atomically",
     async () => {
-      await page.goto("http://127.0.0.1:4310/patients");
+      await page.goto(base + "/patients");
       await page
         .getByRole("button", { name: "New patient", exact: true })
         .click();
@@ -349,12 +351,12 @@ try {
       if ((await targetPanel.getAttribute("aria-expanded")) !== "true")
         await targetPanel.click();
       await expect(
-        page.getByText(/Goal 120–129\/70–79 if tolerated/),
+        page.locator(".targets").getByText(/Goal 120–129\/70–79 if tolerated/),
       ).toBeVisible();
       expect((await api(`/patients/${x.id}/summary`)).targets.bp.met).toBe(
         false,
       );
-      await page
+      await page.locator(".targets")
         .getByText(/Goal 120–129\/70–79 if tolerated/)
         .scrollIntoViewIfNeeded();
       await overflow();
@@ -377,11 +379,11 @@ try {
       });
       if ((await elderlyTargetPanel.getAttribute("aria-expanded")) !== "true")
         await elderlyTargetPanel.click();
-      await expect(page.getByText(/Individualized target/)).toBeVisible();
+      await expect(page.locator(".targets").getByText(/Individualized target/)).toBeVisible();
       expect(
         (await api(`/patients/${elderly.id}/summary`)).targets.bp.met,
       ).toBeNull();
-      await page.getByText(/Individualized target/).scrollIntoViewIfNeeded();
+      await page.locator(".targets").getByText(/Individualized target/).scrollIntoViewIfNeeded();
       await overflow();
       await shot("11-individualized-bp-target");
     },

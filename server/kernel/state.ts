@@ -178,6 +178,13 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     for (const e of evs) {
       if (e.frequency && e.kind !== "planned") freq = e.frequency;
       switch (e.kind) {
+        case "continue":
+          // Initial reconciliation confirms current treatment, not its unknown start date.
+          if (status === "planned" && /^Medication reconciliation:/.test(e.reason)) {
+            status = "active";
+            if (e.dose_value != null) dose = e;
+          }
+          break;
         case "start":
         case "restart":
           // the current course starts again after a stop (a hold → resume keeps it)

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState, useId } from "react";
 import { Pill, Search, X } from "lucide-react";
 import { api, useData } from "../api";
-import { Drawer, Tag, DateInput } from "../ui";
+import { Drawer, Tag, DateInput, Segmented } from "../ui";
 import { MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, medicationSearchText } from "../../shared/catalog";
 import { addDays } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
@@ -25,6 +25,8 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summary]);
   const [rows, setRows] = useState<Row[]>([]);
+  const [entryType, setEntryType] = useState("new");
+  const alreadyTaking = entryType === "existing";
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -57,7 +59,7 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
   const remove = (code: string) => setRows((r) => r.filter((x) => x.code !== code));
   const upd = (code: string, p: Partial<Row>) => setRows((r) => r.map((x) => (x.code === code ? { ...x, ...p } : x)));
   const needOverride = rows.filter((r) => (hits[r.code] ?? []).some((h) => (h.severity === "red" || h.requiresReview)) && r.override.trim().length < 3);
-  const valid = checkedCodes === codesKey && !checkError && rows.length > 0 && rows.every(r => !r.book || (r.renalDate && Object.values(r.dates).every(Boolean))) && rows.every((r) => r.freq && (r.dose === "" || Number(r.dose) > 0)) && needOverride.length === 0;
+  const valid = checkedCodes === codesKey && !checkError && rows.length > 0 && rows.every(r => alreadyTaking || !r.book || (r.renalDate && Object.values(r.dates).every(Boolean))) && rows.every((r) => r.freq && (r.dose === "" || Number(r.dose) > 0)) && needOverride.length === 0;
   async function save() {
     setBusy(true);
     setError("");
@@ -70,14 +72,14 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
         const reds = (hits[r.code] ?? []).some((h) => (h.severity === "red" || h.requiresReview));
         return {
           code: r.code, doseValue: r.dose ? Number(r.dose) : null, frequency: r.freq, route: d.routes[0], indication: r.indication || "unspecified",
-          contextId: contextId ?? null, reason: r.reason,
-          monitoring: renalK && r.book ? { dueDate: r.renalDate, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
-          bookSchedule: schedule.length > 0 && r.book, monitoringDates: r.dates,
+          contextId: contextId ?? null, reason: alreadyTaking ? undefined : r.reason, alreadyTaking,
+          monitoring: !alreadyTaking && renalK && r.book ? { dueDate: r.renalDate, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          bookSchedule: !alreadyTaking && schedule.length > 0 && r.book, monitoringDates: r.dates,
           ...(reds ? { override: r.override.trim() } : {}),
         };
       });
       const res = await api(`/patients/${patientId}/medications/batch`, { body: { items } });
-      onDone(`${rows.length} medicine${rows.length === 1 ? "" : "s"} started: ${rows.map((r) => MEDICATION[r.code].name).join(", ")}`, res);
+      onDone(`${rows.length} medicine${rows.length === 1 ? "" : "s"} ${alreadyTaking ? "recorded as already taking" : "started"}: ${rows.map((r) => MEDICATION[r.code].name).join(", ")}`, res);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -92,17 +94,18 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
       onClose={onClose}
       footer={
         <>
-          <span className="note">{rows.length ? `${rows.length} to start${needOverride.length ? ` · reason needed for ${needOverride.map((r) => MEDICATION[r.code].name).join(", ")}` : ""}` : "Nothing chosen yet"}</span>
+          <span className="note">{rows.length ? `${rows.length} to ${alreadyTaking ? "record" : "start"}${needOverride.length ? ` · reason needed for ${needOverride.map((r) => MEDICATION[r.code].name).join(", ")}` : ""}` : "Nothing chosen yet"}</span>
           <span className="end">
             <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-            <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : rows.length > 1 ? `Start all ${rows.length}` : "Start"}</button>
+            <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : alreadyTaking ? `Record ${rows.length || "medicines"}` : rows.length > 1 ? `Start all ${rows.length}` : "Start"}</button>
           </span>
         </>
       }
     >
       <div className="drawer-body">
+        <div className="q"><div className="label">Entry type</div><Segmented label="Medication entry type" options={[{value:"new",label:"Start new"},{value:"existing",label:"Already taking"}]} value={entryType} onChange={setEntryType} />{alreadyTaking && <div className="help">Current medicines recorded today; historical start dates unknown. Routine monitoring and safety checks remain active.</div>}</div>
         {needOverride.length > 0 && <div className="infobox warn" role="status"><button className="btn ghost small" onClick={() => document.getElementById("med-batch-selected")?.scrollIntoView({block:"start"})}>Review selected medicine warnings ↓</button></div>}
-        {suggestions.length > 0 && (
+        {!alreadyTaking && suggestions.length > 0 && (
           <section className="mb-box">
             <div className="mb-head"><b>Suggested by the guidelines</b><span>tap to add · the starting dose is the suggestion's</span></div>
             <div className="mb-sugs">
@@ -135,9 +138,9 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
         </section>
         {rows.length > 0 && (
           <section className="mb-box">
-            <div className="mb-head" id="med-batch-selected"><b>To start</b><span>check each line</span></div>
+            <div className="mb-head" id="med-batch-selected"><b>{alreadyTaking ? "Already taking" : "To start"}</b><span>check each line</span></div>
             {rows.map((r) => (
-              <MedRow key={r.code} patientId={patientId} summary={summary} row={r} upd={(p) => upd(r.code, p)} remove={() => remove(r.code)} hits={hits[r.code] ?? []} />
+              <MedRow key={r.code} patientId={patientId} summary={summary} alreadyTaking={alreadyTaking} row={r} upd={(p) => upd(r.code, p)} remove={() => remove(r.code)} hits={hits[r.code] ?? []} />
             ))}
           </section>
         )}
@@ -147,7 +150,7 @@ export function AddMedications({ patientId, summary, contextId, onClose, onDone 
   );
 }
 
-function MedRow({ patientId, summary, row, upd, remove, hits }: { patientId: string; summary: any; row: Row; upd(p: Partial<Row>): void; remove(): void; hits: Hit[] }) {
+function MedRow({ patientId, summary, alreadyTaking, row, upd, remove, hits }: { patientId: string; summary: any; alreadyTaking: boolean; row: Row; upd(p: Partial<Row>): void; remove(): void; hits: Hit[] }) {
   const d = MEDICATION[row.code];
   const [editing, setEditing] = useState(false);
   const fieldsId = useId();
@@ -189,15 +192,15 @@ function MedRow({ patientId, summary, row, upd, remove, hits }: { patientId: str
           </select>
         </label>
       </div>
-      {(schedule.length > 0 || renal) && (
+      {!alreadyTaking && (schedule.length > 0 || renal) && (
         <label className="mb-book">
           <input type="checkbox" checked={row.book} onChange={(e) => upd({ book: e.target.checked })} />
           <span>{schedule.length ? "Book its monitoring schedule" : "Book K⁺ and creatinine in 1 week"}</span>
         </label>
       )}
-      {row.book && !!check?.monitoring.length && <details className="monitoring-dates"><summary>{check.monitoring.length} monitoring dates · Edit</summary>{check.monitoring.map(b => <label className="manual-date" key={b.key}><span>{b.title} · manual date</span><DateInput className="input" min={summary.today} aria-label={`${b.title} ${b.key} date`} value={row.dates[b.key] ?? b.dueDate} onChange={e => upd({dates:{...row.dates,[b.key]:e.target.value}})} /></label>)}</details>}
-      {row.book && !schedule.length && renal && <label className="manual-date"><span>K⁺ and creatinine · manual date</span><DateInput className="input" min={summary.today} aria-label={`${d.name} renal check date`} value={row.renalDate} onChange={e => upd({renalDate:e.target.value})} /></label>}
-      {check?.start && <div className="mb-note">Label starting dose {check.start.dose} mg for this patient.</div>}
+      {!alreadyTaking && row.book && !!check?.monitoring.length && <details className="monitoring-dates"><summary>{check.monitoring.length} monitoring dates · Edit</summary>{check.monitoring.map(b => <label className="manual-date" key={b.key}><span>{b.title} · manual date</span><DateInput className="input" min={summary.today} aria-label={`${b.title} ${b.key} date`} value={row.dates[b.key] ?? b.dueDate} onChange={e => upd({dates:{...row.dates,[b.key]:e.target.value}})} /></label>)}</details>}
+      {!alreadyTaking && row.book && !schedule.length && renal && <label className="manual-date"><span>K⁺ and creatinine · manual date</span><DateInput className="input" min={summary.today} aria-label={`${d.name} renal check date`} value={row.renalDate} onChange={e => upd({renalDate:e.target.value})} /></label>}
+      {!alreadyTaking && check?.start && <div className="mb-note">Label starting dose {check.start.dose} mg for this patient.</div>}
       {hits.length > 0 && (
         <div className="mb-hits">
           {hits.map((h, i) => <span key={i} className={`chip sev sev-${h.severity}`}><span className="dot" />{h.title}</span>)}
@@ -205,7 +208,7 @@ function MedRow({ patientId, summary, row, upd, remove, hits }: { patientId: str
       )}
       {reds.length > 0 && (
         <label className="sl-override">
-          <span>Reason for starting after reviewing these warnings (required)</span>
+          <span>{alreadyTaking ? "Reason for recording after reviewing these warnings (required)" : "Reason for starting after reviewing these warnings (required)"}</span>
           <input className="input" value={row.override} onChange={(e) => upd({ override: e.target.value })} placeholder="e.g. specialist advice, benefit outweighs risk" />
         </label>
       )}
