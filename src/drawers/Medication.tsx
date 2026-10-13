@@ -231,7 +231,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
             )}
             {reds && (
               <label className="sl-override">
-                <span>Reason for recording or starting after reviewing these warnings (required)</span>
+                <span>{alreadyTaking ? "Reason for recording after reviewing these warnings (required)" : "Reason for starting after reviewing these warnings (required)"}</span>
                 <input className="input" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="e.g. specialist advice, benefit outweighs risk, interacting drug stopped" />
               </label>
             )}

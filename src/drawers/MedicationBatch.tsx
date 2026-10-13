@@ -208,7 +208,7 @@ function MedRow({ patientId, summary, alreadyTaking, row, upd, remove, hits }: {
       )}
       {reds.length > 0 && (
         <label className="sl-override">
-          <span>Reason for recording or starting after reviewing these warnings (required)</span>
+          <span>{alreadyTaking ? "Reason for recording after reviewing these warnings (required)" : "Reason for starting after reviewing these warnings (required)"}</span>
           <input className="input" value={row.override} onChange={(e) => upd({ override: e.target.value })} placeholder="e.g. specialist advice, benefit outweighs risk" />
         </label>
       )}
