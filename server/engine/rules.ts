@@ -1,3 +1,4 @@
+import { exposureChange } from "../../shared/medication-exposure.js";
 // The rules engine. Rule LOGIC is code (reviewable, testable); rule THRESHOLDS and
 // wording are versioned parameters in cf.rule_version with a governance status.
 // Production sites run PUBLISHED versions only. Sandbox sites may run versions that
@@ -89,7 +90,12 @@ export const RULES: RuleDef[] = [
           key: "k",
           // Re-exposure after this result needs a fresh decision. Holding treatment
           // does not invalidate a decision that just instructed that hold.
-          signature: [cur.id, ...s.meds.filter(m => m.tags.includes("raas") || m.tags.includes("potassium-sparing")).flatMap(m => m.events.filter(e => ["start", "restart", "resume", "increase"].includes(e.kind) && e.effective_at >= cur.effective_at).map(e => e.id)).sort()].join(":"),
+          signature: [cur.id, ...s.meds.filter(m => m.tags.includes("raas") || m.tags.includes("potassium-sparing")).flatMap(m => [...m.events.filter((e, i) => {
+            const prior = m.events.slice(0, i).reverse();
+            const dose = prior.find(x => x.dose_value != null)?.dose_value ?? null;
+            const frequency = prior.find(x => x.frequency)?.frequency ?? null;
+            return e.effective_at >= cur.effective_at && (["start", "restart", "resume", "increase"].includes(e.kind) || (e.kind === "continue" && ["increase", "unknown"].includes(exposureChange(dose, frequency, e.dose_value ?? dose, e.frequency ?? frequency))));
+          }).map(e => e.id), ...(m.status === "active" ? (s.medicationCorrections ?? []).filter(c => c.medication_id === m.id && c.recorded_at >= cur.effective_at && (["hold", "stop", "not_taking"].includes(c.kind) || ["increase", "unknown"].includes(exposureChange(c.beforeDose ?? null, c.beforeFrequency ?? null, m.doseValue, m.frequency)))).map(c => c.id) : [])]).sort()].join(":"),
           severity: "red",
           title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}`,
           detail:

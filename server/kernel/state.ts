@@ -6,7 +6,7 @@ import { ageOn, resolveCurrent, type ObservationLike, type Resolved } from "../.
 import { today as todayFn } from "./base.js";
 import { isMechanicalValve, isModerateSevereMS } from "../../shared/history.js";
 
-export type Obs = ObservationLike & { logical_id: string; version: number; study_id: string | null; context_id: string | null; derived_from?: string | null; method: string | null; recorded_at: string };
+export type Obs = ObservationLike & { logical_id: string; version: number; study_id: string | null; context_id: string | null; derived_from?: string[] | null; method: string | null; recorded_at: string };
 export type MedEvent = {
   id: string;
   kind: string;
@@ -92,6 +92,7 @@ export type PatientState = {
   observations: Obs[];
   resolved: (code: string) => Resolved<Obs>;
   meds: MedState[];
+  medicationCorrections?: {id: string; medication_id: string; kind: string; recorded_at: string; beforeDose?: number|null; beforeFrequency?: string|null}[];
   plan: PlanRow[];
   contexts: ContextRow[];
   studies: StudyRow[];
@@ -120,12 +121,13 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       `SELECT
         (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile,synthetic,birth_date_estimated FROM cf.patient WHERE id=$1) pt) AS patient,
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
-        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,reference_high,effective_at,status,quality,source,study_id,context_id,method,recorded_at
+        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,reference_high,effective_at,status,quality,source,study_id,context_id,derived_from,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
         (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)) AS meds,
         (SELECT coalesce(json_agg(e ORDER BY e.effective_at, e.recorded_at), '[]') FROM (SELECT id,medication_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,recorded_at,decision_id FROM cf.medication_event me WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication_event' AND k.entity_id=me.id)) e) AS events,
+        (SELECT coalesce(json_agg(json_build_object('id',k.id,'medication_id',me.medication_id,'kind',me.kind,'recorded_at',k.recorded_at,'beforeDose',coalesce(me.dose_value,(SELECT e.dose_value FROM cf.medication_event e WHERE e.medication_id=me.medication_id AND e.dose_value IS NOT NULL AND e.effective_at<=me.effective_at AND e.recorded_at<=k.recorded_at ORDER BY e.effective_at DESC,e.recorded_at DESC LIMIT 1)),'beforeFrequency',me.frequency)),'[]') FROM cf.correction k JOIN cf.medication_event me ON k.entity='medication_event' AND k.entity_id=me.id WHERE k.patient_id=$1) AS medication_corrections,
         (SELECT coalesce(json_agg(pa ORDER BY pa.due_date NULLS LAST, pa.created_at), '[]') FROM (SELECT id,category,title,reason,due_date,completes_on,status,outcome,completed_at,source_context_id,medication_id,decision_id,indications,decision_refs,context_refs,created_at,version,owner,progress,completion_refs,reviewed_at,reviewed_by FROM cf.plan_action WHERE patient_id=$1) pa) AS plan,
         (SELECT coalesce(json_agg(cc ORDER BY cc.started_at), '[]') FROM (SELECT id,version,kind,status,started_at,ended_at,location,service,reasons,previous_context_id,summary FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL) cc) AS contexts,
         (SELECT coalesce(json_agg(st ORDER BY st.performed_at), '[]') FROM (SELECT id,kind,performed_at,quality,findings,conclusion,attributes FROM cf.study sx WHERE patient_id=$1
@@ -232,6 +234,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     observations: obs.rows.map(normaliseTime),
     resolved,
     meds: medStates,
+    medicationCorrections: j(bundle.medication_corrections).rows.map(normaliseTime),
     plan: plan.rows.map((r) => ({ ...normaliseTime(r), due_date: r.due_date ? String(r.due_date).slice(0, 10) : null })),
     contexts: contexts.rows.map(normaliseTime),
     studies: studies.rows.map((st) => ({ ...normaliseTime(st), attributes: (typeof st.attributes === "string" ? JSON.parse(st.attributes) : st.attributes) ?? {} })),

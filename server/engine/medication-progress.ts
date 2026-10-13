@@ -1,4 +1,5 @@
 // Descriptive dose comparisons only. These do not change treatment or rule eligibility.
+import { DAILY_FREQUENCY as DAILY } from "../../shared/medication-exposure.js";
 import { MEDICATION, doseLabel } from "../../shared/catalog.js";
 import type { PatientState, MedState } from "../kernel/state.js";
 import { hfPhenotype, targetDose } from "./guidelines.js";
@@ -25,15 +26,6 @@ const TARGET_FREQUENCY: Record<string, string> = {
   dapagliflozin: "OD",
   empagliflozin: "OD",
   vericiguat: "OD",
-};
-const DAILY: Record<string, number> = {
-  OD: 1,
-  Nightly: 1,
-  Mornings: 1,
-  BID: 2,
-  TID: 3,
-  QID: 4,
-  "Alternate days": 0.5,
 };
 export function hfDoseProgress(
   s: PatientState,

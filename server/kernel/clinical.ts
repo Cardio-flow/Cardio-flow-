@@ -14,8 +14,10 @@ import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureS
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 import { existingClinicReview } from "../../shared/follow-up.js";
 import { loadState } from "./state.js";
+import { exposureChange } from "../../shared/medication-exposure.js";
+import { checkEvidence } from "./evidence.js";
 import { preStartCheck } from "../engine/med-safety.js";
-import { checkContextDraftVersion } from "./visit-drafts.js";
+import { checkContextDraftVersion, checkEntryDraftVersion } from "./visit-drafts.js";
 
 export type Changed = string[];
 // medicines and medication events not corrected away (migration 008); aliases m and me
@@ -338,7 +340,7 @@ export async function recordObservations(
   if (input.collectionRef) {
     const s = await loadState(tx, patientId);
     const sample = s.observations.find(o => o.id === input.collectionRef);
-    if (!sample || sample.status !== "final" || sample.derived_from || sample.study_id || !LABS.some(l => l.code === sample.code && !l.derived) ||
+    if (!sample || sample.status !== "final" || sample.derived_from?.length || sample.study_id || !LABS.some(l => l.code === sample.code && !l.derived) ||
       (sample.context_id ?? null) !== (input.contextId ?? null)) throw new ApiError(409, "This blood draw is no longer available in this context. Choose a current draw or record a new one.");
     if (input.items.some(i => !LABS.some(l => l.code === i.code && !l.derived))) throw new ApiError(400, "Only laboratory results can join a blood draw.");
     const codes = s.observations.filter(o => o.status === "final" && o.effective_at === sample.effective_at && o.source === sample.source && (o.context_id ?? null) === (sample.context_id ?? null)).map(o => o.code);
@@ -774,17 +776,22 @@ export async function medicationEvent(
   if (input.kind === "resume" && lastAny?.kind !== "not_taking") throw new ApiError(409, `${def?.name} is not marked as not taken`);
   if (input.kind === "not_taking" && !input.reason?.trim()) throw new ApiError(400, "Give the reason the patient is not taking it");
   let reason = input.reason ?? "";
-  if (["restart", "resume", "increase"].includes(input.kind)) {
+  const exposure = exposureChange(current.doseValue, current.frequency, input.doseValue ?? current.doseValue, input.frequency ?? current.frequency);
+  const prescriptionChange = ["continue", "increase", "decrease"].includes(input.kind);
+  if (["restart", "resume", "increase"].includes(input.kind) || (prescriptionChange && ["increase", "unknown"].includes(exposure))) {
     const warnings = preStartCheck(state, med.drug, def).filter(h => h.severity === "red" || h.requiresReview);
+    if (exposure === "unknown" && prescriptionChange && (input.override?.trim().length ?? 0) < 3) throw new ApiError(409, "Daily exposure cannot be compared. Review the regimen and record your reason before changing treatment.");
     if (warnings.length && (input.override?.trim().length ?? 0) < 3) throw new ApiError(409, `${warnings[0].title}. Review this warning and record your reason before changing treatment.`);
+    if (exposure === "unknown" && prescriptionChange) reason = [reason, `Regimen reviewed: ${input.override!.trim()}`].filter(Boolean).join(" · ");
     if (warnings.length) reason = [reason, `Medication warnings reviewed: ${warnings.map(h => h.title).join("; ")} — ${input.override!.trim()}`].filter(Boolean).join(" · ");
   }
-  const dose = input.kind === "increase" || input.kind === "decrease" || input.kind === "restart" ? input.doseValue ?? last?.dose_value ?? null : null;
+  const dose = input.kind === "increase" || input.kind === "decrease" || input.kind === "restart" ? input.doseValue ?? current.doseValue ?? null : null;
+  const eventId = uuid();
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
-      uuid(), medicationId, patientId, input.kind, dose, last?.dose_unit ?? def?.unit ?? null, input.frequency ?? last?.frequency ?? null, last?.route ?? null,
+      eventId, medicationId, patientId, input.kind, dose, current.doseUnit ?? def?.unit ?? null, input.frequency ?? current.frequency ?? null, current.route ?? null,
       reason, input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id,
     ],
   );
@@ -810,10 +817,13 @@ export async function medicationEvent(
   if (input.kind === "stop") {
     const gone = (await tx.query(
       `UPDATE cf.plan_action SET status='cancelled', outcome=$3, updated_at=now(), version=version+1
-       WHERE patient_id=$1 AND medication_id=$2 AND status='planned' AND category IN ('medication','follow_up') RETURNING id`,
+       WHERE patient_id=$1 AND medication_id=$2 AND status='planned' AND category IN ('medication','follow_up') RETURNING id,version`,
       [patientId, medicationId, `${def?.name ?? med.drug} stopped`],
     )).rows;
-    if (gone.length) return ["meds", "plan"] as Changed;
+    if (gone.length) {
+      await audit(tx, actor, "medication-stop-cancellations", "medication_event", eventId, patientId, { plans: gone });
+      return ["meds", "plan"] as Changed;
+    }
   }
   return ["meds"] as Changed;
 }
@@ -943,7 +953,12 @@ export async function completeMatching(
   if (trigger.type === "lab") {
     const source = (await tx.query(`SELECT effective_at,source,context_id,status FROM cf.observation WHERE id::text=$1`, [trigger.ref])).rows[0];
     if (source?.status !== "final") return [];
-    collection = (await tx.query(`SELECT * FROM (SELECT DISTINCT ON (logical_id) id,logical_id,code,status,effective_at,source,context_id,version FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id,version DESC) o WHERE status='final' AND effective_at=$2::timestamptz AND source=$3 AND context_id IS NOT DISTINCT FROM $4::uuid ORDER BY effective_at DESC,version DESC`, [patientId, source.effective_at, source.source, source.context_id])).rows;
+    collection = (await tx.query(`SELECT * FROM (SELECT DISTINCT ON (logical_id) id,logical_id,code,status,effective_at,source,context_id,version,derived_from FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id,version DESC) o WHERE status='final' AND effective_at=$2::timestamptz AND source=$3 AND context_id IS NOT DISTINCT FROM $4::uuid ORDER BY effective_at DESC,version DESC`, [patientId, source.effective_at, source.source, source.context_id])).rows;
+  }
+  if (trigger.type === "lab" && collection.length) {
+    const parents = collection.map(o => o.logical_id);
+    const derived = (await tx.query(`SELECT * FROM (SELECT DISTINCT ON (logical_id) * FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id,version DESC) o WHERE status='final' AND derived_from && $2::uuid[]`, [patientId, parents])).rows;
+    collection.push(...derived.filter(o => o.derived_from?.length && o.derived_from.every((id: string) => parents.includes(id)) && collection.some(p => new Date(p.effective_at).getTime() === new Date(o.effective_at).getTime() && p.context_id === o.context_id)));
   }
   const used = new Set<string>();
   const usedDue = new Map<string, string>();
@@ -981,7 +996,7 @@ export async function completeMatching(
     used.add(signature);
     if (!usedDue.has(signature)) usedDue.set(signature, due);
     const refs = trigger.type === "lab" && trigger.results
-      ? collected.map((r: any) => r.id)
+      ? [...new Set(collected.flatMap((r: any) => [r.id, ...collection.filter(p => r.derived_from?.includes(p.logical_id)).map(p => p.id)]))]
       : [trigger.ref];
     await tx.query(`UPDATE cf.plan_action SET status='completed', progress=$5, completed_at=$2, completed_by_ref=$3, completion_refs=$6, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1 AND status='planned'`, [
       a.id, trigger.at, refs[0] ?? trigger.ref, "Completed automatically when the result was recorded", trigger.type === "visit" ? "reviewed" : "performed", refs,
@@ -994,6 +1009,7 @@ export async function completeMatching(
 
 // ---------- care contexts ----------
 export type AdmissionInput = {
+  draftVersion?: number;
   startedAt: string;
   location: string;
   reasons: string[];
@@ -1005,11 +1021,13 @@ export type AdmissionInput = {
 };
 
 export async function startAdmission(tx: Q, actor: Actor, patientId: string, input: AdmissionInput) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   await patientInSite(tx, actor, patientId);
   notFuture(input.startedAt, "An admission");
   await notDeceased(tx, patientId);
-  const open = (await tx.query(`SELECT 1 FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='open'`, [patientId])).rows[0];
-  if (open) throw new ApiError(409, "This patient already has an open admission");
+  const open = (await tx.query(`SELECT id FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='open'`, [patientId])).rows[0];
+  if (open) throw new ApiError(409, "This patient already has an open admission", "admission_open", {contextId: open.id});
+  await checkEntryDraftVersion(tx, actor, patientId, "admission-entry", input.draftVersion);
   const prev = (
     await tx.query(
       `SELECT id, ended_at, reasons, summary FROM cf.care_context WHERE patient_id=$1 AND removed_at IS NULL AND kind='admission' AND status='closed' AND ended_at <= $2 ORDER BY ended_at DESC LIMIT 1`,
@@ -1036,10 +1054,12 @@ export async function startAdmission(tx: Q, actor: Actor, patientId: string, inp
     detail: [input.location, input.route, (input.symptoms ?? []).join(", "), input.narrative].filter(Boolean).join(" · "), refType: "care_context", refId: id, contextId: id,
   });
   await audit(tx, actor, "admit", "care_context", id, patientId);
+  await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, `entry:${actor.id}:admission-entry`]);
   return { id, changed: ["contexts"] as Changed };
 }
 
 export type DischargeInput = {
+  evidenceKey?: string;
   draftVersion?: number;
   endedAt: string;
   outcome?: "alive" | "died";
@@ -1056,6 +1076,8 @@ export type DischargeInput = {
 
 export async function discharge(tx: Q, actor: Actor, patientId: string, contextId: string, input: DischargeInput) {
   await checkContextDraftVersion(tx, patientId, contextId, "discharge", input.draftVersion);
+  const draft = (await tx.query(`SELECT answers FROM cf.wizard_draft WHERE patient_id=$1 AND wizard=$2 AND status='draft' ORDER BY updated_at DESC LIMIT 1`, [patientId, `discharge:${contextId}`])).rows[0];
+  checkEvidence(await loadState(tx, patientId), input.evidenceKey ?? draft?.answers?.evidenceKey);
   const ctx = (await tx.query(`SELECT * FROM cf.care_context WHERE id=$1 AND patient_id=$2 AND removed_at IS NULL`, [contextId, patientId])).rows[0];
   if (!ctx || ctx.kind !== "admission") throw new ApiError(404, "Admission not found");
   if (ctx.status !== "open") throw new ApiError(409, "This admission is already closed");
@@ -1183,7 +1205,7 @@ export async function closeVisit(tx: Q, actor: Actor, patientId: string, context
   if (!ctx || ctx.status !== "open") throw new ApiError(409, "Visit is not open");
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, version=version+1, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
-  await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND wizard=$2 AND status='draft'`, [patientId, `visit:${contextId}`]);
+  await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND (wizard=$2 OR wizard=$3) AND status='draft'`, [patientId, `visit:${contextId}`, `entry:${actor.id}:assessment:${contextId}`]);
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;
 }

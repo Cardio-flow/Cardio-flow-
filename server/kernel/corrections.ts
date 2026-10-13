@@ -64,6 +64,7 @@ async function lastEvent(tx: Q, medicationId: string) {
 // The last change recorded by mistake (a wrong increase, hold or stop): it is taken back, and the medicine
 // returns to where it was. The first entry cannot be undone this way (remove the medicine instead).
 export async function undoLastMedicationChange(tx: Q, actor: Actor, patientId: string, medicationId: string, reason?: string) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   await patientInSite(tx, actor, patientId);
   const med = (await tx.query(`SELECT drug FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0] as any;
   if (!med) throw new ApiError(404, "Medication not found");
@@ -74,12 +75,10 @@ export async function undoLastMedicationChange(tx: Q, actor: Actor, patientId: s
   // taking back a stop brings back the medicine's own dated steps the stop cancelled
   let reopened = 0;
   if (last.kind === "stop") {
-    const name = MEDICATION[med.drug]?.name ?? med.drug;
-    reopened = (await tx.query(
-      `UPDATE cf.plan_action SET status='planned', outcome='', updated_at=now(), version=version+1
-       WHERE patient_id=$1 AND medication_id=$2 AND status='cancelled' AND outcome=$3 AND updated_at >= $4 RETURNING id`,
-      [patientId, medicationId, `${name} stopped`, last.recorded_at],
-    )).rows.length;
+    const provenance = (await tx.query(`WITH RECURSIVE lineage(id) AS (SELECT $2::uuid UNION SELECT k.entity_id FROM cf.correction k JOIN lineage l ON k.replaced_by=l.id WHERE k.patient_id=$1 AND k.entity='medication_event') SELECT a.detail FROM cf.audit a JOIN lineage l ON a.entity_id=l.id::text WHERE a.patient_id=$1 AND a.entity='medication_event' AND a.action='medication-stop-cancellations'`, [patientId, last.id])).rows;
+    for (const p of provenance.flatMap(r => r.detail.plans ?? [])) {
+      reopened += (await tx.query(`UPDATE cf.plan_action SET status='planned',outcome='',updated_at=now(),version=version+1 WHERE patient_id=$1 AND medication_id=$2 AND id=$3 AND version=$4 AND status='cancelled' RETURNING id`, [patientId, medicationId, p.id, p.version])).rows.length;
+    }
   }
   await audit(tx, actor, "undo-change", "medication", medicationId, patientId, { kind: last.kind, reason: why(reason), reopened });
   await journeyEvent(tx, actor, {

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
+import {EntryDraftStatus} from "../EntryDraftStatus";
+import {bpPairNeedsReview, type AssessmentAnswers} from "../../shared/assessment-entry";
+import {useEntryDraft} from "../useEntryDraft";
 import { api, useData } from "../api";
-import { Drawer, DateInput, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
+import { Drawer, DateInput, navigate, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
@@ -16,10 +19,10 @@ const LOCATIONS = ["CCU", "Ward 3A", "Ward 3B", "Step-down"];
 
 export function Admission({ patientId, summary, onClose, onDone }: { patientId: string; summary: any; onClose(): void; onDone(m?: string, r?: any): void }) {
   const [narrative, setNarrative] = useState("");
-  function close() {
+  async function close() {
     if (busy) return;
-    if ((narrative || reasons.length || symptoms.length) && !window.confirm("Discard unsaved admission entries?")) return;
-    onClose();
+    if(entry.conflict) {if(window.confirm("Close without saving this window’s edits? The saved draft will be kept.")) {entry.complete();onClose();} return;}
+    try {await entry.flush(); onClose();} catch(e) {if((e as any).status!==409) setError((e as Error).message);}
   }
   const [reasons, setReasons] = useState<string[]>([]);
   const [hfChoice, setHfChoice] = useState<string>("");
@@ -36,12 +39,14 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   const [conf, setConf] = useState<Record<string, string>>(() => Object.fromEntries([...summary.header.diagnoses.map((d: any) => [d.id, "unchanged"]), ...meds.map((m: any) => [m.id, "unchanged"])]));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [openAdmissionId,setOpenAdmissionId] = useState<string | null>(null);
   async function save() {
     setBusy(true);
     try {
+      await entry.flush();
       const r = await api(`/patients/${patientId}/admissions`, {
         body: {
-          startedAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(), draftVersion: entry.getVersion(),
           location: bed ? `${loc} · Bed ${bed}` : loc,
           reasons,
           route,
@@ -54,12 +59,15 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
           ],
         },
       });
+      entry.complete();
       onDone("Admission started", r);
     } catch (e) {
-      setError((e as Error).message);
       setBusy(false);
+      if((e as any).code === "entry_draft_changed") {setError("");await entry.refreshConflict("draft");}
+      else {setError((e as Error).message); if((e as any).code === "admission_open") setOpenAdmissionId((e as any).details?.contextId ?? "open");}
     }
   }
+  const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,loc,bed,conf}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "Emergency department");setSymptoms(d.symptoms ?? []);setLoc(d.loc ?? "Ward 3B");setBed(d.bed ?? "");setConf({...conf,...(d.conf ?? {})});});
   const opts = [{ value: "unchanged", label: "Confirmed" }, { value: "changed", label: "Changed" }, { value: "unknown", label: "Unknown today" }];
   return (
     <Drawer
@@ -70,11 +78,13 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={close}>Cancel</button>
-          <button className="btn primary" disabled={!reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
+          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !!openAdmissionId || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
         </span>
       }
     >
-      <div className="drawer-body">
+      <fieldset className="drawer-body" disabled={!entry.loaded || busy} style={{border:0,margin:0}}>
+        <EntryDraftStatus draft={entry} showStatus onDiscard={()=>{entry.complete();onClose();}} />
+        {error && !entry.conflict && <div className="error-box" role="alert">{error}{openAdmissionId && <button type="button" className="btn secondary small" onClick={()=>{entry.complete();onDone();navigate(`/patients/${patientId}/visits`);}}>View existing admission</button>}</div>}
         <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>
         {readmitDays != null && (
           <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
@@ -122,8 +132,7 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
             </div>
           ))}
         </div>
-        {error && <div className="error-box">{error}</div>}
-      </div>
+      </fieldset>
     </Drawer>
   );
 }
@@ -131,8 +140,11 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
 const HF_DEFAULT: Record<string, number> = { "renal-k": 7, "hf-clinic": 14, titration: 28, echo: 90, rehab: 7, education: 0 };
 
 export function Discharge({ patientId, summary, contextId, onClose, onDone }: { patientId: string; summary: any; contextId: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+  const [review, setReview] = useState<{summary: any; evidenceKey: string} | null>(null);
+  const [reviewChanged, setReviewChanged] = useState(false);
+  const currentSummary = review?.summary ?? summary;
   const { data: jr } = useData<any>(`/patients/${patientId}/journey`);
-  const hf = summary.header.diagnoses.some((d: any) => /HF/.test(d.label));
+  const hf = currentSummary.header.diagnoses.some((d: any) => /HF/.test(d.label));
   const [outcome, setOutcome] = useState<"alive" | "died">("alive");
   const [status, setStatus] = useState<string>("");
   const [destination, setDestination] = useState<string>("Home");
@@ -142,7 +154,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const [reuseClinicFollowUp, setReuseClinicFollowUp] = useState(true);
   const [handover, setHandover] = useState("");
   // an item already booked (open in the plan) is not preselected again — it would be a duplicate task
-  const booked = (title: string, days = 14) => /^(HF )?clinic review$/i.test(title) ? existingClinicReview(summary.plan ?? [], title, addDays(summary.today, days), summary.today) : (summary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
+  const booked = (title: string, days = 14) => /^(HF )?clinic review$/i.test(title) ? existingClinicReview(currentSummary.plan ?? [], title, addDays(currentSummary.today, days), currentSummary.today) : (currentSummary.plan ?? []).find((p: any) => p.title === title && p.status === "planned");
   const [picked, setPicked] = useState<Record<string, number | string | null>>(() => {
     const base: Record<string, number | null> = hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 };
     for (const id of Object.keys(base)) {
@@ -153,7 +165,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const today = summary.today;
+  const today = currentSummary.today;
   const draftVersion = useRef(0);
   const pending = useRef<any>(null);
   const request = useRef<Promise<any> | null>(null);
@@ -162,7 +174,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const finished = useRef(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
-  const payload = {outcome, status, destination, events, cause, weight, reuseClinicFollowUp, handover, picked};
+  const payload = {outcome, status, destination, events, cause, weight, reuseClinicFollowUp, handover, picked, ...(review ? {evidenceKey: review.evidenceKey} : {})};
   const payloadKey = JSON.stringify(payload);
   function restoreDraft(d: any) {
     draftVersion.current = d.version;
@@ -190,6 +202,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   }
   useEffect(() => {
     let live = true;
+    api(`/patients/${patientId}/discharge-review`).then(r => {if (live) setReview(r);}).catch(e => {if (live) setError(e.message);});
     api(`/patients/${patientId}/admissions/${contextId}/draft`).then(d => {if (live) restoreDraft(d);}).catch(e => {if (live) setError(`Draft could not be restored: ${e.message}`);});
     return () => {live = false;};
   }, [patientId, contextId]);
@@ -212,11 +225,17 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
     catch (e) {setError(`Draft not saved: ${(e as Error).message}`); if (!window.confirm("Close without saving the latest discharge edits?")) return;}
     onClose();
   }
-  const meds = summary.medications.groups.flatMap((g: any) => g.meds);
+  const meds = currentSummary.medications.groups.flatMap((g: any) => g.meds);
   async function save() {
     setBusy(true);
     try {
       await flushDraft();
+      const latest = await api(`/patients/${patientId}/discharge-review`);
+      if (!review || latest.evidenceKey !== review.evidenceKey) {
+        const clinic = PLAN_TEMPLATES.find(t => t.id === "hf-clinic")!;
+        if (reuseClinicFollowUp && picked["hf-clinic"] == null && booked(clinic.title) && !existingClinicReview(latest.summary.plan ?? [], clinic.title, addDays(latest.summary.today, status === "Still congested" ? 7 : 14), latest.summary.today)) setPicked(p => ({...p, "hf-clinic": status === "Still congested" ? 7 : 14}));
+        setReview(latest); setReviewChanged(true); setError(""); setBusy(false); return;
+      }
       const plan = Object.entries(picked)
         .filter(([, d]) => d != null)
         .map(([id, d]) => {
@@ -226,7 +245,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       const died = outcome === "died";
       const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
         body: {
-          endedAt: new Date().toISOString(), draftVersion: draftVersion.current, outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
+          endedAt: new Date().toISOString(), evidenceKey: review.evidenceKey, draftVersion: draftVersion.current, outcome, status: died ? "Died" : status, destination: died ? null : destination, events,
           causeGroup: died ? cause : null, dischargeWeight: !died && weight ? Number(weight) : null, plan: died ? [] : plan, reuseClinicFollowUp, handover,
         },
       });
@@ -234,6 +253,14 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       onDone(died ? "Death in hospital recorded" : "Discharged · follow-up plan saved", r);
     } catch (e) {
       setError((e as Error).message);
+      if ((e as any).status === 409 && (e as Error).message.includes("record changed")) {
+        setError(""); setReviewChanged(true);
+        void api(`/patients/${patientId}/discharge-review`).then(latest => {
+          const clinic = PLAN_TEMPLATES.find(t => t.id === "hf-clinic")!;
+          if (reuseClinicFollowUp && picked["hf-clinic"] == null && booked(clinic.title) && !existingClinicReview(latest.summary.plan ?? [], clinic.title, addDays(latest.summary.today, status === "Still congested" ? 7 : 14), latest.summary.today)) setPicked(p => ({...p,"hf-clinic":status === "Still congested" ? 7 : 14}));
+          setReview(latest);
+        }).catch(e => setError(e.message));
+      }
       setBusy(false);
     }
   }
@@ -247,11 +274,12 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={closeDischarge}>Cancel</button>
-          <button className="btn primary" disabled={!draftLoaded || (outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
+          <button className="btn primary" disabled={!draftLoaded || !review || reviewChanged || (outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
       <>
+      {reviewChanged && <div className="infobox warn" role="alert" style={{flexWrap:"wrap",alignItems:"center",flexShrink:0}}><span style={{flex:"1 1 180px",minWidth:0}}>Record updated. Review results and bookings.</span><button className="btn secondary" onClick={() => {setReviewChanged(false); setError("");}} aria-label="Updated record reviewed">Reviewed</button></div>}
       <fieldset className="drawer-body" disabled={!draftLoaded || busy} style={{border:0,margin:0}}>
         <div className="help" role="status">{!draftLoaded ? "Restoring discharge draft…" : draftSaved ? "Draft saved" : "Changes are saved as a draft"}</div>
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
@@ -276,8 +304,8 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         <>
         <div className="q">
           <div className="label">Outstanding decisions & results</div>
-          {(summary.attention ?? []).filter((a: any) => a.severity === "red" || a.severity === "orange").map((a: any) => <div key={a.id}><SevChip sev={a.severity}>{a.title}</SevChip></div>)}
-          {(summary.plan ?? []).filter((p: any) => p.awaitingReview).map((p: any) => <div key={p.id} className="help">Result awaiting review · {p.title}</div>)}
+          {(currentSummary.attention ?? []).filter((a: any) => a.severity === "red" || a.severity === "orange").map((a: any) => <div key={a.id}><SevChip sev={a.severity}>{a.title}</SevChip></div>)}
+          {(currentSummary.plan ?? []).filter((p: any) => p.awaitingReview).map((p: any) => <div key={p.id} className="help">Result awaiting review · {p.title}</div>)}
           <label className="field">
             <span>Handover / outstanding issues <em className="muted" style={{ fontStyle: "normal" }}>(optional)</em></span>
             <textarea className="input" disabled={!draftLoaded} maxLength={4000} rows={3} value={handover} onChange={(e) => setHandover(e.target.value)} placeholder="Record how outstanding issues will be handled and by whom." />
@@ -285,7 +313,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         </div>
         <div className="q">
           <div className="label">Condition at discharge</div>
-          <SingleChoice label="Condition at discharge" options={DISCHARGE_CONDITION.map((s) => ({ value: s, label: s }))} value={status} onChange={(v) => { setStatus(v); if (v === "Still congested" && hf) setPicked((p) => ({ ...p, "hf-clinic": reuseClinicFollowUp && existingClinicReview(summary.plan ?? [], "HF clinic review", addDays(summary.today, 7), summary.today) ? null : 7 })); }} />
+          <SingleChoice label="Condition at discharge" options={DISCHARGE_CONDITION.map((s) => ({ value: s, label: s }))} value={status} onChange={(v) => { setStatus(v); if (v === "Still congested" && hf) setPicked((p) => ({ ...p, "hf-clinic": reuseClinicFollowUp && existingClinicReview(currentSummary.plan ?? [], "HF clinic review", addDays(currentSummary.today, 7), currentSummary.today) ? null : 7 })); }} />
           {status === "Still congested" && <div className="infobox warn">Residual congestion at discharge is high risk: the HF clinic review is moved to 7 days.</div>}
         </div>
         <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
@@ -370,6 +398,8 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
 
 export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, open, onStarted, active = true }: { patientId: string; summary: any; contextId?: string; active?: boolean; onClose(): void; onDone(m?: string, r?: any): void; open(o: Open): void; onStarted?(): void }) {
   const [narrative, setNarrative] = useState("");
+  const [narrativeOpen,setNarrativeOpen] = useState(false);
+  const [bpPairConfirmed,setBpPairConfirmed] = useState(false);
   const narrativeAtStart = useRef("");
   const narrativeInNote = useRef("");
   const [visitId, setVisitId] = useState<string | undefined>(contextId);
@@ -389,61 +419,30 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const generatedNote = useRef("");
   const [noteKey, setNoteKey] = useState("");
   const [freshNote, setFreshNote] = useState<{ text: string; key: string } | null>(null);
-  const draftVersion = useRef(0);
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
-  const [newerDraft, setNewerDraft] = useState<any>(null);
-  const draftPending = useRef<any>(null);
-  const draftRequest = useRef<Promise<any> | null>(null);
-  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closed = useRef(false);
-  async function flushVisitDraft() {
-    if (draftTimer.current) clearTimeout(draftTimer.current);
-    await draftRequest.current;
-    const body = draftPending.current;
-    if (!body || !visitId || closed.current) return;
-    draftPending.current = null;
-    const req = api(`/patients/${patientId}/contexts/${visitId}/draft`, { body: {...body, version: draftVersion.current} });
-    draftRequest.current = req;
-    try { const r = await req; draftVersion.current = r.version; setDraftSaved(!draftPending.current); }
-    catch(e) { draftPending.current = body; if ((e as any).status === 409) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {}); throw e; }
-    finally { draftRequest.current = null; }
-    if (draftPending.current) await flushVisitDraft();
-  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [live, setLive] = useState<any>(summary);
-  const savedRef = useRef<Record<string, string>>({});
-  useEffect(() => {
-    if (!visitId) return;
-    let current = true;
-    api(`/patients/${patientId}/contexts/${visitId}/draft`).then(d => {
-      if (!current) return;
-      draftVersion.current = d.version;
-      if (d.note !== undefined) { setNote(d.note); setNarrative(d.narrative); narrativeInNote.current = d.narrative; generatedNote.current = d.generatedNote; setNoteKey(d.evidenceKey); }
-      setDraftLoaded(true);
-    }).catch(e => setError(`Draft could not be restored: ${e.message}`));
-    return () => { current = false; };
-  }, [visitId, patientId]);
-  useEffect(() => {
-    if (!draftLoaded || !visitId || !noteKey || closed.current || newerDraft) return;
-    draftPending.current = { note, narrative, generatedNote: generatedNote.current, evidenceKey: noteKey };
-    setDraftSaved(false);
-    draftTimer.current = setTimeout(() => { void flushVisitDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 300);
-    return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [note, narrative, noteKey, visitId, draftLoaded, newerDraft]);
-  useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if (draftPending.current || draftRequest.current) { e.preventDefault(); e.returnValue = ""; } };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, []);
-  useEffect(() => {
-    if (contextId) api(`/patients/${patientId}/journey`).then(j => {
-      const text = j.contexts.find((c: any) => c.id === contextId)?.summary?.narrative ?? "";
-      narrativeAtStart.current = text;
-      setNarrative(x => x || text);
-    }).catch(() => {});
-  }, [contextId, patientId]);
+  const [measurementBaseline,setMeasurementBaseline]=useState<AssessmentAnswers["baseline"]>({});
+  const [measurementValues,setMeasurementValues]=useState<AssessmentAnswers["baselineValues"]>({});
+  const noteDraft = useEntryDraft(patientId, visitId ? `note:${visitId}` : null,
+    {note,narrative,generatedNote:generatedNote.current,evidenceKey:noteKey}, (d,meta)=>{
+      setNote(d.note ?? "");setNarrative(d.narrative ?? "");
+      if(d.narrative) setNarrativeOpen(true);
+      narrativeAtStart.current=meta?.originalNarrative ?? "";
+      narrativeInNote.current=d.narrative ?? "";
+      generatedNote.current=d.generatedNote ?? "";setNoteKey(d.evidenceKey ?? "");setFreshNote(null);setError("");
+      if(meta?.resolution && step === 3) setStep(2);
+    }, true, {path:visitId ? `/patients/${patientId}/contexts/${visitId}/draft` : null,flat:true});
+  const draftLoaded=noteDraft.loaded;
+  function discardVisit() {assessment.complete();noteDraft.complete();visitId ? onDone() : onClose();}
+  function viewSavedVisit() {discardVisit();navigate(`/patients/${patientId}/visits`);}
+  async function recoverVisitError(e:any, draft=noteDraft) {
+    if(["visit_closed","visit_unavailable"].includes(e.code)) {setError("");await draft.refreshConflict("closed",e.message);}
+    else if(["entry_draft_changed","visit_draft_changed"].includes(e.code)) {setError("");await draft.refreshConflict("draft");}
+    else if(e.code === "assessment_changed") {setError("");await assessment.refreshConflict("record");}
+    else setError(e.message);
+  }
+  useEffect(()=>setBpPairConfirmed(false),[vit.sbp,vit.dbp,measurementBaseline]);
   useEffect(() => {
     setNote(x => {
       if (!x || narrative === narrativeInNote.current) return x;
@@ -454,28 +453,6 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     });
   }, [narrative]);
   const [already, setAlready] = useState<string[]>([]);
-  const [prefilled, setPrefilled] = useState(false);
-  // values already recorded today (an earlier part of this visit, quick labs, a reading at the desk): shown
-  // filled in and marked, and not recorded again unless changed
-  useEffect(() => {
-    api(`/patients/${patientId}/record`).then((r) => {
-      const t = r.todayValues ?? {};
-      const num = (c: string) => (t[c]?.value != null ? String(t[c].value) : undefined);
-      const v: Record<string, string> = {};
-      for (const c of ["sbp", "dbp", "hr", "weight"]) if (num(c)) v[c] = num(c)!;
-      const h: Record<string, string> = {};
-      for (const c of ["kccq", "6mwd", "dry-weight"]) if (num(c)) h[c] = num(c)!;
-      setVit((x) => ({ ...v, ...x }));
-      setHfa((x) => ({ ...h, ...x }));
-      if (t.nyha?.text) setNyha((x) => x || t.nyha.text);
-      if (t.congestion?.text) setCong((x) => x || t.congestion.text);
-      for (const [c, val] of Object.entries(v)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
-      for (const [c, val] of Object.entries(h)) savedRef.current[c] = JSON.stringify({ code: c, value: Number(val) });
-      if (t.nyha?.text) savedRef.current.nyha = JSON.stringify({ code: "nyha", text: t.nyha.text });
-      if (t.congestion?.text) savedRef.current.congestion = JSON.stringify({ code: "congestion", text: t.congestion.text });
-      setAlready(Object.keys(t));
-    }).catch(() => {}).finally(() => setPrefilled(true));
-  }, [patientId]);
   useEffect(() => {
     let current = true;
     if (step === 3 && visitId && draftLoaded && active) {
@@ -494,6 +471,8 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     if (step === 2 && active) api(`/patients/${patientId}/summary`).then(setLive).catch(e => setError(e.message));
     return () => { current = false; };
   }, [step, visitId, patientId, active, draftLoaded]);
+  const assessment = useEntryDraft(patientId, visitId ? `assessment:${visitId}` : null, {vit,hfa,nyha,cong,baseline:measurementBaseline,baselineValues:measurementValues}, (d,meta) => {setVit(d.vit ?? {});setHfa(d.hfa ?? {});setNyha(d.nyha ?? "");setCong(d.cong ?? "");setMeasurementBaseline(d.baseline ?? {});setMeasurementValues(d.baselineValues ?? {});setAlready(Object.entries(meta?.latestAnswers?.baseline ?? {}).filter(([,id])=>!!id).map(([code])=>code));});
+  const needsBpReview=bpPairNeedsReview({vit,hfa,nyha,cong,baselineValues:measurementValues});
   const previous = summary.plan;
   async function start() {
     setBusy(true);
@@ -512,32 +491,32 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
     if (busy) return;
     setBusy(true);
     try {
+      await assessment.flush();
       const items = [
         ...["sbp", "dbp", "hr", "weight"].filter((c) => vit[c]?.trim()).map((c) => ({ code: c, value: Number(vit[c]) })),
         ...(nyha ? [{ code: "nyha", text: nyha }] : []),
         ...(cong ? [{ code: "congestion", text: cong }] : []),
         ...(isHf ? ["kccq", "6mwd", "dry-weight"].filter((c) => hfa[c]?.trim()).map((c) => ({ code: c, value: Number(hfa[c]) })) : []),
       ];
-      // going Back and saving again records only what changed since the last save (no duplicate vitals)
-      const fresh = items.filter((i: any) => savedRef.current[i.code] !== JSON.stringify(i));
-      if (fresh.length) await api(`/patients/${patientId}/observations`, { body: { effectiveAt: new Date().toISOString(), contextId: visitId, items: fresh } });
-      for (const i of fresh) savedRef.current[i.code] = JSON.stringify(i);
+      const r=await api(`/patients/${patientId}/visits/${visitId}/assessment`, {body:{items,baseline:measurementBaseline,draftVersion:assessment.getVersion(),confirmBpPair:bpPairConfirmed}});
+      assessment.confirmed(r.answers,r.draftVersion);
       setStep(2);
     } catch (e) {
-      setError((e as Error).message);
+      await recoverVisitError(e,assessment);
     }
     setBusy(false);
   }
   async function finish() {
     setBusy(true);
     try {
-      await flushVisitDraft();
-      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey, draftVersion: draftVersion.current } });
-      closed.current = true;
+      await noteDraft.flush();
+      await assessment.flush();
+      const r = await api(`/patients/${patientId}/visits/${visitId}/close`, { body: { note, narrative, evidenceKey: noteKey, draftVersion: noteDraft.getVersion() } });
+      assessment.complete();
+      noteDraft.complete();
       onDone("Visit closed · note saved", r);
     } catch (e) {
-      setError((e as Error).message);
-      if ((e as any).status === 409 && (e as Error).message.includes("another window")) void api(`/patients/${patientId}/contexts/${visitId}/draft`).then(setNewerDraft).catch(() => {});
+      await recoverVisitError(e);
       setBusy(false);
     }
   }
@@ -552,11 +531,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       icon={<Stethoscope size={22} />}
       onClose={async () => {
         if (busy) return;
-        const numeric = { ...vit, ...(isHf ? hfa : {}) };
-        const unsaved = Object.entries(numeric).some(([code, v]) => v.trim() && savedRef.current[code] !== JSON.stringify({ code, value: Number(v) })) || (nyha && savedRef.current.nyha !== JSON.stringify({ code: "nyha", text: nyha })) || (cong && savedRef.current.congestion !== JSON.stringify({ code: "congestion", text: cong }));
-        if ((unsaved || (!draftLoaded && (narrative !== narrativeAtStart.current || note !== generatedNote.current))) && !window.confirm("Discard unsaved assessment or note edits? Saved visit data will be kept.")) return;
+        if (assessment.conflict || noteDraft.conflict) {if(window.confirm("Close without saving this window’s edits? The saved draft will be kept.")) discardVisit(); return;}
+        if (!visitId && narrative !== narrativeAtStart.current && !window.confirm("Discard this unstarted visit narrative?")) return;
         setBusy(true);
-        try { await flushVisitDraft(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { setError(`Draft not saved: ${(e as Error).message}`); setBusy(false); }
+        try { await assessment.flush(); await noteDraft.flush(); visitId && step > 0 ? onDone() : onClose(); } catch(e) { await recoverVisitError(e); setBusy(false); }
       }}
       head={
         <ol className="steps" data-caption={`Step ${step + 1} of ${steps.length} · ${steps[step]}`} style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
@@ -573,15 +551,18 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           {step > 1 && <button className="btn secondary" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
           <span className="end">
             {step === 0 && <button className="btn primary" disabled={!reasons.length || busy} onClick={start}>Start visit</button>}
-            {step === 1 && <button className="btn primary" disabled={busy || !prefilled} onClick={saveAssessment}>{prefilled ? "Save and continue" : "Loading…"}</button>}
+            {step === 1 && <button className="btn primary" disabled={busy || !assessment.loaded || !!assessment.conflict || !noteDraft.loaded || !!noteDraft.conflict || (needsBpReview && !bpPairConfirmed)} onClick={saveAssessment}>{assessment.loaded ? "Save and continue" : "Loading…"}</button>}
             {step === 2 && <button className="btn primary" disabled={busy} onClick={() => setStep(3)}>Continue to note</button>}
-            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!newerDraft || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
+            {step === 3 && <button className="btn primary" disabled={busy || noteLoading || !!freshNote || !!noteDraft.conflict || !draftLoaded || !noteKey} onClick={finish}>Finish visit</button>}
           </span>
         </>
       }
     >
       <div className="drawer-body">
-        {step < 3 && narrative && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
+        <EntryDraftStatus draft={noteDraft} label="Visit note" savedLabel="Use newer saved note" onDiscard={discardVisit} onViewClosed={viewSavedVisit} />
+        {noteDraft.conflict?.kind !== "closed" && <EntryDraftStatus draft={assessment} onDiscard={discardVisit} onViewClosed={viewSavedVisit} />}
+        {step < 3 && !narrativeOpen && <button type="button" className="btn ghost small" onClick={()=>setNarrativeOpen(true)}>Add narrative</button>}
+        {step < 3 && narrativeOpen && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" disabled={!noteDraft.loaded || busy} className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
         {step === 0 && (
           <>
             <div className="q">
@@ -615,7 +596,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
           </>
         )}
         {step === 1 && (
-          <>
+          <fieldset disabled={!assessment.loaded || busy} style={{border:0,margin:0,padding:0}}>
             <div className="q">
               <div className="label">Vital signs today</div>
               {["sbp", "dbp", "hr", "weight"].some((c) => already.includes(c)) && <div className="help">Values already recorded today are filled in; change one only if it is a new reading.</div>}
@@ -631,6 +612,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 ))}
               </div>
             </div>
+            {needsBpReview && <label className="infobox" style={{display:"flex",gap:10,alignItems:"center"}}><input type="checkbox" aria-label="Both BP values checked" checked={bpPairConfirmed} onChange={e=>setBpPairConfirmed(e.target.checked)} />New BP {vit.sbp}/{vit.dbp} mmHg · both values checked</label>}
             <div className="q">
               <div className="label">NYHA class</div>
               <Segmented label="NYHA class" options={FINDINGS.nyha.options.map((o) => ({ value: o, label: o }))} value={nyha} onChange={setNyha} />
@@ -661,7 +643,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 {hfa.kccq && Number(hfa.kccq) > 100 && <div className="infobox warn">The KCCQ-12 summary score runs from 0 to 100.</div>}
               </div>
             )}
-          </>
+          </fieldset>
         )}
         {step === 2 && (
           <>
@@ -717,12 +699,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         {step === 3 && (
           <div className="q">
             <div className="label row"><FileText size={18} /> Draft clinic note</div>
-            <div className="help">Edit before finishing. {draftSaved ? "Draft saved" : "Saving draft…"}</div>
-            {newerDraft && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
-              <b>A newer note was saved in another window.</b>
-              <details><summary>Newer saved note</summary><pre style={{whiteSpace:"pre-wrap"}}>{newerDraft.note}</pre></details>
-              <button className="btn secondary" onClick={() => {if (!window.confirm("Replace this window’s note with the newer saved draft?")) return; draftPending.current = null; draftVersion.current = newerDraft.version; generatedNote.current = newerDraft.generatedNote; narrativeInNote.current = newerDraft.narrative; setNote(newerDraft.note); setNarrative(newerDraft.narrative); setNoteKey(newerDraft.evidenceKey); setNewerDraft(null); setError(""); setStep(2);}}>Use newer saved note</button>
-            </div>}
+            <div className="help">Edit before finishing. {noteDraft.status}</div>
             {freshNote && <div className="infobox warn" role="alert" style={{display:"grid",gap:10}}>
               <b>Patient data changed. Review the note before finishing.</b>
               <details><summary>Latest generated note</summary><pre style={{whiteSpace:"pre-wrap"}}>{freshNote.text}</pre></details>
@@ -731,10 +708,10 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
                 <button className="btn secondary" onClick={() => { setNoteKey(freshNote.key); setFreshNote(null); }}>I reviewed my edited note</button>
               </div>
             </div>}
-            <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Clinic note" />
+            <textarea className="input" disabled={busy || noteLoading} aria-busy={noteLoading} placeholder={noteLoading ? "Preparing clinic note…" : undefined} rows={18} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }} value={note} onChange={(e) => setNote(e.target.value)} maxLength={64000} aria-label="Clinic note" />
           </div>
         )}
-        {error && <div className="error-box" role="alert">{error}</div>}
+        {error && !noteDraft.conflict && !assessment.conflict && <div className="error-box" role="alert">{error}</div>}
       </div>
     </Drawer>
   );

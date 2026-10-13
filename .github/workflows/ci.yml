@@ -33,6 +33,9 @@ jobs:
           node scripts/journey-focus-check.mjs screenshots/journey-focus
           node scripts/lab-record-check.mjs screenshots/lab-record
           node scripts/flow-integrity-check.mjs screenshots/flow-integrity
+          node scripts/round4-flow-check.mjs screenshots/round4-flow
+          node scripts/round5-flow-check.mjs screenshots/round5-flow
+          node scripts/round6-flow-check.mjs screenshots/round6-flow
       - uses: actions/upload-artifact@v4
         if: always()
         with:

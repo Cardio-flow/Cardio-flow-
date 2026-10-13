@@ -5,6 +5,7 @@ import { Drawer, SingleChoice, Segmented, Tag, DateInput } from "../ui";
 import { BRAND_NOTE, FREQUENCIES, DIAGNOSIS, MEASURES, MEDICATION, MEDICATIONS, PURPOSE_FOR_TAG, PURPOSE_ORDER, doseLabel, formatNumber, medicationSearchText, type MedicationDef } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay, localDay } from "../../shared/clinical";
 import { monitoringFor, targetCodes } from "../../shared/drug-monitoring";
+import { exposureChange } from "../../shared/medication-exposure";
 import { DateField } from "../screens/SuggestLine";
 
 export function patientTags(summary: any) {
@@ -359,8 +360,9 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   const [reviewDay, setReviewDay] = useState<string>(() => addDays(summary.today, 7));
   const [fromDay, setFromDay] = useState<string>(summary.today);
   const [override, setOverride] = useState("");
-  const safetyAction = ["restart", "resume", "increase"].includes(action) || (action === "patient-dose" && !!dose && Number(dose) > (med?.doseValue ?? 0));
-  const {data: changeCheck, error: checkError} = useData<{hits: SafetyHit[]}>(safetyAction && med ? `/patients/${patientId}/medication-check/${med.code}` : null, [action]);
+  const frequencyExposure = med && newFreq ? exposureChange(med.doseValue, med.frequency, med.doseValue, newFreq) : "same";
+  const safetyAction = (action === "frequency" && ["increase", "unknown"].includes(frequencyExposure)) || ["restart", "resume", "increase"].includes(action) || (action === "patient-dose" && !!dose && Number(dose) > (med?.doseValue ?? 0));
+  const {data: changeCheck, error: checkError} = useData<{hits: SafetyHit[]}>(safetyAction && med ? `/patients/${patientId}/medication-check/${med.code}` : null, [action, newFreq]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!med || !def) return null;
@@ -395,7 +397,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
   }
   const needsDose = action === "increase" || action === "decrease" || action === "patient-dose";
   const needsReason = action === "not_taking" || action === "patient-stop";
-  const warnings = safetyAction && !!changeCheck?.hits.some(h => h.severity === "red" || h.requiresReview);
+  const warnings = safetyAction && (frequencyExposure === "unknown" || !!changeCheck?.hits.some(h => h.severity === "red" || h.requiresReview));
   const latestDay = history.reduce((d: string, e: any) => localDay(e.effective_at) > d ? localDay(e.effective_at) : d, "");
   return (
     <Drawer
@@ -418,6 +420,7 @@ export function MedicationAction({ patientId, summary, medId, initial, initialDo
         {safetyAction && <>
           <PreStart def={def} rec={rec} summary={summary} hits={changeCheck?.hits ?? null} label="Treatment safety review" />
           {!changeCheck && <div className="help" role="status">{checkError ?? "Checking current results and medicines…"}</div>}
+          {action === "frequency" && frequencyExposure === "unknown" && <div className="infobox warn">Daily exposure cannot be compared. Review the regimen.</div>}
           {warnings && <label className="field"><span>Reason after reviewing these warnings (required)</span><input className="input" value={override} onChange={e => setOverride(e.target.value)} maxLength={300} /></label>}
         </>}
         {med.status !== "held" && med.status !== "not_taking" && (
