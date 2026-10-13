@@ -80,7 +80,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   hyperkalaemia: {
     result: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && k >= 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
+      return [k != null && k > 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
     },
     actions: (a, c) => {
       const k = val(c, "potassium");
@@ -89,11 +89,11 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
         k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
-        k >= 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K 5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K >5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
         // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold instead (Inspra SmPC: 25 mg every other day, or withhold)
-        k >= 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K 5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
-        k >= 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `K 5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
-        k >= 5.5 && k <= 6.0 && !on(c, "mra") && lowest(c, "raas") && S("hold-raas", "K 5.5–6.0 on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)"),
+        k > 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K >5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
+        k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `K >5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && !on(c, "mra") && lowest(c, "raas") && S("hold-raas", "K >5.5–6.0 on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)"),
         k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
         k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),
         (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and K-containing salt substitutes"),
@@ -102,30 +102,35 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
     recheck: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k >= 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
+      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k > 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
     },
   },
   "renal-function": {
     actions: (a, c) => {
-      const cr = val(c, "creatinine"), p = prev(c, "creatinine"), egfr = val(c, "egfr");
+      // the alert's baseline (last creatinine before the latest RAAS/MRA start or increase) when available
+      const r = c.renal ?? null;
+      const cr = r?.current ?? val(c, "creatinine"), p = r?.baseline ?? prev(c, "creatinine"), egfr = val(c, "egfr");
       const rise = cr != null && p ? (cr - p) / p : null;
-      const severe = (rise != null && rise > 1) || (cr != null && cr > 310) || (egfr != null && egfr < 20);
-      const big = rise != null && rise > 0.5;
+      const severe = r ? r.stop : (rise != null && rise > 1) || (cr != null && cr > 310) || (egfr != null && egfr < 20);
+      const big = r ? r.review && !r.stop : rise != null && rise > 0.5;
+      const limit = r?.reviewCr ?? 266;
       return [
         a.volume === "congested" && on(c, "loop") && S("increase-diuretic", "Still congested: decongest; a creatinine rise during decongestion is expected and should not stop treatment (HFA 2019)"),
         a.volume === "dry" && on(c, "loop") && S("reduce-diuretic", "Dry: reduce the loop diuretic (ESC HF practical guidance)"),
         (list(a, "contributors").includes("nsaid") || list(a, "contributors").includes("contrast") || on(c, "nsaid")) && S("hold-nephrotoxin", "Stop NSAIDs and other nephrotoxins"),
-        rise != null && !big && cr! <= 266 && (egfr == null || egfr >= 25) && S("continue", `Creatinine ${p}→${cr} µmol/L (+${Math.round(rise * 100)}%): a rise ≤50% (and <266 µmol/L, eGFR ≥25) is acceptable — continue (ESC HF practical guidance)`),
-        severe && on(c, "raas") && S("hold-raas", `Creatinine${rise != null ? ` +${Math.round(rise * 100)}%` : ""}${cr != null && cr > 310 ? `, ${cr} µmol/L` : ""}${egfr != null && egfr < 20 ? `, eGFR ${egfr}` : ""}: stop the ACEi/ARB/ARNI (rise >100%, >310 µmol/L or eGFR <20; ESC HF practical guidance)`),
-        severe && on(c, "mra") && S("hold-mra", "Severe deterioration: stop the MRA (ESC HF practical guidance)"),
-        big && !severe && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `Creatinine +${Math.round(rise! * 100)}%: halve the ACEi/ARB/ARNI dose (rise >50%, ESC HF practical guidance)`),
-        big && !severe && on(c, "raas") && lowest(c, "raas") && S("hold-raas", `Creatinine +${Math.round(rise! * 100)}% on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)`),
+        rise != null && !big && !severe && S("continue", `Creatinine ${p}→${cr} µmol/L (${rise >= 0 ? "+" : ""}${Math.round(rise * 100)}% from baseline): within the acceptable rise (≤50% and ≤${limit} µmol/L) — continue, recheck in 1–2 weeks, no up-titration until then (ESC HF practical guidance)`),
+        severe && on(c, "raas") && S("hold-raas", `Creatinine${rise != null ? ` +${Math.round(rise * 100)}% from baseline` : ""}${cr != null && cr > 310 ? `, ${cr} µmol/L` : ""}${egfr != null && egfr < 20 ? `, eGFR ${egfr}` : ""}: stop the ACEi/ARB/ARNI (rise >100%, >310 µmol/L or eGFR <20; ESC HF practical guidance)`),
+        severe && on(c, "mra") && S("hold-mra", "Severe deterioration: stop the MRA (>310 µmol/L or eGFR <20; ESC HF practical guidance)"),
+        big && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `Creatinine +${Math.round(rise! * 100)}% from baseline: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
+        big && on(c, "raas") && lowest(c, "raas") && S("hold-raas", `Creatinine +${Math.round(rise! * 100)}% on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)`),
+        big && r?.mra && cr != null && (cr > 221 || (egfr != null && egfr < 30)) && on(c, "mra") && !lowest(c, "mra") && S("reduce-mra", `On an MRA with creatinine ${cr} µmol/L${egfr != null ? ` / eGFR ${egfr}` : ""}: halve the MRA (>221 µmol/L or eGFR <30; ESC HF practical guidance)`),
         severe && S("nephrology", "Severe deterioration: specialist / nephrology input"),
       ];
     },
     recheck: (_a, c) => {
-      const cr = val(c, "creatinine"), p = prev(c, "creatinine");
-      return [cr != null && p ? ((cr - p) / p > 1 ? S("3", "Large rise: recheck within days") : S("7", "Recheck renal function and K in 1–2 weeks (ESC HF practical guidance)")) : null];
+      const r = c.renal ?? null;
+      const cr = r?.current ?? val(c, "creatinine"), p = r?.baseline ?? prev(c, "creatinine");
+      return [cr != null && p ? ((r ? r.stop : (cr - p) / p > 1) ? S("3", "Large rise: recheck within days") : S("7", "Recheck renal function and K in 1–2 weeks (ESC HF practical guidance)")) : null];
     },
   },
   congestion: {
@@ -261,11 +266,12 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         a.severity === "minor" && dapt && S("continue-dapt", "Trivial or mild bleeding: continue DAPT; consider a shorter course or a less potent P2Y12 inhibitor if it recurs (ESC DAPT 2017)"),
         (mod || a.severity === "major") && dapt && S("sapt", `${mod ? "Moderate" : "Severe"} bleeding on DAPT: single antiplatelet, preferably the P2Y12 inhibitor (especially upper GI); restart DAPT as soon as safe (ESC DAPT 2017)`),
         (mod || a.severity === "minor") && dapt && on(c, "p2y12-potent") && S("to-clopidogrel", "Bleeding on ticagrelor/prasugrel: consider switching to clopidogrel (ESC DAPT 2017 / ACS 2023 de-escalation)"),
-        c.coronary && c.coronary.days <= 365 && on(c, "antiplatelet") && S("restart", `${c.coronary.pciAt ? "PCI" : "ACS"} ${c.coronary.days} days ago: plan the antiplatelet restart early — stent thrombosis risk is highest in the first months`),
+        (major || mod) && c.coronary && c.coronary.days <= 365 && on(c, "antiplatelet") && S("restart", `${c.coronary.pciAt ? "PCI" : "ACS"} ${c.coronary.days} days ago: plan the antiplatelet restart early — stent thrombosis risk is highest in the first months`),
         major && on(c, "oac") && S("reversal", "Life-threatening bleeding on an anticoagulant: specific reversal per protocol (EHRA 2021)"),
         a.site === "gi" && S("gi", "GI bleeding: endoscopy"),
         (a.site === "gi" || (on(c, "antiplatelet") && on(c, "oac"))) && S("ppi", "PPI with antithrombotic therapy at GI risk (ESC, I A)"),
-        S("restart", "Set the restart date before discharge: most patients need their antithrombotic back (EHRA 2021)"),
+        // only once the severity is known and something is being held: restarting is the plan for a held drug
+        (major || mod) && S("restart", "Set the restart date before discharge: most patients need their antithrombotic back (EHRA 2021)"),
       ];
     },
   },
@@ -315,6 +321,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         high && a.bleeding !== "major" && S("omit", "Supratherapeutic INR: omit/reduce the next dose(s) (CHEST 2012)"),
         high && a.bleeding !== "major" && inr != null && inr > 10 && S("vitk", `INR ${n1(inr)} >10 without bleeding: oral vitamin K (CHEST 2012)`),
         high && a.bleeding === "minor" && S("vitk", "Minor bleeding with a high INR: consider oral vitamin K"),
+        !high && !list(a, "causes").includes("adherence") && S("increase", "Sub-therapeutic INR without missed doses: increase the weekly dose (anticoagulation clinic dosing)"),
+        !high && list(a, "causes").includes("adherence") && S("education", "Missed doses: address adherence before changing the dose"),
         !high && dx(c, "mechanical-valve") && S("bridge", "Low INR with a mechanical valve: consider bridging with heparin until INR in range"),
         S("education", "Review interactions, diet and adherence"),
       ];

@@ -28,6 +28,7 @@ import { mechanicalInrTarget } from "./acute-rules.js";
 import { interventionFor } from "../../shared/wizards-valve.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { preStartCheck, proposedMedicines } from "./med-safety.js";
+import { creatinineTrend } from "./renal-trend.js";
 import { latestPhEcho } from "./ph-profile.js";
 import { latestCcsTest } from "./cad-tests.js";
 
@@ -220,7 +221,9 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const statins = base.meds.filter(m => m.tags.includes("statin"));
   const ck = s.resolved("ck").current;
   const notices = wizardId === "statin-ck-result" && ck && statins.length && statins.every(m => m.startedAt && ck.effective_at < m.startedAt) ? ["This CK predates the current statin treatment. Verify a current result before attributing it to this prescription."] : [];
-  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  const rt = creatinineTrend(s);
+  const renal = rt ? { baseline: rt.baseline.value_num!, current: rt.cur.value_num!, rise: rt.rel, review: rt.review, stop: rt.stop, mra: rt.mra, reviewCr: rt.reviewCr, reviewE: rt.reviewE } : null;
+  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

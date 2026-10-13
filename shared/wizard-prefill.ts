@@ -14,13 +14,20 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
     if (answers[q.id] == null && d?.length) answers[q.id] = q.type === "single" ? d[0] : d;
   }
   for (const st of def.steps) {
-    for (const q of visibleQuestions(st, answers)) {
-      if (!q.options || answers[q.id] != null) continue;
-      const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
-      const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
-      if (!vals.length) continue;
-      answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
-      suggested.add(q.id);
+    // a suggestion can reveal a conditional question in the same step (e.g. "hypothyroidism" shows its own
+    // plan): walk the step again until nothing new is filled
+    for (let pass = 0; pass < 5; pass++) {
+      let filled = false;
+      for (const q of visibleQuestions(st, answers)) {
+        if (!q.options || answers[q.id] != null) continue;
+        const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
+        const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
+        if (!vals.length) continue;
+        answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
+        suggested.add(q.id);
+        filled = true;
+      }
+      if (!filled) break;
     }
   }
   return { answers, suggested: [...suggested] };

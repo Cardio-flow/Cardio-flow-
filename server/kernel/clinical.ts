@@ -320,6 +320,22 @@ export async function recordHistory(
 // ---------- observations ----------
 export type ObsInput = { referenceHigh?: number | null; code: string; value?: number | null; unit?: string | null; text?: string | null };
 
+// Data-entry plausibility (stored units): values outside these cannot be real and usually mean a wrong unit or a
+// typo (creatinine 1.2 typed as µmol/L, Hb 130 typed as g/dL). Not clinical thresholds: nothing is decided on them.
+const PLAUSIBLE: Record<string, [number, number, string?, string?]> = {
+  creatinine: [15, 3000, "creatinine in mg/dL? choose mg/dL"],
+  potassium: [1.5, 10],
+  sodium: [90, 200],
+  haemoglobin: [2, 25, undefined, "haemoglobin in g/L? choose g/L"],
+  inr: [0.5, 20],
+  "ldl-c": [0.05, 20, undefined, "LDL-C is entered in mmol/L (mg/dL ÷ 38.67)"],
+  "total-cholesterol": [0.5, 30, undefined, "cholesterol is entered in mmol/L (mg/dL ÷ 38.67)"],
+  hba1c: [3, 20],
+  glucose: [0.5, 60, undefined, "glucose is entered in mmol/L (mg/dL ÷ 18)"],
+  magnesium: [0.1, 5],
+  tsat: [0, 100],
+  sbp: [40, 300], dbp: [20, 200], hr: [15, 300], weight: [1, 400], lvef: [5, 90],
+};
 export async function recordObservations(
   tx: Q,
   actor: Actor,
@@ -349,6 +365,16 @@ export async function recordObservations(
   }
   await liveContext(tx,patientId,input.contextId);
   notFuture(input.effectiveAt, "A result");
+  // a double submit (two taps, a retried request) must not record the same result twice: the identical value
+  // for the same test at the same time is already there
+  if (!input.studyId) {
+    const dup = (await tx.query(
+      `SELECT DISTINCT ON (logical_id) code, value_num, value_text, status FROM cf.observation WHERE patient_id=$1 AND effective_at=$2 AND code = ANY($3::text[]) ORDER BY logical_id, version DESC`,
+      [patientId, input.effectiveAt, input.items.map((i) => i.code)],
+    )).rows as { code: string; value_num: number | null; value_text: string | null; status: string }[];
+    const same = (i: ObsInput) => dup.some((d) => d.status !== "entered_in_error" && d.code === i.code && (i.value != null ? d.value_num != null && Math.abs(d.value_num - i.value) < 1e-9 && (!i.unit || i.unit === MEASURES[i.code]?.unit) : d.value_text === (i.text ?? null)));
+    if (input.items.length && input.items.every(same)) throw new ApiError(409, "These results are already recorded at this time.");
+  }
   const ids: string[] = [];
   const saved: { code: string; value: number | null; text: string | null; id: string }[] = [];
   for (const item of input.items) {
@@ -369,6 +395,9 @@ export async function recordObservations(
     }
     if (value != null && !(Number.isFinite(value) && value >= 0 && value < 1e6)) throw new ApiError(400, `${def?.display ?? item.code}: value out of range`);
     if (value != null && def?.max != null && value > def.max) throw new ApiError(400, `${def.display}: ${value} is above the maximum ${def.max}`);
+    const plaus = PLAUSIBLE[item.code];
+    if (value != null && plaus && (value < plaus[0] || value > plaus[1]))
+      throw new ApiError(400, `${def!.display} ${item.value} ${item.unit ?? def!.unit} is not a possible value${value < plaus[0] && plaus[2] ? ` — ${plaus[2]}` : value > plaus[1] && plaus[3] ? ` — ${plaus[3]}` : ""}. Check the number and the unit.`);
     const id = uuid();
     await tx.query(
       `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by,reference_high)

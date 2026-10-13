@@ -106,6 +106,8 @@ export type WizardContext = {
   // latest value of each measure (and the one before), and diagnosis codes + tags: read by the
   // guideline suggestions (shared/wizard-guidance.ts)
   values?: Record<string, { value: number; at: string; prev: number | null }>;
+  // creatinine against its RAAS/MRA baseline (server renal-trend.ts): the pathway uses the alert's own numbers
+  renal?: { baseline: number; current: number; rise: number; review: boolean; stop: boolean; mra: boolean; reviewCr: number; reviewE: number } | null;
   dx?: string[];
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
   af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
@@ -359,6 +361,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "hold-nephrotoxin", label: "Stop nephrotoxin" },
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "Rise >100%, >310 µmol/L or eGFR <20" },
+              { value: "reduce-mra", label: "Reduce MRA dose", requires: ["mra"], hint: "Creatinine >221 µmol/L or eGFR <30" },
               { value: "hold-mra", label: "Hold MRA", requires: ["mra"] },
               { value: "nephrology", label: "Nephrology referral" },
             ],
@@ -366,6 +369,7 @@ export const WIZARDS: Record<string, WizardDef> = {
           { id: "diureticDose", label: "New diuretic dose", type: "dose", medTag: "loop", direction: "any", showIf: { question: "actions", includes: "reduce-diuretic" }, required: true },
           { id: "diureticUp", label: "New diuretic dose", type: "dose", medTag: "loop", direction: "any", showIf: { question: "actions", includes: "increase-diuretic" }, required: true },
           { id: "raasDose", label: "New ACEi/ARB/ARNI dose", type: "dose", medTag: "raas", direction: "lower", showIf: { question: "actions", includes: "reduce-raas" }, required: true },
+          { id: "mraDose", label: "New MRA dose", type: "dose", medTag: "mra", direction: "lower", showIf: { question: "actions", includes: "reduce-mra" }, required: true },
         ],
       },
       {
@@ -754,6 +758,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("reduce-diuretic")) change("loop", "diureticDose", "decrease");
     if (actions.includes("increase-diuretic")) change("loop", "diureticUp", "increase");
     if (actions.includes("reduce-raas") && !actions.includes("hold-raas")) change("raas", "raasDose", "decrease");
+    if (actions.includes("reduce-mra") && !actions.includes("hold-mra")) change("mra", "mraDose", "decrease");
     for (const [v, tag] of [["hold-raas", "raas"], ["hold-mra", "mra"]] as const)
       if (actions.includes(v)) {
         const m = med(tag);

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useId, useRef, u
 import { AlertTriangle, Activity, Clock, Info, CheckCircle2, X, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { maskDate, parseDate as parseShown, shownDate as toShown, validDate } from "../shared/dates";
+import { isoDay } from "../shared/clinical";
 
 // ---------- routing ----------
 export function navigate(to: string) {
@@ -303,7 +304,7 @@ export function DateInput({
     position(); window.addEventListener("resize",position); document.addEventListener("scroll",position,true);
     return () => { window.removeEventListener("resize",position); document.removeEventListener("scroll",position,true); };
   }, [open]);
-  const [month, setMonth] = useState(() => (validDate(value) ? value : new Date().toISOString().slice(0, 10)).slice(0, 7));
+  const [month, setMonth] = useState(() => (validDate(value) ? value : isoDay()).slice(0, 7));
   const [focused, setFocused] = useState("");
   const caret = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -371,7 +372,7 @@ export function DateInput({
         ref={calendarButton}
         aria-expanded={open}
         onClick={() => {
-          const initial = allowed(value) ? value : min ?? max ?? new Date().toISOString().slice(0, 10);
+          const initial = allowed(value) ? value : min ?? max ?? isoDay();
           setMonth(initial.slice(0, 7)); setFocused(initial); setOpen(!open);
         }}
       >

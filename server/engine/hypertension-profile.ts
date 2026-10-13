@@ -359,7 +359,9 @@ export function hypertensionProfile(s: PatientState): HypertensionContext {
     managementKey,
     newlyDiagnosed,
     apparentResistance,
-    screeningIndicated: newlyDiagnosed || apparentResistance,
+    // hypokalaemia (spontaneous or diuretic-induced) is itself an indication to screen for primary
+    // aldosteronism (ESC 2024 hypertension; Endocrine Society PA guideline) — it does not end when the thiazide stops
+    screeningIndicated: newlyDiagnosed || apparentResistance || secondaryClues.includes("Hypokalaemia"),
     resistanceKey,
     office,
     outside,

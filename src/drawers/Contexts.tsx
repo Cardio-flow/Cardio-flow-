@@ -211,6 +211,9 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
     onClose();
   }
   const meds = currentSummary.medications.groups.flatMap((g: any) => g.meds);
+  // intravenous / parenteral medicines still active at discharge: stop or switch to oral first, or confirm
+  const ivMeds = meds.filter((m: any) => m.status === "active" && /^(IV|SC|IM|infusion)/i.test(String(m.route ?? "")));
+  const [ivReviewed, setIvReviewed] = useState(false);
   async function save() {
     setBusy(true);
     try {
@@ -259,7 +262,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={closeDischarge}>Cancel</button>
-          <button className="btn primary" disabled={!draftLoaded || !review || reviewChanged || (outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === ""))} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
+          <button className="btn primary" disabled={!draftLoaded || !review || reviewChanged || (outcome === "alive" ? !status : !cause) || busy || (outcome === "alive" && Object.values(picked).some(d => d === "")) || (outcome === "alive" && ivMeds.length > 0 && !ivReviewed)} onClick={save}>{busy ? "Saving…" : outcome === "died" ? "Record death" : "Confirm discharge"}</button>
         </span>
       }
     >
@@ -329,6 +332,14 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
             </div>
           ) : (
             <div className="help">No medication changes recorded during this admission.</div>
+          )}
+          {outcome === "alive" && ivMeds.length > 0 && (
+            <div className="infobox warn" role="status">
+              <b>Still prescribed by injection: {ivMeds.map((m: any) => `${m.name} ${m.route}`).join(", ")}.</b> Stop it or change to the oral medicine in Medications before discharge (IV-to-oral conversion).
+              <label className="row" style={{ gap: 8, marginTop: 6 }}>
+                <input type="checkbox" checked={ivReviewed} onChange={(e) => setIvReviewed(e.target.checked)} /> Reviewed — continues after discharge on purpose
+              </label>
+            </div>
           )}
           <span className="eyebrow" style={{ marginTop: 8 }}>Discharge medications</span>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>

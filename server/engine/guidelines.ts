@@ -104,7 +104,10 @@ export function doacDoseCheck(s: PatientState): { med: MedState; right: number; 
   const out: { med: MedState; right: number; why: string }[] = [];
   const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
   const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
-  for (const m of onTag(s, "oac")) {
+  // AF dosing only: the label AF dose does not apply to other indications (rivaroxaban 2.5 mg BID in CAD/PAD,
+  // apixaban 2.5 mg for extended VTE prevention); a held medicine is reviewed when it is restarted
+  const forAf = (m: MedState) => m.status === "active" && (m.indication === "af" || ((!m.indication || m.indication === "unspecified") && s.tags.has("af")));
+  for (const m of onTag(s, "oac").filter(forAf)) {
     // apixaban (EU SmPC 4.2): 2.5 mg with ≥2 of age/weight/creatinine criteria or CrCl 15–29; below 15 not recommended (no dose)
     if (m.code === "apixaban" && cr != null && wt != null) {
       const d = apixabanAfDose(age, wt, cr, s.patient.sex);
@@ -117,7 +120,8 @@ export function doacDoseCheck(s: PatientState): { med: MedState; right: number; 
       out.push({ med: m, right: crcl <= 50 || wt <= 60 || pgp ? 30 : 60, why: `CrCl ${Math.round(crcl)} mL/min · weight ${formatNumber(wt, 0)} kg${pgp ? " · P-gp inhibitor" : ""}` });
     // dabigatran (EU SmPC 4.2): 110 mg at age ≥80 or with verapamil; 150 mg otherwise, except that age 75–80, CrCl 30–50
     // or a high bleeding risk leave 110 or 150 to the clinician (no alert then)
-    if (m.code === "dabigatran") {
+    // dabigatran with CrCl <30 is contraindicated (med-safety renal row): no dose suggestion alongside it
+    if (m.code === "dabigatran" && !(crcl != null && crcl < 30)) {
       const verapamil = s.meds.some((x) => x.status === "active" && x.code === "verapamil");
       if (age >= 80 || verapamil) out.push({ med: m, right: 110, why: age >= 80 ? `Age ${age}` : "With verapamil" });
       else if (age < 75 && crcl != null && crcl > 50) out.push({ med: m, right: 150, why: `Age ${age} · CrCl ${Math.round(crcl)} mL/min` });
@@ -162,17 +166,29 @@ const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[]
     sglt2,
   ];
 };
+import { creatinineTrend } from "./renal-trend.js";
 // Safety gates before suggesting a start or an increase. Returns the blocking reason or missing data.
 const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood pressure/.test(m) ? "sbp" : /^eGFR/.test(m) ? "creatinine" : /^Heart rate/.test(m) ? "hr" : "creatinine");
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; missing: string[] } {
   const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
   const missing: string[] = [];
   // creatinine rising beyond the acceptable 50% (ESC HF practical guidance, as in hf.worsening-renal-function): no RAAS/MRA start or increase
+  // same baseline and limits as the renal alert (renal-trend.ts), so a suggestion never contradicts it
   if (key === "raas" || key === "mra") {
-    const cr = s.resolved("creatinine");
-    const c = cr.current, prev = cr.history.find((o) => c && o.id !== c.id && o.effective_at < c.effective_at);
-    if (c?.value_num != null && prev?.value_num != null && daysBetween(c.effective_at, s.today) <= 14 && c.value_num > prev.value_num * 1.5)
-      return { block: `creatinine up ${Math.round((c.value_num / prev.value_num - 1) * 100)}%`, missing };
+    const t = creatinineTrend(s);
+    if (t?.review && (t.onTherapy || daysBetween(t.cur.effective_at, s.today) <= 14))
+      return { block: `creatinine up ${Math.round(t.rel * 100)}% from baseline`, missing };
+    // ESC HF: check potassium and renal function 1–2 weeks after each start or dose increase; the next
+    // increase waits for that check
+    if (mode === "increase") {
+      const last = s.meds
+        .filter((m) => m.status === "active" && m.tags.some((t) => t === "raas" || t === "mra"))
+        .flatMap((m) => m.events.filter((e) => ["start", "restart", "increase"].includes(e.kind)).map((e) => e.effective_at))
+        .sort()
+        .pop();
+      const after = (code: string) => !!last && s.observations.some((o) => o.code === code && o.status !== "entered_in_error" && o.value_num != null && o.effective_at > last);
+      if (last && (!after("potassium") || !after("creatinine"))) missing.push(`Potassium and creatinine after the last RAAS/MRA change (${fmtDay(last)})`);
+    }
   }
   if (key === "raas") {
     if (k == null) missing.push("Potassium (last 60 days)");
@@ -282,7 +298,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           detail: "ARNI is the preferred RAS inhibitor in HFrEF · stop ACE inhibitor 36 h before the first dose",
           facts: facts({ label: "Current", value: medLine(acei) }, fact(s, "sbp", 60), fact(s, "potassium", 60), src("ESC HF · ARNI in place of ACEi in ambulatory HFrEF")),
           missing: [],
-          action: { type: "start-med", code: "sacubitril-valsartan", dose: 24, label: "Plan ARNI switch" },
+          // a switch, not an add-on: starting the ARNI while the ACEi/ARB is active is blocked (Entresto SmPC 4.3)
+          action: { type: "add-plan", template: "arni-switch", medicationId: acei.id },
         });
       return out;
     },
@@ -393,7 +410,27 @@ export const GUIDELINE_RULES: RuleDef[] = [
         }];
       const v = ldl.value_num!;
       const goal = risk.goal;
-      if (v < goal) return [];
+      const lipidMeds = s.meds.filter((m) => m.tags.includes("lipid"));
+      // a lipid-lowering start or dose increase after this LDL-C: the result predates the change — recheck first
+      const changedAfter = lipidMeds
+        .filter((m) => m.status === "active")
+        .flatMap((m) => m.events.filter((e) => ["start", "restart", "increase"].includes(e.kind) && e.effective_at > ldl.effective_at).map((e) => ({ m, at: e.effective_at })))
+        .sort((x, y) => y.at.localeCompare(x.at))[0];
+      if (changedAfter && v >= goal)
+        return [{
+          key: "ldl-goal", signature: `recheck:${ldl.id}:${changedAfter.at}`, severity: "yellow",
+          title: `Recheck LDL-C: ${changedAfter.m.name} changed after the last result`,
+          detail: `LDL-C ${formatNumber(v, 2)} mmol/L on ${fmtDay(ldl.effective_at)} was measured before the change on ${fmtDay(changedAfter.at)}; judge the next step on a new result`,
+          facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${goal} mmol/L and ≥${risk.reduction}% reduction` }, { label: "Therapy", value: medLine(changedAfter.m) }, src("ESC/EAS dyslipidaemia · reassess LDL-C after a change of therapy")),
+          missing: [], action: { type: "add-labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"], label: "Add lipid profile" },
+        }];
+      // reduction from baseline (ESC/EAS 2019: very high and high risk need ≥50% reduction as well as the goal):
+      // baseline = the last LDL-C before the first lipid-lowering start
+      const firstStart = lipidMeds.flatMap((m) => m.events.filter((e) => e.kind === "start").map((e) => e.effective_at)).sort()[0] ?? null;
+      const base = firstStart ? s.resolved("ldl-c").history.find((o) => o.effective_at <= firstStart && o.value_num != null) ?? null : null;
+      const reduction = base?.value_num ? Math.round((1 - v / base.value_num) * 100) : null;
+      const shortOfReduction = reduction != null && risk.reduction != null && reduction < Number(risk.reduction);
+      if (v < goal && !shortOfReduction) return [];
       // next step on the ladder
       let action: Finding["action"];
       let step: string;
@@ -416,9 +453,10 @@ export const GUIDELINE_RULES: RuleDef[] = [
       return [{
         key: "ldl-goal", signature: `${ldl.id}:${live(s).filter((m) => m.tags.includes("lipid")).map((m) => m.code + m.doseValue).join(",")}`,
         severity: "orange",
-        title: `LDL-C ${formatNumber(v, 2)} mmol/L above goal <${goal}`,
+        title: v >= goal ? `LDL-C ${formatNumber(v, 2)} mmol/L above goal <${goal}` : `LDL-C ${formatNumber(v, 2)} mmol/L: at goal but only ${reduction}% below baseline (goal ≥${risk.reduction}%)`,
         detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · next step: ${step}` + (risk.recentAcs ? " · a second vascular event within 2 years on maximum statin: goal <1.0 may be considered (IIb)" : ""),
         facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${goal} mmol/L and ≥${risk.reduction}% reduction` },
+          ...(base ? [{ label: "Baseline LDL-C (before treatment)", value: `${formatNumber(base.value_num!, 2)} mmol/L · ${reduction}% reduction`, date: base.effective_at }] : []),
           ...live(s).filter((m) => m.tags.includes("lipid")).map((m) => ({ label: "Therapy", value: medLine(m) })),
           src("ESC/EAS dyslipidaemia 2019/2025 · LDL-C goals · Class I")),
         missing: [], action,

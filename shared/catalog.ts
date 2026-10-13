@@ -311,7 +311,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("edoxaban", "Edoxaban", "Factor Xa inhibitor", "Anticoagulation", ["oac", "doac"], ["af"], "mg", [30, 60], ["OD"], ["creatinine", "haemoglobin", "weight"]),
   m("dabigatran", "Dabigatran", "Direct thrombin inhibitor", "Anticoagulation", ["oac", "doac"], ["af"], "mg", [110, 150], ["BID"], ["creatinine", "haemoglobin"]),
   m("warfarin", "Warfarin", "Vitamin K antagonist", "Anticoagulation", ["oac", "vka"], ["af", "valve"], "mg", [1, 2, 3, 5], ["OD"], ["inr", "haemoglobin"]),
-  m("amiodarone", "Amiodarone", "Class III antiarrhythmic", "Rhythm", ["qt", "rate-slowing"], ["af"], "mg", [100, 200], ["OD"], ["tsh", "alt", "hr"]),
+  m("amiodarone", "Amiodarone", "Class III antiarrhythmic", "Rhythm", ["qt", "rate-slowing", "amiodarone"], ["af"], "mg", [100, 200], ["OD"], ["tsh", "alt", "hr"]),
   m("sotalol", "Sotalol", "Class III antiarrhythmic / beta blocker", "Rhythm", ["qt", "rate-slowing"], ["af"], "mg", [40, 80, 160], ["BID"], ["qtc", "hr", "creatinine"]),
   m("flecainide", "Flecainide", "Class Ic antiarrhythmic", "Rhythm", [], ["af"], "mg", [50, 100], ["BID"], ["hr"]),
   m("diltiazem", "Diltiazem", "Calcium-channel blocker", "Rhythm", ["ndhp-ccb", "rate-slowing", "bp-lowering"], ["af", "htn"], "mg", [60, 120, 180, 240], ["OD", "TID"], ["hr", "sbp"]),
@@ -549,6 +549,8 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "renal-k", category: "monitoring", title: "Renal function and potassium check", completesOn: { type: "lab", codes: ["potassium", "creatinine"] }, offsets: [3, 7, 14] },
   { id: "hf-clinic", category: "follow_up", title: "HF clinic review", completesOn: { type: "visit" }, offsets: [7, 14, 28] },
   { id: "titration", category: "medication", title: "HF medication titration review", completesOn: { type: "visit" }, offsets: [14, 28] },
+  // Entresto SmPC 4.2/4.3: not with an ACE inhibitor; start ≥36 h after the last ACE inhibitor dose
+  { id: "arni-switch", category: "medication", title: "Switch to sacubitril/valsartan: stop the ACE inhibitor/ARB first (ACE inhibitor: first ARNI dose ≥36 h after the last dose)", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
   { id: "echo", category: "investigation", title: "Repeat Echo", completesOn: { type: "study", kind: "echo" }, offsets: [90, 180] },
   { id: "ecg", category: "investigation", title: "12-lead ECG", completesOn: { type: "study", kind: "ecg" }, offsets: [0, 7, 28] },
   { id: "holter", category: "investigation", title: "Holter monitor", completesOn: { type: "study", kind: "holter" }, offsets: [14, 28] },

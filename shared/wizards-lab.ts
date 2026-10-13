@@ -465,6 +465,11 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
                 requires: ["statin"],
               },
               {
+                value: "amiodarone",
+                label: "Amiodarone: reduce the dose or stop (prescriber decision)",
+                requires: ["amiodarone"],
+              },
+              {
                 value: "limits",
                 label: "Obtain report ULN / correct reference limits",
               },
@@ -509,6 +514,8 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
             doseValue: null,
             label: `${m.name}: pause pending liver review`,
           });
+      if (includes(a, "actions", "amiodarone"))
+        out.push(plan(c, "Amiodarone and raised transaminases: reduce the dose or stop (SmPC 4.4)", "medication"));
       if (includes(a, "actions", "limits") || !known)
         out.push(
           plan(
@@ -647,7 +654,8 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
             ? "hold"
             : null;
         if (event)
-          for (const m of activeStatins(c))
+          // a held statin can still be stopped for good (CK pathway)
+          for (const m of event === "stop" ? c.meds.filter((x) => x.tags.includes("statin")) : activeStatins(c))
             out.push({
               kind: "medication",
               medicationId: m.id,
@@ -771,6 +779,9 @@ export function labSuggestions(
             : "limits",
           "ESC/EAS: ≥3× ULN stop or reduce; below 3× continue with repeat testing",
         ),
+        ...(known && high && c.meds.some((m) => m.tags.includes("amiodarone") && m.status !== "held")
+          ? [rec("amiodarone", "Amiodarone SmPC 4.4: transaminases >3× ULN — reduce the dose or withdraw amiodarone")]
+          : []),
         rec(
           red(a) ? "specialist" : "cause",
           "Assess symptoms and alternative causes; red flags need same-day review",
