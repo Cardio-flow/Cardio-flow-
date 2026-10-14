@@ -96,7 +96,8 @@ export type Open =
   | { kind: "documents" }
   | { kind: "after-pci" }
   | { kind: "checklist"; check?: CheckKind }
-  | { kind: "med-correct"; med: any }
+  | { kind: "med-correct"; med: any; mode?: string }
+  | { kind: "med-dose"; medId: string }
   | { kind: "med-batch" }
   | { kind: "dx-edit"; dx?: any; code?: string }
   | { kind: "result-correct"; result: any }
@@ -807,10 +808,12 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               onDone={done}
             />
           )}
+          {open?.kind === "med-dose" && <AddMissingDose patientId={id} medId={open.medId} today={s.today} onClose={close} onDone={done} />}
           {open?.kind === "med-correct" && (
             <CorrectMedication
               patientId={id}
               med={open.med}
+              initialMode={open.mode}
               today={s.today}
               onClose={close}
               onDone={done}
@@ -922,4 +925,13 @@ function RiskRow({ rf, onOpen }: { rf: any; onOpen(): void }) {
       </button>
     </div>
   );
+}
+
+// A medicine recorded without a dose (14 Oct 2026, Ahmed): the overview opens the correction with the dose
+// to add; the full medicine (with its events) comes from the record.
+function AddMissingDose({ patientId, medId, today, onClose, onDone }: { patientId: string; medId: string; today: string; onClose(): void; onDone(m?: string, r?: any): void }) {
+  const { data } = useData<any>(`/patients/${patientId}/record`);
+  const med = data?.meds?.find((m: any) => m.id === medId);
+  if (!med) return null;
+  return <CorrectMedication patientId={patientId} med={med} initialMode="fix" today={today} onClose={onClose} onDone={onDone} />;
 }

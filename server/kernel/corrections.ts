@@ -4,7 +4,7 @@
 import type { Q } from "../db/db.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, uuid, type Actor } from "./base.js";
 import { LIVE_EVENT, LIVE_MED, correctObservation, newConditionVersion, type Changed } from "./clinical.js";
-import { MEDICATION } from "../../shared/catalog.js";
+import { MEDICATION, doseLabel } from "../../shared/catalog.js";
 import { localDay } from "../../shared/clinical.js";
 
 export const CORRECTION_REASONS = ["Wrong patient", "Wrong entry", "Duplicate entry", "Never happened"] as const;
@@ -116,9 +116,10 @@ export async function correctMedicationEntry(
   const last = await lastEvent(tx, medicationId);
   if (!last) throw new ApiError(404, "Nothing to correct");
   const def = MEDICATION[med.drug];
-  const hasDose = last.dose_value != null;
-  const dose = hasDose && input.doseValue != null ? input.doseValue : last.dose_value;
-  if (hasDose && input.doseValue != null && def?.doses?.length && !def.doses.includes(input.doseValue))
+  // a dose that was not recorded can be added (14 Oct 2026, Ahmed); a recorded one corrected
+  const canSetDose = last.dose_value != null || ["start", "restart", "continue", "resume"].includes(last.kind);
+  const dose = canSetDose && input.doseValue != null ? input.doseValue : last.dose_value;
+  if (canSetDose && input.doseValue != null && def?.doses?.length && !def.doses.includes(input.doseValue))
     throw new ApiError(400, `${def.name}: choose a listed dose`);
   const at = input.effectiveAt ?? new Date(last.effective_at).toISOString();
   if (Date.parse(at) > Date.now() + 5 * 60_000) throw new ApiError(400, "The date cannot be in the future");
@@ -139,7 +140,7 @@ export async function correctMedicationEntry(
   await mark(tx, actor, patientId, "medication_event", last.id, why(input.reason) === "Entered in error" ? "Corrected" : why(input.reason), id);
   await journeyEvent(tx, actor, {
     patientId, occurredAt: nowIso(), kind: "correction", category: "medication",
-    title: `${def?.name ?? med.drug}: entry corrected`, detail: `${KIND_LABEL[last.kind] ?? last.kind} entry corrected${input.reason?.trim() ? ` · ${input.reason.trim()}` : ""}`,
+    title: `${def?.name ?? med.drug}: ${last.dose_value == null && dose != null ? `dose added (${doseLabel(def, dose, last.dose_unit)})` : "entry corrected"}`, detail: `${KIND_LABEL[last.kind] ?? last.kind} entry corrected${input.reason?.trim() ? ` · ${input.reason.trim()}` : ""}`,
     refType: "medication", refId: medicationId,
   });
   await audit(tx, actor, "correct", "medication", medicationId, patientId, {

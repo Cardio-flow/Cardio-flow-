@@ -397,6 +397,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         phSigns: z.array(z.enum(["rv-lv", "septum", "rvot", "pr", "pa", "ivc", "ra"])).max(7).optional(),
         rwma: z.partialRecord(z.enum(["anterior", "anteroseptal", "inferoseptal", "inferior", "inferolateral", "anterolateral", "apex"]), z.object({ motion: z.enum(["Hypokinetic", "Akinetic", "Dyskinetic", "Aneurysmal"]), level: z.enum(["Basal", "Mid", "Apical", "Whole wall"]).optional() })).optional(),
         lvh: z.object({ grade: z.enum(["Mild", "Moderate", "Severe"]).optional(), pattern: z.enum(["Concentric", "Asymmetric septal", "Apical", "Concentric remodelling"]).optional() }).optional(),
+        chambers: z.object({ la: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), ra: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), diastolic: z.enum(["Normal", "Grade I", "Grade II", "Grade III", "Indeterminate"]).optional() }).optional(),
         conclusion: z.string().max(2000).optional(),
         contextId: uuidS.nullish(),
       })

@@ -367,6 +367,22 @@ export function rwmaFindings(rwma: Rwma): string[] {
   return [...by.entries()].map(([m, walls]) => `${m}: ${walls.join(", ")}`);
 }
 
+// Atrial size and LV diastolic function as reported (14 Oct 2026, Ahmed). Grades are the reporter's words:
+// atrial enlargement normal/mild/moderate/severe (ASE/EACVI 2015 chamber quantification partitions), diastolic
+// function grade I–III or indeterminate (ASE/EACVI 2016 algorithm, applied by the echocardiographer).
+export const ATRIAL_SIZES = ["Normal", "Mild", "Moderate", "Severe"] as const;
+export const DIASTOLIC_GRADES = ["Normal", "Grade I", "Grade II", "Grade III", "Indeterminate"] as const;
+export type Chambers = { la?: string; ra?: string; diastolic?: string };
+export function chamberFindings(c: Chambers | undefined): string[] {
+  if (!c) return [];
+  const size = (g: string | undefined, name: string) =>
+    !g || !(ATRIAL_SIZES as readonly string[]).includes(g) ? null : g === "Normal" ? `Normal ${name} size` : `${g === "Mild" ? "Mildly" : g === "Moderate" ? "Moderately" : "Severely"} dilated ${name}`;
+  const d = c.diastolic && (DIASTOLIC_GRADES as readonly string[]).includes(c.diastolic)
+    ? c.diastolic === "Normal" ? "Normal diastolic function" : c.diastolic === "Indeterminate" ? "Indeterminate diastolic function" : `${c.diastolic} diastolic dysfunction`
+    : null;
+  return [size(c.la, "LA"), size(c.ra, "RA"), d].filter(Boolean) as string[];
+}
+
 // LV hypertrophy as reported: grade and pattern. The wall-thickness partition values shown beside a measured
 // wall are the ASE/EAE chamber quantification ones (Lang 2006, septal/posterior wall, cm), a hint only.
 export const LVH_GRADES = ["Mild", "Moderate", "Severe"] as const;

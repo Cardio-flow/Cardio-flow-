@@ -1820,3 +1820,4 @@ table.data.meds td.med-compact { display: none; }
 .problem-consider { display: grid; gap: 4px; }
 .problem-consider > .btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; color: var(--ink-3); }
 @media (max-width: 640px) { .tb-labs { margin-left: 0; width: 100%; justify-content: center; } }
+.add-dose { color: var(--blue-ink, #1565c0); text-decoration: underline; text-underline-offset: 2px; }

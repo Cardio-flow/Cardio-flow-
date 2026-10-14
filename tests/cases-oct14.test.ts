@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
-import { markPreexisting } from "../server/kernel/corrections.js";
+import { markPreexisting, correctMedicationEntry } from "../server/kernel/corrections.js";
 import { importCase, caseSchema } from "../server/kernel/case-import.js";
 import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
@@ -144,4 +144,29 @@ test("after PCI with previous major bleeding: the plan states high bleeding risk
   assert.ok(plan && /high bleeding risk/.test(plan.title), plan?.title);
   const ppi = await rec(pid, "cad.ppi-combined-antithrombotic");
   assert.ok(ppi && ppi.severity === "orange", JSON.stringify(ppi));
+});
+
+test("echo records LA/RA size, diastolic function grade and wall motion as reported", async () => {
+  const pid = await newPatient(["hfpef"]);
+  const r = await tx((q) => K.recordEcho(q, doc, pid, {
+    date: nowIso(), quality: "formal", lvef: 55, findings: [],
+    chambers: { la: "Moderate", ra: "Mild", diastolic: "Grade II" },
+    rwma: { inferior: { motion: "Hypokinetic", level: "Basal" } },
+  }));
+  const row = (await db.query(`SELECT findings, attributes FROM cf.study WHERE id=$1`, [r.id])).rows[0] as any;
+  const attrs = typeof row.attributes === "string" ? JSON.parse(row.attributes) : row.attributes;
+  for (const f of ["Moderately dilated LA", "Mildly dilated RA", "Grade II diastolic dysfunction", "Regional wall motion abnormality", "Hypokinetic: basal inferior"]) assert.ok(row.findings.includes(f), f);
+  assert.deepEqual(attrs.chambers, { la: "Moderate", ra: "Mild", diastolic: "Grade II" });
+});
+
+test("a medicine recorded without a dose can have its dose added", async () => {
+  const pid = await newPatient(["cad-ccs"]);
+  const { medicationId } = await start(pid, "aspirin", null as any, "OD", null, "cad");
+  assert.equal((await loadState(db, pid)).meds[0].doseValue, null);
+  await tx((q) => correctMedicationEntry(q, doc, pid, medicationId, { doseValue: 100, reason: "Dose added" }));
+  const m = (await loadState(db, pid)).meds[0];
+  assert.equal(m.doseValue, 100);
+  assert.equal(m.status, "active");
+  assert.equal(m.startedAt, null, "still already taking");
+  await assert.rejects(tx((q) => correctMedicationEntry(q, doc, pid, medicationId, { doseValue: 7 })), /choose a listed dose/);
 });

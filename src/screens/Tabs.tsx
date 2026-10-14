@@ -115,7 +115,9 @@ export function MedicationsTab({
                         : m.preexisting ? " · already taking" : ""}
                     </td>
                     <td data-label="Dose">
-                      {doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}
+                      {m.doseValue == null ? (
+                        <button className="btn secondary small" onClick={() => open({ kind: "med-correct", med: m, mode: "fix" })}>Add dose</button>
+                      ) : doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}
                     </td>
                     <td data-label="Frequency">
                       {m.frequency} {m.route}

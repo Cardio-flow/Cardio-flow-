@@ -9,7 +9,7 @@ import { ApiError, audit, journeyEvent, liveContext, nowIso, patientInSite, toda
 import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
 import { PH_SIGNS } from "../../shared/ph.js";
-import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Rwma } from "../../shared/studies.js";
+import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, chamberFindings, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Chambers, type Rwma } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
 import { CAUSE_GROUPS, FOLLOW_UP_STATUS, HF_REASONS, isHfAdmission, readmissionBand } from "../../shared/encounters.js";
 import { existingClinicReview } from "../../shared/follow-up.js";
@@ -525,6 +525,8 @@ export async function recordEcho(
     phSigns?: string[];
     // wall by wall motion and LV hypertrophy grade/pattern, as reported (7 Oct 2026)
     rwma?: Rwma; lvh?: { grade?: string; pattern?: string };
+    // LA/RA size and diastolic function grade, as reported (14 Oct 2026)
+    chambers?: Chambers;
   },
 ) {
   await patientInSite(tx, actor, patientId);
@@ -539,16 +541,18 @@ export async function recordEcho(
   });
   const rwma = Object.fromEntries(Object.entries(input.rwma ?? {}).filter(([, v]) => v?.motion)) as Rwma;
   const lvh = input.lvh && (input.lvh.grade || input.lvh.pattern) ? input.lvh : undefined;
+  const chambers = Object.fromEntries(Object.entries(input.chambers ?? {}).filter(([, v]) => v)) as Chambers;
   const findings = [...new Set([
     ...input.findings,
     ...(Object.keys(rwma).length ? ["Regional wall motion abnormality", ...rwmaFindings(rwma)] : []),
     ...(lvh ? [lvhFinding(lvh)!] : []),
+    ...chamberFindings(chambers),
     ...valveFindings(valves, mrType),
   ])];
   const phSigns = [...new Set((input.phSigns ?? []).filter((k) => PH_SIGNS.some((s) => s.key === k)))];
   const attributes = {
     ...(Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {}), ...(phSigns.length ? { phSigns } : {}),
-    ...(Object.keys(rwma).length ? { rwma } : {}), ...(lvh ? { lvh } : {}),
+    ...(Object.keys(rwma).length ? { rwma } : {}), ...(lvh ? { lvh } : {}), ...(Object.keys(chambers).length ? { chambers } : {}),
   };
   await tx.query(
     `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8,$9)`,

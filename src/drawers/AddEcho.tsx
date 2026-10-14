@@ -7,12 +7,12 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Activity, ChevronDown, Copy } from "lucide-react";
 import { api } from "../api";
 import { Drawer, MultiChoice, Segmented } from "../ui";
-import { ECHO_NUMBERS, ECHO_VALVES, LVH_GRADES, LVH_PATTERNS, LV_WALLS, MR_TYPES, VALVE_GRADES, WALL_LEVELS, WALL_MOTION, lvhFinding, rwmaFindings, valveFindings, wallThicknessHint, type Rwma } from "../../shared/studies";
+import { ATRIAL_SIZES, DIASTOLIC_GRADES, ECHO_NUMBERS, ECHO_VALVES, LVH_GRADES, chamberFindings, type Chambers, LVH_PATTERNS, LV_WALLS, MR_TYPES, VALVE_GRADES, WALL_LEVELS, WALL_MOTION, lvhFinding, rwmaFindings, valveFindings, wallThicknessHint, type Rwma } from "../../shared/studies";
 import { PH_SIGNS, PROBABILITY_LABEL, phEchoProbability } from "../../shared/ph";
 import { fmtDay, isoDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 
-const COMMON = ["Regional wall motion abnormality", "Dilated LV", "LV hypertrophy", "RV dysfunction", "Pericardial effusion", "LV thrombus"];
+const COMMON = ["Dilated LV", "LV hypertrophy", "RV dysfunction", "Pericardial effusion", "LV thrombus"];
 const MORE = [
   "LV size normalised", "Calcified aortic valve", "Bicuspid aortic valve", "Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)", "LV apical aneurysm", "Rheumatic mitral valve",
   "Prosthetic valve dysfunction", "Prosthetic valve thrombus", "Paravalvular leak", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "Limited windows",
@@ -42,6 +42,9 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
   const [phSigns, setPhSigns] = useState<string[]>([]);
   const [rwma, setRwma] = useState<Rwma>({});
   const [lvh, setLvh] = useState<{ grade?: string; pattern?: string }>({});
+  const [chambers, setChambers] = useState<Chambers>({});
+  // wall motion: not reported / normal / regional (wall by wall) / global
+  const [wm, setWm] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const dx = new Set<string>((summary?.header?.diagnoses ?? []).map((d: any) => d.code));
@@ -54,7 +57,7 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
   const badNum = ECHO_NUMBERS.filter((n) => nums[n.code] && !(Number(nums[n.code]) >= n.min && Number(nums[n.code]) <= n.max));
   const ef = Number(lvef);
   const efOk = lvef !== "" && ef >= 5 && ef <= 85;
-  const valid = efOk && !badNum.length;
+  const valid = efOk && !badNum.length && (wm !== "regional" || Object.keys(rwma).length > 0);
   const g = (k: string) => RANK[valves[k] ?? ""] ?? -1;
   // which folded sections open by themselves
   const show = {
@@ -62,13 +65,14 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
     right: g("tr") >= 1 || findings.includes("Raised PASP") || findings.includes("RV dysfunction") || dx.has("ph"),
     cmp: cardiomyopathy || findings.includes("LV hypertrophy") || findings.includes("Asymmetric septal hypertrophy"),
   };
-  const hasRwma = findings.includes("Regional wall motion abnormality");
+  const hasRwma = wm === "regional";
+  const wmFinding = wm === "normal" ? "Normal regional wall motion" : wm === "global" ? "Global hypokinesia" : null;
   const hasLvh = findings.includes("LV hypertrophy");
   const sex = summary?.header?.sex as "Male" | "Female" | undefined;
   const mwtHint = nums.mwt ? wallThicknessHint(Number(nums.mwt), sex) : null;
   const preview = useMemo(
-    () => [efOk ? `LVEF ${ef}%` : null, ...(hasRwma ? rwmaFindings(rwma) : []), hasLvh ? lvhFinding(lvh) : null, ...valveFindings(valves, mrType)].filter(Boolean).join(" · "),
-    [efOk, ef, valves, mrType, rwma, lvh, hasRwma, hasLvh],
+    () => [efOk ? `LVEF ${ef}%` : null, wmFinding, ...(hasRwma ? rwmaFindings(rwma) : []), hasLvh ? lvhFinding(lvh) : null, ...chamberFindings(chambers), ...valveFindings(valves, mrType)].filter(Boolean).join(" · "),
+    [efOk, ef, valves, mrType, rwma, lvh, hasRwma, hasLvh, chambers, wmFinding],
   );
   const setWall = (k: string, motion?: string, level?: string) =>
     setRwma((x) => {
@@ -93,12 +97,13 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
     try {
       const at = date === today ? new Date().toISOString() : new Date(`${date}T10:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/echo`, { body: {
-        date: at, quality, lvef: ef, findings, conclusion, contextId: contextId ?? null,
+        date: at, quality, lvef: ef, findings: [...findings, ...(wmFinding ? [wmFinding] : [])], conclusion, contextId: contextId ?? null,
         valves, mrType: valves.mr && valves.mr !== "None" ? mrType ?? null : null,
         measures: Object.fromEntries(Object.entries(nums).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
         phSigns,
         rwma: hasRwma ? rwma : undefined,
         lvh: hasLvh && (lvh.grade || lvh.pattern) ? lvh : undefined,
+        chambers: Object.values(chambers).some(Boolean) ? chambers : undefined,
       } });
       onDone(`Echo recorded · ${preview}`, r);
     } catch (e) {
@@ -116,7 +121,7 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
       onClose={onClose}
       footer={
         <>
-          <span className="note">{!efOk ? "Needed: LVEF (5–85%)" : preview}</span>
+          <span className="note">{!efOk ? "Needed: LVEF (5–85%)" : hasRwma && !Object.keys(rwma).length ? "Choose the affected walls (or another wall-motion answer)" : preview}</span>
           <span className="end">
             <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
             <button className="btn primary" disabled={!valid || busy} onClick={save}>{busy ? "Saving…" : "Save echo"}</button>
@@ -186,12 +191,12 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
           </div>
         </section>
 
-        <section className="ef-findings ef-box">
-          <b>Findings</b>
-          <MultiChoice options={COMMON.map((f) => ({ value: f, label: f }))} value={findings.filter((f) => COMMON.includes(f))} onChange={(x) => setFindings([...x, ...findings.filter((f) => !COMMON.includes(f))])} />
+        <section className="ef-box ef-wm-box">
+          <div className="ef-valves-head"><b>Regional wall motion</b><span>as reported · leave blank if not reported</span></div>
+          <Segmented label="Wall motion" options={[{ value: "normal", label: "Normal" }, { value: "regional", label: "Regional abnormality" }, { value: "global", label: "Global hypokinesia" }]} value={wm} onChange={(v) => setWm(wm === v ? undefined : v)} />
           {hasRwma && (
             <div className="ef-panel">
-              <div className="ef-panel-head"><b>Wall motion</b><span>tap the motion for each affected wall · tap again to clear</span></div>
+              <div className="ef-panel-head"><b>Affected walls</b><span>tap the motion for each affected wall and its level · tap again to clear</span></div>
               <div className="ef-walls">
                 {LV_WALLS.map((w) => {
                   const cur = rwma[w.key];
@@ -219,6 +224,39 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
               {Object.keys(rwma).length > 0 && <div className="ef-panel-out">{rwmaFindings(rwma).join(" · ")}</div>}
             </div>
           )}
+        </section>
+
+        <section className="ef-valves ef-box">
+          <div className="ef-valves-head"><b>Atria and diastolic function</b><span>as reported · leave blank if not reported</span></div>
+          <div className="ef-vgrid">
+            {([["la", "LA", "Left atrium"], ["ra", "RA", "Right atrium"]] as const).map(([k, short, label]) => (
+              <div key={k} className="ef-vrow">
+                <span className="ef-vname" title={label}>{short}<em>{label}</em></span>
+                <div className="ef-grades" role="radiogroup" aria-label={`${label} size`}>
+                  {ATRIAL_SIZES.map((gr, i) => (
+                    <button key={gr} type="button" role="radio" aria-checked={chambers[k] === gr} className={`ef-g g${i}`} onClick={() => setChambers((c) => ({ ...c, [k]: c[k] === gr ? undefined : gr }))}>
+                      {gr === "Normal" ? "Normal" : `${gr} ↑`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="ef-vrow">
+              <span className="ef-vname" title="LV diastolic function">DD<em>Diastolic function</em></span>
+              <div className="ef-grades" role="radiogroup" aria-label="Diastolic function">
+                {DIASTOLIC_GRADES.map((gr, i) => (
+                  <button key={gr} type="button" role="radio" aria-checked={chambers.diastolic === gr} aria-label={gr} className={`ef-g g${gr === "Indeterminate" ? 0 : i}`} onClick={() => setChambers((c) => ({ ...c, diastolic: c.diastolic === gr ? undefined : gr }))}>
+                    {gr === "Indeterminate" ? "Indeterm." : gr.replace("Grade ", "")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="ef-findings ef-box">
+          <b>Findings</b>
+          <MultiChoice options={COMMON.map((f) => ({ value: f, label: f }))} value={findings.filter((f) => COMMON.includes(f))} onChange={(x) => setFindings([...x, ...findings.filter((f) => !COMMON.includes(f))])} />
           {hasLvh && (
             <div className="ef-panel">
               <div className="ef-panel-head"><b>LV hypertrophy</b><span>as reported</span></div>

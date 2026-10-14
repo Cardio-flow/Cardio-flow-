@@ -422,14 +422,14 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
         <div className="med-group" key={g.purpose}>
           <div className="eyebrow">{g.purpose}</div>
           {g.meds.map((m: any) => (
-            <button key={m.id} className={`med snapshot-med ${m.status === "held" ? "held" : ""}`} onClick={() => open({ kind: "med-action", medId: m.id })}>
+            <button key={m.id} className={`med snapshot-med ${m.status === "held" ? "held" : ""}`} onClick={() => open(m.doseValue == null ? { kind: "med-dose", medId: m.id } : { kind: "med-action", medId: m.id })}>
               <span className="col grow" style={{ gap: 2 }}>
                 <span className="n" style={{ fontSize: 14.5, fontWeight: 700, textDecoration: m.status === "held" || m.status === "not_taking" ? "line-through" : undefined, color: m.status === "held" || m.status === "not_taking" ? "var(--ink-4)" : undefined }}>
                   {m.name}
                   {MEDICATION[m.code]?.brands?.length ? <span className="trade"> · {MEDICATION[m.code].brands![0]}</span> : null}
                 </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
-                  {m.dose} · {m.frequency}
+                  {m.doseValue == null ? <span className="add-dose">Dose not recorded · add</span> : m.dose} · {m.frequency}
                   {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at, { year: true })}` : m.startedAt ? ` · since ${fmtDay(m.startedAt, { year: true })}` : m.preexisting ? " · already taking (start not recorded)" : ""}
                 </span>
                 <DoseProgress progress={m.targetProgress} />

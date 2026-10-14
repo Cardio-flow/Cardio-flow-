@@ -267,19 +267,21 @@ export function CorrectMedication({
   patientId,
   med,
   today,
+  initialMode,
   onClose,
   onDone,
 }: {
   patientId: string;
   med: any;
   today: string;
+  initialMode?: string;
   onClose(): void;
   onDone(m?: string, r?: any): void;
 }) {
   const def = MEDICATION[med.code];
   const events = (med.events ?? []).filter((e: any) => e.kind !== "planned");
   const last = events[events.length - 1];
-  const [mode, setMode] = useState<string>("");
+  const [mode, setMode] = useState<string>(initialMode ?? "");
   const [dose, setDose] = useState<string>(
     last?.dose_value != null ? String(last.dose_value) : "",
   );
@@ -290,12 +292,12 @@ export function CorrectMedication({
   const [reason, setReason] = useState("");
   const { busy, error, run } = useSave(onDone);
   if (!last || !def) return null;
-  const lastText = `${KIND[last.kind] ?? last.kind}${last.dose_value != null ? ` · ${doseLabel(def, last.dose_value)}` : ""}${last.frequency ? ` ${last.frequency}` : ""} · ${fmtDay(last.effective_at, { year: true })}`;
+  const lastText = `${last.kind === "continue" && /^Medication reconciliation:/.test(last.reason ?? "") ? "Already taking" : KIND[last.kind] ?? last.kind}${last.dose_value != null ? ` · ${doseLabel(def, last.dose_value)}` : ""}${last.frequency ? ` ${last.frequency}` : ""} · ${fmtDay(last.effective_at, { year: true })}`;
   const options = [
     {
       value: "fix",
-      label: "Fix the last entry",
-      hint: "Wrong dose, frequency or date",
+      label: last?.dose_value == null && med.doseValue == null && ["start", "restart", "continue", "resume"].includes(last?.kind) ? "Add the missing dose" : "Fix the last entry",
+      hint: last?.dose_value == null && med.doseValue == null && ["start", "restart", "continue", "resume"].includes(last?.kind) ? "The dose was not recorded: add it (frequency or date too if needed)" : "Wrong dose, frequency or date",
     },
     ...(events.length > 1
       ? [
@@ -315,8 +317,10 @@ export function CorrectMedication({
       hint: "It should not be on this patient's list at all",
     },
   ];
+  // a dose that was never recorded (not a stop or hold, which carry no dose)
+  const noDose = last.dose_value == null && med.doseValue == null && ["start", "restart", "continue", "resume"].includes(last.kind);
   const sameFix =
-    Number(dose) === last.dose_value &&
+    (noDose ? dose === "" : Number(dose) === last.dose_value) &&
     freq === (last.frequency ?? "") &&
     day === localDay(String(last.effective_at));
   const ok =
@@ -329,12 +333,12 @@ export function CorrectMedication({
       run(
         `/patients/${patientId}/medications/${med.id}/correct`,
         {
-          doseValue: last.dose_value != null ? Number(dose) : undefined,
+          doseValue: dose !== "" ? Number(dose) : undefined,
           frequency: freq || undefined,
           effectiveAt: at(day),
           reason: "Corrected",
         },
-        `${def.name}: entry corrected`,
+        noDose && dose !== "" ? `${def.name}: dose added` : `${def.name}: entry corrected`,
       );
     else if (mode === "already")
       run(`/patients/${patientId}/medications/${med.id}/preexisting`, {}, `${def.name}: recorded as already taking`);
@@ -388,7 +392,7 @@ export function CorrectMedication({
         </div>
         {mode === "fix" && (
           <div className="row wrap" style={{ gap: 16, alignItems: "flex-end" }}>
-            {last.dose_value != null && (
+            {(noDose ? def.doses.length > 0 : last.dose_value != null) && (
               <label className="field">
                 <span>Dose</span>
                 <select
@@ -396,7 +400,8 @@ export function CorrectMedication({
                   value={dose}
                   onChange={(e) => setDose(e.target.value)}
                 >
-                  {[...new Set([last.dose_value, ...def.doses])]
+                  {noDose && <option value="">Choose the dose</option>}
+                  {[...new Set([...(noDose ? [] : [last.dose_value as number]), ...def.doses])]
                     .sort((a, b) => a - b)
                     .map((d) => (
                       <option key={d} value={d}>

@@ -26,7 +26,8 @@ export const caseSchema = z.object({
   }),
   conditions: z.array(z.object({ code: z.string(), onset: day.optional(), onsetYear: z.number().int().min(1900).max(2100).optional(), attributes: z.record(z.string(), z.any()).optional() })).max(40).default([]),
   results: z.array(z.object({ date: day, items: z.array(z.object({ code: z.string(), value: z.number().optional(), text: z.string().max(40).optional(), unit: z.string().max(20).optional(), referenceHigh: z.number().positive().optional() })).min(1).max(40) })).max(40).default([]),
-  echoes: z.array(z.object({ date: day, lvef: z.number().min(5).max(90), findings: z.array(z.string()).default([]), valves: z.record(z.string(), z.string()).optional(), conclusion: z.string().max(600).optional() })).max(10).default([]),
+  echoes: z.array(z.object({ date: day, lvef: z.number().min(5).max(90), findings: z.array(z.string()).default([]), valves: z.record(z.string(), z.string()).optional(), conclusion: z.string().max(600).optional(),
+    chambers: z.object({ la: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), ra: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), diastolic: z.enum(["Normal", "Grade I", "Grade II", "Grade III", "Indeterminate"]).optional() }).optional() })).max(10).default([]),
   studies: z.array(z.object({ kind: z.string(), date: day, findings: z.record(z.string(), z.any()), conclusion: z.string().max(600).optional() })).max(20).default([]),
   procedures: z.array(z.object({ kind: z.string(), date: day, details: z.record(z.string(), z.any()) })).max(20).default([]),
   medications: z.array(z.object({ code: z.string(), doseValue: z.number().positive().nullable(), frequency: z.string().max(60), route: z.string().max(20).optional(), indication: z.string().max(80).optional(), since: day.nullable().optional() })).max(40).default([]),
@@ -73,7 +74,7 @@ export async function importCase(tx: Q, actor: Actor, c: CaseFile) {
   for (const r of [...c.results].sort((a, b) => a.date.localeCompare(b.date)))
     await step(`Results ${r.date}`, () => K.recordObservations(tx, actor, id, { effectiveAt: at(r.date), items: r.items as any, source: "case import" }));
   for (const e of c.echoes)
-    await step(`Echo ${e.date}`, () => K.recordEcho(tx, actor, id, { date: at(e.date), quality: "formal", lvef: e.lvef, findings: e.findings, valves: e.valves, conclusion: e.conclusion }));
+    await step(`Echo ${e.date}`, () => K.recordEcho(tx, actor, id, { date: at(e.date), quality: "formal", lvef: e.lvef, findings: e.findings, valves: e.valves, conclusion: e.conclusion, chambers: e.chambers }));
   for (const s of c.studies)
     await step(`${STUDY[s.kind].short} ${s.date}`, () => K.recordStudy(tx, actor, id, { kind: s.kind, date: at(s.date), findings: s.findings, conclusion: s.conclusion }));
   for (const pr of c.procedures)
