@@ -121,7 +121,7 @@ test("other pathways: results they need, the current treatment, defaults marked 
   const pd = await preview(d, "diabetes");
   assert.equal(pd.answers.control, "above", "HbA1c against the individual target");
   const r = pd.reasons.find((x: any) => x.question.startsWith("Glycaemic control"));
-  assert.match(r.why, /HbA1c 8.4% above the individual target <7%/);
+  assert.match(r!.why, /HbA1c 8.4% above the individual target <7%/);
   const rev = pd.reasons.find((x: any) => x.source === "default");
   if (rev) assert.match(rev.why, /not a guideline timing/);
 });
