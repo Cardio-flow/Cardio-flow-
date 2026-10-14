@@ -12,11 +12,11 @@ import type { Open } from "./Patient";
 type Preview = {
   wizard: string; title: string; note: string; source: string | null;
   answers: Record<string, unknown>;
-  reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" }[];
+  reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" | "default" }[];
   needed: { id: string; label: string; help: string | null; type: string; options: { value: string; label: string }[] }[];
   needData: { code: string; label: string; why: string; last: { value: number; at: string } | null }[];
   plan: { kind: string; label: string; dueDate?: string }[];
-  medReview: { title: string; source: string; tone: "warn" | "keep" }[];
+  medReview: { title: string; source: string; tone: "warn" | "keep" | "info" }[];
   ready: boolean;
 };
 
@@ -89,15 +89,16 @@ export function DecisionPanel({ a, patientId, open, done }: { a: any; patientId:
       {p.reasons.length > 0 && (
         <ul className="decision-reasons">
           {p.reasons.map((r, i) => (
-            <li key={i}><span className={`src ${r.source}`}>{r.source === "record" ? "Record" : r.source === "you" ? "You" : "Guideline"}</span> <b>{r.question.replace(/[?:]$/, "")}:</b> {r.answer}{why && r.why && <small>{r.why}</small>}</li>
+            <li key={i}><span className={`src ${r.source}`}>{r.source === "record" ? "Record" : r.source === "you" ? "You" : r.source === "default" ? "Default" : "Guideline"}</span> <b>{r.question.replace(/[?:]$/, "")}:</b> {r.answer}{why && r.why && <small>{r.why}</small>}</li>
           ))}
         </ul>
       )}
       {p.medReview.length > 0 && (
         <ul className="decision-meds">{p.medReview.map((m, i) => <li key={i} className={m.tone}>{m.title}{why && <small>{m.source}</small>}</li>)}</ul>
       )}
+      {steps.length > 0 && !p.ready && <div className="decision-sub">Plan so far</div>}
       {steps.length > 0 && (
-        <ol className="decision-plan">{steps.map((x, i) => <li key={i}><CheckCircle2 size={14} /> {x.label}</li>)}</ol>
+        <ol className={`decision-plan${p.ready ? "" : " draft"}`}>{steps.map((x, i) => <li key={i}><CheckCircle2 size={14} /> {x.label}</li>)}</ol>
       )}
       {notes.map((x, i) => <p key={i} className="decision-note">{x.label}</p>)}
       {error && <div className="error-box">{error}</div>}

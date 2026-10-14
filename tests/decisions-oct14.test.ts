@@ -107,3 +107,21 @@ test("metformin at eGFR 30–44 above 1000 mg a day is flagged", async () => {
   assert.equal(hits.length, 1);
   assert.match(hits[0].row.title(hits[0].hit), /2,?000 mg\/day with eGFR \d+: maximum 1,000 mg\/day/);
 });
+
+test("other pathways: results they need, the current treatment, defaults marked as defaults", async () => {
+  const pid = await newPatient(["hfref"], "Male", "1958-01-01");
+  await med(pid, "furosemide", 40, "OD");
+  await obs(pid, [{ code: "lvef", value: 30 }, { code: "creatinine", value: 110 }], at(addDays(T, -90)));
+  const p = await preview(pid, "congestion");
+  assert.deepEqual(p.needData.map((n: any) => n.code).sort(), ["creatinine", "potassium", "weight"], "results older than 30 days are asked for");
+  assert.ok(p.medReview.some((m: any) => m.tone === "info" && /Current: Furosemide 40 mg OD/.test(m.title)));
+  const d = await newPatient(["t2dm"]);
+  await med(d, "metformin", 500, "BID", "diabetes");
+  await obs(d, [{ code: "hba1c", value: 8.4 }, { code: "creatinine", value: 80 }]);
+  const pd = await preview(d, "diabetes");
+  assert.equal(pd.answers.control, "above", "HbA1c against the individual target");
+  const r = pd.reasons.find((x: any) => x.question.startsWith("Glycaemic control"));
+  assert.match(r.why, /HbA1c 8.4% above the individual target <7%/);
+  const rev = pd.reasons.find((x: any) => x.source === "default");
+  if (rev) assert.match(rev.why, /not a guideline timing/);
+});

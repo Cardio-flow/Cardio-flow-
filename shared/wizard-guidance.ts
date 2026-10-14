@@ -378,6 +378,10 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
 
   // ---------------- Diabetes ----------------
   diabetes: {
+    control: (_a, c) => {
+      const h = val(c, "hba1c"), t = c.glycaemicTarget?.value;
+      return [h != null && t != null && (h < t ? S("at-target", `HbA1c ${h}% at the individual target ${c.glycaemicTarget!.label} (ADA 2026)`) : S("above", `HbA1c ${h}% above the individual target ${c.glycaemicTarget!.label} (ADA 2026)`))];
+    },
     protect: (_a, c) => {
       const egfr = val(c, "egfr"), uacr = val(c, "uacr"), k = val(c, "potassium");
       // the cardiorenal recommendations (ESC 2023 CVD-DM) are for type 2 diabetes

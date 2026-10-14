@@ -1854,3 +1854,53 @@ table.data.meds td.med-compact { display: none; }
 .decision-note { margin: 0; font-size: 12px; color: var(--ink-3); }
 .decision-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 @media (max-width: 560px) { .decision { margin-left: 0; } .decision-acts { justify-content: stretch; } .decision-acts .btn.primary { flex: 1 0 100%; } }
+.decision-reasons .src.default { background: var(--yellow-bg); color: var(--yellow-deep); }
+.decision-meds li.info { color: var(--ink-3); font-weight: 600; }
+.decision-sub { font-size: 11.5px; font-weight: 700; color: var(--ink-4); margin-bottom: -6px; }
+.decision-plan.draft li { color: var(--ink-3); }
+.decision-plan.draft li svg { color: var(--ink-5, #9aa4b2); }
+/* ---------- overview pulse and sections (14 Oct 2026) ---------- */
+.pulse { display: grid; gap: 10px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, #fff, var(--surface-2, #f6f8fb)); }
+.pulse-vitals { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.pulse-vitals .pv { font-size: 15px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; border: 0; background: none; padding: 0; }
+.pulse-vitals .pv em { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--ink-4); margin-right: 4px; }
+.pulse-vitals .pv.add { font-size: 12.5px; font-weight: 700; color: var(--blue-ink); margin-left: auto; cursor: pointer; }
+.pulse-strip { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 4px; margin: 0 -2px; -webkit-overflow-scrolling: touch; }
+.pulse-strip::-webkit-scrollbar { height: 4px; }
+.pulse-strip::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.ptile { flex: 0 0 auto; scroll-snap-align: start; min-width: 104px; display: grid; gap: 1px; text-align: left; padding: 8px 10px 6px; border-radius: 10px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.ptile-name { font-size: 11.5px; font-weight: 700; color: var(--ink-4); white-space: nowrap; }
+.ptile-val { font-size: 18px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1.15; white-space: nowrap; }
+.ptile-val small { font-size: 10.5px; font-weight: 600; color: var(--ink-4); margin-left: 3px; }
+.ptile-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--ink-4); }
+.ptile-foot b { display: inline-flex; align-items: center; gap: 1px; color: var(--ink-2); }
+.ptile.tone-orange { border-color: var(--orange-line, #f5c38f); background: var(--orange-bg); }
+.ptile.tone-red { border-color: var(--red-line, #f3a59d); background: var(--red-bg, #fef3f2); }
+.ptile.tone-orange .ptile-val { color: var(--orange-deep); }
+.ptile.tone-red .ptile-val { color: var(--red-deep, #b42318); }
+.ptile.more { min-width: 76px; align-content: center; justify-items: center; font-weight: 800; color: var(--blue-ink); background: var(--blue-bg); border-color: transparent; }
+.ptile.more small { font-weight: 600; font-size: 11px; }
+.pulse-meds { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm { border: 1px solid var(--line); border-left: 3px solid var(--hue, var(--ink-4)); background: #fff; border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--ink-3); cursor: pointer; text-align: left; }
+.pm b { color: var(--navy); font-weight: 700; }
+.pm.held { opacity: .55; text-decoration: line-through; }
+.pm.nodose { border-style: dashed; border-left-style: solid; }
+.pm.nodose::after { content: " · add"; color: var(--blue-ink); font-weight: 700; }
+.pm.more { border-left-width: 1px; font-weight: 700; color: var(--blue-ink); background: var(--blue-bg); border-color: transparent; }
+.ov-switch { position: sticky; top: 0; z-index: 5; display: flex; gap: 4px; padding: 6px; margin: 0 0 14px; background: var(--surface-2, #f6f8fb); border: 1px solid var(--line); border-radius: 12px; }
+.ov-switch button { flex: 1; border: 0; background: none; border-radius: 8px; padding: 8px 4px; font-size: 13.5px; font-weight: 700; color: var(--ink-3); display: inline-flex; justify-content: center; align-items: center; gap: 5px; cursor: pointer; }
+.ov-switch button span { font-size: 11px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: var(--line); color: var(--ink-2); }
+.ov-switch button[aria-selected="true"] { background: #fff; color: var(--navy); box-shadow: 0 1px 2px rgba(16,24,40,.08), inset 0 0 0 1px var(--line); }
+.ov-switch button[aria-selected="true"] span { background: var(--navy); color: #fff; }
+@media (max-width: 420px) { .ov-switch button { font-size: 12.5px; padding: 8px 2px; } }
+/* phone patient header (14 Oct 2026): the main action on its own line, the others as one compact row, so the
+   overview pulse is reached without scrolling */
+@media (max-width: 700px) {
+  .pt-actions { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .pt-actions .btn.primary { grid-column: 1 / -1; order: -1; height: 42px; }
+  .pt-actions .btn.secondary { height: 36px; padding: 0 6px; font-size: 12.5px; gap: 4px; min-width: 0; }
+  .pt-actions .btn.secondary svg { width: 15px; height: 15px; flex: none; }
+  .pt-name h1 { font-size: 22px; }
+  .ov-switch { top: var(--topbar-h, 0px); }
+}
+@media (max-width: 700px) { .admission-patient-head .pt-actions { display: none !important; } }

@@ -52,7 +52,7 @@ export function glycaemicTarget(s: PatientState, p: { target_default: number | s
   return { value: Number(p.target_default), label: `<${p.target_default}%`, source: "default" as const, reasons };
 }
 
-const TARGET_PARAMS = { target_default: 7, target_relaxed: 8, egfr_relaxed: 30 };
+export const TARGET_PARAMS = { target_default: 7, target_relaxed: 8, egfr_relaxed: 30 };
 
 export const DIABETES_RULES: RuleDef[] = [
   {

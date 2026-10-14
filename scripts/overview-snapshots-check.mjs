@@ -138,6 +138,9 @@ try {
     dispatchEvent(new PopStateEvent("popstate"));
   }, id);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  // phones: the overview shows one section at a time (Decide / Medicines / Results / Plan)
+  const section = async (name) => { const t = page.getByRole("tab", { name: new RegExp(`^${name}`) }); if (await t.count()) await t.click(); };
+  await section("Results");
   const labs = page.getByRole("region", { name: "Latest lab results" });
   await expect(labs.locator('[data-lab-code="nt-probnp"]')).toContainText(
     "-40.0%",
@@ -157,6 +160,7 @@ try {
   const cr = labs.locator('[data-lab-code="creatinine"]');
   await cr.scrollIntoViewIfNeeded();
   await phoneShot(labs, "02-phone-lab-trends");
+  await section("Medicines");
   const meds = page.getByRole("region", { name: "Current medications" });
   const valsartan = meds.getByRole("button", { name: /^Valsartan/ });
   await expect(valsartan).toContainText("100%");
@@ -196,12 +200,15 @@ try {
     page.getByRole("region", { name: "Medication history" }),
   ).toContainText("Stopped");
   await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  await section("Medicines");
   await expect(
     page
       .getByRole("region", { name: "Current medications" })
       .getByRole("button", { name: /^Dapagliflozin/ }),
   ).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await section("Results");
   assert.equal(
     await labs.evaluate((e) => getComputedStyle(e).animationName),
     "none",

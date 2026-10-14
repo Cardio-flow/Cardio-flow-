@@ -107,6 +107,8 @@ export type WizardContext = {
   // latest value of each measure (and the one before), and diagnosis codes + tags: read by the
   // guideline suggestions (shared/wizard-guidance.ts)
   values?: Record<string, { value: number; at: string; prev: number | null }>;
+  // the individual HbA1c target (diabetes rules: recorded target, else ADA default/relaxed)
+  glycaemicTarget?: { value: number | null; label: string } | null;
   // creatinine against its RAAS/MRA baseline (server renal-trend.ts): the pathway uses the alert's own numbers
   renal?: { baseline: number; current: number; rise: number; review: boolean; stop: boolean; mra: boolean; reviewCr: number; reviewE: number } | null;
   dx?: string[];

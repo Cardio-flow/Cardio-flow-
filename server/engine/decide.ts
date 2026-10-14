@@ -27,28 +27,78 @@ const ironNeeds = (ctx: WizardContext) => {
       ...(weight == null ? [{ code: "weight", days: 365, why: "the total iron dose and the per-infusion limit (20 mg/kg) depend on it" }] : []),
     ];
 };
+// Data freshness (how recent a result must be to stand for "now") is a recording convention, not a treatment
+// threshold: 30 days for electrolytes/renal function in an acute pathway, 180 days for the DOAC creatinine (as
+// the DOAC label-dose check), 365 days for weight, 90 days for Hb before IV iron and thyroid tests.
+const need = (ctx: WizardContext, code: string, days: number, why: string) =>
+  ctx.values?.[code] && fresh(ctx, ctx.values[code].at, days) ? [] : [{ code, days, why }];
 const NEEDS: Record<string, (ctx: WizardContext, a: Answers) => { code: string; days: number; why: string }[]> = {
   "iv-iron": (ctx, a) => (a.decision === "give" ? ironNeeds(ctx) : []),
   "anaemia-result": (ctx, a) => (Array.isArray(a.actions) && a.actions.includes("iv") ? ironNeeds(ctx) : []),
-  "renal-function": (ctx) => [
-    ...(ctx.values?.potassium && fresh(ctx, ctx.values.potassium.at, 30) ? [] : [{ code: "potassium", days: 30, why: "decides whether the MRA/RAAS doses can stay" }]),
+  "renal-function": (ctx) => need(ctx, "potassium", 30, "decides whether the MRA/RAAS doses can stay"),
+  hyperkalaemia: (ctx) => need(ctx, "creatinine", 30, "renal function with the potassium"),
+  congestion: (ctx) => [
+    ...need(ctx, "creatinine", 30, "renal function before changing the diuretic"),
+    ...need(ctx, "potassium", 30, "potassium before changing the diuretic"),
+    ...need(ctx, "weight", 30, "the weight to judge decongestion"),
   ],
-  hyperkalaemia: (ctx) => [...(ctx.values?.creatinine && fresh(ctx, ctx.values.creatinine.at, 30) ? [] : [{ code: "creatinine", days: 30, why: "renal function with the potassium" }])],
+  "af-care": (ctx) => [
+    ...need(ctx, "creatinine", 180, "creatinine clearance decides the DOAC dose"),
+    ...need(ctx, "weight", 365, "weight decides the DOAC dose (apixaban, edoxaban) and the clearance"),
+  ],
+  digoxin: (ctx) => [
+    ...need(ctx, "potassium", 30, "hypokalaemia increases digoxin toxicity"),
+    ...need(ctx, "creatinine", 30, "digoxin is renally cleared"),
+  ],
+  "low-potassium": (ctx) => need(ctx, "magnesium", 30, "low magnesium must be corrected for potassium to recover"),
+  diabetes: (ctx) => [
+    ...need(ctx, "hba1c", 180, "glycaemic control decides the next step"),
+    ...need(ctx, "creatinine", 365, "eGFR decides metformin and SGLT2 inhibitor use"),
+  ],
+  "amiodarone-thyroid": (ctx) => [...need(ctx, "tsh", 90, "thyroid status on amiodarone"), ...need(ctx, "ft4", 90, "thyroid status on amiodarone")],
 };
 const fresh = (ctx: WizardContext, at: string, days: number) => (Date.parse(ctx.today) - Date.parse(at.slice(0, 10))) / 86400000 <= days;
 
-// medicines to look at with this decision (the safety table's condition rows: renal limits, contraindications)
+// medicines to look at with this decision: the safety table's rows (renal limits, contraindications, interactions)
 const MED_REVIEW: Record<string, string[]> = {
-  "renal-function": ["metformin-renal", "rosuvastatin-renal", "atenolol-renal", "renal-severe", "renal-contraindicated", "doac-crcl-15", "dronedarone-creatinine"],
+  "renal-function": ["metformin-renal", "rosuvastatin-renal", "atenolol-renal", "renal-severe", "renal-contraindicated", "doac-crcl-15", "dronedarone-creatinine", "colchicine-3a4-renal-hepatic"],
+  hyperkalaemia: ["mra-k-sparing", "eplerenone-acei-arb", "dual-ras", "arni-acei"],
+  bradycardia: ["diltiazem-bradycardia", "duplicate-beta-blocker", "ivabradine-ndhp", "digoxin-amiodarone"],
+  "af-care": ["doac-crcl-15", "renal-contraindicated", "dronedarone-permanent-af", "dronedarone-hf", "two-oral-anticoagulants", "doac-inducer", "dabigatran-verapamil", "dronedarone-dabigatran"],
+  digoxin: ["digoxin-amiodarone"],
+  congestion: ["nsaid-hf", "ndhp-hfref"],
+  hypotension: ["pde5-nitrate", "duplicate-beta-blocker"],
+  "liver-result": ["alt-limit"],
+  "statin-ck-result": ["simvastatin-3a4", "simvastatin-amiodarone"],
+  diabetes: ["metformin-renal"],
+};
+// the medicines each decision acts on, listed as "current treatment"
+const CURRENT: Record<string, string[]> = {
+  hyperkalaemia: ["raas", "mra", "potassium-sparing", "k-binder"], "renal-function": ["raas", "mra", "loop", "sglt2", "metformin"],
+  congestion: ["loop", "thiazide", "mra", "sglt2"], hypotension: ["raas", "bb", "loop", "vasodilator", "bp-lowering", "nitrate"],
+  bradycardia: ["bb", "bb-other", "rate-slowing", "digoxin", "ivabradine"], "af-care": ["oac", "bb", "rate-slowing", "digoxin", "antiarrhythmic"],
+  digoxin: ["digoxin"], inr: ["vka"], diabetes: ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "insulin"],
+  "low-potassium": ["loop", "thiazide", "mra"], hyponatraemia: ["thiazide", "loop"], "iv-iron": ["oral-iron", "iv-iron"],
+  "anaemia-result": ["oac", "antiplatelet", "oral-iron"], "amiodarone-thyroid": ["amiodarone"],
 };
 
 export async function previewDecision(tx: Q, patientId: string, wizardId: string, given: Answers = {}) {
   const def = WIZARDS[wizardId];
   const { context: ctx } = await getWizard(tx, patientId, wizardId);
-  const { answers, suggested } = prefill(wizardId, ctx, given);
+  const pre = prefill(wizardId, ctx, given);
+  const { answers, suggested } = pre;
+  // follow-up: when the guideline gives no timing, a default by urgency (marked "Default", easy to change)
+  const defaulted = new Set<string>();
+  for (const q of def.steps.flatMap((st) => visibleQuestions(st, answers)))
+    if (q.id === "review" && q.type === "single" && answers.review == null) {
+      const vals = optionsFor(q, ctx).map((o) => o.value);
+      const pref = def.tone === "red" ? ["phone-3", "clinic-7"] : def.tone === "orange" ? ["clinic-14", "clinic-7", "phone-3"] : ["none", "clinic-14"];
+      const v = pref.find((x) => vals.includes(x));
+      if (v) { answers.review = v; defaulted.add("review"); }
+    }
   const all = def.steps.flatMap((st) => visibleQuestions(st, answers));
   // the reasons behind every filled answer: the record (detected) or the guideline (suggestion)
-  const reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" }[] = [];
+  const reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" | "default" }[] = [];
   for (const q of all) {
     const v = answers[q.id];
     if (v == null || v === "" || (Array.isArray(v) && !v.length)) continue;
@@ -56,8 +106,8 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     if (!vals.length) continue;
     const opts = q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx);
     const label = vals.map((x) => opts.find((o) => o.value === x)?.label ?? x).join(" · ");
-    const from = Object.hasOwn(given, q.id) ? "you" : ctx.detected[q.id]?.length ? "record" : "guideline";
-    const why = q.type === "dose"
+    const from = Object.hasOwn(given, q.id) ? "you" : defaulted.has(q.id) ? "default" : ctx.detected[q.id]?.length ? "record" : "guideline";
+    const why = from === "default" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : q.type === "dose"
       ? "Halve the dose (ESC HF practical guidance): the largest listed dose at or below half"
       : suggest(wizardId, q.id, answers, ctx).filter((x) => vals.includes(x.value)).map((x) => x.why).join(" · ");
     reasons.push({ question: q.label, answer: label, why, source: from });
@@ -68,15 +118,18 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     options: q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx),
   }));
   const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
-  const plan = needed.length ? [] : buildOutcome(wizardId, answers, ctx).map((o) => ({
+  // the plan as it stands (complete once the open questions are answered)
+  const plan = buildOutcome(wizardId, answers, ctx).map((o) => ({
     kind: o.kind, label: o.kind === "plan" ? `${o.title} · ${fmtDay(o.dueDate, { weekday: true, year: true })}` : o.label,
     ...(o.kind === "plan" ? { dueDate: o.dueDate, category: o.category } : {}),
   }));
   const s = await loadState(tx, patientId);
   const ids = MED_REVIEW[wizardId] ?? [];
   const medReview = [
-    ...(ids.length ? safetyHits(s, "condition").filter(({ row }) => ids.includes(row.id)).map(({ row, hit }) => ({ title: row.title(hit), source: row.source, tone: "warn" as const })) : []),
+    ...(CURRENT[wizardId] ? currentLine(ctx, CURRENT[wizardId]) : []),
+    ...(ids.length ? [...safetyHits(s, "condition"), ...safetyHits(s, "interaction")].filter(({ row }) => ids.includes(row.id)).map(({ row, hit }) => ({ title: row.title(hit), source: row.source, tone: "warn" as const })) : []),
     ...(wizardId === "renal-function" ? renalKeep(ctx, answers) : []),
+    ...(wizardId === "af-care" ? doacLines(ctx) : []),
   ];
   return {
     wizard: wizardId, title: def.title, note: def.note, source: def.sourceShort ?? def.source ?? null,
@@ -101,4 +154,20 @@ function renalKeep(ctx: WizardContext, a: Answers) {
     if (!severe && !acts.includes("reduce-raas") && !acts.includes("hold-raas"))
       out.push({ title: `${line(m)}: keep unless the rise exceeds 50% / 266 µmol/L or eGFR <25`, tone: "keep", source: "ESC HF practical guidance on RAAS inhibitors" });
   return out;
+}
+
+type Line = { title: string; source: string; tone: "warn" | "keep" | "info" };
+function currentLine(ctx: WizardContext, tags: string[]): Line[] {
+  const ms = ctx.meds.filter((m) => m.tags.some((t) => tags.includes(t)));
+  return [{ title: ms.length ? `Current: ${ms.map((m) => `${m.name} ${doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}${m.frequency ? ` ${m.frequency}` : ""}${m.status === "held" ? " (held)" : ""}`).join(" · ")}` : "Current: none of the medicines this decision acts on", source: "Medication list", tone: "info" }];
+}
+// AF: the DOAC label-dose check for each current DOAC (ESC AF 2024 / EHRA)
+function doacLines(ctx: WizardContext): Line[] {
+  return (ctx.af?.doac ?? []).map((d) => {
+    const m = ctx.meds.find((x) => x.code === d.code);
+    const name = m?.name ?? d.code;
+    return d.dose === d.right
+      ? { title: `${name} ${d.dose} mg: label dose for this patient — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "keep" as const }
+      : { title: `${name} ${d.dose ?? "—"} mg: label dose is ${d.right} mg — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "warn" as const };
+  });
 }

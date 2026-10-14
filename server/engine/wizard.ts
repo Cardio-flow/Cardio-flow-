@@ -1,3 +1,4 @@
+import { glycaemicTarget, TARGET_PARAMS } from "./diabetes-rules.js";
 import { IRON_CHECKS, ferinjectPlan, ironInputs } from "../../shared/wizards-iron.js";
 import { evidenceKey, checkEvidence, checkRecommendation } from "../kernel/evidence.js";
 import { validateLabAnswers } from "../../shared/wizards-lab.js";
@@ -224,7 +225,8 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const notices = wizardId === "statin-ck-result" && ck && statins.length && statins.every(m => m.startedAt && ck.effective_at < m.startedAt) ? ["This CK predates the current statin treatment. Verify a current result before attributing it to this prescription."] : [];
   const rt = creatinineTrend(s);
   const renal = rt ? { baseline: rt.baseline.value_num!, current: rt.cur.value_num!, rise: rt.rel, review: rt.review, stop: rt.stop, mra: rt.mra, reviewCr: rt.reviewCr, reviewE: rt.reviewE } : null;
-  return { ...base, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  const dmt = s.tags.has("dm") ? glycaemicTarget(s, TARGET_PARAMS) : null;
+  return { ...base, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {

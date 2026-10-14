@@ -5,6 +5,10 @@
 import { WIZARDS, doseChoices, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 import { suggest } from "./wizard-guidance.js";
 
+// questions whose answer comes only from the record (diagnoses, results, medicines), never from symptoms or
+// examination: when the record shows nothing, "none" is the answer
+const RECORD_LISTS: Record<string, string[]> = { "af-care": ["comorb"] };
+
 export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}) {
   const def = WIZARDS[wizardId];
   const answers: Answers = { ...base };
@@ -35,6 +39,8 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
         if (!q.options) continue;
         const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
         const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
+        // a list read entirely from the record (not a symptom or clinical sign) with nothing found: "none"
+        if (!vals.length && RECORD_LISTS[wizardId]?.includes(q.id) && ok.has("none")) vals.push("none");
         if (!vals.length) continue;
         answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
         suggested.add(q.id);

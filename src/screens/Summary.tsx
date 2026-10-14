@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Pulse } from "./Pulse";
 import { BookOpen, Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
@@ -11,21 +12,67 @@ import { Fold, TodayBoard, useTriage } from "./Today";
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const { hot } = useTriage(s);
   const F = (k: string, node: React.ReactNode, isHot = hot.has(k)) => <Fold k={k} hot={isHot}>{node}</Fold>;
+  // phones and narrow screens: the pulse on top, then one section at a time (no long scroll to medicines/results)
+  const narrow = useNarrow();
+  // the section switch sticks just under the app's top bar
+  useEffect(() => {
+    const bar = document.querySelector<HTMLElement>(".topbar");
+    const set = () => document.documentElement.style.setProperty("--topbar-h", `${bar?.offsetHeight ?? 0}px`);
+    set();
+    window.addEventListener("resize", set);
+    return () => window.removeEventListener("resize", set);
+  }, [narrow]);
+  const [pane, setPane] = useState("decide");
+  const [nav, setNav] = useState<{ n: number; code: string | null }>({ n: 0, code: null });
+  const go = (p: string, code?: string) => { setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
+  // after a tap (never on first load): bring the chosen section, or the chosen result, into view
+  useEffect(() => {
+    if (!nav.n) return;
+    const el = nav.code ? document.querySelector<HTMLDetailsElement>(`[data-lab-code="${nav.code}"]`) : document.querySelector(narrow ? ".ov-switch" : ".lab-snapshot");
+    if (nav.code && el) (el as HTMLDetailsElement).open = true;
+    el?.scrollIntoView({ block: nav.code ? "center" : "start", behavior: "smooth" });
+  }, [nav]);
+  const decide = (
+    <>
+      <Episodes s={s} open={open} done={done} />
+      <TodayBoard s={s} open={open} done={done} />
+      {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
+      {/* module detail (timelines, procedures, devices): folded; the problem cards above carry the decisions */}
+      {F("hf", <HfPanel hf={s.hf} open={open} />, false)}
+      {F("cad", <CadPanel cad={s.cad} open={open} />, false)}
+      {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />, false)}
+      {F("valve", <ValvePanel v={s.valve} open={open} />, false)}
+      {F("cmp", <CmpPanel c={s.cmp} open={open} />, false)}
+      {F("ph", <PhPanel p={s.ph} open={open} />, false)}
+    </>
+  );
+  const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
+  const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
+  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", s.results?.length ?? 0], ["plan", "Plan", planned]];
+  if (narrow)
+    return (
+      <main className="page overview-page">
+        <Pulse s={s} open={open} go={go} />
+        <nav className="ov-switch" role="tablist" aria-label="Overview sections">
+          {tabs.map(([k, label, n]) => (
+            <button key={k} role="tab" aria-selected={pane === k} onClick={() => go(k)}>{label}{n ? <span>{n}</span> : null}</button>
+          ))}
+        </nav>
+        <div className="stack ov-pane">
+          {pane === "decide" && decide}
+          {pane === "meds" && <Meds s={s} open={open} done={done} />}
+          {pane === "results" && <Results s={s} open={open} />}
+          {pane === "plan" && <><ActivePlan s={s} open={open} /><Upcoming s={s} open={open} /></>}
+        </div>
+      </main>
+    );
   return (
     <main className="page overview-page">
+      <Pulse s={s} open={open} go={go} />
       <div className="grid-main">
         <div className="stack">
-          <Episodes s={s} open={open} done={done} />
-          <TodayBoard s={s} open={open} done={done} />
+          {decide}
           <ActivePlan s={s} open={open} />
-          {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
-          {/* module detail (timelines, procedures, devices): folded; the problem cards above carry the decisions */}
-          {F("hf", <HfPanel hf={s.hf} open={open} />, false)}
-          {F("cad", <CadPanel cad={s.cad} open={open} />, false)}
-          {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />, false)}
-          {F("valve", <ValvePanel v={s.valve} open={open} />, false)}
-          {F("cmp", <CmpPanel c={s.cmp} open={open} />, false)}
-          {F("ph", <PhPanel p={s.ph} open={open} />, false)}
         </div>
         <div className="stack">
           <Results s={s} open={open} />
@@ -35,6 +82,18 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       </div>
     </main>
   );
+}
+
+function useNarrow() {
+  const q = "(max-width: 1180px)";
+  const [n, setN] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const f = () => setN(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  return n;
 }
 
 export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
