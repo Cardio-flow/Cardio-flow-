@@ -11,7 +11,7 @@ import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
-import { JOIN } from "../../shared/wizard-prefill";
+import { WIZARDS } from "../../shared/wizards";
 import type { Open } from "./Patient";
 
 export function useTriage(s: any) {
@@ -40,7 +40,7 @@ const PROBLEM_OF = (ruleId: string): string => {
   return "other";
 };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
-type Problem = { key: string; label: string; sub?: string; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
+type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
 const TITLES: Record<string, string> = { hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
@@ -49,7 +49,7 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const [why, setWhy] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
   const [dismiss, setDismiss] = useState<string | null>(null);
-  const row = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
+  const row: RowProps = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
   const problems = buildProblems(s);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
@@ -59,6 +59,11 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const shown = problems.filter((p) => p.key !== "other" || items("other").length);
   const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : 9; };
   shown.sort((x, y) => rank(x) - rank(y));
+  // one decision per pathway: the first alert (in display order) that opens it carries the plan
+  const panels = new Set<string>(), seenWiz = new Set<string>();
+  for (const p of shown) for (const a of items(p.key).filter((x) => x.severity !== "blue"))
+    if (decides(a) && !seenWiz.has(a.action.wizard)) { seenWiz.add(a.action.wizard); panels.add(a.id); }
+  row.panels = panels;
   // every due test in one entry (the items stay in their problem cards)
   const dueLabs = (s.attention as any[]).filter((a) => a.action?.type === "add-labs");
   const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
@@ -110,6 +115,7 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
         {p.sub && <span className="problem-sub">{p.sub}</span>}
         {!top && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
       </div>
+      {p.history && p.history.length > 0 && <ol className="problem-history" aria-label="History">{p.history.map((h, i) => <li key={i}>{h}</li>)}</ol>}
       {p.stats.length > 0 && (
         <div className="problem-stats">
           {p.stats.map((x, i) => <span key={i} className={`pstat ${x.tone ?? ""}`}><small>{x.label}</small>{x.value}</span>)}
@@ -189,7 +195,7 @@ function buildProblems(s: any): Problem[] {
     });
   }
   if (has("cad", "ascvd") || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "cad"))
-    out.push({ key: "cad", label: TITLES.cad, stats: [{ label: "Antithrombotic", value: line(["antiplatelet", "oac"]) || "None" }, ...(line(["nitrate", "nitrate-sl", "ranolazine", "ivabradine"]) ? [{ label: "Anti-anginal", value: line(["nitrate", "ranolazine", "ivabradine"]) }] : [])], need: [] });
+    out.push({ key: "cad", label: TITLES.cad, sub: s.header?.ihd?.label?.replace(/^IHD · /, ""), history: (s.header?.ihd?.events ?? []).map((e: any) => e.text), stats: [{ label: "Antithrombotic", value: line(["antiplatelet", "oac"]) || "None" }, ...(line(["nitrate", "nitrate-sl", "ranolazine", "ivabradine"]) ? [{ label: "Anti-anginal", value: line(["nitrate", "ranolazine", "ivabradine"]) }] : [])], need: [] });
   if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365) });
   if (t.bp) out.push({ key: "bp", label: TITLES.bp, stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)`, need: need(["sbp"], 90) });
   if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180) });
@@ -198,12 +204,12 @@ function buildProblems(s: any): Problem[] {
   return out;
 }
 
-type RowProps = { dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
+type RowProps = { panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
 
 
-// an alert that opens a pathway shows the pathway's decision on the card (joined pathways and the
-// antithrombotic plan keep their full flow)
-const decides = (a: any) => a.action?.type === "wizard" && a.severity !== "blue" && !JOIN[a.action.wizard] && !["antithrombotic", "acs-discharge"].includes(a.action.wizard);
+// an alert that opens a pathway shows the pathway's decision on the card (the after-PCI plan opens its own
+// sheet; a joined pathway is recorded in the pathway)
+const decides = (a: any) => a.action?.type === "wizard" && a.severity !== "blue" && !(a.action.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title));
 function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   // a medicine start or dose change opens inline as an editable line (drug, dose, dates)
   const inline = (a.action?.type === "start-med" && MEDICATION[a.action.code]) || a.action?.type === "titrate";
@@ -231,7 +237,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
-      {!compact && decides(a) && <DecisionPanel a={a} patientId={p.patientId} open={p.open} done={p.done} />}
+      {!compact && decides(a) && (p.panels?.has(a.id) ? <DecisionPanel a={a} patientId={p.patientId} open={p.open} done={p.done} /> : <div className="decision-covered">Included in the {(WIZARDS[a.action.wizard]?.shortTitle ?? WIZARDS[a.action.wizard]?.title ?? "same").toLowerCase()} plan above</div>)}
     </div>
   );
 }

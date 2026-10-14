@@ -14,6 +14,7 @@ import { safetyHits } from "../server/engine/med-safety.js";
 import { ferinjectPlan, IRON_CHECKS } from "../shared/wizards-iron.js";
 import { nowIso, today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
+import { header } from "../server/kernel/views.js";
 
 let db: DB;
 const doc: Actor = { id: "dr.test@cardioflow.local", name: "Dr Test", role: "clinician", siteId: SITE_ID };
@@ -124,4 +125,26 @@ test("other pathways: results they need, the current treatment, defaults marked 
   assert.match(r!.why, /HbA1c 8.4% above the individual target <7%/);
   const rev = pd.reasons.find((x: any) => x.source === "default");
   if (rev) assert.match(rev.why, /not a guideline timing/);
+});
+
+test("coronary disease reads as one IHD line with its PCI history; non-cardiac conditions carry a brief history", async () => {
+  const pid = await newPatient(["cad-ccs", "prior-pci", "t2dm", "thyroid"]);
+  const pci = (day: string, details: any) => tx((q) => K.recordProcedure(q, doc, pid, { kind: "pci", date: at(day), details: { setting: "elective", devices: ["Drug-eluting stent"], access: "Radial", ...details } }));
+  await pci(addDays(T, -1000), { vessels: ["RCA"], stents: 2 });
+  await pci(addDays(T, -500), { vessels: ["RCA", "LAD"], stents: 3, complex: ["Chronic total occlusion", "≥3 stents"] });
+  await pci(addDays(T, -300), { vessels: ["RCA"], stents: 1 });
+  await med(pid, "levothyroxine", 50, "OD", "Hypothyroidism");
+  await med(pid, "metformin", 500, "BID", "diabetes");
+  const h = header(await loadState(db, pid)) as any;
+  assert.match(h.ihd.label, /^IHD · chronic coronary syndrome · post-PCI ×3 \(last /);
+  assert.equal(h.ihd.events.length, 3);
+  assert.match(h.ihd.events[1].text, /PCI .* · RCA\/LAD · 3 DES · Chronic total occlusion/);
+  const thy = h.riskFactors.other.find((o: any) => o.code === "thyroid");
+  assert.match(thy.brief, /on levothyroxine/);
+  // a complex PCI anywhere in the history counts as high ischaemic risk; without high bleeding risk the
+  // guideline offers extended DAPT
+  await tx((q) => K.startMedication(q, doc, pid, { code: "aspirin", doseValue: 100, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(addDays(T, -300)) } as any));
+  await tx((q) => K.startMedication(q, doc, pid, { code: "clopidogrel", doseValue: 75, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(addDays(T, -300)) } as any));
+  const p = await preview(pid, "antithrombotic");
+  assert.equal(p.answers.dapt, "extended");
 });

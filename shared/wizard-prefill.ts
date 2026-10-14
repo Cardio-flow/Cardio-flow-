@@ -41,6 +41,8 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
         const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
         // a list read entirely from the record (not a symptom or clinical sign) with nothing found: "none"
         if (!vals.length && RECORD_LISTS[wizardId]?.includes(q.id) && ok.has("none")) vals.push("none");
+        // only "none" can be chosen (e.g. nothing to stop among the medicines taken): nothing to ask
+        if (!vals.length && q.type === "multi" && ok.size === 1 && ok.has("none")) vals.push("none");
         if (!vals.length) continue;
         answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
         suggested.add(q.id);

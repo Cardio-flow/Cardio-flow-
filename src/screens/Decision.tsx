@@ -18,6 +18,7 @@ type Preview = {
   plan: { kind: string; label: string; dueDate?: string }[];
   medReview: { title: string; source: string; tone: "warn" | "keep" | "info" }[];
   ready: boolean;
+  joined: { next: string; title: string; why: string } | null;
 };
 
 export function DecisionPanel({ a, patientId, open, done }: { a: any; patientId: string; open(o: Open): void; done(m?: string, r?: any): void }) {
@@ -101,10 +102,13 @@ export function DecisionPanel({ a, patientId, open, done }: { a: any; patientId:
         <ol className={`decision-plan${p.ready ? "" : " draft"}`}>{steps.map((x, i) => <li key={i}><CheckCircle2 size={14} /> {x.label}</li>)}</ol>
       )}
       {notes.map((x, i) => <p key={i} className="decision-note">{x.label}</p>)}
+      {p.joined && <div className="decision-joined">Continues into <b>{p.joined.title}</b> — {p.joined.why}. Record both parts in the pathway.</div>}
       {error && <div className="error-box">{error}</div>}
       <div className="decision-acts">
         <button className="btn ghost small" onClick={() => setWhy(!why)} aria-expanded={why}>{why ? "Hide reasons" : "Reasons & sources"} <ChevronDown size={14} style={{ transform: why ? "rotate(180deg)" : undefined }} /></button>
-        <button className="btn primary small" disabled={!p.ready || busy} onClick={apply}>{busy ? "Recording…" : "Apply plan"}</button>
+        {p.joined
+          ? <button className="btn primary small" onClick={() => open({ kind: "wizard", wizard, recommendationId: a.id })}>Open pathway</button>
+          : <button className="btn primary small" disabled={!p.ready || busy} onClick={apply}>{busy ? "Recording…" : "Apply plan"}</button>}
       </div>
     </div>
   );

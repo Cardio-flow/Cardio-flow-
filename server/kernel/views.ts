@@ -105,13 +105,60 @@ export function header(s: PatientState) {
       attributes: c.attributes ?? {},
       riskFactor: RISK_FACTOR_CODES.has(c.code),
     })),
-    riskFactors: riskRow(s),
+    riskFactors: { ...riskRow(s), other: otherConditions(s) },
+    // coronary disease as one line with its history (14 Oct 2026, Ahmed: "IHD post PCI" with numbers and dates)
+    ihd: ihdSummary(s),
     // diagnosis tags (cad, ascvd, ckd, dm…): the overview groups its problems by them
     tags: [...s.tags],
     deceased: s.deceased,
     status: s.status,
     readmission: ctx?.kind === "admission" ? (ctx.summary as any)?.readmission ?? null : null,
   };
+}
+
+const MON = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "Asia/Kuwait" });
+const CORONARY = new Set(["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi", "acs-ua", "ischaemic-cmp", "inoca"]);
+// "IHD — CCS · NSTEMI Mar 2023 · PCI ×3 (last Dec 2025) · CABG 2019" and the dated events behind it
+export function ihdSummary(s: PatientState) {
+  const conds = s.conditions.filter((c) => c.status === "active" && (CORONARY.has(c.code) || (DIAGNOSIS[c.code]?.family === "Coronary" && c.code !== "cad-suspected")));
+  const pcis = s.procedures.filter((p) => p.kind === "pci").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
+  const cabgs = s.procedures.filter((p) => p.kind === "cabg").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
+  if (!conds.length && !pcis.length && !cabgs.length) return null;
+  const when = (c: any) => (c.onset ? MON(c.onset) : c.onset_year ?? c.attributes?.onsetYear ?? null);
+  const events: { at: string | null; text: string }[] = [];
+  for (const c of conds.filter((c) => ["acs-stemi", "acs-nstemi", "acs-ua", "prior-mi"].includes(c.code)))
+    events.push({ at: c.onset ?? null, text: `${c.code === "prior-mi" ? "MI" : DIAGNOSIS[c.code].display}${when(c) ? ` ${when(c)}` : ""}` });
+  for (const p of pcis) {
+    const a = p.attributes ?? {};
+    const bits = [(a.vessels ?? []).join("/"), a.stents ? (() => { const d = String((a.devices ?? [])[0] ?? "stent").replace("Drug-eluting stent", "DES").replace("Drug-coated balloon", "DCB").replace("Bare-metal stent", "BMS"); return `${a.stents} ${d}${a.stents > 1 && !/^(DES|DCB|BMS)$/.test(d) ? "s" : ""}`; })() : (a.devices ?? []).join(", "), a.setting && a.setting !== "elective" ? String(a.setting).toUpperCase() : "", ...(a.complex ?? []).filter((x: string) => !/stents/.test(x))].filter(Boolean);
+    events.push({ at: p.performed_at, text: `PCI ${MON(p.performed_at)}${bits.length ? ` · ${bits.join(" · ")}` : ""}` });
+  }
+  for (const p of cabgs) events.push({ at: p.performed_at, text: `CABG ${MON(p.performed_at)}${p.attributes?.grafts ? ` · ${p.attributes.grafts} grafts` : ""}` });
+  const priorCabg = conds.find((c) => c.code === "prior-cabg");
+  if (priorCabg && !cabgs.length) events.push({ at: priorCabg.onset ?? null, text: `CABG${when(priorCabg) ? ` ${when(priorCabg)}` : ""}` });
+  const priorPci = conds.find((c) => c.code === "prior-pci");
+  if (priorPci && !pcis.length) events.push({ at: priorPci.onset ?? null, text: `PCI${when(priorPci) ? ` ${when(priorPci)}` : " (date not recorded)"}` });
+  events.sort((x, y) => (x.at ?? "").localeCompare(y.at ?? ""));
+  const parts = [
+    conds.some((c) => c.code === "cad-ccs") ? "chronic coronary syndrome" : null,
+    conds.some((c) => c.code === "prior-mi" || c.code.startsWith("acs-")) ? "MI" : null,
+    pcis.length ? `post-PCI${pcis.length > 1 ? ` ×${pcis.length}` : ""} (last ${MON(pcis[pcis.length - 1].performed_at)})` : priorPci ? "post-PCI" : null,
+    cabgs.length ? `post-CABG ${MON(cabgs[cabgs.length - 1].performed_at)}` : priorCabg ? "post-CABG" : null,
+  ].filter(Boolean);
+  return { label: `IHD${parts.length ? ` · ${parts.join(" · ")}` : ""}`, events, codes: conds.map((c) => c.code), ids: conds.map((c) => c.logical_id) };
+}
+
+// non-cardiac conditions with a brief history: onset, detail and the treatment for it
+const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazole", "propylthiouracil"], anaemia: ["oral-iron", "iv-iron"], copd: ["inhaler"], aps: ["vka"] };
+function otherConditions(s: PatientState) {
+  return s.conditions
+    .filter((c) => c.status === "active" && DIAGNOSIS[c.code]?.family === "Comorbidity" && !RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden)
+    .map((c) => {
+      const label = conditionLabel(c);
+      const since = c.onset ? `since ${MON(c.onset)}` : (c as any).onset_year ? `since ${(c as any).onset_year}` : "";
+      const on = s.meds.filter((m) => m.status === "active" && (TREATS[c.code] ?? []).some((t) => m.code === t || m.tags.includes(t))).map((m) => `on ${m.name.toLowerCase().split(" (")[0]}`);
+      return { id: c.logical_id, code: c.code, label, brief: [since, ...on].filter(Boolean).join(", ") };
+    });
 }
 
 // "Prosthetic valve / repair · Aortic · Mechanical"

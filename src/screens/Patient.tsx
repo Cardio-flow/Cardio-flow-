@@ -189,6 +189,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const h = s.header;
   // diagnoses only: risk factors (hypertension, diabetes, dyslipidaemia, obesity, CKD) have their own row
   const dxOnly = h.diagnoses.filter((d: any) => !d.riskFactor);
+  // header line: cardiac diagnoses only — coronary disease as one IHD line with its history, non-cardiac
+  // conditions on the risk-factor line (14 Oct 2026, Ahmed)
+  const headDx = dxOnly.filter((d: any) => d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)));
   const ctx = h.openContext;
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (
@@ -343,9 +346,16 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           <div className="patient-line diagnosis-line" aria-label="Diagnoses">
             <span className="line-label">Diagnoses</span>
             <div className="line-scroll">
-              {dxOnly.map((d: any, i: number) => (
+              {h.ihd && (
+                <span>
+                  <button className="line-text" title={h.ihd.events.map((e: any) => e.text).join("\n")} onClick={() => setOpen({ kind: "dx-manage" })}>
+                    {h.ihd.label}
+                  </button>
+                </span>
+              )}
+              {headDx.map((d: any, i: number) => (
                 <span key={d.id}>
-                  {i > 0 && <span className="line-dot"> · </span>}
+                  {(i > 0 || h.ihd) && <span className="line-dot"> · </span>}
                   <button
                     className="line-text"
                     onClick={() => setOpen({ kind: "dx-edit", dx: d })}
@@ -354,7 +364,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                   </button>
                 </span>
               ))}
-              {!dxOnly.length && <span className="muted">Add diagnosis</span>}
+              {!headDx.length && !h.ihd && <span className="muted">Add diagnosis</span>}
             </div>
             <button
               className="record-icon"
@@ -899,7 +909,7 @@ function RiskRow({ rf, onOpen }: { rf: any; onOpen(): void }) {
   if (!rf) return null;
   return (
     <div className="patient-line risk-line" aria-label="Risk factors">
-      <span className="line-label">Risk factors</span>
+      <span className="line-label">{(rf.other ?? []).length ? "Risk factors & other" : "Risk factors"}</span>
       <div className="line-scroll">
         {rf.present.map((p: any, i: number) => (
           <span key={p.key}>
@@ -913,7 +923,15 @@ function RiskRow({ rf, onOpen }: { rf: any; onOpen(): void }) {
             </button>
           </span>
         ))}
-        {rf.present.length === 0 && <span className="muted">—</span>}
+        {rf.present.length === 0 && !(rf.other ?? []).length && <span className="muted">—</span>}
+        {(rf.other ?? []).map((o: any, i: number) => (
+          <span key={o.id}>
+            {(i > 0 || rf.present.length > 0) && <span className="line-dot"> · </span>}
+            <button className="line-text other" onClick={onOpen} title={o.brief || undefined}>
+              {o.label}{o.brief ? <small> ({o.brief})</small> : null}
+            </button>
+          </span>
+        ))}
       </div>
       <button
         className="record-icon"

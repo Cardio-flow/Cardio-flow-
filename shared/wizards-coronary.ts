@@ -318,6 +318,7 @@ export const CORONARY_WIZARDS: Record<string, WizardDef> = {
               { value: "1m-acs", label: "1 month, then single antiplatelet (ACS, high bleeding risk)", hint: "ESC ACS 2023, IIb A" },
               { value: "6m", label: "6 months (elective PCI default)", hint: "ESC CCS 2024" },
               { value: "1-3m", label: "1–3 months (elective PCI, high bleeding risk)", hint: "ESC CCS 2024, I A" },
+              { value: "extended", label: "Extended beyond the default (high ischaemic risk, no high bleeding risk)", hint: "ESC CCS 2024 / ACS 2023, IIa A: second antithrombotic long term" },
             ],
           },
           {
@@ -382,6 +383,8 @@ CORONARY_WIZARDS.antithrombotic.outcome = (a: Answers, ctx: WizardContext): Outc
   if (a.oac === "yes") {
     if (aspirin && a.tat) out.push(plan(`End of triple therapy: stop aspirin (${a.tat === "1w" ? "up to 1 week" : "up to 1 month, high ischaemic risk"})`, due(a.tat === "1w" ? 7 : 30), { id: aspirin.id }));
     if (a.dual) out.push(plan(`Stop ${p2name}: anticoagulant alone after ${a.dual === "12m" ? "12" : "6"} months`, due(a.dual === "12m" ? 365 : 182), p2));
+  } else if (a.dapt === "extended") {
+    out.push({ kind: "plan", category: "follow_up", title: "Extended DAPT: reassess ischaemic and bleeding risk", dueDate: addDays(ctx.today, 365), completesOn: { type: "visit" }, label: "" });
   } else if (a.dapt) {
     const days = { "12m": 365, "3-6m": 90, "1m-acs": 30, "6m": 182, "1-3m": 30 }[String(a.dapt)] ?? 365;
     const what = { "12m": "End of 12-month DAPT", "3-6m": "DAPT 3–6 months: if event-free", "1m-acs": "High bleeding risk: after 1 month of DAPT", "6m": "End of 6-month DAPT", "1-3m": "High bleeding risk: DAPT 1–3 months" }[String(a.dapt)];

@@ -556,6 +556,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     dapt: (a) => {
       const hbr = isHbr(a);
       if (a.setting === "acs") return [hbr ? S("1m-acs", "ACS with high bleeding risk: single antiplatelet after 1 month of DAPT may be considered (ESC ACS 2023, IIb A)") : S("12m", "ACS: DAPT for 12 months by default (ESC ACS 2023, I A)")];
+      if (!hbr && highIschaemic(a)) return [S("extended", "High ischaemic risk without high bleeding risk: extend the second antithrombotic beyond the default (ESC CCS 2024 / ACS 2023, IIa A) — or the default if not chosen")];
       if (a.setting === "ccs") return [hbr && !highIschaemic(a) ? S("1-3m", "Elective PCI with high bleeding risk, not high ischaemic risk: DAPT 1–3 months (ESC CCS 2024, I A)") : S("6m", "Elective PCI: DAPT 6 months (ESC CCS 2024)")];
       return [];
     },

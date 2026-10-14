@@ -124,7 +124,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const coronary = ix ? {
     acsAt: acs?.acsAt ?? null,
     indexAt: (ix.pci?.at ?? ix.at), indexTitle: `${ix.title}${ix.detail ? ` · ${ix.detail}` : ""}`, acs: ix.acs, pciAt: ix.pci?.at ?? null,
-    complexPci: !!ix.pci?.complex, days: ix.days, hbrMajor: hbr.major, hbrMinor: hbr.minor,
+    complexPci: !!ix.pci?.complex || s.procedures.some((p) => p.kind === "pci" && ((p.attributes?.complex as unknown[] | undefined) ?? []).length > 0), days: ix.days, hbrMajor: hbr.major, hbrMinor: hbr.minor,
   } : null;
   const plannedActions = s.plan.filter(p => p.status === "planned").map(p => ({title:p.title, category:p.category, dueDate:p.due_date, completesOn:p.completes_on}));
   const planned = s.plan.filter((p) => p.status === "planned").map((p) => p.title);

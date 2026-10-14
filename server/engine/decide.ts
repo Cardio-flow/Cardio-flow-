@@ -8,7 +8,7 @@
 // the reasons, so the alert card can show it and record it with one confirmation. Nothing is recorded here.
 import type { Q } from "../db/db.js";
 import { WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
-import { prefill } from "../../shared/wizard-prefill.js";
+import { joinFor, prefill } from "../../shared/wizard-prefill.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { MEASURES } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
@@ -56,6 +56,13 @@ const NEEDS: Record<string, (ctx: WizardContext, a: Answers) => { code: string; 
     ...need(ctx, "creatinine", 365, "eGFR decides metformin and SGLT2 inhibitor use"),
   ],
   "amiodarone-thyroid": (ctx) => [...need(ctx, "tsh", 90, "thyroid status on amiodarone"), ...need(ctx, "ft4", 90, "thyroid status on amiodarone")],
+  bleeding: (ctx) => need(ctx, "haemoglobin", 30, "haemoglobin grades the bleed and guides the restart"),
+  "peri-af-procedure": (ctx) => [
+    ...need(ctx, "creatinine", 180, "creatinine clearance sets the DOAC interruption"),
+    ...need(ctx, "weight", 365, "weight for the creatinine clearance"),
+  ],
+  "pre-procedure": (ctx) => ctx.meds.some((m) => m.tags.includes("oac")) ? [...need(ctx, "creatinine", 180, "creatinine clearance sets the DOAC interruption"), ...need(ctx, "weight", 365, "weight for the creatinine clearance")] : [],
+  hyponatraemia: (ctx) => need(ctx, "potassium", 30, "potassium with the sodium (diuretic effect)"),
 };
 const fresh = (ctx: WizardContext, at: string, days: number) => (Date.parse(ctx.today) - Date.parse(at.slice(0, 10))) / 86400000 <= days;
 
@@ -80,6 +87,11 @@ const CURRENT: Record<string, string[]> = {
   digoxin: ["digoxin"], inr: ["vka"], diabetes: ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "insulin"],
   "low-potassium": ["loop", "thiazide", "mra"], hyponatraemia: ["thiazide", "loop"], "iv-iron": ["oral-iron", "iv-iron"],
   "anaemia-result": ["oac", "antiplatelet", "oral-iron"], "amiodarone-thyroid": ["amiodarone"],
+  bleeding: ["oac", "antiplatelet", "nsaid"], antithrombotic: ["oac", "antiplatelet", "ppi"], "acs-discharge": ["antiplatelet", "oac", "statin", "bb", "raas"],
+  "valve-antithrombotic": ["oac", "antiplatelet"], "peri-af-procedure": ["oac"], "pre-procedure": ["oac", "antiplatelet", "sglt2", "raas", "metformin"],
+  "chest-pain-cad": ["antiplatelet", "nitrate", "bb", "statin"], "ccs-test-result": ["antiplatelet", "nitrate", "bb", "statin"],
+  "severe-hypertension": ["raas", "ccb", "thiazide", "bb", "bp-lowering"], "htn-review": ["raas", "ccb", "thiazide", "bb", "bp-lowering"],
+  hypoglycaemia: ["insulin", "sulfonylurea"], hyperglycaemia: ["insulin", "sglt2", "metformin"],
 };
 
 export async function previewDecision(tx: Q, patientId: string, wizardId: string, given: Answers = {}) {
@@ -131,7 +143,12 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     ...(wizardId === "renal-function" ? renalKeep(ctx, answers) : []),
     ...(wizardId === "af-care" ? doacLines(ctx) : []),
   ];
+  // a pathway that continues into another (e.g. bleeding → antithrombotic plan) is recorded in the pathway,
+  // where both parts are confirmed together
+  const j = joinFor(wizardId, answers, ctx);
+  const joined = j ? { next: j.next, title: WIZARDS[j.next]?.title ?? j.next, why: j.why } : null;
   return {
+    joined,
     wizard: wizardId, title: def.title, note: def.note, source: def.sourceShort ?? def.source ?? null,
     answers, suggested, reasons, needed, needData, plan, medReview,
     ready: !needed.length && !needData.length,

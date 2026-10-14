@@ -368,9 +368,13 @@ try {
         .click();
       await page.getByRole("dialog").waitFor({ state: "hidden" });
       await expect(section).toContainText("Anaemia");
+      // 14 Oct 2026 (Ahmed): non-cardiac conditions sit on the risk-factor line as "other", not as risk factors
       await expect(
-        page.locator('[aria-label="Risk factors"]'),
-      ).not.toContainText("Anaemia");
+        page.locator('[aria-label="Risk factors"] .line-text.other'),
+      ).toContainText("Anaemia");
+      await expect(
+        page.locator('[aria-label="Risk factors"] .line-text:not(.other)'),
+      ).not.toContainText(["Anaemia"]);
       await shot("06-anemia-comorbidity");
     },
   );
