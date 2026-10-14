@@ -12,3 +12,4 @@ playwright-report/
 .agents/
 skills-lock.json
 screenshots/
+shots-*/
