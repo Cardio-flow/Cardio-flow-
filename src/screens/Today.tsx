@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw, AlertTriangle } from "lucide-react";
 import { api } from "../api";
-import { formatNumber, MEDICATION } from "../../shared/catalog";
+import { formatNumber, MEASURES, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
 import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
@@ -40,6 +40,7 @@ const PROBLEM_OF = (ruleId: string): string => {
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
 type Problem = { key: string; label: string; sub?: string; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
 const TITLES: Record<string, string> = { hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
 
 export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
@@ -72,7 +73,7 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           {decisions > 0 && <span className="tb-count">{decisions} decision{decisions === 1 ? "" : "s"}</span>}
           {dueCodes.length > 0 && (
             <button className="btn primary small tb-labs" onClick={() => open({ kind: "labs", codes: dueCodes })}>
-              <FlaskConical size={15} /> Enter due results · {dueCodes.map((c) => NEED_LABEL[c] ?? c).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
+              <FlaskConical size={15} /> Enter due results · {dueCodes.map(labelOf).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
             </button>
           )}
         </div>
@@ -139,7 +140,7 @@ function buildProblems(s: any): Problem[] {
   const dx = new Set<string>((s.header?.diagnoses ?? []).map((d: any) => d.code));
   const tagSet = new Set<string>(s.header?.tags ?? []);
   const has = (...codes: string[]) => codes.some((c) => dx.has(c) || tagSet.has(c));
-  const need = (codes: string[], within: number) => codes.filter((c) => !recent(c, within)).map((c) => ({ code: c, label: NEED_LABEL[c] ?? c }));
+  const need = (codes: string[], within: number) => codes.filter((c) => !recent(c, within)).map((c) => ({ code: c, label: labelOf(c) }));
   const out: Problem[] = [];
   if (t.hf) {
     const on = t.hf.pillars.filter((x: any) => x.state === "on" || x.state === "target").length;
