@@ -131,7 +131,11 @@ export function Drawer({
     window.addEventListener("keydown", key);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // the decisions shown on the cards behind the drawer step out of the way (not focusable or announced)
+    const behind = Array.from(document.querySelectorAll<HTMLElement>(".decision")).filter((d) => !ref.current?.contains(d) && !d.hasAttribute("inert"));
+    for (const d of behind) { d.setAttribute("inert", ""); d.setAttribute("aria-hidden", "true"); }
     return () => {
+      for (const d of behind) { d.removeAttribute("inert"); d.removeAttribute("aria-hidden"); }
       const body = ref.current?.querySelector<HTMLElement>(".drawer-body");
       if (body && !suspendedScroll.current) suspendedScroll.current = body.getClientRects().length ? { width: window.innerWidth, top: body.scrollTop } : lastScroll.current;
       window.removeEventListener("resize", restoreScroll);

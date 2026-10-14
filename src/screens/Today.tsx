@@ -10,6 +10,8 @@ import { fmtDay } from "../../shared/clinical";
 import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
 import { SuggestLine } from "./SuggestLine";
+import { DecisionPanel } from "./Decision";
+import { JOIN } from "../../shared/wizard-prefill";
 import type { Open } from "./Patient";
 
 export function useTriage(s: any) {
@@ -199,6 +201,9 @@ function buildProblems(s: any): Problem[] {
 type RowProps = { dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
 
 
+// an alert that opens a pathway shows the pathway's decision on the card (joined pathways and the
+// antithrombotic plan keep their full flow)
+const decides = (a: any) => a.action?.type === "wizard" && a.severity !== "blue" && !JOIN[a.action.wizard] && !["antithrombotic", "acs-discharge"].includes(a.action.wizard);
 function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   // a medicine start or dose change opens inline as an editable line (drug, dose, dates)
   const inline = (a.action?.type === "start-med" && MEDICATION[a.action.code]) || a.action?.type === "titrate";
@@ -226,6 +231,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
+      {!compact && decides(a) && <DecisionPanel a={a} patientId={p.patientId} open={p.open} done={p.done} />}
     </div>
   );
 }

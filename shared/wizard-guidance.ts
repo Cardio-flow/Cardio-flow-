@@ -25,6 +25,7 @@ import { daysBetween } from "./clinical.js";
 import { riskFor, riskModifiers } from "./wizards-cmp.js";
 import { PVR_SEVERE, pahStrata } from "./wizards-ph.js";
 import { STRATA_LABEL } from "./ph.js";
+import { ferinjectPlan, ironInputs } from "./wizards-iron.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
 export type Suggestion = { value: string; why: string };
@@ -105,6 +106,19 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k > 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
     },
   },
+  "iv-iron": {
+    decision: (_a, c) => {
+      const f = val(c, "ferritin"), t = val(c, "tsat"), ef = val(c, "lvef");
+      const id = f != null && (f < 100 || (f < 300 && t != null && t < 20));
+      const reduced = dx(c, "hfref", "hfmref") || (ef != null && ef < 50);
+      const { hb, weight } = ironInputs(c);
+      return [
+        id && reduced && S("give", `Iron deficiency (ferritin ${f}${t != null ? `, TSAT ${t}%` : ""}) in HF with LVEF <50%: IV iron improves symptoms and reduces HF hospitalisation (ESC HF 2023, IIa)${ferinjectPlan(hb, weight) ? "" : " — record Hb and weight for the dose"}`),
+        id && !reduced && S("oral", "HF with preserved EF: benefit of IV iron not established — look for the cause (ESC HF 2023)"),
+      ];
+    },
+    start: () => [S("0", "Start once the checks are confirmed; further infusions ≥7 days apart (Ferinject SmPC)")],
+  },
   "renal-function": {
     actions: (a, c) => {
       // the alert's baseline (last creatinine before the latest RAAS/MRA start or increase) when available
@@ -132,6 +146,11 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const r = c.renal ?? null;
       const cr = r?.current ?? val(c, "creatinine"), p = r?.baseline ?? prev(c, "creatinine");
       return [cr != null && p ? ((r ? r.stop : (cr - p) / p > 1) ? S("3", "Large rise: recheck within days") : S("7", "Recheck renal function and K in 1–2 weeks (ESC HF practical guidance)")) : null];
+    },
+    // the review follows the recheck so the result is acted on (ESC HF practical guidance: recheck 1–2 weeks)
+    review: (a, c) => {
+      const r = c.renal ?? null;
+      return [r?.stop || a.volume === "congested" || a.volume === "dry" ? S("clinic-7", "Review with the recheck result within a week") : S("clinic-14", "Review with the recheck result (1–2 weeks)")];
     },
   },
   congestion: {

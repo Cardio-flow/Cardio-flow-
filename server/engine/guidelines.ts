@@ -397,9 +397,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
       return [{
         key: "iron-deficiency", signature: `${fer.id}:${ts.id}`, severity: "orange",
         title: `Iron deficiency: ferritin ${formatNumber(f, 0)}, TSAT ${formatNumber(t, 0)}%`,
-        detail: "Consider IV iron (ferric carboxymaltose or ferric derisomaltose); total dose by weight and haemoglobin (SmPC)",
-        facts: facts(fact(s, "ferritin", 365), fact(s, "tsat", 365), fact(s, "haemoglobin", 365), src("ESC HF · IV iron in symptomatic HF with iron deficiency")),
-        missing: [], action: { type: "start-med", code: "ferric-derisomaltose", dose: 1000, label: "Plan IV iron" },
+        detail: "IV iron (ferric carboxymaltose): total dose from haemoglobin and weight, infusions ≥7 days apart, checks before the first dose (ESC HF 2023; Ferinject SmPC)",
+        facts: facts(fact(s, "ferritin", 365), fact(s, "tsat", 365), fact(s, "haemoglobin", 90), fact(s, "weight", 365), src("ESC HF 2023 · IV iron in symptomatic HF with LVEF <50% and iron deficiency · IIa")),
+        missing: [], action: { type: "wizard", wizard: "iv-iron" },
       }];
     },
   },

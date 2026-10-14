@@ -2,7 +2,7 @@
 // (detected) and, for every question still open, what the guideline suggests for this patient — so the
 // clinician reviews and changes rather than builds. Suggestions depend on earlier answers, so the steps
 // are walked in order. Nothing here decides: the plan is recorded only when the clinician confirms it.
-import { WIZARDS, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
+import { WIZARDS, doseChoices, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 import { suggest } from "./wizard-guidance.js";
 
 export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}) {
@@ -19,7 +19,20 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
     for (let pass = 0; pass < 5; pass++) {
       let filled = false;
       for (const q of visibleQuestions(st, answers)) {
-        if (!q.options || answers[q.id] != null) continue;
+        if (answers[q.id] != null) continue;
+        // a "reduce" dose: the guideline step is to halve it — the largest listed dose at or below half
+        // the current one, else the next lower dose (ESC HF practical guidance)
+        if (q.type === "dose" && q.direction === "lower") {
+          const { med, options } = doseChoices(ctx, q);
+          const cur = med?.doseValue;
+          if (!cur || !options.length) continue;
+          const vals = options.map((o) => Number(o.value)).sort((x, y) => x - y);
+          answers[q.id] = String([...vals].reverse().find((d) => d <= cur / 2) ?? vals[vals.length - 1]);
+          suggested.add(q.id);
+          filled = true;
+          continue;
+        }
+        if (!q.options) continue;
         const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
         const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
         if (!vals.length) continue;

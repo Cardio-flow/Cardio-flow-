@@ -7,6 +7,7 @@ import type {
 } from "./wizards.js";
 import { LAB_LIMITS as L, LAB_SOURCES, ratio } from "./lab-review.js";
 import { addDays } from "./clinical.js";
+import { IRON_CHECKS, ironOutcome } from "./wizards-iron.js";
 const includes = (a: Answers, k: string, v: string) =>
   Array.isArray(a[k]) ? (a[k] as string[]).includes(v) : a[k] === v;
 const red = (a: Answers) =>
@@ -335,6 +336,10 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
               },
             ],
           },
+          {
+            id: "ivChecks", label: "Before the first IV iron infusion", help: "Confirm each point (Ferinject SmPC 4.3/4.4)", type: "multi", required: true,
+            showIf: { question: "actions", includes: "iv" }, options: IRON_CHECKS.map((x) => ({ ...x })),
+          },
           follow("Haemoglobin response review"),
         ],
       },
@@ -379,14 +384,8 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
           indication: "Confirmed iron deficiency anaemia",
           label: "Ferrous sulfate 200 mg daily (≈65 mg elemental iron)",
         });
-      if (includes(a, "actions", "iv"))
-        out.push(
-          plan(
-            c,
-            "HF IV iron: confirm symptoms, product, weight and haemoglobin-based prescription",
-            "medication",
-          ),
-        );
+      // HF IV iron: the label dose (Hb and weight), dated infusions and the recheck (shared with the IV iron pathway)
+      if (includes(a, "actions", "iv")) out.push(...ironOutcome({ decision: "give", start: "0" }, c));
       if (includes(a, "actions", "cause"))
         out.push(
           plan(

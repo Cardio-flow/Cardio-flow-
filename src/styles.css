@@ -1821,3 +1821,36 @@ table.data.meds td.med-compact { display: none; }
 .problem-consider > .btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; color: var(--ink-3); }
 @media (max-width: 640px) { .tb-labs { margin-left: 0; width: 100%; justify-content: center; } }
 .add-dose { color: var(--blue-ink, #1565c0); text-decoration: underline; text-underline-offset: 2px; }
+/* the pathway's decision on an alert card (14 Oct 2026) */
+.decision { margin: 8px 0 4px 22px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--blue-ink); border-radius: 10px; background: var(--surface-2, #f6f8fb); display: grid; gap: 10px; font-size: 13.5px; }
+.decision.loading { min-height: 44px; opacity: .6; }
+.decision-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.decision-head b { font-size: 13px; color: var(--navy); }
+.decision-head span { font-size: 12px; color: var(--ink-4); }
+.decision-q { display: grid; gap: 6px; }
+.decision-ql { font-weight: 700; color: var(--ink-2); display: grid; gap: 2px; }
+.decision-ql em { font-style: normal; font-weight: 500; color: var(--ink-4); }
+.decision-ql small { font-weight: 500; color: var(--ink-4); font-size: 12px; }
+.decision-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.decision-opts button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.decision-opts button[aria-checked="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.decision-checks { display: grid; gap: 4px; }
+.decision-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.decision-check input { margin-top: 2px; }
+.decision-checks .btn { justify-self: start; }
+.decision-need { display: grid; gap: 8px; }
+.decision-need .btn { justify-self: start; }
+.decision-reasons, .decision-meds, .decision-plan { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.decision-reasons li small, .decision-meds li small { display: block; color: var(--ink-4); font-size: 12px; margin-top: 1px; }
+.decision-reasons .src { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--blue-bg); color: var(--blue-ink); }
+.decision-reasons .src.record { background: var(--surface-2); color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); }
+.decision-reasons .src.you { background: var(--navy); color: #fff; }
+.decision-meds li { font-weight: 600; }
+.decision-meds li.warn { color: var(--orange-deep); }
+.decision-meds li.keep { color: var(--ink-2); }
+.decision-meds li.keep::before { content: "= "; color: var(--ink-4); }
+.decision-plan li { display: flex; gap: 6px; align-items: flex-start; font-weight: 600; color: var(--navy); }
+.decision-plan li svg { flex: none; margin-top: 2px; color: var(--green, #1c7c4a); }
+.decision-note { margin: 0; font-size: 12px; color: var(--ink-3); }
+.decision-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+@media (max-width: 560px) { .decision { margin-left: 0; } .decision-acts { justify-content: stretch; } .decision-acts .btn.primary { flex: 1 0 100%; } }

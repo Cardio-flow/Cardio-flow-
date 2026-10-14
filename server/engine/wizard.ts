@@ -1,3 +1,4 @@
+import { IRON_CHECKS, ferinjectPlan, ironInputs } from "../../shared/wizards-iron.js";
 import { evidenceKey, checkEvidence, checkRecommendation } from "../kernel/evidence.js";
 import { validateLabAnswers } from "../../shared/wizards-lab.js";
 import { labResults } from "./lab-results.js";
@@ -298,6 +299,14 @@ export async function completeWizard(
   if (wizardId === "rdn-plan" && input.answers.decision === "schedule") { const missing = rdnSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400, "RDN cannot be scheduled: " + missing.join("; ")); }
   if (wizardId === "tavi-plan" && input.answers.decision === "schedule") { const missing = taviSchedulingMissing(input.answers,ctx); if (missing.length) throw new ApiError(400,"TAVI cannot be scheduled: " + missing.join("; ")); }
   if (wizardId === "after-rdn" && !ctx.hypertension?.actual) throw new ApiError(400,"Record the actual RDN procedure before planning aftercare");
+  const ivIron = wizardId === "iv-iron" ? input.answers.decision === "give" : wizardId === "anaemia-result" && Array.isArray(input.answers.actions) && input.answers.actions.includes("iv");
+  if (ivIron) {
+    const { hb, weight } = ironInputs(ctx);
+    if (!ferinjectPlan(hb, weight)) throw new ApiError(400, "Record a haemoglobin (last 3 months) and the weight (last 12 months) to calculate the IV iron dose");
+    const ticked = new Set((input.answers[wizardId === "iv-iron" ? "checks" : "ivChecks"] as string[] | undefined) ?? []);
+    const open = IRON_CHECKS.filter((c) => !ticked.has(c.value));
+    if (open.length) throw new ApiError(400, `Confirm before IV iron: ${open.map((c) => c.label.toLowerCase()).join("; ")} — or choose "Not now"`);
+  }
   const labError=validateLabAnswers(wizardId,input.answers,ctx);
   if(labError)throw new ApiError(400,labError);
   // Validate edited dates before a matching existing booking can replace the proposed item.

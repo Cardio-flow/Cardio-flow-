@@ -1,3 +1,4 @@
+import { previewDecision } from "./engine/decide.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import { z, ZodError } from "zod";
@@ -922,6 +923,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const input = z.object({ answers: z.record(z.string(), z.any()), step: z.number().int().min(0).max(20), recommendationId: uuidS.nullish() }).parse(req.body);
     await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), saveDraft(tx, actor(res), id, String(req.params.wizard), input)));
     res.json({ ok: true });
+  }));
+  // the pathway run behind an alert: the plan it would record, what only the clinician can answer, and
+  // results it still needs (nothing is saved)
+  app.post("/api/patients/:id/decisions/:wizard/preview", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ answers: z.record(z.string(), z.any()).default({}) }).parse(req.body ?? {});
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), previewDecision(tx, id, String(req.params.wizard), input.answers))));
   }));
   app.post("/api/patients/:id/wizards/:wizard/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

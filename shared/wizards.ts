@@ -18,6 +18,7 @@ import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
 import { PH_WIZARDS } from "./wizards-ph.js";
+import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
@@ -603,6 +604,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...HYPERTENSION_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
+  ...IRON_WIZARDS,
 };
 
 // Closing summary for every pathway that has no summary of its own (audit, 6 Oct): what was found, the

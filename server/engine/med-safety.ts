@@ -583,6 +583,19 @@ export const SAFETY_ROWS: SafetyRow[] = [
     },
   },
   {
+    id: "metformin-renal", kind: "condition", severity: "orange",
+    title: (h) => `${h.meds[0].name} ${h.reason}`,
+    detail: "Metformin by kidney function: eGFR 30–44 at most 1000 mg a day and do not start; below 30 stop. Hold during acute illness or an acute fall in kidney function.",
+    source: "ADA/KDIGO 2022 consensus on diabetes management in CKD; metformin SmPC 4.2/4.3",
+    check: (_s, f) => {
+      if (f.egfr == null || f.dialysis) return [];
+      const daily = (m: MedState) => (m.doseValue ?? 0) * (({ OD: 1, BID: 2, TID: 3 } as Record<string, number>)[m.frequency ?? "OD"] ?? 1);
+      return pick(f, ["metformin"]).flatMap((m) =>
+        f.egfr! < 30 ? [{ meds: [m], reason: `with eGFR ${ROUND(f.egfr!)}: stop (contraindicated below 30)` }]
+        : f.egfr! < 45 && daily(m) > 1000 ? [{ meds: [m], reason: `${ROUND(daily(m))} mg/day with eGFR ${ROUND(f.egfr!)}: maximum 1,000 mg/day at eGFR 30–44` }] : []);
+    },
+  },
+  {
     id: "renal-severe", kind: "condition", severity: "red",
     title: (h) => `${h.meds[0].name} with eGFR below 30: contraindicated`,
     detail: "Eplerenone (eGFR <30) and colchicine (severe renal impairment) are contraindicated.",
