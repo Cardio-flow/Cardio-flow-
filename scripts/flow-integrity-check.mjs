@@ -56,6 +56,11 @@ const go = async (x, tab = "") => {
     window.dispatchEvent(new Event("cf:navigate"));
   }, `/patients/${x.id}${tab}`);
   await page.getByRole("heading", { name: x.name, exact: true }).waitFor();
+  // overview problem cards fold lower-priority items under "n to consider": open them
+  if (!tab) {
+    await page.waitForTimeout(300);
+    for (const b of await page.locator('.problem-consider button[aria-expanded="false"]').all()) await b.click();
+  }
 };
 const shot = (name) =>
   page.screenshot({ path: `${out}/${name}.png`, animations: "disabled" });

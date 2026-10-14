@@ -28,8 +28,8 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const [monitor, setMonitor] = useState<string>("7");
   const [checkDay, setCheckDay] = useState<string>(() => addDays(summary.today, 7));
   const [startDay, setStartDay] = useState<string>(summary.today);
-  // "already taking": a medicine the patient was on before this record (start date not known)
-  const [already, setAlready] = useState(false);
+  const [entryType, setEntryType] = useState("new");
+  const alreadyTaking = entryType === "existing";
   const [monitoringDates,setMonitoringDates] = useState<Record<string,string>>({});
   const [override, setOverride] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,26 +84,26 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
       const r = await api(`/patients/${patientId}/medications`, {
         body: {
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
-          indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
-          effectiveAt: already || startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
-          preexisting: already || undefined,
-          monitoring: !already && renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
-          bookSchedule: !already && schedule.length > 0 && bookSchedule === "yes", monitoringDates: already ? {} : monitoringDates,
-          ...(reds && !already ? { override } : {}),
+          indication: indication || "unspecified", contextId: contextId ?? null, reason: alreadyTaking ? undefined : preset?.reason,
+          alreadyTaking,
+          effectiveAt: alreadyTaking || startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
+          monitoring: renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          bookSchedule: !alreadyTaking && schedule.length > 0 && bookSchedule === "yes", monitoringDates,
+          ...(reds ? { override } : {}),
         },
       });
-      onDone(already ? `${def.name} recorded · already taking` : `${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(checkDay, { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
+      onDone(`${def.name} ${alreadyTaking ? "recorded as already taking" : "started"}${renalK && monitor !== "none" ? ` · check booked ${fmtDay(checkDay, { weekday: true })}` : !alreadyTaking && schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
   const reds = !!check?.hits.some((h) => (h.severity === "red" || h.requiresReview));
-  const valid = !!check && (already || (Object.values(monitoringDates).every(Boolean) && startDay && (!renalK || monitor === "none" || checkDay))) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (already || !reds || override.trim().length >= 3);
+  const valid = !!check && (alreadyTaking || Object.values(monitoringDates).every(Boolean)) && (alreadyTaking || startDay) && (!renalK || monitor === "none" || checkDay) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
   return (
     <Drawer
       wide
-      title={def ? `Start ${def.name}` : "Add medication"}
+      title={def ? `${alreadyTaking ? "Record" : "Start"} ${def.name}` : "Add medication"}
       subtitle={def ? `${def.drugClass} · ${def.purpose}${def.brands?.length ? ` · ${def.brands.join(", ")}` : ""}` : "Medications relevant to this patient are shown first"}
       icon={<Pill size={22} />}
       onClose={onClose}
@@ -153,6 +153,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
           </>
         ) : (
           <>
+            <div className="q"><div className="label">Entry type</div><Segmented label="Medication entry type" options={[{value:"new",label:"Start new"},{value:"existing",label:"Already taking"}]} value={entryType} onChange={setEntryType} />{alreadyTaking && <div className="help">Current treatment recorded today; historical start date unknown.</div>}</div>
             <div className="q">
               <div className="label">Indication</div>
               {autoIndication ? (
@@ -196,24 +197,17 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 <Segmented label="Route" options={def.routes.map((r) => ({ value: r, label: r }))} value={route} onChange={setRoute} />
               </div>
             </div>
-            <div className="q">
-              <Segmented label="When" options={[{ value: "new", label: "Starting now / known date" }, { value: "already", label: "Already taking" }]} value={already ? "already" : "new"} onChange={(v) => setAlready(v === "already")} />
-              {already ? (
-                <div className="help">Recorded as a medicine the patient was already taking (start date not known): no post-start checks are booked and it does not count as a new start or dose change.</div>
-              ) : (
-                <>
-                  <DateField label="Start date" value={startDay} onChange={setStartDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
-                  {startDay !== today && <div className="help">Recorded as started on {fmtDay(startDay, { weekday: true })} (for example, started elsewhere). Checks are booked from today.</div>}
-                </>
-              )}
-            </div>
-            {check?.start && (
+            {!alreadyTaking && <div className="q">
+              <DateField label="Start date" value={startDay} onChange={setStartDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
+              {startDay !== today && <div className="help">Recorded as started on {fmtDay(startDay, { weekday: true })} (for example, started elsewhere). Checks are booked from today.</div>}
+            </div>}
+            {!alreadyTaking && check?.start && (
               <div className="infobox" style={{ display: "block" }}>
                 <span><b>{`Starting dose ${check.start.dose} mg once daily · maximum ${check.start.max} mg`}</b>{` — ${check.start.basis} (SmPC 4.2).${!check.start.known ? " Record the result on the HCM diagnosis (History)." : ""}`}</span>
               </div>
             )}
-            <div id="med-prestart"><PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} /></div>
-            {renalK && !already && (
+            <div id="med-prestart"><PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} label={alreadyTaking ? "Current treatment safety review" : "Pre-start check"} /></div>
+            {renalK && (
               <div className="q">
                 <div className="label">Monitoring</div>
                 <div className="help">Book a renal function and potassium check. It becomes a task that closes itself when the result arrives.</div>
@@ -223,7 +217,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 </div>
               </div>
             )}
-            {schedule.length > 0 && !already && (
+            {!alreadyTaking && schedule.length > 0 && (
               <div className="q">
                 <div className="label">Monitoring schedule</div>
                 <div style={{ display: "grid", gap: 6 }}>
@@ -237,7 +231,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
             )}
             {reds && (
               <label className="sl-override">
-                <span>Reason for starting after reviewing these warnings (required)</span>
+                <span>{alreadyTaking ? "Reason for recording after reviewing these warnings (required)" : "Reason for starting after reviewing these warnings (required)"}</span>
                 <input className="input" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="e.g. specialist advice, benefit outweighs risk, interacting drug stopped" />
               </label>
             )}

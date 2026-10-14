@@ -19,8 +19,8 @@ export function creatinineTrend(s: PatientState, params: Partial<typeof RENAL_DE
   const p = { ...RENAL_DEFAULTS, ...params };
   const cr = s.resolved("creatinine");
   const cur = cr.current;
-  if (!cur || cur.value_num == null) return null;
-  const prior = cr.history.filter((o) => o.id !== cur.id && o.effective_at < cur.effective_at && o.value_num != null);
+  if (!cur || cur.status !== "final" || cur.value_num == null || daysBetween(cur.effective_at, s.today) < 0) return null;
+  const prior = cr.history.filter((o) => o.id !== cur.id && o.effective_at < cur.effective_at && o.status === "final" && o.value_num != null && o.value_num > 0);
   if (!prior.length) return null;
   const change = s.meds
     .filter((m) => raasOrMra(m.tags))

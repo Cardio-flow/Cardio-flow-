@@ -280,7 +280,7 @@ export function medicationHistory(s: PatientState) {
         if (e.frequency) frequency = e.frequency;
         if (e.route) route = e.route;
       }
-      const kind = e.kind === "continue" && /^Frequency changed/.test(e.reason) ? "frequency" : e.kind;
+      const kind = e.kind === "continue" && /^Medication reconciliation:/.test(e.reason) ? "reconciliation" : e.kind === "continue" && /^Frequency changed/.test(e.reason) ? "frequency" : e.kind;
       return { id: e.id, medicationId: m.id, name: m.name, code: m.code, kind, at: e.effective_at, order,
         before, after: e.kind === "planned" ? [doseLabel(MEDICATION[m.code], e.dose_value, e.dose_unit), e.frequency, e.route].filter(Boolean).join(" ") : line(), reason: e.reason };
     });

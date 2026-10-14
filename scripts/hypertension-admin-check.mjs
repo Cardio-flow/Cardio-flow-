@@ -130,7 +130,9 @@ try {
     },
   });
   await page.goto(`${base}/patients/${pat.id}`);
-  await page.getByRole("button", { name: "Assess RDN", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  for (const b of await page.locator('.problem-consider button[aria-expanded="false"]').all()) await b.click();
+  await page.locator("#att").getByRole("button", { name: "Assess RDN", exact: true }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "Verify resistance", exact: true })
@@ -187,7 +189,9 @@ try {
     });
 
   await page.goto(`${base}/patients/${pat.id}`);
-  await page.getByRole("button", { name: "Assess RDN", exact: true }).click();
+  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  for (const b of await page.locator('.problem-consider button[aria-expanded="false"]').all()) await b.click();
+  await page.locator("#att").getByRole("button", { name: "Assess RDN", exact: true }).click();
   await radio("Elective RDN setting", "Stable adult; pregnancy excluded");
   for (const label of [
     "Multidisciplinary hypertension / RDN approval",

@@ -740,8 +740,9 @@ export async function startMedication(
     contextId?: string | null;
     decisionId?: string | null;
     planned?: boolean;
-    // already taking when first recorded (start date not known)
-    preexisting?: boolean;
+    // already taking when first recorded (start date not known): an initial "continue" (reconciliation) event
+    alreadyTaking?: boolean;
+    preexisting?: boolean; // older name for alreadyTaking (case import)
   },
 ) {
   const def = MEDICATION[input.code];
@@ -756,27 +757,30 @@ export async function startMedication(
     if (last && new Date(input.effectiveAt) < new Date(last.effective_at)) throw new ApiError(400, "The restart cannot precede the last medication change. Correct the history first.");
   } else {
     medicationId = uuid();
-    await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication,preexisting) VALUES($1,$2,$3,$4,$5)`, [medicationId, patientId, input.code, input.indication, !!input.preexisting && !input.planned]);
+    await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication) VALUES($1,$2,$3,$4)`, [medicationId, patientId, input.code, input.indication]);
   }
   const eventId = uuid();
-  const kind = input.planned ? "planned" : existing ? "restart" : "start";
+  if (input.preexisting) input = { ...input, alreadyTaking: true };
+  if (input.alreadyTaking && (input.planned || existing)) throw new ApiError(400, "Reconcile an existing medicine only when adding it to the list for the first time.");
+  const kind = input.alreadyTaking ? "continue" : input.planned ? "planned" : existing ? "restart" : "start";
+  const reason = input.alreadyTaking ? `Medication reconciliation: already taking; start date unknown${input.reason ? ` · ${input.reason}` : ""}`.slice(0, 300) : input.reason ?? "";
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [eventId, medicationId, patientId, kind, input.doseValue, def.unit, input.frequency, input.route, input.reason ?? "", input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id],
+    [eventId, medicationId, patientId, kind, input.doseValue, def.unit, input.frequency, input.route, reason, input.effectiveAt, input.contextId ?? null, input.decisionId ?? null, actor.id],
   );
   await journeyEvent(tx, actor, {
     patientId,
     occurredAt: input.effectiveAt,
-    kind: "medication-start",
+    kind: input.alreadyTaking ? "medication-reconciliation" : "medication-start",
     category: "medication",
-    title: `${def.name} ${kind === "restart" ? "restarted" : input.preexisting && !existing ? "· already taking (recorded)" : "started"}`,
-    detail: `${doseLabel(def, input.doseValue)} ${input.frequency} ${input.route}`.trim() + (input.reason ? ` · ${input.reason}` : ""),
+    title: `${def.name} ${input.alreadyTaking ? "already taking" : kind === "restart" ? "restarted" : "started"}`,
+    detail: `${doseLabel(def, input.doseValue)} ${input.frequency} ${input.route}`.trim() + (reason ? ` · ${reason}` : ""),
     refType: "medication",
     refId: medicationId,
     contextId: input.contextId,
   });
-  await audit(tx, actor, "start", "medication", medicationId, patientId, { code: input.code, dose: input.doseValue });
+  await audit(tx, actor, input.alreadyTaking ? "reconcile" : "start", "medication", medicationId, patientId, { code: input.code, dose: input.doseValue });
   return { medicationId, changed: ["meds"] as Changed };
 }
 

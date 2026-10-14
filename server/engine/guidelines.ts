@@ -102,7 +102,7 @@ export function cha2ds2va(s: PatientState) {
 // what the criteria need: the dose the label gives and why.
 export function doacDoseCheck(s: PatientState): { med: MedState; right: number; why: string }[] {
   const out: { med: MedState; right: number; why: string }[] = [];
-  const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
+  const cr = bpResult(s, "creatinine", 180)?.value_num ?? null, wt = bpResult(s, "weight", 365)?.value_num ?? null, age = s.patient.age;
   const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
   // AF dosing only: the label AF dose does not apply to other indications (rivaroxaban 2.5 mg BID in CAD/PAD,
   // apixaban 2.5 mg for extended VTE prevention); a held medicine is reviewed when it is restarted
@@ -143,6 +143,20 @@ export function lipidRisk(s: PatientState) {
     return { category: "high", goal: 1.8, reduction: 50, why: dm ? "diabetes" : egfr != null && egfr < 60 ? "CKD, eGFR 30–59" : "familial hypercholesterolaemia", recentAcs: false };
   return null; // needs SCORE2 — not estimated automatically
 }
+// eGFR category sustained over 3 months (KDIGO chronicity): a result ≥90 days before the latest, and every
+// result since in the same category
+function sustainedEgfrStage(s: PatientState) {
+  const hist = s.resolved("egfr").history.filter((o) => o.status === "final" && o.value_num != null);
+  const now = hist[0];
+  if (!now) return null;
+  const stage = (e: number) => (e >= 60 ? "ckd-1-2" : e >= 45 ? "ckd-3a" : e >= 30 ? "ckd-3b" : e >= 15 ? "ckd-4" : "ckd-5");
+  const older = hist.find((o) => daysBetween(o.effective_at, now.effective_at) >= 90);
+  if (!older) return null;
+  const st = stage(now.value_num!);
+  if (!hist.filter((o) => o.effective_at >= older.effective_at).every((o) => stage(o.value_num!) === st)) return null;
+  return { stage: st, nowId: now.id, facts: facts({ label: "eGFR now", value: `${formatNumber(now.value_num!, 0)}`, date: now.effective_at }, { label: "eGFR ≥3 months earlier", value: `${formatNumber(older.value_num!, 0)}`, date: older.effective_at }, src("KDIGO 2024 · CKD stage from eGFR sustained >3 months")) };
+}
+
 export const statinIntensity = (m: MedState) => {
   if (!m.tags.includes("statin") || m.doseValue == null) return "none";
   if (m.code === "atorvastatin" || m.code === "atorvastatin-ezetimibe") return m.doseValue >= 40 ? "high" : "moderate";
@@ -483,36 +497,18 @@ export const GUIDELINE_RULES: RuleDef[] = [
   {
     id: "cardiorenal.ckd-stage",
     kind: "clinical",
-    title: "CKD stage on the problem list vs eGFR",
+    title: "CKD not on the problem list with eGFR <60 for over 3 months",
     inputs: ["egfr", "creatinine", "conditions"],
-    defaultParams: { chronic_days: 90 },
-    evidence: "KDIGO 2024 CKD: CKD = eGFR <60 mL/min/1.73m² (or kidney damage) for >3 months; GFR categories G1–G2 ≥60, G3a 45–59, G3b 30–44, G4 15–29, G5 <15. A change lasting under 3 months is acute (AKI/AKD), not a new stage.",
-    evaluate(s, p) {
-      if (s.tags.has("dialysis")) return [];
-      const hist = s.resolved("egfr").history.filter((o) => o.status === "final" && o.value_num != null);
-      const now = hist[0];
-      if (!now) return [];
-      const stage = (e: number) => (e >= 60 ? "ckd-1-2" : e >= 45 ? "ckd-3a" : e >= 30 ? "ckd-3b" : e >= 15 ? "ckd-4" : "ckd-5");
-      const label = (c: string) => DIAGNOSIS[c]?.display.replace(" (with albuminuria)", "") ?? c;
-      // persistent: a result at least 3 months earlier in the same category, and none in another category since
-      const older = hist.find((o) => daysBetween(o.effective_at, now.effective_at) >= Number(p.chronic_days));
-      if (!older) return [];
-      const between = hist.filter((o) => o.effective_at >= older.effective_at);
-      const st = stage(now.value_num!);
-      if (!between.every((o) => stage(o.value_num!) === st)) return [];
-      const listed = s.conditions.find((c) => c.status === "active" && c.code.startsWith("ckd-"));
-      const f = facts({ label: "eGFR now", value: `${formatNumber(now.value_num!, 0)}`, date: now.effective_at }, { label: "eGFR ≥3 months earlier", value: `${formatNumber(older.value_num!, 0)}`, date: older.effective_at }, src("KDIGO 2024 · CKD stage from eGFR sustained >3 months"));
-      if (listed && listed.code !== st && !(st === "ckd-1-2"))
-        return [{ key: "ckd-stage", signature: `${listed.code}:${st}:${now.id}`, severity: "yellow",
-          title: `eGFR ${formatNumber(now.value_num!, 0)} for over 3 months: CKD stage is ${label(st)}, the list says ${label(listed.code)}`,
-          detail: "Update the stage so drug-dose and cardiorenal rules use it", facts: f, missing: [],
-          action: { type: "edit-dx", code: listed.code, label: `Change to ${label(st)}` } }];
-      if (!listed && st !== "ckd-1-2")
-        return [{ key: "ckd-stage", signature: `none:${st}:${now.id}`, severity: "yellow",
-          title: `eGFR below 60 for over 3 months: add ${label(st)} to the problem list`,
-          detail: "KDIGO: CKD is eGFR <60 sustained over 3 months", facts: f, missing: [],
-          action: { type: "history", focus: "risk", label: "Add CKD stage" } }];
-      return [];
+    defaultParams: {},
+    evidence: "KDIGO 2024 CKD: CKD = eGFR <60 mL/min/1.73m² (or kidney damage) for >3 months; GFR categories G3a 45–59, G3b 30–44, G4 15–29, G5 <15. A change lasting under 3 months is acute (AKI/AKD), not CKD. A recorded stage that differs is handled by cardiorenal.stage-review.",
+    evaluate(s) {
+      if (s.tags.has("dialysis") || s.conditions.some((c) => c.status === "active" && c.code.startsWith("ckd-"))) return [];
+      const sus = sustainedEgfrStage(s);
+      if (!sus || sus.stage === "ckd-1-2") return [];
+      return [{ key: "ckd-stage", signature: `none:${sus.stage}:${sus.nowId}`, severity: "yellow",
+        title: `eGFR below 60 for over 3 months: add ${DIAGNOSIS[sus.stage].display} to the problem list`,
+        detail: "KDIGO: CKD is eGFR <60 sustained over 3 months", facts: sus.facts, missing: [],
+        action: { type: "history", focus: "risk", label: "Add CKD stage" } }];
     },
   },
   {
@@ -531,6 +527,29 @@ export const GUIDELINE_RULES: RuleDef[] = [
       return [{ key: "ckd-screen", signature: missing.join(","), severity: "yellow", title: `Kidney screening due: ${missing.join(" and ")}`,
         detail: "eGFR and albuminuria classify CKD and guide SGLT2i / finerenone", facts: facts(fact(s, "egfr"), fact(s, "uacr"), src("ESC/ERA CVD–CKD 2026 · Class I")), missing: [],
         action: { type: "add-labs", codes: missing.includes("UACR") ? ["creatinine", "uacr"] : ["creatinine"], label: "Add renal labs" } }];
+    },
+  },
+  {
+    id: "cardiorenal.stage-review", kind: "clinical", title: "Recorded CKD stage and current kidney function",
+    inputs: ["egfr", "conditions"], defaultParams: {},
+    evidence: "KDIGO CKD 2024: classify CKD by cause, GFR and albuminuria; G3a 45–59, G3b 30–44, G4 15–29, G5 <15 mL/min/1.73m². Establish chronicity for at least 3 months; do not infer a new chronic stage from a single abnormal result.",
+    evaluate(s) {
+      const e = bpResult(s, "egfr", 365);
+      const recorded = s.conditions.find(c => ["ckd-1-2", "ckd-3a", "ckd-3b", "ckd-4", "ckd-5"].includes(c.code));
+      if (!e || !recorded || s.tags.has("dialysis")) return [];
+      const band = e.value_num! >= 60 ? "ckd-1-2" : e.value_num! >= 45 ? "ckd-3a" : e.value_num! >= 30 ? "ckd-3b" : e.value_num! >= 15 ? "ckd-4" : "ckd-5";
+      if (band === recorded.code) return [];
+      // the same category for over 3 months (KDIGO chronicity): the stage itself is due for change
+      const sus = sustainedEgfrStage(s);
+      if (sus && sus.stage === band && band !== "ckd-1-2")
+        return [{ key: "stage", signature: `${recorded.code}:${band}:${e.id}`, severity: "yellow",
+          title: `eGFR ${Math.round(e.value_num!)} for over 3 months: CKD stage is ${DIAGNOSIS[band].display}, the list says ${DIAGNOSIS[recorded.code]?.display.replace(" (with albuminuria)", "")}`,
+          detail: "Update the stage so drug-dose and cardiorenal rules use it", facts: sus.facts, missing: [],
+          action: { type: "edit-dx", code: recorded.code, label: `Change to ${DIAGNOSIS[band].display}` } }];
+      return [{key:"stage",signature:`${e.id}:${recorded.id}`,severity:"orange",title:"Recorded CKD stage differs from latest eGFR: review chronicity",
+        detail:`eGFR ${Math.round(e.value_num!)}; recorded ${DIAGNOSIS[recorded.code]?.display}. Check prior results and acute illness before changing the chronic diagnosis.`,
+        facts:facts(fact(s,"egfr"),src("KDIGO CKD 2024 · classification and chronicity")),missing:["Prior renal results and clinical assessment"],
+        action:{type:"edit-dx",code:recorded.code,label:"Review CKD diagnosis"}}];
     },
   },
   {
@@ -681,17 +700,17 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "2024 ESC AF / EHRA practical guide: apixaban 2.5 mg BID only if ≥2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L; rivaroxaban 15 mg if CrCl 15–49; edoxaban 30 mg if CrCl 15–50 or weight ≤60 kg; dabigatran 110 mg if age ≥80.",
     evaluate(s) {
       const out: Finding[] = [];
-      const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
+      const cr = bpResult(s, "creatinine", 180)?.value_num ?? null, wt = bpResult(s, "weight", 365)?.value_num ?? null, age = s.patient.age;
       const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
       // the label dose cannot be checked without weight (apixaban, edoxaban, CrCl) or creatinine: ask for them
       const afDoacs = onTag(s, "oac").filter((m) => m.status === "active" && ["apixaban", "edoxaban", "rivaroxaban", "dabigatran"].includes(m.code) && (m.indication === "af" || ((!m.indication || m.indication === "unspecified") && s.tags.has("af"))));
       const need = [cr == null && "creatinine", wt == null && "weight"].filter(Boolean) as string[];
       if (afDoacs.length && need.length)
-        out.push({ key: "doac-data", signature: `${afDoacs.map((m) => m.id + ":" + m.doseValue).join(",")}:${need.join(",")}`, severity: "yellow",
-          title: `${need.map((x) => (x === "weight" ? "Weight" : "Creatinine")).join(" and ")} needed to check the ${afDoacs.map((m) => m.name.toLowerCase()).join(" / ")} dose`,
+        out.push({ key: "doac-data", signature: `${afDoacs.map((m) => m.id + ":" + m.doseValue).join(",")}:${need.join(",")}`, severity: "orange",
+          title: `${afDoacs.map((m) => m.name).join(" / ")}: dose check incomplete — ${need.map((x) => (x === "weight" ? "Weight" : "Creatinine")).join(" and ")} needed to check the ${afDoacs.map((m) => m.name.toLowerCase()).join(" / ")} dose`,
           detail: `The label dose depends on ${afDoacs.some((m) => m.code === "apixaban") ? "age, weight and creatinine (apixaban: 2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L)" : "creatinine clearance and weight"}`,
           facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), src("ESC AF 2024 / EHRA DOAC guide; DOAC SmPC 4.2")),
-          missing: need, action: { type: "add-labs", codes: need, label: `Add ${need.join(" and ")}` } });
+          missing: need.map((x) => (x === "weight" ? "Current weight" : "Verified recent creatinine")), action: { type: "add-labs", codes: need, label: `Add ${need.join(" and ")}` } });
       for (const { med: m, right, why } of doacDoseCheck(s)) {
         if (m.doseValue == null || m.doseValue === right) continue;
         const def = MEDICATION[m.code];

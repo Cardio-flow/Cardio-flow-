@@ -49,6 +49,10 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const [dismiss, setDismiss] = useState<string | null>(null);
   const row = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
   const problems = buildProblems(s);
+  // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
+  // problem's name, so nothing on the list is ever left out of the overview
+  for (const key of new Set((s.attention as any[]).map((a) => PROBLEM_OF(a.rule_id))))
+    if (!problems.some((p) => p.key === key)) problems.splice(problems.length - 1, 0, { key, label: TITLES[key] ?? TITLES.other, stats: [], need: [] } as Problem);
   const items = (key: string) => (s.attention as any[]).filter((a) => PROBLEM_OF(a.rule_id) === key).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
   const shown = problems.filter((p) => p.key !== "other" || items("other").length);
   const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : 9; };

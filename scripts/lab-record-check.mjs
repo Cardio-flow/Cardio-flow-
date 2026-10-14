@@ -1,3 +1,4 @@
+import { selectLabGroup } from "./select-lab-group.mjs";
 // Synthetic clinical entry, compact record, correction and procedure browser regression.
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -161,9 +162,7 @@ try {
     .getByRole("button", { name: "Add labs", exact: true })
     .first()
     .click();
-  await page
-    .getByLabel("Lab panel", { exact: true })
-    .selectOption("statin-safety");
+  await selectLabGroup(page, "Statin safety");
   await page.getByLabel("Creatine kinase (CK)", { exact: true }).fill("2400");
   await page
     .getByLabel("Creatine kinase (CK) upper reference limit", { exact: true })

@@ -2,7 +2,7 @@ import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Screenshot walkthrough of the HF slice (local sandbox). Usage: node scripts/shots.mjs [outDir]
 import { chromium } from "@playwright/test";
 const out = process.argv[2] || "/tmp/shots";
-const base = "http://127.0.0.1:4310";
+const base = process.env.CARDIO_BASE_URL || "http://127.0.0.1:4310";
 import { existsSync } from "node:fs";
 const exe = process.env.CHROMIUM || (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch(exe ? { executablePath: exe } : {});
@@ -38,7 +38,7 @@ await step("summary", async () => {
   await shot("02-summary", true);
 });
 await step("wizard", async () => {
-  await p.getByRole("button", { name: "Manage hyperkalaemia" }).click();
+  await p.locator("#att").getByRole("button", { name: "Manage hyperkalaemia" }).click();
   await p.getByText("Is this result reliable?").waitFor();
   await shot("04-wizard1");
   await p.getByRole("radio", { name: "Yes, act on it" }).click();

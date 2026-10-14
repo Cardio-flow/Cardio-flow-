@@ -85,21 +85,24 @@ test("AF on a DOAC without a weight asks for it to check the dose", async () => 
   await obs(pid, [{ code: "creatinine", value: 95 }]);
   await start(pid, "apixaban", 5, "BID", null, "af");
   const r = await rec(pid, "af.doac-dose");
-  assert.ok(r && /Weight needed to check the apixaban dose/.test(r.title), r?.title);
+  assert.ok(r && /Apixaban: dose check incomplete — Weight needed/.test(r.title), r?.title);
   await obs(pid, [{ code: "weight", value: 72 }]);
   assert.ok(!(await rec(pid, "af.doac-dose")) || !/needed to check/.test((await rec(pid, "af.doac-dose")).title));
 });
 
-test("CKD stage: an eGFR category sustained over 3 months is compared with the list; a recent fall is not", async () => {
+test("CKD stage: a recent fall asks to review chronicity; a category sustained over 3 months asks to change or add the stage", async () => {
   const pid = await newPatient(["hfpef", "ckd-1-2"]);
   await obs(pid, [{ code: "creatinine", value: 75 }], at(addDays(T, -200)));
   await obs(pid, [{ code: "creatinine", value: 150 }]);
-  assert.equal(await rec(pid, "cardiorenal.ckd-stage"), undefined, "an acute fall waits for 3 months");
+  assert.match((await rec(pid, "cardiorenal.stage-review")).title, /review chronicity/);
   const p2 = await newPatient(["hfpef", "ckd-1-2"]);
   await obs(p2, [{ code: "creatinine", value: 130 }], at(addDays(T, -120)));
   await obs(p2, [{ code: "creatinine", value: 132 }]);
-  const r = await rec(p2, "cardiorenal.ckd-stage");
-  assert.ok(r && /CKD stage is/.test(r.title), r?.title);
+  assert.match((await rec(p2, "cardiorenal.stage-review")).title, /for over 3 months: CKD stage is CKD 3b/);
+  const p3 = await newPatient(["hfpef"]);
+  await obs(p3, [{ code: "creatinine", value: 130 }], at(addDays(T, -120)));
+  await obs(p3, [{ code: "creatinine", value: 132 }]);
+  assert.match((await rec(p3, "cardiorenal.ckd-stage")).title, /add CKD 3b to the problem list/);
 });
 
 test("rosuvastatin and atenolol renal limits; two beta-blockers together", async () => {
