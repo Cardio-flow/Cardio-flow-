@@ -112,7 +112,7 @@ export function MedicationsTab({
                       {m.frequency} {m.route}
                       {m.startedAt
                         ? ` · since ${fmtDay(m.startedAt, { year: true })}`
-                        : ""}
+                        : m.preexisting ? " · already taking" : ""}
                     </td>
                     <td data-label="Dose">
                       {doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}
@@ -121,7 +121,7 @@ export function MedicationsTab({
                       {m.frequency} {m.route}
                     </td>
                     <td data-label="Since">
-                      {m.startedAt ? fmtDay(m.startedAt, { year: true }) : "—"}
+                      {m.startedAt ? fmtDay(m.startedAt, { year: true }) : m.preexisting ? "Already taking" : "—"}
                     </td>
                     <td data-label="Last change">
                       {m.lastChange

@@ -39,6 +39,22 @@ export async function voidStudy(tx: Q, actor: Actor, patientId: string, studyId:
 
 // A medicine that should not be on the list at all (wrong drug, wrong patient): the whole line goes,
 // with its own dated medication steps (as when stopped).
+// A medicine recorded as "started" that the patient was in fact already taking (e.g. the current list typed in on
+// the first visit): its first entry becomes "already taking" — no start date, no post-start checks.
+export async function markPreexisting(tx: Q, actor: Actor, patientId: string, medicationId: string) {
+  await patientInSite(tx, actor, patientId);
+  const med = (await tx.query(`SELECT drug, preexisting FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0] as any;
+  if (!med) throw new ApiError(404, "Medication not found");
+  if (med.preexisting) throw new ApiError(409, "Already recorded as a medicine the patient was taking");
+  const first = (await tx.query(`SELECT kind FROM cf.medication_event me WHERE medication_id=$1 AND ${LIVE_EVENT} ORDER BY effective_at, recorded_at LIMIT 1`, [medicationId])).rows[0] as any;
+  if (first?.kind !== "start") throw new ApiError(409, "Only a medicine first recorded as a start can be changed to already taking");
+  await tx.query(`UPDATE cf.medication SET preexisting=true WHERE id=$1`, [medicationId]);
+  const name = MEDICATION[med.drug]?.name ?? med.drug;
+  await audit(tx, actor, "mark-preexisting", "medication", medicationId, patientId, {});
+  await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "correction", category: "medication", title: `${name}: was already being taken (not a new start)`, detail: "Start date not known", refType: "medication", refId: medicationId });
+  return ["meds"] as Changed;
+}
+
 export async function voidMedication(tx: Q, actor: Actor, patientId: string, medicationId: string, reason?: string) {
   await patientInSite(tx, actor, patientId);
   const med = (await tx.query(`SELECT drug FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0] as any;

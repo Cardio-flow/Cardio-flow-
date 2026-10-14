@@ -124,6 +124,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         big && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `Creatinine +${Math.round(rise! * 100)}% from baseline: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
         big && on(c, "raas") && lowest(c, "raas") && S("hold-raas", `Creatinine +${Math.round(rise! * 100)}% on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)`),
         big && r?.mra && cr != null && (cr > 221 || (egfr != null && egfr < 30)) && on(c, "mra") && !lowest(c, "mra") && S("reduce-mra", `On an MRA with creatinine ${cr} µmol/L${egfr != null ? ` / eGFR ${egfr}` : ""}: halve the MRA (>221 µmol/L or eGFR <30; ESC HF practical guidance)`),
+        (big || severe) && on(c, "metformin") && S("hold-metformin", "Acute fall in kidney function: hold metformin until it recovers (lactic acidosis risk; ADA/KDIGO sick-day guidance)"),
         severe && S("nephrology", "Severe deterioration: specialist / nephrology input"),
       ];
     },

@@ -6,7 +6,7 @@
 // 2024 ESC CCS (DAPT 6 months after PCI; rehabilitation I A).
 import { addDays, fmtDay, localDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
-import { acsIndex, antithrombotic, indexEvent } from "./cad-profile.js";
+import { acsIndex, antithrombotic, arcHbr, indexEvent } from "./cad-profile.js";
 import type { Finding, RuleDef } from "./rules.js";
 
 const live = (s: PatientState) => s.meds.filter((m) => m.status === "active" || m.status === "held");
@@ -118,11 +118,14 @@ export const CAD_RULES: RuleDef[] = [
       // ticagrelor/prasugrel with an anticoagulant has its own, more specific finding (same pathway)
       if (meds.some((m) => m.tags.includes("oac")) && meds.some((m) => m.tags.includes("p2y12-potent"))) return [];
       const reg = antithrombotic(s).regimen;
+      const hbr = arcHbr(s);
       const what = ix.kind === "pci" ? (ix.acs ? "ACS PCI" : "Elective PCI") : ix.title;
       return [{
         key: "plan", signature: ix.at, severity: "orange",
-        title: `${what} ${fmtDay(ix.at)}: antithrombotic stop dates not set`,
-        detail: `${reg} with no planned stop date. ${ix.acs ? "ACS: DAPT 12 months by default" : "Elective PCI: DAPT 6 months"}; with an anticoagulant, triple therapy up to 1 week.`,
+        title: `${what} ${fmtDay(ix.at)}: antithrombotic stop dates not set${hbr.hbr ? " · high bleeding risk" : ""}`,
+        detail: hbr.hbr
+          ? `${reg} with no planned stop date. High bleeding risk (ARC-HBR: ${[...hbr.major, ...hbr.minor].join("; ")}): ${ix.acs ? "DAPT 1–3 months then single antiplatelet (ESC ACS 2023, IIa/IIb)" : "DAPT 1–3 months then single antiplatelet (ESC CCS 2024, I A)"}; a PPI with DAPT.`
+          : `${reg} with no planned stop date. ${ix.acs ? "ACS: DAPT 12 months by default" : "Elective PCI: DAPT 6 months"}; with an anticoagulant, triple therapy up to 1 week.`,
         facts: [{ label: "Index event", value: `${ix.title}${ix.detail ? ` · ${ix.detail}` : ""}`, date: ix.at }, { label: "Regimen", value: reg }, { label: "Guideline", value: "ESC ACS 2023 · ESC CCS 2024" }],
         missing: [], action: { type: "wizard", wizard: "antithrombotic" },
       }];
@@ -208,12 +211,13 @@ export const CAD_RULES: RuleDef[] = [
       if (meds.length < 2 || live(s).some((m) => m.tags.includes("ppi"))) return [];
       const why = [
         meds.some((m) => m.tags.includes("oac")) && "on an anticoagulant",
+        s.tags.has("bleeding-history") && "previous major bleeding",
         s.patient.age >= 65 && `age ${s.patient.age}`,
         live(s).some((m) => m.tags.includes("nsaid") || m.tags.includes("steroid")) && "NSAID or steroid",
       ].filter(Boolean) as string[];
       if (!why.length) return [];
       return [{
-        key: "ppi", signature: meds.map((m) => m.id).sort().join(","), severity: "yellow",
+        key: "ppi", signature: meds.map((m) => m.id).sort().join(","), severity: s.tags.has("bleeding-history") ? "orange" : "yellow",
         title: `${meds.length === 3 ? "Triple therapy" : "Combined antithrombotic therapy"} without a PPI`,
         detail: `GI-bleeding risk: ${why.join(", ")}. A PPI is recommended (ESC ACS 2023, I A).`,
         facts: [{ label: "Antithrombotics", value: meds.map((m) => m.name).join(" + ") }, { label: "Guideline", value: "ESC ACS 2023 · I A" }],

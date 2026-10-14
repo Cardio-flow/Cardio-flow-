@@ -79,7 +79,7 @@ test("up-titration waits for potassium and creatinine after the last RAAS/MRA ch
 test("potassium: 5.5 is not 'above 5.5'; 5.6 is", async () => {
   const pid = await newPatient(["hfref"]);
   await start(pid, "spironolactone", 25, "OD", addDays(T, -20));
-  await obs(pid, [{ code: "potassium", value: 5.5 }, { code: "creatinine", value: 100 }], at(T, "08"));
+  await obs(pid, [{ code: "potassium", value: 5.5 }, { code: "creatinine", value: 100 }], at(addDays(T, -1)));
   assert.equal(await rec(pid, "hf.hyperkalaemia-review"), undefined);
   await obs(pid, [{ code: "potassium", value: 5.6 }, { code: "creatinine", value: 100 }]);
   assert.ok(await rec(pid, "hf.hyperkalaemia-review"));

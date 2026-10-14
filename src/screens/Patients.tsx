@@ -4,6 +4,7 @@ import { useData, useSampleMode, withSample } from "../api";
 import { Link, SessionCtx, initials, navigate } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
+import { ImportCase } from "../drawers/ImportCase";
 
 export function Patients() {
   const session = useContext(SessionCtx);
@@ -11,6 +12,7 @@ export function Patients() {
   const sample = useSampleMode();
   const { data } = useData<any[]>(withSample(`/patients?q=${encodeURIComponent(q)}`, sample));
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   return (
     <main className="page">
       <div className="page-head">
@@ -18,7 +20,7 @@ export function Patients() {
           <h1>{sample ? "Sample patients" : "Patients"}</h1>
           <p>One record per patient across admissions, clinic and procedures</p>
         </div>
-        <span className="row wrap" style={{ gap: 8 }}>{session.role === "admin" && <Link className="btn secondary" to="/administration">Manage patients</Link>}<button className="btn primary" onClick={() => setAdding(true)}><Plus size={18} /> New patient</button></span>
+        <span className="row wrap" style={{ gap: 8 }}>{session.role === "admin" && <Link className="btn secondary" to="/administration">Manage patients</Link>}<button className="btn secondary" onClick={() => setImporting(true)}>Import case</button><button className="btn primary" onClick={() => setAdding(true)}><Plus size={18} /> New patient</button></span>
       </div>
       <input className="input" style={{ maxWidth: 420 }} placeholder="Filter by name or MRN" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter patients" />
       <div className="card wl">
@@ -37,6 +39,7 @@ export function Patients() {
         ))}
         {data && !data.length && <div className="empty" style={{ margin: 20 }}>{q ? "No patients match." : "No patients registered yet."}</div>}
       </div>
+      {importing && <ImportCase onClose={() => setImporting(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
       {adding && <NewPatient sample={sample} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
     </main>
   );

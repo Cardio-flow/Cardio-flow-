@@ -28,6 +28,8 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
   const [monitor, setMonitor] = useState<string>("7");
   const [checkDay, setCheckDay] = useState<string>(() => addDays(summary.today, 7));
   const [startDay, setStartDay] = useState<string>(summary.today);
+  // "already taking": a medicine the patient was on before this record (start date not known)
+  const [already, setAlready] = useState(false);
   const [monitoringDates,setMonitoringDates] = useState<Record<string,string>>({});
   const [override, setOverride] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,20 +85,21 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
         body: {
           code: def.code, doseValue: Number.isFinite(doseValue) && doseValue > 0 ? doseValue : null, frequency: freq, route,
           indication: indication || "unspecified", contextId: contextId ?? null, reason: preset?.reason,
-          effectiveAt: startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
-          monitoring: renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
-          bookSchedule: schedule.length > 0 && bookSchedule === "yes", monitoringDates,
-          ...(reds ? { override } : {}),
+          effectiveAt: already || startDay === today ? undefined : new Date(`${startDay}T12:00:00+03:00`).toISOString(),
+          preexisting: already || undefined,
+          monitoring: !already && renalK && monitor !== "none" ? { dueDate: checkDay, title: "Renal function and potassium check", codes: ["potassium", "creatinine"] } : null,
+          bookSchedule: !already && schedule.length > 0 && bookSchedule === "yes", monitoringDates: already ? {} : monitoringDates,
+          ...(reds && !already ? { override } : {}),
         },
       });
-      onDone(`${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(checkDay, { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
+      onDone(already ? `${def.name} recorded · already taking` : `${def.name} started${renalK && monitor !== "none" ? ` · check booked ${fmtDay(checkDay, { weekday: true })}` : schedule.length && bookSchedule === "yes" ? " · monitoring booked" : ""}`, r);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
   const reds = !!check?.hits.some((h) => (h.severity === "red" || h.requiresReview));
-  const valid = !!check && Object.values(monitoringDates).every(Boolean) && startDay && (!renalK || monitor === "none" || checkDay) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (!reds || override.trim().length >= 3);
+  const valid = !!check && (already || (Object.values(monitoringDates).every(Boolean) && startDay && (!renalK || monitor === "none" || checkDay))) && def && freq && route && indication && (dose !== "custom" || Number(custom) > 0) && (already || !reds || override.trim().length >= 3);
   return (
     <Drawer
       wide
@@ -194,8 +197,15 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
               </div>
             </div>
             <div className="q">
-              <DateField label="Start date" value={startDay} onChange={setStartDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
-              {startDay !== today && <div className="help">Recorded as started on {fmtDay(startDay, { weekday: true })} (for example, started elsewhere). Checks are booked from today.</div>}
+              <Segmented label="When" options={[{ value: "new", label: "Starting now / known date" }, { value: "already", label: "Already taking" }]} value={already ? "already" : "new"} onChange={(v) => setAlready(v === "already")} />
+              {already ? (
+                <div className="help">Recorded as a medicine the patient was already taking (start date not known): no post-start checks are booked and it does not count as a new start or dose change.</div>
+              ) : (
+                <>
+                  <DateField label="Start date" value={startDay} onChange={setStartDay} today={today} max={today} quick={[{ label: "Today", days: 0 }, { label: "Yesterday", days: -1 }]} />
+                  {startDay !== today && <div className="help">Recorded as started on {fmtDay(startDay, { weekday: true })} (for example, started elsewhere). Checks are booked from today.</div>}
+                </>
+              )}
             </div>
             {check?.start && (
               <div className="infobox" style={{ display: "block" }}>
@@ -203,7 +213,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
               </div>
             )}
             <div id="med-prestart"><PreStart def={def} rec={rec} summary={summary} hits={check?.hits ?? null} /></div>
-            {renalK && (
+            {renalK && !already && (
               <div className="q">
                 <div className="label">Monitoring</div>
                 <div className="help">Book a renal function and potassium check. It becomes a task that closes itself when the result arrives.</div>
@@ -213,7 +223,7 @@ export function AddMedication({ patientId, summary, contextId, preset, onClose, 
                 </div>
               </div>
             )}
-            {schedule.length > 0 && (
+            {schedule.length > 0 && !already && (
               <div className="q">
                 <div className="label">Monitoring schedule</div>
                 <div style={{ display: "grid", gap: 6 }}>

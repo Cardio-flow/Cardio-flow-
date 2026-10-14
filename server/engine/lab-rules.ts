@@ -225,4 +225,31 @@ export const LAB_RULES: RuleDef[] = [
       ];
     },
   },
+  {
+    id: "lab.iron-deficiency",
+    kind: "clinical",
+    title: "Iron deficiency without anaemia",
+    inputs: ["ferritin", "haemoglobin", "conditions"],
+    defaultParams: { ferritin_low: 15 },
+    evidence: "WHO 2020 guideline on ferritin: serum ferritin <15 µg/L indicates iron deficiency in adults. Iron deficiency needs a cause (blood loss — GI evaluation as indicated, menstrual, malabsorption) and replacement. Heart failure has its own definition (hf.iron-deficiency).",
+    evaluate(s, p) {
+      const f = s.resolved("ferritin").current, hb = s.resolved("haemoglobin").current;
+      if (!f || f.value_num == null || f.value_num >= Number(p.ferritin_low) || s.tags.has("hf")) return [];
+      // with anaemia the anaemia review covers it
+      if (hb?.value_num != null && hb.value_num < (s.patient.sex === "Female" ? 12 : 13)) return [];
+      const ts = s.resolved("tsat").current;
+      return [{
+        key: "iron", signature: f.id, severity: "yellow",
+        title: `Iron deficiency: ferritin ${formatNumber(f.value_num, 1)} µg/L${ts?.value_num != null ? `, TSAT ${formatNumber(ts.value_num, 0)}%` : ""} — find the cause and replace`,
+        detail: "Ferritin below 15 µg/L (WHO 2020) with a normal haemoglobin: look for blood loss (on antithrombotics: GI evaluation as indicated) and replace iron.",
+        facts: [
+          { label: "Ferritin", value: `${formatNumber(f.value_num, 1)} µg/L`, date: f.effective_at },
+          ...(ts?.value_num != null ? [{ label: "TSAT", value: `${formatNumber(ts.value_num, 0)}%`, date: ts.effective_at }] : []),
+          ...(hb?.value_num != null ? [{ label: "Haemoglobin", value: `${formatNumber(hb.value_num, 1)} g/dL`, date: hb.effective_at }] : []),
+          { label: "Guideline", value: "WHO 2020 · ferritin <15 µg/L" },
+        ],
+        missing: [], action: { type: "wizard", wizard: "anaemia-result" },
+      }];
+    },
+  },
 ];

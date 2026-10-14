@@ -28,6 +28,7 @@ import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.
 import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
+import { caseSchema, importCase } from "./kernel/case-import.js";
 import { completeWizard, declineRecommendation, restoreRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
 import { LABS, VITALS, PLAN_TEMPLATES } from "../shared/catalog.js";
@@ -220,6 +221,16 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     });
     res.status(201).json({ id });
   }));
+  // a patient's existing record from a structured case file, in one transaction (14 Oct 2026)
+  app.post("/api/patients/import", clinician, route(async (req, res) => {
+    const c = caseSchema.parse(req.body);
+    const id = await db.transaction(async (tx) => {
+      const id = await importCase(tx, actor(res), c);
+      await reassess(tx, id, await siteMode(tx, actor(res).siteId));
+      return id;
+    });
+    res.status(201).json({ id });
+  }));
   app.post("/api/patients/:id/move-to-sample", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     // the rule set depends on sample/real: every rule runs again
@@ -342,6 +353,18 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const { reason } = reasonS.parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await C.voidMedication(tx, a, id, uuidS.parse(req.params.mid), reason) }));
+  }));
+  app.post("/api/patients/:id/medications/preexisting", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const { ids } = z.object({ ids: z.array(uuidS).min(1).max(40) }).parse(req.body);
+    await write(res, id, async (tx, a) => {
+      for (const mid of ids) await C.markPreexisting(tx, a, id, mid);
+      return { changed: ["meds"] };
+    });
+  }));
+  app.post("/api/patients/:id/medications/:mid/preexisting", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    await write(res, id, async (tx, a) => ({ changed: await C.markPreexisting(tx, a, id, uuidS.parse(req.params.mid)) }));
   }));
   app.post("/api/patients/:id/medications/:mid/undo", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -554,6 +577,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     contextId: uuidS.nullish(),
     monitoring: z.object({ dueDate: isoDate.refine((d) => d >= today(), "A monitoring check cannot be dated in the past"), title: z.string().max(120), codes: z.array(z.string()).min(1) }).nullish(),
     bookSchedule: z.boolean().optional(),
+    // already taking when first recorded (start date not known): no start-time checks or bookings
+    preexisting: z.boolean().optional(),
     monitoringDates: z.record(z.string().max(80), isoDate.refine(d => d >= today(), "A monitoring check cannot be dated in the past")).optional(),
     // a red pre-start hit (contraindication) needs the clinician's reason to start anyway
     override: z.string().trim().min(3).max(300).optional(),
@@ -563,13 +588,14 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     if (!def) throw new ApiError(400, "Unknown medicine");
     if (input.effectiveAt && Date.parse(input.effectiveAt) > Date.now() + 5 * 60_000) throw new ApiError(400, "The start date cannot be in the future. Add a plan item to start it later.");
     // the check reads the record as it is now, including medicines started earlier in the same batch
-    const reds = preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red" || h.requiresReview);
+    // a medicine already being taken is recorded as it is; its safety findings appear as alerts afterwards
+    const reds = input.preexisting ? [] : preStartCheck(await loadState(tx, id), def.code, def).filter((h) => h.severity === "red" || h.requiresReview);
     if (reds.length && !input.override) throw new ApiError(409, `${reds[0].title.startsWith(def.name) ? "" : `${def.name}: `}${reds[0].title}. Review this warning and record your reason before starting.`);
     const reason = reds.length ? [input.reason, `${reds.some(h => h.severity === "red") ? "Started despite" : "Medication warnings reviewed"}: ${reds.map((h) => h.title).join("; ")} — ${input.override}`].filter(Boolean).join(" · ").slice(0, 300) : input.reason;
     const r = await K.startMedication(tx, a, id, { ...input, reason, effectiveAt: input.effectiveAt ?? nowIso() });
     // the medicine's monitoring schedule (label / guideline)
-    if (input.bookSchedule) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null, input.monitoringDates);
-    if (input.monitoring)
+    if (input.bookSchedule && !input.preexisting) await bookMonitoringAtStart(tx, a, id, r.medicationId, input.contextId ?? null, input.monitoringDates);
+    if (input.monitoring && !input.preexisting)
       await K.addPlanAction(tx, a, id, {
         category: "monitoring", title: input.monitoring.title, reason: `After starting ${input.code}`, dueDate: input.monitoring.dueDate,
         completesOn: { type: "lab", codes: input.monitoring.codes }, contextId: input.contextId, medicationId: r.medicationId,
@@ -589,7 +615,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     await write(res, id, async (tx, a) => {
       for (const item of items) if (!MEDICATION[item.code]) throw new ApiError(400, "Unknown medicine");
       const proposed = proposedMedicines(await loadState(tx, id), items.map(i => i.code));
-      for (const item of items) { const blocked = preStartCheck(proposed, item.code, MEDICATION[item.code]).filter(h => h.severity === "red" || h.requiresReview); if (blocked.length && !item.override) throw new ApiError(409, `${blocked[0].title}. Review this combination before starting it.`); }
+      for (const item of items) { if (item.preexisting) continue; const blocked = preStartCheck(proposed, item.code, MEDICATION[item.code]).filter(h => h.severity === "red" || h.requiresReview); if (blocked.length && !item.override) throw new ApiError(409, `${blocked[0].title}. Review this combination before starting it.`); }
       const started: string[] = [];
       for (const item of items) started.push((await startOne(tx, a, id, item)).medicationId);
       return { started, changed: ["meds", "plan"] };

@@ -12,7 +12,7 @@ import { HTN_DIAGNOSIS_STATUS, type HypertensionDiagnosisStatus } from "../../sh
 // Mutually exclusive sets pick one (HF phenotype, diabetes type, CKD stage); search narrows every group.
 // Diagnoses and risk factors are kept apart (Ahmed, 7 Oct 2026): risk factors are their own section.
 const COMORBIDITY_GROUPS: { title: string; codes: string[] }[] = [
-  { title: "Vascular and thrombosis", codes: ["stroke-tia", "pad", "pe", "aps"] },
+  { title: "Vascular and thrombosis", codes: ["stroke-tia", "pad", "pe", "aps", "prior-bleeding"] },
   { title: "Lung and sleep", codes: ["copd", "ild", "osa"] },
   { title: "Other", codes: ["anaemia", "thyroid", "liver-disease", "cancer", "prediabetes", "statin-intolerance"] },
 ];

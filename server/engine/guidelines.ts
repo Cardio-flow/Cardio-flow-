@@ -399,6 +399,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evaluate(s, p) {
       const risk = lipidRisk(s);
       if (!risk) return [];
+      // ESC/EAS 2019: statins are not recommended to be started in dialysis-dependent CKD without ASCVD (III A);
+      // continued if already taken
+      if (s.tags.has("dialysis") && !s.tags.has("ascvd") && !onTag(s, "statin").length) return [];
       const ldl = recent(s, "ldl-c", Number(p.recheck_days));
       const statin = onTag(s, "statin")[0];
       if (!ldl)
@@ -478,6 +481,41 @@ export const GUIDELINE_RULES: RuleDef[] = [
     },
   },
   {
+    id: "cardiorenal.ckd-stage",
+    kind: "clinical",
+    title: "CKD stage on the problem list vs eGFR",
+    inputs: ["egfr", "creatinine", "conditions"],
+    defaultParams: { chronic_days: 90 },
+    evidence: "KDIGO 2024 CKD: CKD = eGFR <60 mL/min/1.73m² (or kidney damage) for >3 months; GFR categories G1–G2 ≥60, G3a 45–59, G3b 30–44, G4 15–29, G5 <15. A change lasting under 3 months is acute (AKI/AKD), not a new stage.",
+    evaluate(s, p) {
+      if (s.tags.has("dialysis")) return [];
+      const hist = s.resolved("egfr").history.filter((o) => o.status === "final" && o.value_num != null);
+      const now = hist[0];
+      if (!now) return [];
+      const stage = (e: number) => (e >= 60 ? "ckd-1-2" : e >= 45 ? "ckd-3a" : e >= 30 ? "ckd-3b" : e >= 15 ? "ckd-4" : "ckd-5");
+      const label = (c: string) => DIAGNOSIS[c]?.display.replace(" (with albuminuria)", "") ?? c;
+      // persistent: a result at least 3 months earlier in the same category, and none in another category since
+      const older = hist.find((o) => daysBetween(o.effective_at, now.effective_at) >= Number(p.chronic_days));
+      if (!older) return [];
+      const between = hist.filter((o) => o.effective_at >= older.effective_at);
+      const st = stage(now.value_num!);
+      if (!between.every((o) => stage(o.value_num!) === st)) return [];
+      const listed = s.conditions.find((c) => c.status === "active" && c.code.startsWith("ckd-"));
+      const f = facts({ label: "eGFR now", value: `${formatNumber(now.value_num!, 0)}`, date: now.effective_at }, { label: "eGFR ≥3 months earlier", value: `${formatNumber(older.value_num!, 0)}`, date: older.effective_at }, src("KDIGO 2024 · CKD stage from eGFR sustained >3 months"));
+      if (listed && listed.code !== st && !(st === "ckd-1-2"))
+        return [{ key: "ckd-stage", signature: `${listed.code}:${st}:${now.id}`, severity: "yellow",
+          title: `eGFR ${formatNumber(now.value_num!, 0)} for over 3 months: CKD stage is ${label(st)}, the list says ${label(listed.code)}`,
+          detail: "Update the stage so drug-dose and cardiorenal rules use it", facts: f, missing: [],
+          action: { type: "edit-dx", code: listed.code, label: `Change to ${label(st)}` } }];
+      if (!listed && st !== "ckd-1-2")
+        return [{ key: "ckd-stage", signature: `none:${st}:${now.id}`, severity: "yellow",
+          title: `eGFR below 60 for over 3 months: add ${label(st)} to the problem list`,
+          detail: "KDIGO: CKD is eGFR <60 sustained over 3 months", facts: f, missing: [],
+          action: { type: "history", focus: "risk", label: "Add CKD stage" } }];
+      return [];
+    },
+  },
+  {
     id: "cardiorenal.screening",
     kind: "clinical",
     title: "Kidney screening in cardiovascular disease",
@@ -486,6 +524,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
     evidence: "2026 ESC/ERA CVD and CKD guidelines: test every patient with CVD for CKD with eGFR and urine albumin:creatinine ratio (class I).",
     evaluate(s, p) {
       if (!(s.tags.has("ascvd") || isHF(s) || s.tags.has("af") || has(s, "htn") || s.tags.has("dm"))) return [];
+      // kidney screening has no meaning on dialysis (kidney failure is established)
+      if (s.tags.has("dialysis")) return [];
       const missing = [!recent(s, "egfr", Number(p.days)) && "eGFR", !recent(s, "uacr", Number(p.days)) && "UACR"].filter(Boolean) as string[];
       if (!missing.length) return [];
       return [{ key: "ckd-screen", signature: missing.join(","), severity: "yellow", title: `Kidney screening due: ${missing.join(" and ")}`,
@@ -511,9 +551,11 @@ export const GUIDELINE_RULES: RuleDef[] = [
           action: { type: "start-med", code: "empagliflozin", dose: 10, label: "Start empagliflozin 10 mg" } });
       // GLP-1 RA for every guideline indication in T2DM: established ASCVD (ESC 2023, class I) and
       // CKD (ESC-ERA CVD–CKD 2026 §5.5.4, FLOW: fewer kidney and CV events). Ahmed, 30 Sep 2026.
-      const ckd = s.tags.has("ckd") || (egfr != null && egfr < 60) || (val(s, "uacr", 365) ?? 0) >= 3;
+      // FLOW excluded dialysis: on dialysis the CKD indication does not apply (ASCVD still does)
+      const ckd = !s.tags.has("dialysis") && (s.tags.has("ckd") || (egfr != null && egfr < 60) || (val(s, "uacr", 365) ?? 0) >= 3);
       if ((s.tags.has("ascvd") || ckd) && !onTag(s, "glp1").length)
-        out.push({ key: "dm-glp1", signature: s.tags.has("ascvd") ? "glp1" : "glp1:ckd", severity: "blue",
+        // ESC 2023 diabetes: GLP-1 RA with proven benefit in T2DM with ASCVD is Class I (orange, like SGLT2i)
+        out.push({ key: "dm-glp1", signature: s.tags.has("ascvd") ? "glp1" : "glp1:ckd", severity: s.tags.has("ascvd") ? "orange" : "blue",
           title: `T2DM with ${[s.tags.has("ascvd") ? "ASCVD" : null, ckd ? "CKD" : null].filter(Boolean).join(" and ")}: GLP-1 RA with proven benefit not prescribed`,
           detail: s.tags.has("ascvd") ? "Semaglutide, liraglutide or dulaglutide · reduces MACE independent of HbA1c" : "Semaglutide reduces kidney failure, CV death and MACE in T2DM with CKD (FLOW)",
           facts: facts(fact(s, "hba1c", 365), fact(s, "egfr", 180), fact(s, "uacr", 365), fact(s, "weight", 365), src(s.tags.has("ascvd") ? "ESC diabetes & CVD 2023 · Class I" : "ESC-ERA CVD–CKD 2026 · §5.5.4 (class pending review)")), missing: [],
@@ -641,6 +683,15 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const out: Finding[] = [];
       const cr = val(s, "creatinine", 180), wt = val(s, "weight", 365), age = s.patient.age;
       const crcl = cr && wt ? cockcroftGault(cr, age, wt, s.patient.sex) : null;
+      // the label dose cannot be checked without weight (apixaban, edoxaban, CrCl) or creatinine: ask for them
+      const afDoacs = onTag(s, "oac").filter((m) => m.status === "active" && ["apixaban", "edoxaban", "rivaroxaban", "dabigatran"].includes(m.code) && (m.indication === "af" || ((!m.indication || m.indication === "unspecified") && s.tags.has("af"))));
+      const need = [cr == null && "creatinine", wt == null && "weight"].filter(Boolean) as string[];
+      if (afDoacs.length && need.length)
+        out.push({ key: "doac-data", signature: `${afDoacs.map((m) => m.id + ":" + m.doseValue).join(",")}:${need.join(",")}`, severity: "yellow",
+          title: `${need.map((x) => (x === "weight" ? "Weight" : "Creatinine")).join(" and ")} needed to check the ${afDoacs.map((m) => m.name.toLowerCase()).join(" / ")} dose`,
+          detail: `The label dose depends on ${afDoacs.some((m) => m.code === "apixaban") ? "age, weight and creatinine (apixaban: 2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L)" : "creatinine clearance and weight"}`,
+          facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), src("ESC AF 2024 / EHRA DOAC guide; DOAC SmPC 4.2")),
+          missing: need, action: { type: "add-labs", codes: need, label: `Add ${need.join(" and ")}` } });
       for (const { med: m, right, why } of doacDoseCheck(s)) {
         if (m.doseValue == null || m.doseValue === right) continue;
         const def = MEDICATION[m.code];

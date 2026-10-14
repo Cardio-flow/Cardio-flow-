@@ -1,124 +1,198 @@
-// The overview's first screen (workflow redesign, slice 1): one flow bar, then the open findings in four
-// lanes — act now, decide, order & book, consider — with merged cards (shared/triage.ts).
+// The overview's first screen (redesign, 14 Oct 2026 — Ahmed: "problems at a glance, which I prefer", no
+// duplicate lanes): the brief, then one card per problem — where it stands against its guideline goal, what
+// data the decision still needs, and every open item for it with its action. Nothing is listed twice: an item
+// lives in its problem's card; items with no problem go to "Other". Due tests are gathered in one button.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw } from "lucide-react";
+import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw, AlertTriangle } from "lucide-react";
 import { api } from "../api";
-import { formatNumber } from "../../shared/catalog";
-import { SevIcon } from "../ui";
+import { formatNumber, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
-import { triage, type Card, type Lane, PANEL_OF } from "../../shared/triage";
+import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
 import { SuggestLine } from "./SuggestLine";
-import { MEDICATION } from "../../shared/catalog";
 import type { Open } from "./Patient";
-
-const LANES: { key: Lane; label: string; hint: string }[] = [
-  { key: "act", label: "Act now", hint: "Safety and acute events" },
-  { key: "decide", label: "Decide", hint: "Treatment and pathway decisions" },
-  { key: "order", label: "Order & book", hint: "Labs, tests and checks due" },
-  { key: "consider", label: "Consider", hint: "Prevention to discuss" },
-];
 
 export function useTriage(s: any) {
   const cards = triage(s.attention);
-  const by = (l: Lane) => cards.filter((c) => c.lane === l);
-  const count = (l: Lane) => (l === "order" ? by(l).reduce((n, c) => n + c.items.length, 0) : by(l).length);
-  // panels that hold an act-now or decide finding open by default
+  // module panels holding an urgent or decision item start open on larger screens
   const hot = new Set(cards.filter((c) => c.lane === "act" || c.lane === "decide").flatMap((c) => c.items.map((f) => PANEL_OF(f.rule_id))).filter(Boolean) as string[]);
-  return { cards, by, count, hot };
+  return { cards, hot };
 }
 
+const SEV_RANK: Record<string, number> = { red: 0, orange: 1, yellow: 2, blue: 3 };
+// which problem an alert belongs to (one place only)
+const PROBLEM_OF = (ruleId: string): string => {
+  if (["hf.hyperkalaemia-review", "hf.worsening-renal-function", "safety.low-potassium", "safety.hyponatraemia", "ops.monitoring-after-change"].includes(ruleId) || ruleId.startsWith("cardiorenal.")) return "kidney";
+  if (["lab.anaemia", "lab.iron-deficiency", "hf.iron-deficiency", "safety.bleeding"].includes(ruleId)) return "anaemia";
+  if (["safety.inr", "safety.digoxin", "event.amiodarone-thyroid"].includes(ruleId)) return "af";
+  if (["lab.liver-enzymes", "lab.statin-ck"].includes(ruleId)) return "lipids";
+  if (ruleId.startsWith("hf.")) return "hf";
+  if (ruleId.startsWith("htn.")) return "bp";
+  if (ruleId.startsWith("lipids.")) return "lipids";
+  if (ruleId.startsWith("dm.") || ruleId.startsWith("metabolic.")) return "diabetes";
+  if (ruleId.startsWith("af.") || ruleId.startsWith("rhythm.")) return "af";
+  if (ruleId.startsWith("cad.") || ruleId.startsWith("acs.")) return "cad";
+  if (ruleId.startsWith("valve.") || ruleId.startsWith("structural.")) return "valve";
+  if (ruleId.startsWith("cmp.")) return "cmp";
+  if (ruleId.startsWith("ph.")) return "ph";
+  return "other";
+};
+type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
+type Problem = { key: string; label: string; sub?: string; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
+const TITLES: Record<string, string> = { hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
+
 export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
-  const t = useTriage(s);
   const [why, setWhy] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
-  const total = LANES.reduce((n, l) => n + t.count(l.key), 0);
-  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  const rdn = t.cards.find(c => c.items.some(a => a.rule_id === "htn.rdn"));
-  const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   const [dismiss, setDismiss] = useState<string | null>(null);
   const row = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
+  const problems = buildProblems(s);
+  const items = (key: string) => (s.attention as any[]).filter((a) => PROBLEM_OF(a.rule_id) === key).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
+  const shown = problems.filter((p) => p.key !== "other" || items("other").length);
+  const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : 9; };
+  shown.sort((x, y) => rank(x) - rank(y));
+  // every due test in one entry (the items stay in their problem cards)
+  const dueLabs = (s.attention as any[]).filter((a) => a.action?.type === "add-labs");
+  const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
+  const urgent = (s.attention as any[]).filter((a) => a.severity === "red").length;
+  const decisions = (s.attention as any[]).filter((a) => a.action?.type !== "add-labs").length;
+  const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   return (
     <section className="tb" aria-labelledby="att-h" id="att">
       <div className="tb-head">
         <h2 id="att-h">Today</h2>
         <Brief o={s.overview} />
       </div>
-      {total === 0 && !s.plan.some((p: any) => p.awaitingReview) ? (
-        <div className="tb-clear">
-          <CheckCircle2 size={22} /> Nothing needs attention. Every plan item is on track.
-        </div>
-      ) : total > 0 ? (
-        <div className="flowbar" role="list" aria-label="Open items by lane">
-          {LANES.filter((l) => t.count(l.key) > 0).map((l) => (
-            <button key={l.key} role="listitem" className={`seg lane-${l.key}`} style={{ flexGrow: Math.max(1, Math.min(4, t.count(l.key))) }} onClick={() => go("lane-" + l.key)}>
-              <b>{t.count(l.key)}</b>
-              <span>{l.label}</span>
+      {s.attention.length === 0 && !s.plan.some((p: any) => p.awaitingReview) ? (
+        <div className="tb-clear"><CheckCircle2 size={22} /> Nothing needs attention. Every plan item is on track.</div>
+      ) : (
+        <div className="tb-summary">
+          {urgent > 0 && <span className="tb-count red"><AlertTriangle size={15} /> {urgent} urgent</span>}
+          {decisions > 0 && <span className="tb-count">{decisions} decision{decisions === 1 ? "" : "s"}</span>}
+          {dueCodes.length > 0 && (
+            <button className="btn primary small tb-labs" onClick={() => open({ kind: "labs", codes: dueCodes })}>
+              <FlaskConical size={15} /> Enter due results · {dueCodes.map((c) => NEED_LABEL[c] ?? c).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
             </button>
-          ))}
+          )}
         </div>
-      ) : null}
-      {rdn && <button className="btn secondary small rdn-jump" onClick={() => go(`decision-${rdn.key}`)}>RDN assessment available ↓</button>}
-      {draft && <p className="tb-draft">Items marked “in review” come from rules still in clinical review. They run on this sandbox only.</p>}
-      <ProblemBoard s={s} open={open} />
-      <DecisionContext context={s.reviewContext} open={open} />
-
-
-      {t.by("act").length > 0 && (
-        <LaneBox lane="act">
-          {t.by("act").map((c) => <CardRow key={c.key} c={c} {...row} />)}
-        </LaneBox>
       )}
+      {draft && <p className="tb-draft">Items marked “in review” come from rules still in clinical review. They run on this sandbox only.</p>}
       {s.plan.some((p: any) => p.awaitingReview) && <div className="lane review-queue" aria-label="Results awaiting review">
         <div className="lane-head"><span className="lane-title">Results to review</span><span className="lane-hint">Recorded evidence, awaiting your decision</span></div>
         <div className="lane-rows">{s.plan.filter((p: any) => p.awaitingReview).map((p: any) => <div className="review-row" key={p.id}><div><b>{p.title}</b><span className="small muted">{p.owner ? `Owner: ${p.owner} · ` : ""}{p.completedAt ? fmtDay(p.completedAt) : "Result recorded"}</span></div><button className="btn secondary small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Review result</button></div>)}</div>
       </div>}
-
-      {t.by("decide").length > 0 && (
-        <LaneBox lane="decide">
-          {t.by("decide").map((c) => <CardRow key={c.key} c={c} {...row} />)}
-        </LaneBox>
-      )}
-      {t.by("order").length > 0 && <OrderLane cards={t.by("order")} {...row} />}
-      {t.by("consider").length > 0 && (
-        <details className="lane lane-consider" id="lane-consider">
-          <summary>
-            <span className="lane-title">Consider</span>
-            <span className="lane-hint">{t.count("consider")} prevention suggestion{t.count("consider") === 1 ? "" : "s"} to discuss when there is time</span>
-            <ChevronDown size={18} className="chev" />
-          </summary>
-          <div className="lane-rows">{t.by("consider").map((c) => <CardRow key={c.key} c={c} {...row} />)}</div>
-        </details>
-      )}
+      <div className="problems" aria-label="Problems at a glance">
+        {shown.map((p) => <ProblemCard key={p.key} p={p} items={items(p.key)} row={row} />)}
+      </div>
       <Dismissed s={s} done={done} />
     </section>
   );
 }
 
-function DecisionContext({ context, open }: { context: any; open(o: Open): void }) {
-  if (!context) return null;
-  return <section className="decision-context" aria-label="Latest results and medicines">
-    <div className="context-head"><h3>For today's decisions</h3><span className="small muted">Latest recorded · dates shown</span></div>
-    <dl className="context-results">{context.results.map((r: any) => <div key={r.code}><dt>{r.label}</dt><dd>{r.value == null ? "Not recorded" : <>{Number(r.value).toLocaleString("en-GB", { maximumFractionDigits: r.code === "potassium" ? 1 : 0 })}<small> {r.unit}</small></>}</dd><span className="small muted">{r.at ? fmtDay(r.at) : "Missing"}</span></div>)}</dl>
-    <details className="context-medicines"><summary>Relevant medicines · {context.medicines.length}</summary><div className="context-med-list">{context.medicines.map((m: any) => <button key={m.id} className="context-med" onClick={() => open({ kind: "med-action", medId: m.id })}><b>{m.name}</b><span>{m.dose} {m.frequency ?? ""}{m.status === "held" ? " · ON HOLD" : m.status === "not_taking" ? " · NOT TAKING" : ""}</span></button>)}{context.medicines.length === 0 && <span className="small muted">No relevant medicines recorded.</span>}</div></details>
-  </section>;
-}
-
-function LaneBox({ lane, children, extra }: { lane: Lane; children: ReactNode; extra?: ReactNode }) {
-  const l = LANES.find((x) => x.key === lane)!;
+function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProps }) {
+  const [more, setMore] = useState(false);
+  const top = items[0];
+  // low-priority suggestions fold under "to consider" so the card leads with what matters
+  const main = items.filter((a) => a.severity !== "blue");
+  const consider = items.filter((a) => a.severity === "blue");
   return (
-    <div className={`lane lane-${lane}`} id={"lane-" + lane}>
-      <div className="lane-head">
-        <span className="lane-title">{l.label}</span>
-        <span className="lane-hint">{l.hint}</span>
-        {extra}
+    <section className={`problem ${top ? `p-${top.severity}` : "ok"}`} aria-label={p.label}>
+      <div className="problem-head">
+        <b>{p.label}</b>
+        {p.sub && <span className="problem-sub">{p.sub}</span>}
+        {!top && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
       </div>
-      <div className="lane-rows">{children}</div>
-    </div>
+      {p.stats.length > 0 && (
+        <div className="problem-stats">
+          {p.stats.map((x, i) => <span key={i} className={`pstat ${x.tone ?? ""}`}><small>{x.label}</small>{x.value}</span>)}
+        </div>
+      )}
+      {(p.goal || p.therapy) && <div className="problem-goal">{[p.goal, p.therapy].filter(Boolean).join(" · ")}</div>}
+      {p.need.length > 0 && (
+        <div className="problem-need">
+          <span>Needed for the decision: <b>{[...new Set(p.need.map((n) => n.label))].join(", ")}</b></span>
+          <button className="btn ghost small" onClick={() => row.open({ kind: "labs", codes: [...new Set(p.need.map((n) => n.code))] })}>Record</button>
+        </div>
+      )}
+      {main.length > 0 && <div className="problem-items">{main.map((a) => <Item key={a.id} a={a} {...row} />)}</div>}
+      {consider.length > 0 && (
+        <div className="problem-consider">
+          <button type="button" className="btn ghost small" aria-expanded={more} onClick={() => setMore(!more)}>{more ? "Hide" : `${consider.length} to consider`} <ChevronDown size={14} style={{ transform: more ? "rotate(180deg)" : undefined }} /></button>
+          {more && <div className="problem-items">{consider.map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>}
+        </div>
+      )}
+    </section>
   );
 }
 
+// the problems this patient has, from the problem list and the guideline targets
+function buildProblems(s: any): Problem[] {
+  const t = s.targets ?? {};
+  const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));
+  const R: Record<string, any> = Object.fromEntries((s.reviewContext?.results ?? []).map((r: any) => [r.code, r]));
+  const days = (at: string | null) => (at ? Math.round((Date.parse(s.today) - Date.parse(String(at).slice(0, 10))) / 86400000) : null);
+  const recent = (code: string, within: number) => R[code]?.value != null && (days(R[code].at) ?? 9999) <= within;
+  const val = (code: string, d = 0) => (R[code]?.value != null ? `${n(R[code].value, d)}${R[code].at ? ` · ${fmtDay(R[code].at)}` : ""}` : "Not recorded");
+  const meds = (s.medications?.groups ?? []).flatMap((g: any) => g.meds).filter((m: any) => m.status === "active" || m.status === "held");
+  const line = (tags: string[]) => meds.filter((m: any) => m.tags?.some((x: string) => tags.includes(x))).map((m: any) => `${m.name} ${m.dose}${m.status === "held" ? " (held)" : ""}`).join(" · ");
+  const dx = new Set<string>((s.header?.diagnoses ?? []).map((d: any) => d.code));
+  const tagSet = new Set<string>(s.header?.tags ?? []);
+  const has = (...codes: string[]) => codes.some((c) => dx.has(c) || tagSet.has(c));
+  const need = (codes: string[], within: number) => codes.filter((c) => !recent(c, within)).map((c) => ({ code: c, label: NEED_LABEL[c] ?? c }));
+  const out: Problem[] = [];
+  if (t.hf) {
+    const on = t.hf.pillars.filter((x: any) => x.state === "on" || x.state === "target").length;
+    out.push({
+      key: "hf", label: `${TITLES.hf} · ${t.hf.phenotype}${t.hf.lvef != null ? ` · LVEF ${n(t.hf.lvef)}%` : ""}`,
+      sub: s.hf?.admissions?.last12m ? `${s.hf.admissions.last12m} HF admission${s.hf.admissions.last12m === 1 ? "" : "s"} in 12 months` : undefined,
+      stats: [
+        ...t.hf.pillars.map((x: any) => ({ label: x.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI/ACEi/ARB"), value: x.state === "target" ? "At target" : x.state === "on" ? `${x.percentOfTarget ?? "?"}% of target` : x.state === "held" ? "Held" : x.state === "blocked" ? "Not now" : "Not started", tone: x.state === "target" ? "ok" : x.state === "on" ? undefined : "warn" })),
+        ...(R["nt-probnp"]?.value != null ? [{ label: "NT-proBNP", value: val("nt-probnp") }] : []),
+      ],
+      goal: `${on} of ${t.hf.pillars.length} foundational medicines · goal: all at target or maximum tolerated dose`,
+      therapy: line(["loop", "thiazide"]) ? `Diuretic: ${line(["loop", "thiazide"])}` : undefined,
+      need: need(["sbp", "hr", "weight"], 60),
+    });
+  }
+  const k = t.kidney;
+  if (k && (k.egfr != null || k.k != null || has("ckd"))) {
+    const stats: Stat[] = [];
+    if (k.egfr != null) stats.push({ label: "eGFR", value: `${n(k.egfr)}${k.egfrAt ? ` · ${fmtDay(k.egfrAt)}` : ""}`, tone: k.egfr < 30 ? "bad" : k.egfr < 60 ? "warn" : "ok" });
+    if (k.creatinine) stats.push({ label: "Creatinine vs baseline", value: `${n(k.creatinine.baseline)} → ${n(k.creatinine.current)} (${k.creatinine.rise >= 0 ? "+" : ""}${k.creatinine.rise}%)`, tone: k.creatinine.review ? "bad" : undefined });
+    if (k.k != null) stats.push({ label: "Potassium", value: `${n(k.k, 1)}${k.kAt ? ` · ${fmtDay(k.kAt)}` : ""}`, tone: k.k > 5.5 || k.k < 3.5 ? "bad" : k.k > 5.0 ? "warn" : "ok" });
+    if (R.sodium?.value != null) stats.push({ label: "Sodium", value: val("sodium"), tone: R.sodium.value < 135 ? "warn" : "ok" });
+    if (k.uacr != null) stats.push({ label: "UACR", value: `${n(k.uacr, 1)} mg/mmol`, tone: k.uacr >= 3 ? "warn" : "ok" });
+    out.push({ key: "kidney", label: TITLES.kidney, stats, therapy: line(["raas", "mra", "sglt2", "k-binder"]) || undefined, need: has("ckd") || t.hf ? need(["creatinine", "potassium"], 90) : [] });
+  }
+  if (has("anaemia") || (R.haemoglobin?.value != null && R.haemoglobin.value < (s.header?.sex === "Female" ? 12 : 13)) || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "anaemia"))
+    out.push({ key: "anaemia", label: TITLES.anaemia, stats: [{ label: "Hb", value: val("haemoglobin", 1), tone: "warn" }, { label: "Ferritin", value: val("ferritin") }, { label: "TSAT", value: R.tsat?.value != null ? `${n(R.tsat.value)}%` : "Not recorded" }], therapy: line(["oac", "antiplatelet"]) ? `Antithrombotic: ${line(["oac", "antiplatelet"])}` : undefined, need: need(["ferritin", "tsat"], 365) });
+  if (t.af) {
+    const hr = R.hr?.value;
+    out.push({
+      key: "af", label: TITLES.af, sub: undefined,
+      stats: [
+        { label: "CHA₂DS₂-VA", value: String(t.af.score) },
+        { label: "Anticoagulant", value: t.af.oac.length ? t.af.oac.join(" · ") : "None", tone: t.af.oac.length ? "ok" : t.af.score >= 2 ? "bad" : undefined },
+        { label: "Heart rate", value: val("hr"), tone: hr == null ? undefined : hr >= 110 ? "warn" : "ok" },
+        ...(t.af.inr != null ? [{ label: "INR", value: n(t.af.inr, 1) }] : []),
+      ],
+      therapy: line(["bb", "bb-other", "ndhp-ccb", "digoxin", "rate-slowing"]) ? `Rate control: ${line(["bb", "bb-other", "ndhp-ccb", "digoxin"])}` : undefined,
+      need: need(["hr"], 60).concat(t.af.oac.length ? need(["weight", "creatinine"], 365) : []),
+    });
+  }
+  if (has("cad", "ascvd") || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "cad"))
+    out.push({ key: "cad", label: TITLES.cad, stats: [{ label: "Antithrombotic", value: line(["antiplatelet", "oac"]) || "None" }, ...(line(["nitrate", "nitrate-sl", "ranolazine", "ivabradine"]) ? [{ label: "Anti-anginal", value: line(["nitrate", "ranolazine", "ivabradine"]) }] : [])], need: [] });
+  if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365) });
+  if (t.bp) out.push({ key: "bp", label: TITLES.bp, stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)`, need: need(["sbp"], 90) });
+  if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180) });
+  for (const key of ["valve", "cmp", "ph"]) if ((s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === key)) out.push({ key, label: TITLES[key], stats: [], need: [] });
+  out.push({ key: "other", label: TITLES.other, stats: [], need: [] });
+  return out;
+}
+
 type RowProps = { dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
+
 
 function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   // a medicine start or dose change opens inline as an editable line (drug, dose, dates)
@@ -151,71 +225,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   );
 }
 
-function CardRow({ c, ...p }: { c: Card } & RowProps) {
-  if (c.items.length === 1)
-    return (
-      <div className={`tcard sev-${c.severity}`} id={`decision-${c.key}`}>
-        {c.lane === "act" && <div className="ic"><SevIcon sev={c.severity} /></div>}
-        <div className="tcard-body">
-          <Item a={c.lead} {...p} />
-          {c.lead.also?.length > 0 && <span className="also">Also: {c.lead.also.map((x: any) => x.title).join(" · ")}</span>}
-          {c.note && <span className="note">{c.note}</span>}
-        </div>
-      </div>
-    );
-  return (
-    <div className={`tcard bundle sev-${c.severity}`} id={`decision-${c.key}`}>
-      {c.lane === "act" && <div className="ic"><SevIcon sev={c.severity} /></div>}
-      <div className="tcard-body">
-        {c.key.startsWith("wiz-") ? (
-          <Item a={c.lead} {...p} />
-        ) : (
-          <>
-            <span className="bundle-title">{c.title}</span>
-            <div className="bundle-items">
-              {c.items.map((a) => <Item key={a.id} a={a} compact {...p} />)}
-            </div>
-          </>
-        )}
-        {c.key.startsWith("wiz-") && <span className="also">Same pathway also covers: {c.items.filter((x) => x !== c.lead).map((x) => x.title).join(" · ")}</span>}
-        {c.note && <span className="note">{c.note}</span>}
-      </div>
-    </div>
-  );
-}
 
-// Everything due in one list: blood tests gathered into one "enter results" step, then each check to book.
-function OrderLane({ cards, ...p }: { cards: Card[] } & RowProps) {
-  const items = cards.flatMap((c) => c.items);
-  const labs = items.filter((a) => a.action?.type === "add-labs");
-  const codes = [...new Set(labs.flatMap((a) => a.action.codes ?? []))];
-  const rest = items.filter((a) => a.action?.type !== "add-labs");
-  return (
-    <LaneBox
-      lane="order"
-      extra={codes.length > 0 && (
-        <button className="btn primary small lane-cta" onClick={() => p.open({ kind: "labs", codes })}>
-          <FlaskConical size={16} /> Enter {labs.length > 1 ? "all " : ""}results
-        </button>
-      )}
-    >
-      {labs.length > 0 && (
-        <div className="order-group">
-          <span className="order-label">Blood and urine tests</span>
-          {labs.map((a) => <Item key={a.id} a={a} compact {...p} />)}
-        </div>
-      )}
-      {rest.length > 0 && (
-        <div className="order-group">
-          <span className="order-label">Tests, checks and visits</span>
-          {rest.map((a) => <Item key={a.id} a={a} compact {...p} />)}
-        </div>
-      )}
-    </LaneBox>
-  );
-}
-
-// why here · what changed · unfinished · next, in one line each
 function Brief({ o }: { o: any }) {
   if (!o) return null;
   const parts: [string, string][] = [
@@ -356,80 +366,3 @@ function Dismissed({ s, done }: { s: any; done(message?: string): void }) {
 }
 
 // Problems at a glance: each active problem with where it stands against its guideline goal and the first open
-// decision for it — so the overview answers "what do I do for this patient today", problem by problem.
-const SEV_RANK: Record<string, number> = { red: 0, orange: 1, yellow: 2, blue: 3 };
-const PROBLEM_OF = (ruleId: string): string | null => {
-  if (["hf.hyperkalaemia-review", "hf.worsening-renal-function", "safety.low-potassium", "safety.hyponatraemia"].includes(ruleId) || ruleId.startsWith("cardiorenal.")) return "kidney";
-  if (ruleId.startsWith("hf.")) return "hf";
-  if (ruleId.startsWith("htn.")) return "bp";
-  if (ruleId.startsWith("lipids.")) return "lipids";
-  if (ruleId.startsWith("dm.") || ruleId.startsWith("metabolic.")) return "diabetes";
-  if (ruleId.startsWith("af.") || ruleId.startsWith("rhythm.")) return "af";
-  if (ruleId.startsWith("cad.") || ruleId.startsWith("acs.")) return "cad";
-  if (ruleId.startsWith("valve.") || ruleId.startsWith("structural.")) return "valve";
-  return null;
-};
-type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
-function ProblemBoard({ s, open }: { s: any; open(o: Open): void }) {
-  const t = s.targets;
-  if (!t) return null;
-  const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));
-  const rows: { key: string; label: string; stats: Stat[]; goal?: string }[] = [];
-  if (t.hf) {
-    const on = t.hf.pillars.filter((p: any) => p.state === "on" || p.state === "target").length;
-    rows.push({
-      key: "hf", label: `Heart failure · ${t.hf.phenotype}${t.hf.lvef != null ? ` · LVEF ${n(t.hf.lvef)}%` : ""}`,
-      stats: t.hf.pillars.map((p: any) => ({ label: p.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI/ACEi/ARB"), value: p.state === "target" ? "At target" : p.state === "on" ? `${p.percentOfTarget ?? "?"}% of target` : p.state === "held" ? "Held" : p.state === "blocked" ? "Not now" : "Not started", tone: p.state === "target" ? "ok" : p.state === "on" ? undefined : "warn" })),
-      goal: `${on} of ${t.hf.pillars.length} foundational medicines · goal: all at target or maximum tolerated dose`,
-    });
-  }
-  const k = t.kidney;
-  if (k && (k.egfr != null || k.k != null)) {
-    const stats: Stat[] = [];
-    if (k.egfr != null) stats.push({ label: "eGFR", value: `${n(k.egfr)}${k.egfrAt ? ` · ${fmtDay(k.egfrAt)}` : ""}`, tone: k.egfr < 30 ? "bad" : k.egfr < 60 ? "warn" : "ok" });
-    if (k.creatinine) stats.push({ label: "Creatinine vs baseline", value: `${n(k.creatinine.baseline)} → ${n(k.creatinine.current)} (${k.creatinine.rise >= 0 ? "+" : ""}${k.creatinine.rise}%)`, tone: k.creatinine.review ? "bad" : undefined });
-    if (k.k != null) stats.push({ label: "Potassium", value: `${n(k.k, 1)}${k.kAt ? ` · ${fmtDay(k.kAt)}` : ""}`, tone: k.k > 5.5 || k.k < 3.5 ? "bad" : k.k > 5.0 ? "warn" : "ok" });
-    if (k.uacr != null) stats.push({ label: "UACR", value: `${n(k.uacr, 1)} mg/mmol`, tone: k.uacr >= 3 ? "warn" : "ok" });
-    rows.push({ key: "kidney", label: "Kidney & potassium", stats });
-  }
-  if (t.bp) rows.push({ key: "bp", label: "Blood pressure", stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)` });
-  if (t.ldl) rows.push({ key: "lipids", label: "Lipids", stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }, { label: "Therapy", value: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "None" }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk` });
-  if (t.diabetes) rows.push({ key: "diabetes", label: "Diabetes", stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }, { label: "Therapy", value: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "None" }], goal: `Target ${t.diabetes.target}` });
-  if (t.af) rows.push({ key: "af", label: "Atrial fibrillation", stats: [{ label: "CHA₂DS₂-VA", value: String(t.af.score) }, { label: "Anticoagulant", value: t.af.oac.length ? t.af.oac.join(" · ") : "None", tone: t.af.oac.length ? "ok" : t.af.score >= 2 ? "bad" : undefined }, ...(t.af.inr != null ? [{ label: "INR", value: n(t.af.inr, 1) }] : [])] });
-  const recs = (key: string) => (s.attention as any[]).filter((a) => PROBLEM_OF(a.rule_id) === key).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
-  for (const key of ["cad", "valve"]) if (recs(key).length) rows.push({ key, label: key === "cad" ? "Coronary disease" : "Valve / structural", stats: [] });
-  if (!rows.length) return null;
-  // the most urgent problem first; problems without an open decision last
-  const rank = (key: string) => { const r = recs(key)[0]; return r ? SEV_RANK[r.severity] : 9; };
-  rows.sort((x, y) => rank(x.key) - rank(y.key));
-  return (
-    <section className="problems" aria-labelledby="prob-h">
-      <div className="context-head"><h3 id="prob-h">Problems at a glance</h3><span className="small muted">Where each stands · the next decision</span></div>
-      {rows.map((r) => {
-        const open1 = recs(r.key);
-        const top = open1[0];
-        return (
-          <div className={`problem ${top ? `p-${top.severity}` : "ok"}`} key={r.key}>
-            <div className="problem-head">
-              <b>{r.label}</b>
-              {!top && <span className="problem-ok"><CheckCircle2 size={15} /> No open decision</span>}
-            </div>
-            {r.stats.length > 0 && (
-              <div className="problem-stats">
-                {r.stats.map((x, i) => <span key={i} className={`pstat ${x.tone ?? ""}`}><small>{x.label}</small>{x.value}</span>)}
-              </div>
-            )}
-            {r.goal && <span className="problem-goal">{r.goal}</span>}
-            {top && (
-              <div className="problem-next">
-                <span className={`tick sev-${top.severity}`} aria-hidden="true" />
-                <span className="grow">{top.title}{open1.length > 1 ? <em> · +{open1.length - 1} more below</em> : null}</span>
-                <ActionButton a={top} open={open} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </section>
-  );
-}

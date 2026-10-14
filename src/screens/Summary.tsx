@@ -17,15 +17,15 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="stack">
           <Episodes s={s} open={open} done={done} />
           <TodayBoard s={s} open={open} done={done} />
-          {F("hf", <HfPanel hf={s.hf} open={open} />)}
-          {F("cad", <CadPanel cad={s.cad} open={open} />)}
-          {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />)}
-          {F("valve", <ValvePanel v={s.valve} open={open} />)}
-          {F("cmp", <CmpPanel c={s.cmp} open={open} />)}
-          {F("ph", <PhPanel p={s.ph} open={open} />)}
-          {F("targets", <Targets s={s} open={open} />, false)}
-          {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
           <ActivePlan s={s} open={open} />
+          {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
+          {/* module detail (timelines, procedures, devices): folded; the problem cards above carry the decisions */}
+          {F("hf", <HfPanel hf={s.hf} open={open} />, false)}
+          {F("cad", <CadPanel cad={s.cad} open={open} />, false)}
+          {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />, false)}
+          {F("valve", <ValvePanel v={s.valve} open={open} />, false)}
+          {F("cmp", <CmpPanel c={s.cmp} open={open} />, false)}
+          {F("ph", <PhPanel p={s.ph} open={open} />, false)}
         </div>
         <div className="stack">
           <Results s={s} open={open} />
@@ -378,6 +378,28 @@ function ActivePlan({ s, open }: { s: any; open(o: Open): void }) {
   );
 }
 
+// the current list typed in as "started" on one day: one tap records them as already taking
+function AlreadyTaking({ s, done }: { s: any; done(message?: string): void }) {
+  const r = s.medications.recordedTogether;
+  const [busy, setBusy] = useState(false);
+  async function mark() {
+    setBusy(true);
+    try {
+      await api(`/patients/${s.header.id}/medications/preexisting`, { body: { ids: r.ids } });
+      done(`${r.ids.length} medicines recorded as already taking`);
+    } catch (e) {
+      done((e as Error).message);
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="infobox" style={{ display: "grid", gap: 8 }}>
+      <span><b>{r.ids.length} medicines were recorded as started on {fmtDay(r.day, { year: true })}.</b> If this is the patient's existing list, record them as already taking: no new-start checks, titration waits or "started" dates.</span>
+      <button className="btn secondary small" style={{ justifySelf: "start" }} disabled={busy} onClick={mark}>{busy ? "Saving…" : "They were already taking these"}</button>
+    </div>
+  );
+}
+
 function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const clear = async (cls: string) => {
     try {
@@ -394,6 +416,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
         <button className="btn ghost small" onClick={() => open({ kind: "med-add" })}>+ Add</button>
       </div>
       {s.medications.warnings?.length > 0 && <div className="infobox warn" style={{display:"grid",gap:6}}><b>Review overlapping treatment</b>{s.medications.warnings.map((w: any,i: number) => <div key={i}>{w.names.join(" + ")} · {w.detail}</div>)}</div>}
+      {s.medications.recordedTogether && <AlreadyTaking s={s} done={done} />}
       {s.medications.groups.length === 0 && <div className="empty">No current medications recorded.</div>}
       {s.medications.groups.map((g: any) => (
         <div className="med-group" key={g.purpose}>
@@ -407,7 +430,7 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
                 </span>
                 <span className="s" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-4)" }}>
                   {m.dose} · {m.frequency}
-                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at, { year: true })}` : m.startedAt ? ` · since ${fmtDay(m.startedAt, { year: true })}` : ""}
+                  {m.lastChange && m.lastChange.kind !== "start" ? ` · ${({ hold: "held", decrease: "reduced", increase: "increased", not_taking: "not taking since", resume: "taken again", frequency: "frequency changed" } as Record<string, string>)[m.lastChange.kind] ?? m.lastChange.kind} ${fmtDay(m.lastChange.at, { year: true })}` : m.startedAt ? ` · since ${fmtDay(m.startedAt, { year: true })}` : m.preexisting ? " · already taking (start not recorded)" : ""}
                 </span>
                 <DoseProgress progress={m.targetProgress} />
               </span>

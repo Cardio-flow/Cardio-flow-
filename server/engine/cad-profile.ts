@@ -135,6 +135,9 @@ export function arcHbr(s: PatientState) {
   const major: string[] = [], minor: string[] = [];
   if (onTag("oac")) major.push("Long-term oral anticoagulation");
   if (egfr != null && egfr < 30) major.push(`eGFR ${Math.round(egfr)} (<30)`);
+  else if (s.tags.has("dialysis")) major.push("On dialysis");
+  // ARC-HBR: spontaneous bleeding needing admission/transfusion in 6 months, or at any time if recurrent (major)
+  if (s.tags.has("bleeding-history")) major.push("Previous major bleeding (major if in 6 months or recurrent)");
   if (hb != null && hb < 11) major.push(`Haemoglobin ${hb} g/dL (<11)`);
   if (plt != null && plt < 100) major.push(`Platelets ${plt} ×10⁹/L (<100)`);
   if (s.conditions.some((c) => c.code === "liver-disease")) major.push("Chronic liver disease (major if cirrhosis with portal hypertension)");

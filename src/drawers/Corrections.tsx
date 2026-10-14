@@ -306,6 +306,9 @@ export function CorrectMedication({
           },
         ]
       : []),
+    ...(events[0]?.kind === "start" && !med.preexisting
+      ? [{ value: "already", label: "Was already taking it", hint: "Not a new start: the patient was on it before (start date not known)" }]
+      : []),
     {
       value: "void",
       label: "Remove the medicine",
@@ -319,7 +322,7 @@ export function CorrectMedication({
   const ok =
     mode === "fix"
       ? !sameFix && !!day && day <= today
-      : mode === "undo" || (mode === "void" && !!reason);
+      : mode === "undo" || mode === "already" || (mode === "void" && !!reason);
   const at = (d: string) => atClinicalDay(String(last.effective_at), d);
   function save() {
     if (mode === "fix")
@@ -333,6 +336,8 @@ export function CorrectMedication({
         },
         `${def.name}: entry corrected`,
       );
+    else if (mode === "already")
+      run(`/patients/${patientId}/medications/${med.id}/preexisting`, {}, `${def.name}: recorded as already taking`);
     else if (mode === "undo")
       run(
         `/patients/${patientId}/medications/${med.id}/undo`,

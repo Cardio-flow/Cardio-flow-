@@ -549,6 +549,40 @@ export const SAFETY_ROWS: SafetyRow[] = [
     check: (_s, f) => (f.hf ? pick(f, ["nsaid"]).map((m) => ({ meds: [m], reason: `${f.hfLabel}${f.nyha ? ` · NYHA ${f.nyha}` : ""}`, severity: (f.nyha === "IV" ? "red" : "orange") as Severity })) : []),
   },
   {
+    id: "rosuvastatin-renal", kind: "condition", severity: "red",
+    title: (h) => `${h.meds[0].name}: contraindicated — ${h.reason}`,
+    detail: "Rosuvastatin is contraindicated with severe renal impairment (creatinine clearance <30 mL/min), and the 40 mg dose with moderate impairment (<60 mL/min). Atorvastatin needs no renal dose change.",
+    source: "SmPC rosuvastatin (Crestor) 4.3",
+    check: (_s, f) => {
+      // on dialysis the clearance is below 30 by definition (KDIGO G5D), whatever the last creatinine says
+      if (f.dialysis) return pick(f, ["rosuvastatin"]).map((m) => ({ meds: [m], reason: "dialysis (clearance below 30)" }));
+      const r = f.crcl ?? f.egfr;
+      if (r == null) return [];
+      const what = f.crcl != null ? `CrCl ${ROUND(f.crcl)} mL/min` : `eGFR ${ROUND(f.egfr!)} (no weight for CrCl)`;
+      return pick(f, ["rosuvastatin"]).flatMap((m) => (r < 30 ? [{ meds: [m], reason: `${what} (below 30)` }] : (m.doseValue ?? 0) >= 40 && r < 60 ? [{ meds: [m], reason: `40 mg with ${what} (below 60)` }] : []));
+    },
+  },
+  {
+    id: "duplicate-beta-blocker", kind: "interaction", severity: "orange",
+    title: (h) => `${names(h.meds)}: two beta-blockers`,
+    detail: "Two beta-blockers at the same time add bradycardia and hypotension risk without a recognised benefit: keep one and titrate it.",
+    source: "Product labelling (beta-blockers, 4.5); ESC rate-control guidance (single agent titrated, then combination of different classes)",
+    check: (_s, f) => {
+      const bb = pick(f, ["bb", "bb-other"]).filter((m) => m.code !== "sotalol");
+      return bb.length >= 2 ? [{ meds: bb, reason: "" }] : [];
+    },
+  },
+  {
+    id: "atenolol-renal", kind: "condition", severity: "orange",
+    title: (h) => `${h.meds[0].name} with ${h.reason}: renally cleared — label dose reduction`,
+    detail: "Atenolol is excreted by the kidneys: creatinine clearance 15–35 mL/min max 50 mg daily; <15 mL/min 25 mg daily or 50 mg on alternate days; on haemodialysis 50 mg after each dialysis (in hospital). A hepatically cleared beta-blocker avoids accumulation.",
+    source: "SmPC atenolol (Tenormin) 4.2",
+    check: (_s, f) => {
+      const why = f.dialysis ? "dialysis" : f.crcl != null && f.crcl < 35 ? `CrCl ${ROUND(f.crcl)} mL/min` : f.crcl == null && f.egfr != null && f.egfr < 35 ? `eGFR ${ROUND(f.egfr)}` : null;
+      return why ? pick(f, ["atenolol"]).map((m) => ({ meds: [m], reason: why })) : [];
+    },
+  },
+  {
     id: "renal-severe", kind: "condition", severity: "red",
     title: (h) => `${h.meds[0].name} with eGFR below 30: contraindicated`,
     detail: "Eplerenone (eGFR <30) and colchicine (severe renal impairment) are contraindicated.",

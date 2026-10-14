@@ -13,7 +13,7 @@ import { phProfile } from "../engine/ph-profile.js";
 import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { hfDoseProgress } from "../engine/medication-progress.js";
-import { ageOn, bmi, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
+import { ageOn, bmi, daysBetween, fmtDay, localDay, planStatusView } from "../../shared/clinical.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
 import { WIZARDS } from "../../shared/wizards.js";
@@ -106,6 +106,8 @@ export function header(s: PatientState) {
       riskFactor: RISK_FACTOR_CODES.has(c.code),
     })),
     riskFactors: riskRow(s),
+    // diagnosis tags (cad, ascvd, ckd, dm…): the overview groups its problems by them
+    tags: [...s.tags],
     deceased: s.deceased,
     status: s.status,
     readmission: ctx?.kind === "admission" ? (ctx.summary as any)?.readmission ?? null : null,
@@ -249,6 +251,7 @@ export function medicationGroups(s: PatientState) {
         frequency: m.frequency,
         route: m.route,
         startedAt: m.startedAt,
+        preexisting: !!m.preexisting && !m.startedAt,
         tags: m.tags,
         indication: m.indication,
         targetProgress: hfDoseProgress(s, m),
@@ -257,7 +260,13 @@ export function medicationGroups(s: PatientState) {
       })),
   })).filter((g) => g.meds.length);
   const stopped = s.meds.filter((m) => m.status === "stopped").map((m) => ({ id: m.id, name: m.name, stoppedAt: m.lastChange?.effective_at ?? null }));
-  return { groups, stopped, warnings: medicationOverlaps(s.meds), history: medicationHistory(s) };
+  // several medicines whose only entry is a "start" on the same day: often the patient's existing list typed in
+  // at registration — offer to record them as already taking (start dates not known)
+  const single = live.filter((m) => !m.preexisting && m.events.length === 1 && m.events[0].kind === "start");
+  const byDay = new Map<string, string[]>();
+  for (const m of single) { const d = localDay(m.events[0].effective_at); byDay.set(d, [...(byDay.get(d) ?? []), m.id]); }
+  const bulk = [...byDay.entries()].filter(([, ids]) => ids.length >= 2).sort((a, b) => b[1].length - a[1].length)[0];
+  return { groups, stopped, warnings: medicationOverlaps(s.meds), history: medicationHistory(s), recordedTogether: bulk ? { day: bulk[0], ids: bulk[1] } : null };
 }
 
 export function medicationHistory(s: PatientState) {
@@ -431,7 +440,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     today: s.today,
     overview: overview(s, attention, plan, changes),
     reviewContext: {
-      results: ["potassium", "creatinine", "egfr", "sbp", "hr"].map((code) => {
+      // the latest value of what the decisions need (problems at a glance reads dates and gaps from here)
+      results: ["potassium", "creatinine", "egfr", "sbp", "dbp", "hr", "weight", "sodium", "haemoglobin", "ferritin", "tsat", "ldl-c", "hba1c", "uacr", "inr", "nt-probnp", "tsh"].map((code) => {
         const o = s.resolved(code).current;
         return { code, label: MEASURES[code]?.short ?? code, value: o?.value_num ?? null, unit: MEASURES[code]?.unit ?? "", at: o?.effective_at ?? null };
       }),

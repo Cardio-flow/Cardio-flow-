@@ -362,6 +362,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "Rise >100%, >310 µmol/L or eGFR <20" },
               { value: "reduce-mra", label: "Reduce MRA dose", requires: ["mra"], hint: "Creatinine >221 µmol/L or eGFR <30" },
+              { value: "hold-metformin", label: "Hold metformin until renal function recovers", requires: ["metformin"] },
               { value: "hold-mra", label: "Hold MRA", requires: ["mra"] },
               { value: "nephrology", label: "Nephrology referral" },
             ],
@@ -648,7 +649,7 @@ for (const w of Object.values(WIZARDS))
 // Which medicines each wizard shows beside the questions.
 export const RELEVANT_TAGS: Record<string, string[]> = {
   hyperkalaemia: ["raas", "mra", "potassium-sparing", "loop", "sglt2"],
-  "renal-function": ["raas", "mra", "potassium-sparing", "loop", "sglt2"],
+  "renal-function": ["raas", "mra", "potassium-sparing", "loop", "sglt2", "metformin"],
   congestion: ["loop", "thiazide", "raas", "mra", "sglt2", "bb"],
   hypotension: ["raas", "bb", "loop", "mra", "sglt2", "vasodilator", "bp-lowering"],
   bradycardia: ["bb", "rate-slowing"],
@@ -759,7 +760,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("increase-diuretic")) change("loop", "diureticUp", "increase");
     if (actions.includes("reduce-raas") && !actions.includes("hold-raas")) change("raas", "raasDose", "decrease");
     if (actions.includes("reduce-mra") && !actions.includes("hold-mra")) change("mra", "mraDose", "decrease");
-    for (const [v, tag] of [["hold-raas", "raas"], ["hold-mra", "mra"]] as const)
+    for (const [v, tag] of [["hold-raas", "raas"], ["hold-mra", "mra"], ["hold-metformin", "metformin"]] as const)
       if (actions.includes(v)) {
         const m = med(tag);
         if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });

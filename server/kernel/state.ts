@@ -17,6 +17,7 @@ export type MedEvent = {
   reason: string;
   effective_at: string;
   decision_id?: string | null;
+  preexisting?: boolean;
 };
 export type MedState = {
   id: string;
@@ -35,6 +36,8 @@ export type MedState = {
   startedAt: string | null;
   lastChange: MedEvent | null;
   events: MedEvent[];
+  // already taking when first recorded (start date not known): its first entry is shown as a "continue"
+  preexisting?: boolean;
 };
 export type PlanRow = {
   id: string;
@@ -204,7 +207,13 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
           break;
       }
     }
-    const lastChange = [...evs].reverse().find((e) => e.kind !== "continue" || /^Frequency changed/.test(e.reason)) ?? null;
+    // already taking when recorded: the first entry is not a start (no start date, no post-start checks, no
+    // titration wait, not a renal baseline change) — rules see it as "continue"
+    if (m.preexisting && evs[0]?.kind === "start") {
+      evs[0] = { ...evs[0], kind: "continue", preexisting: true } as MedEvent;
+      if (startedAt === evs[0].effective_at) startedAt = null;
+    }
+    const lastChange = [...evs].reverse().find((e) => (e.kind !== "continue" || /^Frequency changed/.test(e.reason)) && !(e as any).preexisting) ?? null;
     return {
       id: m.id,
       code: m.drug,
@@ -221,6 +230,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       startedAt,
       lastChange,
       events: evs,
+      preexisting: m.preexisting === true,
     };
   });
   return {

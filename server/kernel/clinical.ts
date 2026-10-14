@@ -740,6 +740,8 @@ export async function startMedication(
     contextId?: string | null;
     decisionId?: string | null;
     planned?: boolean;
+    // already taking when first recorded (start date not known)
+    preexisting?: boolean;
   },
 ) {
   const def = MEDICATION[input.code];
@@ -754,7 +756,7 @@ export async function startMedication(
     if (last && new Date(input.effectiveAt) < new Date(last.effective_at)) throw new ApiError(400, "The restart cannot precede the last medication change. Correct the history first.");
   } else {
     medicationId = uuid();
-    await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication) VALUES($1,$2,$3,$4)`, [medicationId, patientId, input.code, input.indication]);
+    await tx.query(`INSERT INTO cf.medication(id,patient_id,drug,indication,preexisting) VALUES($1,$2,$3,$4,$5)`, [medicationId, patientId, input.code, input.indication, !!input.preexisting && !input.planned]);
   }
   const eventId = uuid();
   const kind = input.planned ? "planned" : existing ? "restart" : "start";
@@ -768,7 +770,7 @@ export async function startMedication(
     occurredAt: input.effectiveAt,
     kind: "medication-start",
     category: "medication",
-    title: `${def.name} ${kind === "restart" ? "restarted" : "started"}`,
+    title: `${def.name} ${kind === "restart" ? "restarted" : input.preexisting && !existing ? "· already taking (recorded)" : "started"}`,
     detail: `${doseLabel(def, input.doseValue)} ${input.frequency} ${input.route}`.trim() + (input.reason ? ` · ${input.reason}` : ""),
     refType: "medication",
     refId: medicationId,
