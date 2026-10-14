@@ -128,6 +128,8 @@ test("iron deficiency without anaemia (ferritin <15, normal Hb, no HF) asks for 
   const anaemic = await newPatient(["cad-ccs"]);
   await obs(anaemic, [{ code: "ferritin", value: 9.4 }, { code: "haemoglobin", value: 9.8 }]);
   assert.equal(await rec(anaemic, "lab.iron-deficiency"), undefined, "with anaemia the anaemia review covers it");
+  await start(pid, "haem-iron", 18, "OD", null, "Confirmed iron deficiency");
+  assert.match((await rec(pid, "lab.iron-deficiency")).title, /on haem \+ non-haem iron: .*check the cause and the response/);
 });
 
 test("after PCI with previous major bleeding: the plan states high bleeding risk and the PPI card is orange", async () => {

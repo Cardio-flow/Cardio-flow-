@@ -465,6 +465,8 @@ export const MEDICATIONS: MedicationDef[] = [
   // Caltrate 600+D3 (Ahmed, 13 Oct 2026): dose as elemental calcium; the D3 content differs between products
   m("calcium-d3", "Calcium carbonate + vitamin D3", "Calcium and vitamin D", "General medicine", ["calcium", "vitamin-d"], [], "mg", [600, 1200], ["OD", "BID"], ["calcium", "vitamin-d"], { doseLabels: ["600 mg calcium (1 tablet)", "1200 mg calcium (2 tablets)"], indicationChoices: ["Osteoporosis / bone health", "Vitamin D deficiency maintenance", "Calcium supplementation", "Other"] }),
   m("ferrous-sulfate", "Ferrous sulfate (200 mg ≈ 65 mg elemental iron)", "Oral iron", "General medicine", ["oral-iron"], [], "mg", [200], ["OD", "Alternate days"], ["haemoglobin"], { indicationChoices: ["Confirmed iron deficiency anaemia", "Other"] }),
+  // GlobiFer Forte (Ahmed, 14 Oct 2026): haem + non-haem iron, 18 mg elemental iron per tablet (product information); dose as elemental iron
+  m("haem-iron", "Haem + non-haem iron (18 mg elemental iron per tablet)", "Oral iron", "General medicine", ["oral-iron"], [], "mg", [18, 36], ["OD", "BID"], ["haemoglobin", "ferritin"], { doseLabels: ["18 mg iron (1 tablet)", "36 mg iron (2 tablets)"], indicationChoices: ["Confirmed iron deficiency", "Iron deficiency anaemia", "Other"] }),
   m("febuxostat", "Febuxostat", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [40, 80, 120], ["OD"], ["alt"], { indicationChoices: ["Gout", "Other"] }),
   m("levothyroxine", "Levothyroxine", "Thyroid hormone", "General medicine", [], [], "mcg", [25, 50, 75, 100, 125, 150], ["OD"], ["tsh"], { indicationChoices: ["Hypothyroidism", "Amiodarone-induced hypothyroidism", "Other"] }),
   m("carbimazole", "Carbimazole", "Antithyroid", "General medicine", [], [], "mg", [5, 10, 20], ["OD", "BID", "TID"], ["tsh", "wbc", "alt"], { indicationChoices: ["Hyperthyroidism", "Amiodarone-induced thyrotoxicosis (type 1)", "Other"] }),
@@ -492,6 +494,7 @@ const BRANDS: Record<string, string[]> = {
   atorvastatin: ["Lipitor"], rosuvastatin: ["Crestor"], ezetimibe: ["Ezetrol"], evolocumab: ["Repatha"], alirocumab: ["Praluent"], inclisiran: ["Leqvio"],
   "bempedoic-acid": ["Nilemdo", "Nexletol"], "icosapent-ethyl": ["Vazkepa", "Vascepa"],
   "calcium-d3": ["Caltrate 600+D3", "Caltrate"],
+  "haem-iron": ["GlobiFer Forte"],
   apixaban: ["Eliquis"], rivaroxaban: ["Xarelto"], edoxaban: ["Lixiana"], dabigatran: ["Pradaxa"], warfarin: ["Marevan", "Coumadin"],
   amiodarone: ["Cordarone"], sotalol: ["Sotalex"], flecainide: ["Tambocor"], diltiazem: ["Cardizem"], amlodipine: ["Norvasc"],
   sildenafil: ["Revatio"],
