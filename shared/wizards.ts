@@ -18,6 +18,7 @@ import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
 import { PH_WIZARDS } from "./wizards-ph.js";
+import { SYNCOPE_WIZARDS } from "./wizards-syncope.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
 
@@ -93,6 +94,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  syncope?: { key:string; contextId:string|null; at:string|null; presentation:string|null; urgent:string[]; ecg:{id:string;at:string;summary:string}|null; standing:{id:string;at:string;result:string;symptoms:string}|null; hasDevice:boolean; structuralConcern:boolean; medicineNames:string[] };
   evidenceKey?: string;
   notices?: string[];
   lab?: LabReview;
@@ -606,7 +608,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...HYPERTENSION_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
-  ...IRON_WIZARDS,
+  ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
 };
 
 // Closing summary for every pathway that has no summary of its own (audit, 6 Oct): what was found, the

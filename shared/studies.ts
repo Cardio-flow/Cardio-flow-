@@ -18,6 +18,18 @@ const AV = ["None", "First-degree", "Mobitz I", "Mobitz II", "Complete"];
 const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not assessed"];
 
 export const STUDIES: StudyDef[] = [
+  {kind:"orthostatic_bp",label:"Standing BP (orthostatic)",short:"Standing BP",help:"Supine and standing readings with symptom correlation and clinical interpretation.",fields:[
+    {key:"supineSbp",label:"Supine systolic BP",type:"number",unit:"mmHg",required:true,min:40,max:300},
+    {key:"supineDbp",label:"Supine diastolic BP",type:"number",unit:"mmHg",required:true,min:20,max:200},
+    {key:"supineHr",label:"Supine heart rate",type:"number",unit:"bpm",min:20,max:250},
+    {key:"standing1Sbp",label:"Standing systolic BP at 1 minute",type:"number",unit:"mmHg",min:40,max:300},
+    {key:"standing1Dbp",label:"Standing diastolic BP at 1 minute",type:"number",unit:"mmHg",min:20,max:200},
+    {key:"standing3Sbp",label:"Standing systolic BP at 3 minutes",type:"number",unit:"mmHg",required:true,min:40,max:300},
+    {key:"standing3Dbp",label:"Standing diastolic BP at 3 minutes",type:"number",unit:"mmHg",required:true,min:20,max:200},
+    {key:"standingHr",label:"Standing heart rate at 3 minutes",type:"number",unit:"bpm",min:20,max:250},
+    {key:"symptoms",label:"Symptoms during the assessment",type:"choice",required:true,options:["Usual symptoms reproduced","Other symptoms","No symptoms","Unable to assess"]},
+    {key:"interpretation",label:"Clinician interpretation",type:"choice",required:true,options:["Compatible symptomatic orthostatic hypotension","No compatible orthostatic hypotension","Uncertain / incomplete assessment"]},
+  ]},
   ...HYPERTENSION_STUDIES,
   {
     kind: "structural_imaging", label: "Structural intervention imaging (CT / 3D TOE)", short: "Structural imaging",
@@ -281,6 +293,7 @@ export function studySummary(kind: string, a: Record<string, any>): string {
       return [a.modality, a.result, a.extent && a.extent !== "None" ? `${a.extent.toLowerCase()} ischaemia` : null, a.territory?.length ? a.territory.join("/") : null, u(a.mets, " METs")].filter(Boolean).join(" · ");
     case "nuclear":
       return [`${a.stressor ?? ""} MIBI`.trim(), a.result, a.extent ? `${a.extent.toLowerCase()} ischaemia` : null, a.ischaemia != null ? `${a.ischaemia}% LV` : null, a.territory?.length ? a.territory.join("/") : null, a.tid === "Yes" ? "TID" : null, u(a.gatedLvef, "% gated LVEF")].filter(Boolean).join(" · ");
+    case "orthostatic_bp": return [`Supine ${a.supineSbp}/${a.supineDbp}`,`standing 3 min ${a.standing3Sbp}/${a.standing3Dbp}`,a.symptoms,a.interpretation].filter(Boolean).join(" · ");
     case "home_bp": return [`Home BP ${a.meanSbp}/${a.meanDbp}`,`${a.days} days`,a.protocol,a.onTreatment].filter(Boolean).join(" · ");
     case "hypertension_workup": return [a.purpose,a.screenResult,a.secondaryResult,a.cause,a.anatomy,a.contraindications].filter(Boolean).join(" · ");
     case "abpm":

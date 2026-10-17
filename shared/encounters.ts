@@ -2,12 +2,12 @@
 
 export const ADMISSION_REASONS = [
   "Acute decompensated HF", "STEMI", "NSTE-ACS", "Chest pain (ACS to exclude)", "AF / flutter", "VT / VF", "ICD shock", "Bradycardia / AV block",
-  "Syncope", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Myocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
+  "Syncope", "Presyncope", "Unexplained fall", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Myocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
 ];
 // reasons that make an admission HF-related unless the clinician says otherwise
 export const HF_REASONS = ["Acute decompensated HF"];
 export const ADMISSION_ROUTES = ["Emergency department", "Clinic", "Transfer from another hospital", "Elective"];
-export const SYMPTOMS = ["Dyspnoea", "Orthopnoea / PND", "Leg swelling", "Chest pain", "Palpitations", "Syncope / presyncope", "Fatigue", "Reduced exercise tolerance", "No symptoms"];
+export const SYMPTOMS = ["Dyspnoea", "Orthopnoea / PND", "Leg swelling", "Chest pain", "Palpitations", "Syncope / presyncope", "Unexplained fall", "Fatigue", "Reduced exercise tolerance", "No symptoms"];
 
 export const IN_HOSPITAL_EVENTS = [
   "None", "Cardiac arrest", "Cardiogenic shock", "Inotropes / vasopressors", "Mechanical ventilation", "IV diuretics", "New AF", "VT / VF",
