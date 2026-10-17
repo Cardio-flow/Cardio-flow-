@@ -1024,6 +1024,7 @@ export async function completeMatching(
     if (trigger.type === "study" && c.kind === "hypertension_workup" && c.purpose !== trigger.detail?.purpose) continue;
     if (trigger.type === "study" && c.kind === "structural_imaging" && c.intervention && c.intervention !== trigger.detail?.intervention) continue;
     if (trigger.type === "study" && c.kind === "structural_imaging" && c.aorticMorphology && c.aorticMorphology !== trigger.detail?.aorticMorphology) continue;
+    if (trigger.type === "study" && c.kind === "aortic_imaging" && ((c.method && c.method !== trigger.detail?.modality) || (c.purpose && c.purpose !== trigger.detail?.purpose))) continue;
     if (trigger.type === "study" && c.after && day < c.after) continue;
     if (trigger.type === "procedure" && trigger.kind === "rdn" && trigger.detail.result !== "Completed") continue;
     if (trigger.type === "procedure" && trigger.kind === "valve" && (trigger.detail.result === "Aborted / no implant" || (c.position && c.position !== trigger.detail.position) || (c.procedure && c.procedure !== trigger.detail.procedure))) continue;

@@ -126,8 +126,16 @@ export function bicuspidReport(c: WizardContext) {
   const st = c.structural?.planning.find(
     (st) => st.findings.intervention === "TAVI",
   );
+  const newer = c.aorta?.report;
+  const a = newer?.attributes;
+  const updated = st && newer && newer.at.slice(0,10) >= st.day && a?.purpose ? {
+    ...st.findings,
+    // A newer report can add concerns; missing measurements never clear the prior concern.
+    ...Object.fromEntries(["sinusDiameter","stjDiameter","ascendingDiameter","aorticMorphology","aorticPhenotype","coarctation","aorticGrowth","aorticStrategy"].filter(k=>a[k] != null).map(k=>[k,a[k]])),
+    ...(a.extent === "Entire thoracic aorta" && ["CT","CMR"].includes(a.modality) ? {thoracicAorta:a.modality+" reviewed"}:{}),
+  } : st?.findings;
   return st
-    ? ({ ...st.findings, aorticRationale: st.conclusion ?? "" } as Record<
+    ? ({ ...updated, aorticRationale: a?.aorticStrategy && newer && newer.at.slice(0,10) >= st.day ? newer.conclusion : st.conclusion ?? "" } as Record<
         string,
         any
       >)
@@ -135,7 +143,7 @@ export function bicuspidReport(c: WizardContext) {
 }
 export function isBicuspid(c: WizardContext) {
   return (
-    !!c.valve?.bicuspid || bicuspidReport(c)?.aorticMorphology === "Bicuspid"
+    !!c.aorta?.bicuspid || !!c.valve?.bicuspid || bicuspidReport(c)?.aorticMorphology === "Bicuspid"
   );
 }
 export function aorticMaximum(a: Record<string, any>) {

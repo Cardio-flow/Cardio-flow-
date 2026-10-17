@@ -1,3 +1,4 @@
+import { AORTA_RULES } from "./aorta-rules.js";
 import { SYNCOPE_RULES } from "./syncope-rules.js";
 import { renalReview, RENAL_REVIEW_PARAMS } from "./renal-review.js";
 import { exposureChange } from "../../shared/medication-exposure.js";
@@ -71,7 +72,7 @@ const day = (iso: string) => fmtDay(iso);
 
 import { RENAL_DEFAULTS, creatinineTrend } from "./renal-trend.js";
 export const RULES: RuleDef[] = [
-  ...SYNCOPE_RULES,
+  ...AORTA_RULES, ...SYNCOPE_RULES,
   {
     id: "hf.hyperkalaemia-review",
     kind: "clinical",
@@ -268,7 +269,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-17.syncope1";
+export const RULESET = "2026-10-17.aorta1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

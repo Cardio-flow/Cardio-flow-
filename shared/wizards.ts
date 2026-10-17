@@ -18,6 +18,8 @@ import { RHYTHM_WIZARDS } from "./wizards-rhythm.js";
 import { VALVE_WIZARDS } from "./wizards-valve.js";
 import { CMP_WIZARDS } from "./wizards-cmp.js";
 import { PH_WIZARDS } from "./wizards-ph.js";
+import { AORTA_WIZARDS } from "./wizards-aorta.js";
+import type { AortaContext } from "./aorta.js";
 import { SYNCOPE_WIZARDS } from "./wizards-syncope.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
@@ -65,7 +67,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Hypertension" | "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Aortic disease" | "Hypertension" | "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   sourceShort?: string;
   // what the "recheck" answer books (default: renal function and potassium)
@@ -94,6 +96,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  aorta?: AortaContext;
   syncope?: { key:string; contextId:string|null; at:string|null; presentation:string|null; urgent:string[]; ecg:{id:string;at:string;summary:string}|null; standing:{id:string;at:string;result:string;symptoms:string}|null; hasDevice:boolean; structuralConcern:boolean; medicineNames:string[] };
   evidenceKey?: string;
   notices?: string[];
@@ -608,7 +611,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...HYPERTENSION_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
-  ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
+  ...AORTA_WIZARDS, ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
 };
 
 // Closing summary for every pathway that has no summary of its own (audit, 6 Oct): what was found, the
@@ -861,7 +864,8 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
-  const htn = wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const aorta = wizardId === "aorta-plan";
+  const htn = aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];
@@ -870,8 +874,9 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
       if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
       if (p.completesOn.type !== target.type) return false;
+      if (aorta && target.purpose === "Surveillance" && p.dueDate !== date) return false;
       if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
-      if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose;
+      if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!aorta || p.completesOn.method === target.method);
       return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
     }) : null;
     const key = `${item.title}:${date}`;

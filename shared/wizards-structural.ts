@@ -1,5 +1,6 @@
 // Structural intervention pathways on the existing decision/plan engine.
 // Verified sources and limits: docs/structural-guideline-matrix.md.
+import { aorticTeamClearsTavi } from "./aorta.js";
 import type {
   Answers,
   Assessment,
@@ -213,6 +214,8 @@ function missing(a: Answers, c: WizardContext, target: string) {
       out.push(label);
   }
   if (target === "TAVI") {
+    if(c.aorta?.urgent.length)out.push("Suspected acute aortic syndrome: urgent assessment before elective TAVI");
+    if(c.aorta?.referral.length && !c.aorta.bicuspid && !aorticTeamClearsTavi(c.aorta,a.risk))out.push("Current aortic risk findings need a documented aortic-team strategy before isolated TAVI");
     const bav = isBicuspid(c),
       report = bicuspidReport(c);
     if (

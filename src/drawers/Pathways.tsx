@@ -6,10 +6,10 @@ import { DIAGNOSIS } from "../../shared/catalog";
 import { shortSource } from "../../shared/wizard-source";
 import type { CheckKind } from "../../shared/procedures";
 
-const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Hypertension", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Valve disease", "Cardiomyopathy", "Pulmonary hypertension", "Diabetes"] as const;
+const GROUPS = ["Acute & safety", "Procedures & general medicine", "Coronary", "Hypertension", "Inflammatory & infective heart disease", "Heart failure", "Rhythm & devices", "Valve disease", "Aortic disease", "Cardiomyopathy", "Pulmonary hypertension", "Diabetes"] as const;
 // diagnosis tags that make a group relevant to this patient
 const GROUP_TAGS: Record<string, string[]> = {
-  Hypertension: ["htn"], Coronary: ["cad", "ascvd"], "Heart failure": ["hf"], "Rhythm & devices": ["af", "cied", "rhythm"], "Valve disease": ["valve", "mechanical-valve"],
+  "Aortic disease": ["aorta"], Hypertension: ["htn"], Coronary: ["cad", "ascvd"], "Heart failure": ["hf"], "Rhythm & devices": ["af", "cied", "rhythm"], "Valve disease": ["valve", "mechanical-valve"],
   Cardiomyopathy: ["cmp", "hcm"], "Pulmonary hypertension": ["ph"], Diabetes: ["dm"],
 };
 

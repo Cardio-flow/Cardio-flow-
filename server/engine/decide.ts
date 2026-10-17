@@ -6,6 +6,7 @@
 // only the clinician can answer, and results the decision needs that are missing or out of date. The plan the
 // pathway would record — medicine changes with doses, dated infusions, rechecks and reviews — is returned with
 // the reasons, so the alert card can show it and record it with one confirmation. Nothing is recorded here.
+import { validateAorta } from "../../shared/wizards-aorta.js";
 import { validateSyncope } from "../../shared/wizards-syncope.js";
 import { potassiumFirst } from "../../shared/decision-safety.js";
 import { evidenceKey } from "../kernel/evidence.js";
@@ -85,6 +86,7 @@ const MED_REVIEW: Record<string, string[]> = {
 };
 // the medicines each decision acts on, listed as "current treatment"
 const CURRENT: Record<string, string[]> = {
+  "aorta-plan":["raas","bb","bp-lowering"],
   syncope:["bb","rate-slowing","digoxin","loop","thiazide","raas","mra","vasodilator","nitrate","bp-lowering"],
   hyperkalaemia: ["raas", "mra", "potassium-sparing", "k-binder"], "renal-function": ["raas", "mra", "loop", "sglt2", "metformin"],
   congestion: ["loop", "thiazide", "mra", "sglt2"], hypotension: ["raas", "bb", "loop", "vasodilator", "bp-lowering", "nitrate"],
@@ -141,7 +143,7 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
   }
   if(iron) dueDates=ironDates(answers,ctx,dueDates);
-  const blockers = [wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
+  const blockers = [wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)

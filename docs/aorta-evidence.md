@@ -1,0 +1,28 @@
+# Thoracic aortic assessment — 17 October 2026
+
+Adult thoracic scope: known bicuspid valve, recorded thoracic dilatation/aneurysm, heritable aortopathy, chronic dissection, or measured aortic imaging triggers the existing decision kernel. This release does not claim complete abdominal aneurysm, peripheral vascular, pregnancy, paediatric or postoperative procedural protocols. Those cases receive specialist review rather than generic clearance.
+
+## Sources checked
+
+- [ESC PAAD 2024, PMID 39210722](https://pubmed.ncbi.nlm.nih.gov/39210722/), DOI 10.1093/eurheartj/ehae179. Publication verified; focused PubMed searches through 17 October 2026 identified no newer dedicated ESC aortic guideline or indexed correction. This is not an exhaustive literature review. Direct publisher access returned 403 in this session. Existing bicuspid Table 68 verification and thresholds are documented in `structural-guideline-matrix.md` and reused here.
+- [ACC/AHA aortic disease 2022, PMID 36322642](https://pubmed.ncbi.nlm.nih.gov/36322642/), DOI 10.1161/CIR.0000000000001106, [PMC9876736](https://pmc.ncbi.nlm.nih.gov/articles/PMC9876736/). Rights-eligible primary text retrieved in selected 50,000-character sections, not described as a complete new review of all 432,782 characters. BAV aortopathy recommendations explicitly cover TTE valve/root/ascending/coarctation assessment, CT/MRI when TTE is incomplete, genetics for concerning syndromic features, and first-degree relative imaging. Thoracic surveillance recommends baseline TTE and reasonable CT/MRI, initial reassessment in 6–12 months and stable follow-up every 6–24 months, individualized by anatomy, size, growth and cause. Dates are clinician selected; the app does not impose the ACC interval on every ESC phenotype.
+- [2025 open-access ESC highlights, PMID 39589444](https://pubmed.ncbi.nlm.nih.gov/39589444/), DOI 10.1007/s00059-024-05286-7, PMC11772412. Retrieved thoracic/acute sections corroborate baseline valve assessment plus CT/CMR, root/ascending 55 mm, BAV root phenotype 50 mm, arch specialist consideration at 55 mm and descending repair assessment at 55 mm. A secondary-source phenotype description is not used to classify root phenotype: the reporter must record it.
+- A 2026 **EACTS/STS** corrigendum was identified, PMID 42452856, DOI 10.1093/ejcts/ezag194. Its contents were not retrieved and no EACTS/STS-specific new threshold is encoded. It must not be presented as a new ESC guideline.
+
+## Decision boundaries
+
+| Recorded finding | App response |
+| --- | --- |
+| Acute report / clinician-assessed acute warning symptoms | Same-day urgent aortic assessment; cannot confirm routine care or a future urgent date. No emergency IV drug/dose automation. |
+| Root/ascending ≥55 mm; BAV root phenotype ≥50 mm | Aortic-team strategy required. Referral support, not an automatic operation or proof that smaller diameters are safe. Existing BAV concomitant-valve thresholds remain in TAVI. |
+| Arch or descending thoracic ≥55 mm | Aortic-team assessment; operative technique/suitability remain specialist decisions. |
+| Confirmed reported growth ≥3 mm/year | Specialist measurement/growth review. No automatic growth calculation from unmatched scans and no generic operation indication for every segment. |
+| Heritable disease, coarctation, chronic dissection, prior repair, pregnancy/family/indexed-size concern | Individualized specialist strategy; generic size-based clearance blocked. No gene-specific thresholds invented. |
+| Missing anatomy, recorded valve function or indeterminate interpretation | Complete work-up or specialist assessment; missing values never mean normal. A normal-sized BAV with adequate root/ascending assessment does not automatically require CT solely to permit surveillance. |
+| BP / medicines | Shows relevant existing treatment; BP, smoking and exercise review reuse existing care. No second automatic hypertension escalation, antithrombotic addition or dose change. |
+
+## Integration and verification
+
+One new study kind in additive migration 019; existing conditions, recommendations, decisions and dated plans. A dedicated aortic report can reuse measured TAVI anatomy. New reports reopen review, invalidate structural preparation, and feed newer measured dimensions into bicuspid TAVI checks. Generic isolated TAVI cannot bypass a recorded non-bicuspid aortic specialist concern. A documented aortic-team report with actual rationale is required for an individualized strategy; size-based surgical indications require an explicitly documented prohibitive-risk exception and surgery ineligibility. Acute concerns remain blocking. New aortic-team report decisions also feed the existing bicuspid rationale checks. Matching imaging modality and purpose are required for task completion; results remain awaiting clinical review, and correction reopens the task. Eligible matching bookings are reused without moving them; surveillance requires the same requested day so an earlier scan does not replace a later stability check. No clinical history is physically deleted.
+
+Synthetic cases cover triggering, missing data, BAV/family screening, heritable risk, size/growth, acute bypass/date guards, children, new/corrected evidence, matching results, booking reuse and TAVI integration. Phone and desktop browser walkthroughs exercise the visible entry/decision flow. Test outcomes are recorded in the release evidence after execution.
