@@ -1,3 +1,4 @@
+import {recordPastAdmission} from "../server/kernel/context-management.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createLocalDb, type DB } from "../server/db/db.js";
@@ -282,4 +283,11 @@ test("a standing BP result before the new event is not copied forward as today's
  const id=await patient();
  await tx(q=>K.recordStudy(q,actor,id,{kind:"orthostatic_bp",date:new Date(`${addDays(T,-10)}T09:00:00Z`).toISOString(),findings:{supineSbp:130,supineDbp:80,standing3Sbp:125,standing3Dbp:78,symptoms:"No symptoms",interpretation:"No compatible orthostatic hypotension"}}));
  await visit(id);const c=(await tx(q=>getWizard(q,id,"syncope"))).context;assert.equal(c.detected.orthostatic,undefined);
+});
+
+
+test("a historical syncope admission remains history and does not activate a current assessment",async()=>{
+ const id=await patient();
+ await tx(q=>recordPastAdmission(q,actor,id,{draftVersion:0,startedOn:addDays(T,-100),endedOn:addDays(T,-98),location:"",reasons:["Syncope"],source:"Discharge summary",narrative:"Historical event only",note:"",events:[],dischargeStatus:"",destination:"",reportedLabs:"",reportedMedications:""}));
+ assert.equal((await evaluate(id)).length,0);
 });

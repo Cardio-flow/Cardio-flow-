@@ -3,9 +3,8 @@ import { createHash } from "node:crypto";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { localDay, fmtDay } from "../../shared/clinical.js";
 export function syncopeProfile(s: PatientState) {
-  const contexts = s.contexts.filter(
-    (c) => c.status === "open" || c === s.contexts.at(-1),
-  );
+  const liveContexts = s.contexts.filter(c => !c.summary?.historical);
+  const contexts = liveContexts.filter(c => c.status === "open" || c === liveContexts.at(-1));
   const context = [...contexts]
     .reverse()
     .find((c) =>
