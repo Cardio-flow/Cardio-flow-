@@ -40,6 +40,7 @@ jobs:
           node scripts/labs-hypertension-check.mjs screenshots/labs-hypertension
           node scripts/audit-oct17-check.mjs screenshots/audit-oct17
           node scripts/syncope-check.mjs screenshots/syncope
+          node scripts/aorta-check.mjs screenshots/aorta
           CARDIO_TEST_URL=http://127.0.0.1:4310 node scripts/cardiorenal-reconciliation-check.mjs screenshots/cardiorenal-reconciliation
       - uses: actions/upload-artifact@v4
         if: always()

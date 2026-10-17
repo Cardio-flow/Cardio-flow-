@@ -343,6 +343,6 @@ const STUDY_GROUPS = [
   },
   {
     label: "Coronary & imaging",
-    kinds: ["stress", "nuclear", "ccta", "cmr", "cath", "structural_imaging"],
+    kinds: ["stress", "nuclear", "ccta", "cmr", "cath", "structural_imaging", "aortic_imaging"],
   },
 ];

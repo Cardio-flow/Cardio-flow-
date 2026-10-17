@@ -1,3 +1,5 @@
+import { aortaProfile } from "./aorta-profile.js";
+import { validateAorta } from "../../shared/wizards-aorta.js";
 import { syncopeProfile } from "./syncope-profile.js";
 import { validateSyncope } from "../../shared/wizards-syncope.js";
 import { potassiumFirst } from "../../shared/decision-safety.js";
@@ -161,7 +163,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     lesions: s.conditions.filter((c) => ["as", "ar", "mr-primary", "mr-secondary", "ms", "tr"].includes(c.code) && c.status === "active").map((c) => ({ code: c.code, severity: (c.attributes?.severity as string | undefined) ?? null })),
     echo: ve?.valves ?? {}, mrType: ve?.mrType ?? null,
     treated: s.conditions.filter((c) => c.code === "prosthetic-valve" && c.status === "active").map((c) => String(c.attributes?.position ?? "")),
-    bicuspid: s.studies.some((x) => x.kind === "echo" && x.findings.includes("Bicuspid aortic valve")),
+    bicuspid: s.conditions.some(c=>c.code === "bav") || s.studies.some((x) => x.kind === "echo" && x.findings.includes("Bicuspid aortic valve")),
     interventions: valveInterventions(s).map((v) => ({ position: v.position, procedure: v.procedure, type: v.type ?? "", name: v.name, day: v.day })),
     daptIndication: daptIndication(s), oacIndication: oacIndication(s),
     prostheses: s.conditions.filter((c) => c.code === "prosthetic-valve").map((c) => ({ position: String(c.attributes?.position ?? ""), type: String(c.attributes?.type ?? "") })),
@@ -230,6 +232,14 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
   const rt = creatinineTrend(s);
   const renal = rt ? { baseline: rt.baseline.value_num!, current: rt.cur.value_num!, rise: rt.rel, review: rt.review, stop: rt.stop, mra: rt.mra, reviewCr: rt.reviewCr, reviewE: rt.reviewE } : null;
   const dmt = s.tags.has("dm") ? glycaemicTarget(s, TARGET_PARAMS) : null;
+  const aorta=aortaProfile(s);
+  if(wizardId === "aorta-plan"){
+    if(aorta.urgent.length)base.detected.safety=["acute"];
+    if(aorta.valveAssessment)base.facts.push({label:"Recorded valve assessment",value:aorta.valveAssessment.summary,date:aorta.valveAssessment.at});
+    if(aorta.report)base.facts.push({label:"Aortic imaging",value:aorta.report.summary,date:aorta.report.at});
+    for(const value of aorta.referral)base.facts.push({label:"Specialist review",value,tone:"orange"});
+    for(const value of aorta.missing)base.facts.push({label:"Missing aortic assessment",value});
+  }
   const syncope=syncopeProfile(s);
   if(wizardId === "syncope"){
     if(syncope.presentation)base.detected.presentation=[syncope.presentation];
@@ -240,7 +250,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if(syncope.standing)base.facts.push({label:"Standing BP report",value:syncope.standing.result,date:syncope.standing.at});
     for(const concern of syncope.urgent)base.facts.push({label:"Recorded concern",value:concern,tone:"red"});
   }
-  return { ...base, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -290,6 +300,10 @@ export async function completeWizard(
   const ctx = wizardContext(s, wizardId);
   const priority = potassiumFirst(wizardId,ctx);
   if (priority) throw new ApiError(409,priority);
+  if(wizardId === "aorta-plan"){
+    const error=validateAorta(input.answers,ctx,input.dueDates);
+    if(error)throw new ApiError(400,error);
+  }
   if(wizardId === "syncope"){
     const error=validateSyncope(input.answers,ctx,input.dueDates);
     if(error)throw new ApiError(400,error);
@@ -377,7 +391,7 @@ export async function completeWizard(
   }
   await tx.query(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "syncope" ? {_syncopeKey:ctx.syncope!.key}:{}), _dueDates:input.dueDates ?? {}, ...(["htn-review","htn-resistance","htn-secondary","rdn-plan","after-rdn"].includes(wizardId) ? {_hypertensionKey:ctx.hypertension!.key,...(wizardId === "htn-review" ? {_managementKey:ctx.hypertension!.managementKey} : {}),...(wizardId === "htn-resistance" ? {_resistanceKey:ctx.hypertension!.resistanceKey} : {}),...(wizardId === "after-rdn" ? {_procedureId:ctx.hypertension!.actual!.id} : {})} : {}), ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "aorta-plan" ? {_aortaKey:ctx.aorta!.key}:{}), ...(wizardId === "syncope" ? {_syncopeKey:ctx.syncope!.key}:{}), _dueDates:input.dueDates ?? {}, ...(["htn-review","htn-resistance","htn-secondary","rdn-plan","after-rdn"].includes(wizardId) ? {_hypertensionKey:ctx.hypertension!.key,...(wizardId === "htn-review" ? {_managementKey:ctx.hypertension!.managementKey} : {}),...(wizardId === "htn-resistance" ? {_resistanceKey:ctx.hypertension!.resistanceKey} : {}),...(wizardId === "after-rdn" ? {_procedureId:ctx.hypertension!.actual!.id} : {})} : {}), ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them

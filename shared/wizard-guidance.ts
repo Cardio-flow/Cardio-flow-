@@ -1,3 +1,4 @@
+import { aortaUrgent } from "./wizards-aorta.js";
 import { syncopeConcern } from "./wizards-syncope.js";
 import { labSuggestions, LAB_WIZARDS } from "./wizards-lab.js";
 import { rdnSchedulingMissing } from "./wizards-hypertension.js";
@@ -54,6 +55,10 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "aorta-plan": {
+    strategy:(a,c)=>[aortaUrgent(a,c)?S("urgent","Suspected acute aortic syndrome needs urgent assessment (ESC 2024)"):a.safety !== "stable"?null:c.aorta?.referral.length || (a.risks as string[]|undefined)?.some(v=>v!=="none")?S("specialist","Recorded size, growth or risk findings need an individualized aortic-team strategy (ESC 2024)"):c.aorta?.missing.length?S("workup","Complete the missing measured anatomy and imaging extent before surveillance"):S("surveillance","Complete baseline anatomy without a recorded specialist risk finding: confirm an individualized surveillance date")],
+    family:(_a,c)=>[c.aorta?.heritable?S("genetics","Heritable features: specialist genetic counselling and family assessment (ESC 2024; ACC/AHA 2022)"):c.aorta?.familyRecommended?S("screen","Review first-degree relative aortic/valve imaging (ESC 2024; ACC/AHA 2022)"):null],
+  },
   syncope: {
     disposition:(a,c)=>[syncopeConcern(a,c)?S("urgent","High-risk features: urgent monitored assessment (ESC syncope 2018)"):a.mechanism==="uncertain"||a.ecg!=="reviewed"||a.orthostatic==="not-done"?S("specialist","Incomplete or unexplained syncope requires further assessment, not an assumed low-risk discharge"):S("routine","Complete low-risk initial assessment with a probable mechanism: outpatient care may be appropriate (ESC 2018)")],
     mechanism:(a,c)=>[a.orthostatic==="positive"?S("orthostatic","Compatible standing BP and symptoms support this working assessment; assess other causes"):a.circumstances==="reflex"&&!syncopeConcern(a,c)&&a.ecg==="reviewed"?S("reflex","Typical trigger/prodrome and reassuring initial assessment support probable reflex syncope"):S("uncertain","A recorded symptom alone does not establish the mechanism")],
