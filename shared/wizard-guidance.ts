@@ -1,3 +1,4 @@
+import { syncopeConcern } from "./wizards-syncope.js";
 import { labSuggestions, LAB_WIZARDS } from "./wizards-lab.js";
 import { rdnSchedulingMissing } from "./wizards-hypertension.js";
 import { planningMissing, taviSchedulingMissing } from "./wizards-structural.js";
@@ -53,6 +54,13 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  syncope: {
+    disposition:(a,c)=>[syncopeConcern(a,c)?S("urgent","High-risk features: urgent monitored assessment (ESC syncope 2018)"):a.mechanism==="uncertain"||a.ecg!=="reviewed"||a.orthostatic==="not-done"?S("specialist","Incomplete or unexplained syncope requires further assessment, not an assumed low-risk discharge"):S("routine","Complete low-risk initial assessment with a probable mechanism: outpatient care may be appropriate (ESC 2018)")],
+    mechanism:(a,c)=>[a.orthostatic==="positive"?S("orthostatic","Compatible standing BP and symptoms support this working assessment; assess other causes"):a.circumstances==="reflex"&&!syncopeConcern(a,c)&&a.ecg==="reviewed"?S("reflex","Typical trigger/prodrome and reassuring initial assessment support probable reflex syncope"):S("uncertain","A recorded symptom alone does not establish the mechanism")],
+    tests:(a,c)=>[c.syncope?.hasDevice&&S("device","Interrogate the existing device for a possible event correlation"),(c.syncope?.structuralConcern||a.circumstances==="exertion")&&S("echo","Structural concern / exertional syncope: directed imaging (ESC 2018)"),c.syncope?.medicineNames.length&&S("meds","Review hypotensive/rate-slowing treatment; no automatic withdrawal"),a.mechanism==="cardiac"&&a.frequency==="frequent"&&S("holter","Frequent events with suspected arrhythmia: consider ambulatory ECG (ESC 2018)"),a.mechanism==="cardiac"&&a.frequency==="infrequent"&&S("ilr","Infrequent recurrent unexplained events: consider longer monitoring / specialist ILR assessment (ESC 2018)"),],
+    reviewDate:(a,c)=>a.disposition==="urgent"?[S(c.today,"Urgent same-day assessment")]:[],
+  },
+
   "htn-review": {
     target: (_a,c) => [(c.profile?.age ?? 0) >=85 || (c.hypertension?.egfr != null && c.hypertension.egfr <30) ? S("individual","Age ≥85 or advanced CKD: individualize BP targets and tolerance (ESC 2024; ESC CKD 2026).") : false],
     actions: (a,c) => [S("lifestyle","Lifestyle and adherence support accompany BP care (ESC hypertension 2024)."), !c.hypertension?.outside?.valid && S("abpm","Missing / invalid out-of-office readings: confirm with ABPM before escalation (ESC 2024)."), (c.hypertension?.egfr == null || c.hypertension?.potassium == null || val(c,"uacr") == null) && S("baseline","Assess renal function, electrolytes, albuminuria and organ damage (ESC 2024; ESC CKD 2026)."), a.confirmation === "confirmed" && c.hypertension?.phenotype !== "White-coat phenotype" && !!c.hypertension?.office && (c.hypertension.office.sbp >=140 || c.hypertension.office.dbp >=90) && S("medication","Confirmed hypertension: promptly review pharmacological therapy alongside lifestyle (ESC 2024)."), S("annual","Hypertension warrants at least annual albuminuria reassessment (ESC CKD 2026).")],

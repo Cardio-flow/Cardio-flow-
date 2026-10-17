@@ -10,6 +10,7 @@ type Question = {
   label: string;
   help: string | null;
   type: string;
+  exclusive?: string[];
   options: { value: string; label: string }[];
 };
 type Preview = {
@@ -195,7 +196,7 @@ export function DecisionPanel({
                           q.id,
                           on
                             ? cur.filter((x) => x !== o.value)
-                            : [...cur, o.value],
+                            : o.value === "none" ? ["none"] : [...cur.filter(x => x !== "none" && !(q.exclusive?.includes(o.value) && q.exclusive.includes(x))), o.value],
                         )
                       }
                     />

@@ -335,7 +335,7 @@ function Field({
 const STUDY_GROUPS = [
   {
     label: "Blood pressure",
-    kinds: ["home_bp", "abpm", "hypertension_workup"],
+    kinds: ["home_bp", "abpm", "hypertension_workup", "orthostatic_bp"],
   },
   {
     label: "Rhythm & devices",
