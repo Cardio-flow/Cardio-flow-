@@ -181,12 +181,19 @@ export function aortaProfile(s: PatientState): AortaContext {
       bicuspid ||
       heritable ||
       !!familyReport ||
-      a.interpretation === "Thoracic aortic aneurysm" ||
-      s.conditions.some((c) =>
-        ["thoracic-aortic-aneurysm", "chronic-aortic-dissection"].includes(
-          c.code,
-        ),
-      ),
+      s.conditions.some((c) => c.code === "chronic-aortic-dissection") ||
+      // ACC/AHA family imaging recommendation addresses root/ascending aneurysm or dissection.
+      // A report with measured non-dilated proximal segments and documented distal disease
+      // does not establish that indication; personal/family/genetic risk still takes priority.
+      ((a.interpretation === "Thoracic aortic aneurysm" ||
+        s.conditions.some((c) => c.code === "thoracic-aortic-aneurysm")) &&
+        !(
+          [a.sinusDiameter, a.ascendingDiameter].every(
+            (n) => typeof n === "number" && n > 0 && n < 40,
+          ) &&
+          a.extent === "Entire thoracic aorta" &&
+          (a.archDiameter != null || a.descendingDiameter != null)
+        )),
     report: raw
       ? {
           id: raw.id,

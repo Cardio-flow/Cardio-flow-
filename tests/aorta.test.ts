@@ -489,3 +489,18 @@ test("family risk already recorded in TAVI imaging is not lost when a new aortic
   assert(a.familyRecommended);
   assert(a.referral.some((r) => /family history/.test(r)));
 });
+
+test("isolated reported distal aneurysm with measured non-dilated proximal aorta does not force proximal-disease family screening", async () => {
+  const id = await patient(["thoracic-aortic-aneurysm"]);
+  await report(id, {
+    sinusDiameter: 34,
+    ascendingDiameter: 35,
+    descendingDiameter: 56,
+    interpretation: "Thoracic aortic aneurysm",
+  });
+  const p = await tx((q) =>
+    previewDecision(q, id, "aorta-plan", answers({ strategy: "specialist" })),
+  );
+  assert.equal(aortaProfile(await loadState(db, id)).familyRecommended, false);
+  assert.equal(p.ready, true);
+});
