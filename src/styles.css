@@ -1944,3 +1944,9 @@ table.data.meds td.med-compact { display: none; }
  .problem-goal { font-size:12px; }
  .decision-entry .decision { margin-top:8px; }
 }
+@media(max-width:640px){
+ .sample-band { padding:5px 16px; gap:6px 12px; font-size:12px; }
+ .sample-band > span { display:none; }
+ .sample-band .linkish { margin-left:auto; }
+ .admission-actions .admission-labs, .admission-actions .admission-medicines { grid-column:auto; font-size:13px; }
+}
