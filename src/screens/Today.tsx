@@ -215,7 +215,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   // a medicine start or dose change opens inline as an editable line (drug, dose, dates)
   const inline = (a.action?.type === "start-med" && MEDICATION[a.action.code]) || a.action?.type === "titrate";
   return (
-    <div className={`item${compact ? " compact" : ""}`}>
+    <div data-recommendation-id={a.id} tabIndex={-1} className={`item${compact ? " compact" : ""}`}>
       <div className="item-main">
         <span className={`tick sev-${a.severity}`} aria-hidden="true" />
         <div className="item-txt">

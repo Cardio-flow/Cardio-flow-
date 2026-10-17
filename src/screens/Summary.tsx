@@ -52,7 +52,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   if (narrow)
     return (
       <main className="page overview-page">
-        {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><ActionButton a={a} open={open}/></div>)}
+        {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
         <Pulse s={s} open={open} go={go} />
         <nav className="ov-switch" role="tablist" aria-label="Overview sections">
           {tabs.map(([k, label, n]) => (
@@ -69,7 +69,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
     );
   return (
     <main className="page overview-page">
-      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><ActionButton a={a} open={open}/></div>)}
+      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
         <Pulse s={s} open={open} go={go} />
       <div className="grid-main">
         <div className="stack">
