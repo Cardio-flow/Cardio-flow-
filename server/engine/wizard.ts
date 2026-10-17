@@ -1,3 +1,5 @@
+import { potassiumFirst } from "../../shared/decision-safety.js";
+import { validateIronDates, ironDates } from "../../shared/wizards-iron.js";
 import { glycaemicTarget, TARGET_PARAMS } from "./diabetes-rules.js";
 import { IRON_CHECKS, ferinjectPlan, ironInputs } from "../../shared/wizards-iron.js";
 import { evidenceKey, checkEvidence, checkRecommendation } from "../kernel/evidence.js";
@@ -274,6 +276,8 @@ export async function completeWizard(
   checkEvidence(s, input.evidenceKey);
   await checkRecommendation(tx, patientId, wizardId, input.recommendationId);
   const ctx = wizardContext(s, wizardId);
+  const priority = potassiumFirst(wizardId,ctx);
+  if (priority) throw new ApiError(409,priority);
   // an option that does not fit the patient's medicines cannot be confirmed
   for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
     const allowed = new Set(optionsFor(q, ctx).map((o) => o.value));
@@ -303,6 +307,9 @@ export async function completeWizard(
   if (wizardId === "after-rdn" && !ctx.hypertension?.actual) throw new ApiError(400,"Record the actual RDN procedure before planning aftercare");
   const ivIron = wizardId === "iv-iron" ? input.answers.decision === "give" : wizardId === "anaemia-result" && Array.isArray(input.answers.actions) && input.answers.actions.includes("iv");
   if (ivIron) {
+    input = {...input, dueDates:ironDates(input.answers,ctx,input.dueDates)};
+    const dateError = validateIronDates(input.answers,ctx,input.dueDates);
+    if(dateError) throw new ApiError(400,dateError);
     const { hb, weight } = ironInputs(ctx);
     if (!ferinjectPlan(hb, weight)) throw new ApiError(400, "Record a haemoglobin (last 3 months) and the weight (last 12 months) to calculate the IV iron dose");
     const ticked = new Set((input.answers[wizardId === "iv-iron" ? "checks" : "ivChecks"] as string[] | undefined) ?? []);

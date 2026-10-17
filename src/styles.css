@@ -1920,3 +1920,33 @@ table.data.meds td.med-compact { display: none; }
   .patient-line .line-scroll > span { display: inline; }
   .patient-line .line-text { display: inline; text-align: left; white-space: normal; padding: 0; }
 }
+
+/* 17 Oct: one focused decision, durable controls and a compact opening view. */
+.decision-entry > .btn { margin-top: 6px; }
+.decision-head { justify-content: space-between; align-items: center; }
+.decision-plan li > div { min-width: 0; flex: 1; }
+.decision-plan .date-input { margin-top: 5px; }
+.decision-detail { display: grid; gap: 8px; }
+.urgent-strip { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:12px 16px; background:#fff1ee; border:1px solid #ecc7bf; border-radius:12px; color:#93352b; margin-bottom:12px; }
+@media(max-width:560px){
+ .pt-head { padding-top:12px; padding-bottom:8px; }
+ .pt-head .pt-back { margin-bottom:4px; }
+ .pt-head .pt-name h1 { font-size:21px; }
+ .pt-head .pt-name { gap:5px; }
+ .pt-head .pt-top { gap:8px; }
+ .pt-head .pt-name .id { font-size:12px; overflow-wrap:anywhere; }
+ .pt-head .pt-edit { min-height:30px; padding:3px 8px; }
+ .pt-head .chip { font-size:11px; padding:3px 7px; }
+ .pt-head .pt-actions .btn { min-height:34px; padding:6px 10px; }
+ .pt-head .pt-actions { gap:5px; }
+ .problem { padding:12px; }
+ .problem-history { font-size:12px; }
+ .problem-goal { font-size:12px; }
+ .decision-entry .decision { margin-top:8px; }
+}
+@media(max-width:640px){
+ .sample-band { padding:5px 16px; gap:6px 12px; font-size:12px; }
+ .sample-band > span { display:none; }
+ .sample-band .linkish { margin-left:auto; }
+ .admission-actions .admission-labs, .admission-actions .admission-medicines { grid-column:auto; font-size:13px; }
+}

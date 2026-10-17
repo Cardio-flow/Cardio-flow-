@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState, useEffect } from "react";
 import {
   FlaskConical,
   Plus,
@@ -9,7 +9,7 @@ import {
   FileText,
   Pencil,
 } from "lucide-react";
-import { useData } from "../api";
+import { useData, setSampleMode } from "../api";
 import { Drawer, DrawerWorkspace, Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab, ActionButton, WhyPanel } from "./Summary";
 import { triage } from "../../shared/triage";
@@ -178,6 +178,8 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
     setOpen(suspendedVisit);
     setSuspendedVisit(null);
   }, [suspendedVisit]);
+
+  useEffect(() => { if(s?.header) setSampleMode(!!s.header.sample); }, [s?.header.id, s?.header.sample]);
 
   if (error)
     return (

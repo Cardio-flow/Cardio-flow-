@@ -6,6 +6,9 @@
 // only the clinician can answer, and results the decision needs that are missing or out of date. The plan the
 // pathway would record — medicine changes with doses, dated infusions, rechecks and reviews — is returned with
 // the reasons, so the alert card can show it and record it with one confirmation. Nothing is recorded here.
+import { potassiumFirst } from "../../shared/decision-safety.js";
+import { evidenceKey } from "../kernel/evidence.js";
+import { IRON_CHECKS, validateIronDates, ironDates } from "../../shared/wizards-iron.js";
 import type { Q } from "../db/db.js";
 import { WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { joinFor, prefill } from "../../shared/wizard-prefill.js";
@@ -94,7 +97,7 @@ const CURRENT: Record<string, string[]> = {
   hypoglycaemia: ["insulin", "sulfonylurea"], hyperglycaemia: ["insulin", "sglt2", "metformin"],
 };
 
-export async function previewDecision(tx: Q, patientId: string, wizardId: string, given: Answers = {}) {
+export async function previewDecision(tx: Q, patientId: string, wizardId: string, given: Answers = {}, dueDates: Record<string, string> = {}) {
   const def = WIZARDS[wizardId];
   const { context: ctx } = await getWizard(tx, patientId, wizardId);
   const pre = prefill(wizardId, ctx, given);
@@ -129,11 +132,20 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     id: q.id, label: q.label, help: q.help ?? null, type: q.type,
     options: q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx),
   }));
+  const iron = wizardId === "iv-iron" && answers.decision === "give" || wizardId === "anaemia-result" && (answers.actions as string[] | undefined)?.includes("iv");
+  const checkId = wizardId === "iv-iron" ? "checks" : "ivChecks";
+  if (iron && IRON_CHECKS.some(c => !(answers[checkId] as string[] | undefined)?.includes(c.value)) && !needed.some(q => q.id === checkId)) {
+    const q = all.find(q => q.id === checkId)!;
+    needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
+  }
+  if(iron) dueDates=ironDates(answers,ctx,dueDates);
+  const blockers = [potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
+  const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)
-  const plan = buildOutcome(wizardId, answers, ctx).map((o) => ({
+  const plan = (potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
     kind: o.kind, label: o.kind === "plan" ? `${o.title} · ${fmtDay(o.dueDate, { weekday: true, year: true })}` : o.label,
-    ...(o.kind === "plan" ? { dueDate: o.dueDate, category: o.category } : {}),
+    ...(o.kind === "plan" ? { title: o.title, dueDate: o.dueDate, category: o.category } : {}),
   }));
   const s = await loadState(tx, patientId);
   const ids = MED_REVIEW[wizardId] ?? [];
@@ -148,10 +160,10 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   const j = joinFor(wizardId, answers, ctx);
   const joined = j ? { next: j.next, title: WIZARDS[j.next]?.title ?? j.next, why: j.why } : null;
   return {
-    joined,
+    joined, today: ctx.today, evidenceKey: evidenceKey(s), questions, blockers,
     wizard: wizardId, title: def.title, note: def.note, source: def.sourceShort ?? def.source ?? null,
     answers, suggested, reasons, needed, needData, plan, medReview,
-    ready: !needed.length && !needData.length,
+    ready: !needed.length && !needData.length && !blockers.length,
   };
 }
 
@@ -160,14 +172,15 @@ function renalKeep(ctx: WizardContext, a: Answers) {
   const cr = ctx.renal?.current ?? ctx.values?.creatinine?.value ?? null, egfr = ctx.values?.egfr?.value ?? null;
   const acts = (a.actions as string[] | undefined) ?? [];
   const severe = !!ctx.renal?.stop;
+  if (potassiumFirst("renal-function",ctx)) return [];
   const out: { title: string; source: string; tone: "keep" }[] = [];
   const line = (m: (typeof ctx.meds)[number]) => `${m.name} ${doseLabel(MEDICATION[m.code], m.doseValue, m.doseUnit)}`;
-  for (const m of ctx.meds.filter((x) => x.tags.includes("mra")))
+  for (const m of ctx.meds.filter((x) => x.status === "active" && x.tags.includes("mra")))
     if (!severe && !acts.includes("reduce-mra") && !acts.includes("hold-mra") && cr != null && cr <= RENAL_DEFAULTS.mra_review_cr_umol && (egfr == null || egfr >= RENAL_DEFAULTS.mra_review_egfr))
       out.push({ title: `${line(m)}: keep — creatinine ${Math.round(cr)} µmol/L ≤${RENAL_DEFAULTS.mra_review_cr_umol}${egfr != null ? ` and eGFR ${Math.round(egfr)} ≥${RENAL_DEFAULTS.mra_review_egfr}` : ""}; recheck potassium with the creatinine`, tone: "keep", source: "ESC HF practical guidance on MRA: halve if creatinine >221 µmol/L or eGFR <30; stop if >310 or eGFR <20" });
-  for (const m of ctx.meds.filter((x) => x.tags.includes("sglt2")))
-    if (!severe) out.push({ title: `${line(m)}: continue — an initial eGFR dip is expected and is not a reason to stop`, tone: "keep", source: "KDIGO 2024 CKD: continue SGLT2 inhibitors as eGFR falls unless not tolerated or kidney replacement starts; ESC HF 2026" });
-  for (const m of ctx.meds.filter((x) => x.tags.includes("raas")))
+  for (const m of ctx.meds.filter((x) => x.status === "active" && x.tags.includes("sglt2")))
+    if (!severe) out.push({ title: `${line(m)}: continue if clinically stable; review volume status and acute illness, and apply sick-day guidance when indicated`, tone: "keep", source: "KDIGO 2024 CKD: continue SGLT2 inhibitors as eGFR falls unless not tolerated or kidney replacement starts; ESC HF 2026" });
+  for (const m of ctx.meds.filter((x) => x.status === "active" && x.tags.includes("raas")))
     if (!severe && !acts.includes("reduce-raas") && !acts.includes("hold-raas"))
       out.push({ title: `${line(m)}: keep unless the rise exceeds 50% / 266 µmol/L or eGFR <25`, tone: "keep", source: "ESC HF practical guidance on RAAS inhibitors" });
   return out;

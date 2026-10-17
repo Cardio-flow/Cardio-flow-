@@ -15,7 +15,8 @@
 // Reassessment: Hb no earlier than 4 weeks after the last dose (SmPC 4.2); in the HF trials iron status was
 //   reassessed and the dose repeated if iron deficiency persisted (CONFIRM-HF at week 12; AFFIRM-AHF weeks 6/12).
 import type { OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
-import { addDays, fmtDay } from "./clinical.js";
+import { validDate } from "./dates.js";
+import { addDays, fmtDay, daysBetween } from "./clinical.js";
 
 export const IRON_PRODUCT = "ferric-carboxymaltose";
 
@@ -104,10 +105,29 @@ export function ironOutcome(a: Record<string, unknown>, ctx: WizardContext): Out
   const last = start + 7 * (p.doses.length - 1);
   out.push({
     kind: "plan", category: "monitoring", title: "Haemoglobin, ferritin, TSAT and phosphate after IV iron",
-    dueDate: addDays(ctx.today, Math.max(last + 28, start + 84)), completesOn: { type: "lab", codes: ["haemoglobin", "ferritin", "tsat"] }, label: "",
+    dueDate: addDays(ctx.today, Math.max(last + 28, start + 84)), completesOn: { type: "lab", codes: ["haemoglobin", "ferritin", "tsat", "phosphate"] }, label: "",
   });
   out.push({ kind: "note", label: `${p.why}. Recheck Hb ≥4 weeks after the last dose (SmPC) and iron status at about 12 weeks (CONFIRM-HF); repeat if still iron deficient` });
   return out;
 }
 
 export const ironWhen = (d: string) => fmtDay(d, { weekday: true, year: true });
+
+// Edited appointments must preserve the label interval and reassessment window.
+export function validateIronDates(a: Record<string,unknown>, ctx: WizardContext, dates: Record<string,string> = {}) {
+  const plans = ironOutcome({...a,decision:"give"},ctx).filter(x => x.kind === "plan");
+  const infusions = plans.filter(x => x.kind === "plan" && x.category === "medication").map(x => x.kind === "plan" ? (dates[x.title] ?? x.dueDate) : "");
+  if(infusions.some(d => !validDate(d) || d < ctx.today)) return "Choose today or a later date for each infusion";
+  if(infusions.some((d,i) => i > 0 && d < addDays(infusions[i-1],7))) return "IV iron infusions must be at least 7 days apart";
+  const check = plans.find(x => x.kind === "plan" && x.category === "monitoring");
+  if(check?.kind === "plan" && infusions.length && (dates[check.title] ?? check.dueDate) < addDays(infusions.at(-1)!,28)) return "Recheck haemoglobin at least 4 weeks after the last infusion";
+  return null;
+}
+
+export function ironDates(a: Record<string,unknown>, ctx: WizardContext, dates: Record<string,string> = {}) {
+  const items=ironOutcome({...a,decision:"give"},ctx).filter(x=>x.kind==="plan");
+  const first=items[0];
+  if(first?.kind!=="plan"||!dates[first.title]||!validDate(dates[first.title]))return dates;
+  const delta=daysBetween(first.dueDate,dates[first.title]);
+  return Object.fromEntries(items.filter(x=>x.kind==="plan").map(x=>[x.title,dates[x.title]??addDays(x.dueDate,delta)]));
+}
