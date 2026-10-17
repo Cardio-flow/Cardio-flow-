@@ -513,7 +513,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     })(),
     vitals: ["sbp", "dbp", "hr", "weight"].map((c) => {
       const cur = s.resolved(c).current;
-      return cur ? { code: c, value: cur.value_num, at: cur.effective_at } : null;
+      return cur ? { code: c, value: cur.value_num, at: cur.effective_at, contextId:cur.context_id, source:cur.source } : null;
     }).filter(Boolean),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)

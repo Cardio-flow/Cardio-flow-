@@ -48,8 +48,9 @@ const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart ra
 export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const [why, setWhy] = useState<string | null>(null);
   const [line, setLine] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string|null>(null);
   const [dismiss, setDismiss] = useState<string | null>(null);
-  const row: RowProps = { why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
+  const row: RowProps = { selected, setSelected, why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
   const problems = buildProblems(s);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
@@ -106,8 +107,8 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
   const [more, setMore] = useState(false);
   const top = items[0];
   // low-priority suggestions fold under "to consider" so the card leads with what matters
-  const main = items.filter((a) => a.severity !== "blue");
-  const consider = items.filter((a) => a.severity === "blue");
+  const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
+  const consider = items.filter((a) => a.severity === "blue" && a.rule_id !== "htn.rdn");
   return (
     <section className={`problem ${top ? `p-${top.severity}` : "ok"}`} aria-label={p.label}>
       <div className="problem-head">
@@ -204,7 +205,7 @@ function buildProblems(s: any): Problem[] {
   return out;
 }
 
-type RowProps = { panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
+type RowProps = { selected:string|null; setSelected(id:string|null):void; panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
 
 
 // an alert that opens a pathway shows the pathway's decision on the card (the after-PCI plan opens its own
@@ -222,7 +223,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
             {a.title}
             {a.rule_status !== "PUBLISHED" && <em className="review">in review</em>}
           </span>
-          {!compact && a.detail && <span className="d">{a.detail}</span>}
+          {!compact && p.why === a.id && a.detail && <span className="d">{a.detail}</span>}
         </div>
         <div className="item-acts">
           <button className="why" aria-expanded={p.why === a.id} onClick={() => p.setWhy(p.why === a.id ? null : a.id)}>Why?</button>
@@ -237,7 +238,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
-      {!compact && decides(a) && (p.panels?.has(a.id) ? <DecisionPanel a={a} patientId={p.patientId} open={p.open} done={p.done} /> : <div className="decision-covered">Included in the {(WIZARDS[a.action.wizard]?.shortTitle ?? WIZARDS[a.action.wizard]?.title ?? "same").toLowerCase()} plan above</div>)}
+      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
     </div>
   );
 }

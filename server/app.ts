@@ -928,8 +928,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // results it still needs (nothing is saved)
   app.post("/api/patients/:id/decisions/:wizard/preview", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    const input = z.object({ answers: z.record(z.string(), z.any()).default({}) }).parse(req.body ?? {});
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), previewDecision(tx, id, String(req.params.wizard), input.answers))));
+    const input = z.object({ answers: z.record(z.string(), z.any()).default({}), dueDates: z.record(z.string().max(200), isoDate).optional() }).parse(req.body ?? {});
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), previewDecision(tx, id, String(req.params.wizard), input.answers, input.dueDates))));
   }));
   app.post("/api/patients/:id/wizards/:wizard/complete", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

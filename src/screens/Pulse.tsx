@@ -25,7 +25,12 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
   const trends = [...KEY.filter((c) => byCode.has(c)).map((c) => byCode.get(c)), ...(s.results ?? []).filter((r: any) => !KEY.includes(r.code))].slice(0, 10);
   const v = Object.fromEntries((s.vitals ?? []).map((x: any) => [x.code, x]));
   const vitals: [string, string, string | undefined][] = [];
-  if (v.sbp) vitals.push(["BP", `${formatNumber(v.sbp.value, 0)}${v.dbp ? `/${formatNumber(v.dbp.value, 0)}` : ""}`, v.sbp.at]);
+  const paired = v.sbp && v.dbp && v.sbp.at === v.dbp.at && v.sbp.contextId === v.dbp.contextId && v.sbp.source === v.dbp.source;
+  if (paired) vitals.push(["BP", `${formatNumber(v.sbp.value,0)}/${formatNumber(v.dbp.value,0)}`,v.sbp.at]);
+  else {
+    if(v.sbp) vitals.push(["SBP",`${formatNumber(v.sbp.value,0)} · ${fmtDay(v.sbp.at)}`,v.sbp.at]);
+    if(v.dbp) vitals.push(["DBP",`${formatNumber(v.dbp.value,0)} · ${fmtDay(v.dbp.at)}`,v.dbp.at]);
+  }
   if (v.hr) vitals.push(["HR", formatNumber(v.hr.value, 0), v.hr.at]);
   if (v.weight) vitals.push(["Wt", `${formatNumber(v.weight.value, 1)} kg`, v.weight.at]);
   if (s.lvef) vitals.push(["LVEF", `${formatNumber(s.lvef.value, 0)}%`, s.lvef.at]);
