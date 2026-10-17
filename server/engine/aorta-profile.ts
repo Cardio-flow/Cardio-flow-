@@ -53,8 +53,24 @@ export function aortaProfile(s: PatientState): AortaContext {
         "Heritable aortopathy / syndromic features",
       ),
     );
+  const establishedHistory = reports.some(
+    (st) =>
+      [
+        "Thoracic aortic dilatation",
+        "Thoracic aortic aneurysm",
+        "Chronic dissection / residual aortic disease",
+      ].includes(st.attributes.interpretation) ||
+      st.attributes.purpose === "After aortic repair" ||
+      aorticMaximum(st.attributes) >= 40 ||
+      st.attributes.archDiameter >= 55 ||
+      st.attributes.descendingDiameter >= 55,
+  );
   const eligible =
-    !!raw ||
+    establishedHistory ||
+    !!familyReport ||
+    ["Indeterminate", "Suspected acute aortic syndrome"].includes(
+      a.interpretation,
+    ) ||
     bicuspid ||
     heritable ||
     s.tags.has("aorta") ||
@@ -94,8 +110,12 @@ export function aortaProfile(s: PatientState): AortaContext {
   if (a.aorticStrategy === "Aortic surgery indicated / preferred")
     referral.push("Recorded aortic surgical indication");
   if (
-    a.purpose === "After aortic repair" ||
-    a.interpretation === "Chronic dissection / residual aortic disease" ||
+    reports.some(
+      (st) =>
+        st.attributes.purpose === "After aortic repair" ||
+        st.attributes.interpretation ===
+          "Chronic dissection / residual aortic disease",
+    ) ||
     s.conditions.some((c) => c.code === "chronic-aortic-dissection")
   )
     referral.push(
@@ -173,7 +193,7 @@ export function aortaProfile(s: PatientState): AortaContext {
     .digest("hex");
   return {
     key,
-    eligible,
+    eligible: eligible || referral.length > 0 || urgent.length > 0,
     bicuspid,
     heritable,
     valveAssessment,

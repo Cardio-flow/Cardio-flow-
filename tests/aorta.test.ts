@@ -504,3 +504,28 @@ test("isolated reported distal aneurysm with measured non-dilated proximal aorta
   assert.equal(aortaProfile(await loadState(db, id)).familyRecommended, false);
   assert.equal(p.ready, true);
 });
+
+test("normal aortic screening stays quiet; BAV and established repair history retain follow-up", async () => {
+  const normal = {
+    sinusDiameter: 32,
+    stjDiameter: 28,
+    ascendingDiameter: 33,
+    interpretation: "No dilatation reported",
+    aorticPhenotype: "No dilatation",
+  };
+  const id = await patient();
+  await report(id, normal);
+  assert.equal((await evaluate(id)).length, 0);
+  const coarctation = await patient();
+  await report(coarctation, { ...normal, coarctation: "Present" });
+  assert.equal((await evaluate(coarctation)).length, 1);
+  const bav = await patient(["bav"]);
+  await report(bav, { ...normal, aorticMorphology: "Bicuspid" });
+  assert.equal((await evaluate(bav)).length, 1);
+  const repaired = await patient();
+  await report(repaired, { ...normal, purpose: "After aortic repair" });
+  await report(repaired, { ...normal, purpose: "Surveillance" });
+  const p = aortaProfile(await loadState(db, repaired));
+  assert(p.eligible);
+  assert(p.referral.some((r) => /Repair/.test(r)));
+});
