@@ -36,7 +36,7 @@ export function facts(s: PatientState) {
   const meds = s.meds.filter((m) => m.status === "active");
   const recent = (code: string, days: number) => {
     const o = s.resolved(code).current;
-    return o?.status === "final" && o.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
+    return o?.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
   };
   const cr = recent("creatinine", 180), wt = recent("weight", 365);
   const conds = s.conditions.filter((c) => c.status === "active");

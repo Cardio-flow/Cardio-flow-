@@ -13,7 +13,7 @@ import {
 import { reassess } from "../server/engine/engine.js";
 import { previewDecision } from "../server/engine/decide.js";
 import { completeWizard } from "../server/engine/wizard.js";
-import { facts } from "../server/engine/med-safety.js";
+import { preStartCheck } from "../server/engine/med-safety.js";
 import { MED_RULES } from "../server/engine/med-rules.js";
 import { addDays } from "../shared/clinical.js";
 import { today, type Actor } from "../server/kernel/base.js";
@@ -349,7 +349,7 @@ test("preliminary or old creatinine/weight cannot establish a renal dose check",
       status,
     );
     await run(id);
-    assert.equal(facts(await loadState(db, id)).crcl, null);
+    assert.equal((await review(id)).renal, null);
     assert(
       (await review(id)).issues.some((x) => x.rule_id === "med.renal-data"),
     );
@@ -474,4 +474,12 @@ test("missing TSH joins due monitoring; booked TSH is quiet, but an abnormal act
   assert(!(await recommendations(db,id)).some(x=>x.rule_id==="event.amiodarone-thyroid"));
   await labs(id,[{code:"alt",value:20},{code:"tsh",value:0.01}]);await run(id);
   r=await review(id);assert(r.issues.some(x=>x.action?.wizard==="amiodarone-thyroid" && x.severity==="orange"));
+});
+
+
+test("a preliminary high potassium still prevents a reassuring pre-start check",async()=>{
+  const id=await patient();await labs(id,[{code:"potassium",value:6.5}],0,"preliminary");
+  const s=await loadState(db,id);
+  const hits=preStartCheck(s,"eplerenone",{name:"Eplerenone",drugClass:"MRA",purpose:"Heart failure",tags:["mra","potassium-sparing"]});
+  assert(hits.some(h=>h.severity==="red" && /potassium too high/i.test(h.title)));
 });

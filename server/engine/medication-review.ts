@@ -2,7 +2,7 @@ import type { PatientState } from "../kernel/state.js";
 import { monitoringDue, monContext } from "./med-rules.js";
 import { monitoringFor } from "../../shared/drug-monitoring.js";
 import { facts } from "./med-safety.js";
-import { localDay } from "../../shared/clinical.js";
+import { localDay, daysBetween } from "../../shared/clinical.js";
 import type {
   MedicationCheck,
   MedicationReviewContext,
@@ -125,7 +125,7 @@ export function medicationReview(s: PatientState, attention: any[]) {
       notTaking: live.filter((m) => m.status === "not_taking").length,
     },
     renal:
-      f.crcl == null
+      f.crcl == null || cr?.status !== "final" || wt?.status !== "final" || daysBetween(cr.effective_at,s.today)>180 || daysBetween(wt.effective_at,s.today)>365
         ? null
         : {
             value: Math.round(f.crcl),

@@ -145,7 +145,7 @@ export const MED_RULES: RuleDef[] = [
       const crclMeds=f.meds.filter(m=>["rosuvastatin","atenolol","sotalol","dronedarone","apixaban","rivaroxaban","edoxaban","dabigatran"].includes(m.code) && !afDoac(m));
       const egfrMeds=f.meds.filter(m=>["eplerenone","colchicine","metformin"].includes(m.code));
       const recent=(code:string,days:number)=>{const o=s.resolved(code).current;return o?.status==="final" && o.value_num!=null && daysBetween(localDay(o.effective_at),s.today)<=days;};
-      const need=[(crclMeds.length && !recent("creatinine",180) || egfrMeds.length && f.egfr==null) && "creatinine",crclMeds.length && !recent("weight",365) && "weight"].filter(Boolean) as string[];
+      const need=[(crclMeds.length && !recent("creatinine",180) || egfrMeds.length && !recent("egfr",365)) && "creatinine",crclMeds.length && !recent("weight",365) && "weight"].filter(Boolean) as string[];
       if(!need.length)return [];
       const medicines=[...new Set([...crclMeds,...egfrMeds].map(m=>m.name))];
       return [{key:"renal-inputs",signature:JSON.stringify([[...crclMeds,...egfrMeds].map(m=>[m.id,m.doseValue,m.frequency]),need]),severity:"orange",title:"Renal dose checks need current inputs",detail:medicines.join(", ")+": record the missing verified inputs before judging dose suitability. eGFR does not replace Cockcroft–Gault for CrCl-based labels.",facts:[{label:"Medicines",value:medicines.join(", ")}],missing:need,action:{type:"add-labs",codes:need,label:"Add renal inputs"}}];
