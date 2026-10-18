@@ -36,6 +36,11 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
           filled = true;
           continue;
         }
+        if (q.type === "date") {
+          const proposed=suggest(wizardId,q.id,answers,ctx)[0]?.value;
+          if(proposed) {answers[q.id]=proposed;suggested.add(q.id);filled=true;}
+          continue;
+        }
         if (!q.options) continue;
         const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
         const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);

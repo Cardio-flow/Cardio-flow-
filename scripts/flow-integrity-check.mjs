@@ -301,7 +301,7 @@ try {
   });
   await go(overlap, "/medications");
   await expect(
-    page.getByText("Medication reconciliation needed", { exact: true }),
+    page.getByRole("region", {name:"Medication review"}).getByRole("article").filter({hasText:/review overlap/}),
   ).toBeVisible();
   await shot("05-reconciliation");
   const historic = await create("historic CK");

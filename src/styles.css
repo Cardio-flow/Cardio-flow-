@@ -1950,3 +1950,38 @@ table.data.meds td.med-compact { display: none; }
  .sample-band .linkish { margin-left:auto; }
  .admission-actions .admission-labs, .admission-actions .admission-medicines { grid-column:auto; font-size:13px; }
 }
+
+/* A compact medication review, fed by the existing clinical decision engine. */
+.med-review { background:linear-gradient(140deg,#f0f7ff,#fff 65%); overflow:hidden; }
+.med-review-head {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.med-review-head h2 {display:flex;align-items:center;gap:8px;margin:0;}
+.med-review-head p {margin:4px 0 0;color:var(--ink-4);font-size:13px;}
+.med-review-renal {margin-top:12px;font-weight:700;font-size:13px;color:var(--navy);}
+.med-review-renal span {font-weight:500;color:var(--ink-4);}
+.med-review-filters {display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px;}
+.med-review-filters .chip {font-size:12px;min-height:34px;gap:6px;}
+.med-review-filters .chip[aria-pressed=true] {background:var(--navy);border-color:var(--navy);color:white;}
+.med-review-filters span {opacity:.75;font-variant-numeric:tabular-nums;}
+.med-review-list {display:grid;gap:8px;}
+.med-review-row {display:flex;gap:12px;align-items:center;justify-content:space-between;border:1px solid #dde6ef;border-left:3px solid #d5a63b;border-radius:12px;padding:12px;background:#fffdf6;animation:med-review-in .2s ease-out both;}
+.med-review-row.sev-red {background:#fff2f1;border-left-color:#b63426;}
+.med-review-row.sev-orange {background:#fff7ed;border-left-color:#d77923;}
+.med-review-finding {min-width:0;flex:1;overflow-wrap:anywhere;}
+.med-review-finding b {font-size:14px;line-height:1.45;display:block;}
+.med-review-finding details {margin-top:5px;color:var(--ink-4);font-size:12px;}
+.med-review-finding summary {cursor:pointer;}
+.med-review-finding p {margin:6px 0;}
+.med-review-row > .go {flex-shrink:0;max-width:35%;white-space:normal;text-align:right;font-size:13px;}
+.med-review-empty {font-size:13px;color:var(--ink-4);margin:12px 0 0;}
+.med-review-bookings {border-top:1px solid #e0e7ef;margin-top:14px;padding-top:12px;font-size:13px;}
+.med-review-bookings summary {font-weight:700;cursor:pointer;}
+.med-review-booking {width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;border:0;border-radius:8px;background:#eef5fd;color:var(--navy);padding:10px;margin-top:6px;text-align:left;}
+.med-review-booking small {display:block;color:var(--ink-4);margin-top:3px;}
+@keyframes med-review-in {from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:600px){.med-review-row{align-items:flex-start;flex-wrap:wrap;}.med-review-finding{flex-basis:100%;}.med-review-row > .go{max-width:100%;margin-left:auto;}.med-review-renal span{display:block;margin-top:2px;}}
+@media(prefers-reduced-motion:reduce){.med-review-row{animation:none;}}
+.med-review-row.sev-blue {background:#edf6ff;border-left-color:#267fbc;}
+.med-review {scroll-margin-top:calc(var(--topbar-h,108px) + 12px);}
+.med-review-row > .go {border:0;border-radius:8px;background:#e7f0fc;color:#165caa;font-weight:700;padding:8px 10px;min-height:34px;cursor:pointer;}
+.med-review-row > .go:hover {background:#d5e6fb;}
+.med-review-row > .go:focus-visible {outline:2px solid #165caa;outline-offset:2px;}

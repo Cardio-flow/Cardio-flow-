@@ -55,6 +55,10 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "medication-monitoring": {
+    medicationChecks:(_a,c)=>(c.medicationReview?.checks ?? []).map(check=>S(check.id,`${check.medicines.join(", ")}: ${check.sources.join("; ")}`)),
+    monitorDate:(_a,c)=>[S(c.today,"Monitoring is already due; choose an actual date or use today")],
+  },
   "aorta-plan": {
     strategy:(a,c)=>[aortaUrgent(a,c)?S("urgent","Suspected acute aortic syndrome needs urgent assessment (ESC 2024)"):a.safety !== "stable"?null:c.aorta?.referral.length || (a.risks as string[]|undefined)?.some(v=>v!=="none")?S("specialist","Recorded size, growth or risk findings need an individualized aortic-team strategy (ESC 2024)"):c.aorta?.missing.length?S("workup","Complete the missing measured anatomy and imaging extent before surveillance"):S("surveillance","Complete baseline anatomy without a recorded specialist risk finding: confirm an individualized surveillance date")],
     family:(_a,c)=>[c.aorta?.heritable?S("genetics","Heritable features: specialist genetic counselling and family assessment (ESC 2024; ACC/AHA 2022)"):c.aorta?.familyRecommended?S("screen","Review first-degree relative aortic/valve imaging (ESC 2024; ACC/AHA 2022)"):null],

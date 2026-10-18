@@ -3,7 +3,7 @@
 // the preview the clinician confirms is exactly what the server records.
 import { LAB_WIZARDS } from "./wizards-lab.js";
 import type { LabReview } from "./lab-review.js";
-import { MEDICATION, doseLabel } from "./catalog.js";
+import { MEDICATION, MEASURES, doseLabel } from "./catalog.js";
 import { addDays, fmtDay } from "./clinical.js";
 import { ACUTE_WIZARDS } from "./wizards-acute.js";
 import { DIABETES_WIZARDS } from "./wizards-diabetes.js";
@@ -21,6 +21,8 @@ import { PH_WIZARDS } from "./wizards-ph.js";
 import { AORTA_WIZARDS } from "./wizards-aorta.js";
 import type { AortaContext } from "./aorta.js";
 import { SYNCOPE_WIZARDS } from "./wizards-syncope.js";
+import type { MedicationReviewContext } from "./medication-review.js";
+import { MEDICATION_WIZARDS } from "./wizards-medication.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
 
@@ -53,6 +55,7 @@ export type Question = {
   help?: string;
   type: "multi" | "single" | "dose" | "date";
   options?: Option[];
+  optionsFrom?: "medicationChecks";
   // dose questions pick a new dose for the medication tagged with `medTag`
   medTag?: string;
   direction?: "lower" | "any";
@@ -96,6 +99,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  medicationReview?: MedicationReviewContext;
   aorta?: AortaContext;
   syncope?: { key:string; contextId:string|null; at:string|null; presentation:string|null; urgent:string[]; ecg:{id:string;at:string;summary:string}|null; standing:{id:string;at:string;result:string;symptoms:string}|null; hasDevice:boolean; structuralConcern:boolean; medicineNames:string[] };
   evidenceKey?: string;
@@ -611,7 +615,8 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...HYPERTENSION_WIZARDS,
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
-  ...AORTA_WIZARDS, ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
+  ...AORTA_WIZARDS,
+  ...MEDICATION_WIZARDS, ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
 };
 
 // Closing summary for every pathway that has no summary of its own (audit, 6 Oct): what was found, the
@@ -668,7 +673,8 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
 };
 
 // Options that fit this patient's current medicines.
-export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds"> & { dx?: string[] }) {
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }) {
+  if (q.optionsFrom === "medicationChecks") return (ctx.medicationReview?.checks ?? []).map(check=>({value:check.id,label:check.codes ? `Blood tests · ${check.codes.map(code=>MEASURES[code]?.short ?? code).join(", ")}` : check.title}));
   const tags = new Set(ctx.meds.flatMap((m) => m.tags));
   const dx = new Set(ctx.dx ?? []);
   return (q.options ?? []).filter((o) =>
@@ -865,7 +871,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
   const aorta = wizardId === "aorta-plan";
-  const htn = aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const htn = wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];

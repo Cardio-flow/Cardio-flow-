@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MedicationReviewLink } from "./MedicationReview";
 import { Pulse } from "./Pulse";
 import { BookOpen, Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
@@ -109,7 +110,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
     );
   if (act.type === "wizard")
     return (
-      <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: a.id })}>
+      <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: act.standalone ? undefined : a.id })}>
         {({ "vitamin-d-result":"Review vitamin D", "anaemia-result":"Review anaemia", "iv-iron":"Plan IV iron", "liver-result":"Review liver tests", "statin-ck-result":"Review statin CK", hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
@@ -148,6 +149,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
         {act.label}
       </button>
     );
+  if (act.type === "med-correct") return <button className="go" onClick={()=>open({kind:"med-dose",medId:act.medicationId})}>{act.label}</button>;
   if (act.type === "med-action")
     return (
       <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.action, reason: act.action === "resume" ? undefined : a.title })}>
@@ -474,9 +476,9 @@ function Meds({ s, open, done }: { s: any; open(o: Open): void; done(message?: s
     <section className="card pad medication-snapshot snapshot-card" aria-label="Current medications" style={{ paddingBottom: 14 }}>
       <div className="card-head">
         <h2><Pill size={19} aria-hidden="true" /> Medications</h2>
-        <button className="btn ghost small" onClick={() => open({ kind: "med-add" })}>+ Add</button>
+        <span className="row wrap"><MedicationReviewLink id={s.header.id} count={s.medicationReview?.issues.length ?? 0} /><button className="btn ghost small" onClick={() => open({ kind: "med-add" })}>+ Add</button></span>
       </div>
-      {s.medications.warnings?.length > 0 && <div className="infobox warn" style={{display:"grid",gap:6}}><b>Review overlapping treatment</b>{s.medications.warnings.map((w: any,i: number) => <div key={i}>{w.names.join(" + ")} · {w.detail}</div>)}</div>}
+
       {s.medications.recordedTogether && <AlreadyTaking s={s} done={done} />}
       {s.medications.groups.length === 0 && <div className="empty">No current medications recorded.</div>}
       {s.medications.groups.map((g: any) => (

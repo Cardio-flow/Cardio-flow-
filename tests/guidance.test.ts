@@ -5,7 +5,8 @@ import { MEDICATION } from "../shared/catalog.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { GUIDANCE, suggest } from "../shared/wizard-guidance.js";
-import { WIZARDS, type WizardContext } from "../shared/wizards.js";
+import { validDate } from "../shared/dates.js";
+import { WIZARDS, optionsFor, type WizardContext } from "../shared/wizards.js";
 import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
@@ -33,6 +34,7 @@ test("every suggestion names a real question and a real option, with a reason", 
       ["atorvastatin", ["statin"]], ["amiodarone", ["qt"]], ["semaglutide", ["glp1"]], ["hydrochlorothiazide", ["thiazide"]], ["ivabradine", ["ivabradine"]], ["ibuprofen", ["nsaid"]]],
     ["hf", "hfref", "cad", "ckd", "dm", "t2dm", "ascvd", "obesity", "smoker", "mechanical-valve", "af"], 72,
   );
+  rich.medicationReview={checks:[{id:"bloods",title:"Medication monitoring blood tests",codes:["creatinine"],medicines:["Ramipril"],sources:["Existing label schedule"]}]};
   const answerSets: any[] = [{}, { ecg: "present", symptoms: ["syncope"], volume: "congested", block: "high-grade", type: "mixed", stage: "D", picture: "dka", level: "2", severity: "major", site: "gi", direction: "high", bleeding: "minor", features: ["arrhythmia", "prosthetic", "device", "hf", "embolic"], hmod: ["neuro"], illness: ["vomiting"], redflags: ["dehydrated"], category: "high", urgency: "elective", risk: "high", capacity: "poor", active: ["none"], setting: "cap", curb: ["u", "r", "65"], "cap-abx": "coamox-mac", cardiac: ["sickday"], situation: "thyrotox", myocardium: "yes", duke: "definite" }];
   let count = 0;
   for (const [wid, qs] of Object.entries(GUIDANCE)) {
@@ -44,7 +46,7 @@ test("every suggestion names a real question and a real option, with a reason", 
       for (const a of answerSets)
         for (const s of suggest(wid, qid, a, rich)) {
           count++;
-          assert.ok(q!.options?.some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is an option`);
+          assert.ok(q!.type === "date" ? validDate(s.value) : optionsFor(q!,rich).some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is a valid date or patient-specific option`);
           assert.ok(s.why.length > 5, `${wid}.${qid}.${s.value} has a reason`);
         }
     }

@@ -36,7 +36,7 @@ export function facts(s: PatientState) {
   const meds = s.meds.filter((m) => m.status === "active");
   const recent = (code: string, days: number) => {
     const o = s.resolved(code).current;
-    return o?.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
+    return o?.status === "final" && o.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
   };
   const cr = recent("creatinine", 180), wt = recent("weight", 365);
   const conds = s.conditions.filter((c) => c.status === "active");
@@ -92,6 +92,13 @@ const STRONG_3A4 = ["cyp3a4-inhibitor"]; // catalogue: clarithromycin
 const DOACS_15 = ["apixaban", "rivaroxaban", "edoxaban"];
 
 export const SAFETY_ROWS: SafetyRow[] = [
+  {
+    id:"nsaid-antithrombotic",kind:"interaction",severity:"yellow",
+    title:withPartner("", "increased bleeding risk"),
+    detail:"Review the need for the NSAID, bleeding symptoms and alternatives. Do not stop anticoagulation solely because this interaction is present.",
+    source:"Ibuprofen SmPC 4.4/4.5 (https://www.medicines.org.uk/emc/product/14695/smpc); apixaban SmPC 4.4/4.5 (https://www.medicines.org.uk/emc/product/2878/smpc): increased bleeding risk",
+    check:pair(["ibuprofen"],["oac","antiplatelet"]),
+  },
   {
     id:"statin-lab-before-start",kind:"prestart",severity:"red",
     title:()=>"Statin start: review abnormal ALT / CK first",

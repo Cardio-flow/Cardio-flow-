@@ -46,6 +46,7 @@ export type Finding = {
     | { type: "start-med"; code: string; dose?: number; label: string }
     | { type: "titrate"; medicationId: string; dose: number; direction: "increase" | "decrease"; label: string }
     | { type: "add-labs"; codes: string[]; label: string }
+    | { type: "med-correct"; medicationId: string; label: string }
     | { type: "med-action"; medicationId: string; action?: "stop" | "hold" | "decrease" | "resume"; label: string }
     | { type: "history"; focus: "risk" | "cardiac"; label: string }
     | { type: "edit-dx"; code: string; label: string };
@@ -269,7 +270,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-17.aorta1";
+export const RULESET = "2026-10-18.medication-review1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

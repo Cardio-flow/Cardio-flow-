@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Drawer, SingleChoice, DateInput } from "../ui";
 import {
   MEASURES,
-  MEDICATION,
+  MEDICATION, FREQUENCIES,
   doseLabel,
   formatNumber,
 } from "../../shared/catalog";
@@ -286,6 +286,7 @@ export function CorrectMedication({
     last?.dose_value != null ? String(last.dose_value) : "",
   );
   const [freq, setFreq] = useState<string>(last?.frequency ?? "");
+  const [route,setRoute]=useState<string>(last?.route ?? "");
   const [day, setDay] = useState<string>(
     last ? localDay(String(last.effective_at)) : today,
   );
@@ -321,7 +322,7 @@ export function CorrectMedication({
   const noDose = last.dose_value == null && med.doseValue == null && ["start", "restart", "continue", "resume"].includes(last.kind);
   const sameFix =
     (noDose ? dose === "" : Number(dose) === last.dose_value) &&
-    freq === (last.frequency ?? "") &&
+    freq === (last.frequency ?? "") && route === (last.route ?? "") &&
     day === localDay(String(last.effective_at));
   const ok =
     mode === "fix"
@@ -335,6 +336,7 @@ export function CorrectMedication({
         {
           doseValue: dose !== "" ? Number(dose) : undefined,
           frequency: freq || undefined,
+          route:route || undefined,
           effectiveAt: at(day),
           reason: "Corrected",
         },
@@ -397,6 +399,7 @@ export function CorrectMedication({
                 <span>Dose</span>
                 <select
                   className="input"
+                  aria-label="Dose"
                   value={dose}
                   onChange={(e) => setDose(e.target.value)}
                 >
@@ -411,15 +414,17 @@ export function CorrectMedication({
                 </select>
               </label>
             )}
-            {last.frequency && (
+            {(last.frequency || def.frequencies.length > 0) && (
               <label className="field">
                 <span>Frequency</span>
                 <select
                   className="input"
+                  aria-label="Frequency"
                   value={freq}
                   onChange={(e) => setFreq(e.target.value)}
                 >
-                  {[...new Set([last.frequency, ...def.frequencies])].map(
+                  {!last.frequency && <option value="">Choose frequency</option>}
+                  {[...new Set([last.frequency, ...def.frequencies, ...FREQUENCIES].filter(Boolean))].map(
                     (f) => (
                       <option key={f} value={f}>
                         {f}
@@ -429,6 +434,7 @@ export function CorrectMedication({
                 </select>
               </label>
             )}
+            <label className="field"><span>Route</span><select className="input" aria-label="Route" value={route} onChange={e=>setRoute(e.target.value)}><option value="">Choose route</option>{[...new Set([last.route,...def.routes].filter(Boolean))].map(r=><option key={r} value={r}>{r}</option>)}</select></label>
             <label className="field">
               <span>Date</span>
               <DateInput

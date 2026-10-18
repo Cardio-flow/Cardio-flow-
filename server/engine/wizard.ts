@@ -1,3 +1,5 @@
+import { medicationReviewContext } from "./medication-review.js";
+import { validateMedicationMonitoring } from "../../shared/wizards-medication.js";
 import { aortaProfile } from "./aorta-profile.js";
 import { validateAorta } from "../../shared/wizards-aorta.js";
 import { syncopeProfile } from "./syncope-profile.js";
@@ -250,7 +252,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if(syncope.standing)base.facts.push({label:"Standing BP report",value:syncope.standing.result,date:syncope.standing.at});
     for(const concern of syncope.urgent)base.facts.push({label:"Recorded concern",value:concern,tone:"red"});
   }
-  return { ...base, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, medicationReview: wizardId === "medication-monitoring" ? medicationReviewContext(s) : undefined, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -298,6 +300,10 @@ export async function completeWizard(
   checkEvidence(s, input.evidenceKey);
   await checkRecommendation(tx, patientId, wizardId, input.recommendationId);
   const ctx = wizardContext(s, wizardId);
+  if(wizardId === "medication-monitoring") {
+    const error=validateMedicationMonitoring(input.answers,ctx);
+    if(error)throw new ApiError(400,error);
+  }
   const priority = potassiumFirst(wizardId,ctx);
   if (priority) throw new ApiError(409,priority);
   if(wizardId === "aorta-plan"){

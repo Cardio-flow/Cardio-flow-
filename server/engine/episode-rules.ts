@@ -162,7 +162,7 @@ export const EPISODE_RULES: RuleDef[] = [
     id: "event.amiodarone-thyroid",
     kind: "clinical",
     title: "Thyroid function on amiodarone",
-    inputs: ["meds", "tsh", "episodes"],
+    inputs: ["meds", "tsh", "episodes", "plan"],
     defaultParams: {},
     evidence: "2018 European Thyroid Association guidelines on amiodarone-associated thyroid dysfunction: thyroid function before amiodarone and during treatment; hypothyroidism and thyrotoxicosis are managed with endocrinology.",
     evaluate(s) {
@@ -170,6 +170,7 @@ export const EPISODE_RULES: RuleDef[] = [
       if (!amio) return [];
       const tsh = s.resolved("tsh").current;
       if (!tsh) {
+        if(s.plan.some(p=>p.status==="planned" && p.completes_on?.type==="lab" && p.completes_on.codes?.includes("tsh"))) return [];
         if (handled(s, "amiodarone-thyroid", amio.startedAt ?? s.today)) return [];
         return [{
           key: "amiodarone-thyroid", signature: `none:${amio.id}`, severity: "yellow",

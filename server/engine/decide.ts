@@ -6,6 +6,7 @@
 // only the clinician can answer, and results the decision needs that are missing or out of date. The plan the
 // pathway would record — medicine changes with doses, dated infusions, rechecks and reviews — is returned with
 // the reasons, so the alert card can show it and record it with one confirmation. Nothing is recorded here.
+import { validateMedicationMonitoring } from "../../shared/wizards-medication.js";
 import { validateAorta } from "../../shared/wizards-aorta.js";
 import { validateSyncope } from "../../shared/wizards-syncope.js";
 import { potassiumFirst } from "../../shared/decision-safety.js";
@@ -143,7 +144,7 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
   }
   if(iron) dueDates=ironDates(answers,ctx,dueDates);
-  const blockers = [wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
+  const blockers = [wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)
