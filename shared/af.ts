@@ -14,6 +14,8 @@ export const LAA_METHODS = [
   "Surgical exclusion",
 ] as const;
 export const LAA_DEVICES = [
+  // 19 Oct 2026 (Ahmed): the model is often not known from a referral letter
+  "WATCHMAN (model not known)",
   "WATCHMAN (earlier generation)",
   "WATCHMAN FLX",
   "WATCHMAN FLX Pro",

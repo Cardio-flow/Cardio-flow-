@@ -26,7 +26,7 @@ export const ACCESS = ["Radial", "Femoral"] as const;
 // Rhythm & devices module (5 Oct 2026): device implants, ablations and cardioversions use the same
 // append-only table; the kind is validated here, not in the schema.
 export const DEVICE_TYPES = [
-  "Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Leadless pacemaker", "ICD (transvenous)", "Subcutaneous ICD",
+  "Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Pacemaker (type not known)", "Leadless pacemaker", "ICD (transvenous)", "Subcutaneous ICD",
   "CRT-P", "CRT-D", "Implantable loop recorder",
 ] as const;
 export const DEVICE_ACTIONS = ["New implant", "Upgrade", "Generator change", "Lead revision", "Extraction"] as const;
@@ -338,8 +338,8 @@ export function checklistForPlan(title: string, category: string): CheckKind | n
 export function historicalLabel(kind: string, a: Record<string, any>) {
   if (kind === "laao") return a.method === "Surgical exclusion" ? "Surgical LAA exclusion" : /WATCHMAN/i.test(String(a.device)) ? "Watchman LAA occluder" : /Amulet/.test(String(a.device)) ? "Amulet LAA occluder" : "LAA closure";
   if (kind === "valve") return a.procedure === "Transcatheter edge-to-edge repair (TEER)" ? `${a.position} TEER${a.deviceModel ? ` (${a.deviceModel})` : a.position === "Mitral" ? " (clip)" : ""}` : a.procedure === "TAVI" ? "TAVI" : a.procedure === "Surgical replacement" ? `${a.position} valve replacement (${String(a.prosthesis ?? "").toLowerCase()})` : `${a.position} ${String(a.procedure).toLowerCase()}`;
-  if (kind === "device") return String(a.type).replace(" (transvenous)", "").replace(/^Pacemaker \((single|dual) chamber\)/, "Pacemaker");
-  if (kind === "ablation") return `Ablation${(a.targets ?? []).length ? ` (${(a.targets ?? []).join(", ")})` : ""}`;
+  if (kind === "device") return String(a.type).replace(" (transvenous)", "").replace(/^Pacemaker \((single chamber|dual chamber|type not known)\)/, "Pacemaker");
+  if (kind === "ablation") return `${(a.targets ?? []).length ? `${(a.targets ?? []).map((t: string) => t.replace(/ \(pulmonary vein isolation\)/, " (PVI)")).join(" + ")} ablation` : "Ablation"}`;
   if (kind === "pci") return `PCI${(a.vessels ?? []).length ? ` ${(a.vessels ?? []).join("/")}` : ""}`;
   if (kind === "cabg") return "CABG";
   return kind;

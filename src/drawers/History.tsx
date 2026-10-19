@@ -683,13 +683,13 @@ export const PAST_PRESETS: { id: string; label: string; kind: string; base: Reco
   { id: "mi", label: "MI", kind: "mi", base: {} },
   { id: "pci", label: "PCI / POBA", kind: "pci", base: {} },
   { id: "cabg", label: "CABG", kind: "cabg", base: {} },
-  { id: "teer", label: "Mitral clip (TEER)", kind: "valve", base: { position: "Mitral", procedure: "Transcatheter edge-to-edge repair (TEER)", deviceModel: "MitraClip" } },
+  { id: "teer", label: "Mitral clip (TEER)", kind: "valve", base: { position: "Mitral", procedure: "Transcatheter edge-to-edge repair (TEER)" } },
   { id: "tavi", label: "TAVI", kind: "valve", base: { position: "Aortic", procedure: "TAVI" } },
   { id: "valve-surgery", label: "Valve surgery", kind: "valve", base: { procedure: "Surgical replacement", prosthesis: "Mechanical", position: "Mitral" } },
-  { id: "laao", label: "Watchman / LAA closure", kind: "laao", base: { device: "WATCHMAN (earlier generation)" } },
+  { id: "laao", label: "Watchman / LAA closure", kind: "laao", base: { device: "WATCHMAN (model not known)" } },
   { id: "icd", label: "ICD", kind: "device", base: { type: "ICD (transvenous)" } },
   { id: "crt", label: "CRT", kind: "device", base: { type: "CRT-D" } },
-  { id: "ppm", label: "Pacemaker", kind: "device", base: { type: "Pacemaker (dual chamber)" } },
+  { id: "ppm", label: "Pacemaker", kind: "device", base: { type: "Pacemaker (type not known)" } },
   { id: "ablation", label: "Ablation", kind: "ablation", base: { targets: ["AF (pulmonary vein isolation)"] } },
 ];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -740,12 +740,12 @@ export function PastProcedures({ rows, setRows, recorded, thisYear }: { rows: Pa
             </div>
             {r.preset === "mi" && <>{chips(["STEMI", "NSTEMI", "Type 2 MI"], d.type, false, (v) => det(r, "type", v), "MI type")}{chips(["Anterior", "Inferior", "Lateral", "Posterior"], d.territory, false, (v) => det(r, "territory", v), "Territory")}{chips([...MI_FEATURES], d.features, true, (v) => det(r, "features", v), "Course")}</>}
             {r.preset === "pci" && <>{chips(["LAD", "LCx", "RCA", "Left main", "Graft"], d.vessels, true, (v) => det(r, "vessels", v), "Vessels")}{chips(["Stent (DES)", "Drug-coated balloon", "POBA (balloon only)"], (d.devices ?? []).map((x: string) => (x === "Drug-eluting stent" ? "Stent (DES)" : x === "Balloon only" ? "POBA (balloon only)" : x)), true, (v: string[]) => det(r, "devices", v.map((x) => (x === "Stent (DES)" ? "Drug-eluting stent" : x === "POBA (balloon only)" ? "Balloon only" : x))), "Device")}{chips(["Stent thrombosis", "In-stent restenosis"], d.reason, false, (v) => det(r, "reason", d.reason === v ? null : v), "Done for")}{chips(["Primary PCI (STEMI)", "NSTE-ACS", "Elective"], d.settingLabel, false, (v) => upd(r.key, { detail: { ...r.detail, settingLabel: v, setting: v === "Elective" ? "elective" : v === "NSTE-ACS" ? "nste-acs" : "stemi" } }), "Setting")}</>}
-            {r.preset === "teer" && <>{chips(["Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["MitraClip", "PASCAL", "TriClip"], d.deviceModel, false, (v) => det(r, "deviceModel", v), "Device")}</>}
+            {r.preset === "teer" && <>{chips(["Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["Not known", "MitraClip", "PASCAL", "TriClip"], d.deviceModel ?? "Not known", false, (v) => det(r, "deviceModel", v === "Not known" ? null : v), "Device")}</>}
             {r.preset === "valve-surgery" && <>{chips(["Aortic", "Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["Mechanical", "Bioprosthetic", "Repair"], d.procedure === "Surgical repair" ? "Repair" : d.prosthesis, false, (v) => upd(r.key, { detail: { ...r.detail, ...(v === "Repair" ? { procedure: "Surgical repair", prosthesis: null } : { procedure: "Surgical replacement", prosthesis: v }) } }), "Type")}</>}
-            {r.preset === "laao" && chips(["WATCHMAN (earlier generation)", "WATCHMAN FLX", "WATCHMAN FLX Pro", "Amplatzer Amulet", "Surgical clip"], d.device, false, (v) => det(r, "device", v), "Device")}
+            {r.preset === "laao" && chips(["WATCHMAN (model not known)", "WATCHMAN FLX", "WATCHMAN FLX Pro", "Amplatzer Amulet", "Other transcatheter device", "Surgical clip"], d.device, false, (v) => det(r, "device", v), "Device")}
             {r.preset === "icd" && chips(["ICD (transvenous)", "Subcutaneous ICD"], d.type, false, (v) => det(r, "type", v), "Device")}
             {r.preset === "crt" && chips(["CRT-D", "CRT-P"], d.type, false, (v) => det(r, "type", v), "Device")}
-            {r.preset === "ppm" && chips(["Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Leadless pacemaker"], d.type, false, (v) => det(r, "type", v), "Device")}
+            {r.preset === "ppm" && chips(["Pacemaker (type not known)", "Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Leadless pacemaker"], d.type, false, (v) => det(r, "type", v), "Device")}
             {r.preset === "ablation" && chips(["AF (pulmonary vein isolation)", "Atrial flutter (CTI)", "AVNRT", "Accessory pathway", "VT", "AV node (pace and ablate)"], d.targets, true, (v) => det(r, "targets", v), "Ablation")}
           </div>
         );

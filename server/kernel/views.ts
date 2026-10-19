@@ -207,6 +207,30 @@ export function structuralSummary(s: PatientState) {
   return items.length ? { label: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`).join(" · "), items: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
 }
 
+// The diagnosis list as the header shows it, for notes and summaries (19 Oct audit): heart failure /
+// cardiomyopathy / PH first, IHD with its dated events, valve interventions and devices, the other cardiac
+// diagnoses with their detail; then risk factors; then other conditions with a brief history.
+export function diagnosisLines(s: PatientState) {
+  const ihd = ihdSummary(s), st = structuralSummary(s);
+  const ef = s.resolved("lvef").current;
+  const covered = new Set([...(ihd?.codes ?? []), ...(st?.covers ?? [])]);
+  const cardiac = s.conditions
+    .filter((c) => DIAGNOSIS[c.code] && DIAGNOSIS[c.code].family !== "Comorbidity" && !covered.has(c.code))
+    .sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code].family) - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code].family))
+    .map((c) => ({ family: DIAGNOSIS[c.code].family, text: DIAGNOSIS[c.code].tags.includes("hf") && ef?.value_num != null ? `${c.display} (LVEF ${formatNumber(ef.value_num, 0)}%)` : conditionLabel(c) }));
+  const lead = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
+  const diagnoses = [
+    ...cardiac.filter((c) => lead.includes(c.family)).map((c) => c.text),
+    ...(ihd ? [ihd.label] : []),
+    ...(st?.items ?? []),
+    ...cardiac.filter((c) => !lead.includes(c.family)).map((c) => c.text),
+  ];
+  const yearOf = (c: any) => (c.onset ? ` (since ${new Date(c.onset).getFullYear()})` : c.attributes?.onsetYear ? ` (since ${c.attributes.onsetYear})` : "");
+  const riskFactors = s.conditions.filter((c) => RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden).map((c) => `${conditionLabel(c)}${yearOf(c)}`);
+  const other = otherConditions(s).map((o) => `${o.label}${o.brief ? ` (${o.brief})` : ""}`);
+  return { diagnoses, riskFactors, other };
+}
+
 // non-cardiac conditions with a brief history: onset, detail and the treatment for it
 const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazole", "propylthiouracil"], anaemia: ["oral-iron", "iv-iron"], copd: ["inhaler"], aps: ["vka"], gout: ["allopurinol", "febuxostat"] };
 function otherConditions(s: PatientState) {
@@ -520,7 +544,8 @@ export function planView(s: PatientState) {
     source: (() => {
       const c = s.contexts.find((c) => c.id === p.source_context_id);
       if (!c) return null;
-      return { kind: c.kind, at: c.ended_at ?? c.started_at, label: c.kind === "admission" ? "Discharge plan" : "Visit plan" };
+      // an admission still open has an admission plan; it becomes the discharge plan at discharge (19 Oct audit)
+      return { kind: c.kind, at: c.ended_at ?? c.started_at, label: c.kind === "admission" ? (c.ended_at ? "Discharge plan" : "Admission plan") : "Visit plan" };
     })(),
     completesOn: {...p.completes_on, requiresReview: needsExplicitReview(p.title,p.completes_on)},
     indications: p.indications ?? [p.title], decisionRefs: p.decision_refs ?? [],
@@ -733,7 +758,10 @@ export async function worklist(q: Q, siteId: string, sample = false) {
   const out = rows.map((r) => {
     const codes: string[] = r.codes ?? [];
     const conds = codes.map((c) => DIAGNOSIS[c]).filter(Boolean);
-    const main = conds.filter((d) => ["Heart failure", "Coronary", "Valve", "Arrhythmia"].includes(d.family)).map((d) => d.display);
+    // as the header reads (19 Oct audit): coronary codes as one "IHD", HF first, then valve, congenital, rhythm
+    const order = ["Heart failure", "Cardiomyopathy", "Coronary", "Valve", "Congenital", "Arrhythmia"];
+    const main = [...new Set(conds.filter((d) => order.includes(d.family)).sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family))
+      .map((d) => (d.family === "Coronary" && d.code !== "cad-suspected" ? "IHD" : d.code === "prosthetic-valve" ? "Valve intervention" : d.display)))];
     const ckd = conds.find((d) => d.code.startsWith("ckd"));
     let where = "Outpatient";
     if (r.open_kind === "admission") where = `Inpatient${r.open_location ? ` · ${r.open_location}` : ""}`;

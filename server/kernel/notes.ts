@@ -5,7 +5,7 @@ import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/cata
 import { fmtDay, localDay } from "../../shared/clinical.js";
 import { ApiError } from "./base.js";
 import { loadState } from "./state.js";
-import { planView } from "./views.js";
+import { diagnosisLines, planView } from "./views.js";
 
 export async function draftNote(tx: Q, patientId: string, contextId: string) {
   const s = await loadState(tx, patientId);
@@ -52,7 +52,11 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
   if (c.kind === "admission" && sm.dischargeStatus) lines.push(`At discharge: ${sm.dischargeStatus}${sm.destination ? ` · to ${sm.destination.toLowerCase()}` : ""}`);
   if (c.kind === "admission" && sm.handover) lines.push(`Handover / outstanding issues: ${sm.handover}`);
   lines.push("");
-  lines.push("Diagnoses: " + (s.conditions.map((d) => d.display).join(", ") || "none recorded"));
+  // the same lines as the patient header: IHD with its dated events, devices, risk factors apart (19 Oct audit)
+  const dx = diagnosisLines(s);
+  lines.push("Diagnoses: " + (dx.diagnoses.join("; ") || "none recorded"));
+  if (dx.riskFactors.length) lines.push("Risk factors: " + dx.riskFactors.join(", "));
+  if (dx.other.length) lines.push("Other conditions: " + dx.other.join(", "));
   const ef = s.resolved("lvef").current;
   if (ef) lines.push(`LVEF ${formatNumber(ef.value_num!, 0)}% (${ef.quality} Echo, ${fmtDay(ef.effective_at, { year: true })})`);
   const vitals = ["sbp", "hr", "weight", "dry-weight", "kccq", "6mwd"].map((code) => {
@@ -79,7 +83,14 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     WHERE d.patient_id=$1 AND d.context_id=$2 ORDER BY d.decided_at,d.id`, [patientId, contextId])).rows;
   if (decisions.length) {
     lines.push("", "Decisions:");
-    for (const d of decisions) lines.push(`- ${(d.outcome === "acted" ? d.event_title : d.recommendation_title) ?? d.recommendation_title ?? "Clinical decision"} · ${d.outcome}${d.reason || d.event_detail ? ` — ${d.reason || d.event_detail}` : ""}`);
+    // one line per decision: what, the outcome, the reason; the pathway's questions and answers stay in the
+    // journey and its dated items are listed under Plan (19 Oct audit: the Q&A was pasted into summaries)
+    const OUTCOME: Record<string, string> = { acted: "done", deferred: "deferred", declined: "not done", dismissed: "not applicable" };
+    for (const d of decisions) {
+      const notTaken = /Guideline suggestions not taken: (.*)$/.exec(String(d.event_detail ?? ""))?.[1];
+      const what = (d.outcome === "acted" ? d.event_title : d.recommendation_title) ?? d.recommendation_title ?? "Clinical decision";
+      lines.push(`- ${what}: ${OUTCOME[d.outcome] ?? d.outcome}${d.reason ? ` — ${d.reason}` : ""}${notTaken ? ` (guideline suggestion not chosen: ${notTaken})` : ""}`);
+    }
     lines.push("");
   }
   lines.push(

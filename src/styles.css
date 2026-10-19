@@ -273,6 +273,7 @@ h1, h2, h3 { margin: 0; }
 .tabs a { padding: 0 2px 14px; border-bottom: 3px solid transparent; color: var(--ink-3); font-size: 14.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .tabs a[aria-current="page"] { border-bottom-color: var(--action); color: var(--navy); font-weight: 800; }
 .tabs .n { margin-left: 6px; font-size: 11.5px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: var(--red-bg); color: var(--red-ink); }
+.tabs .n.calm { background: var(--orange-bg, #fff1e3); color: var(--orange-ink, #a3500b); }
 
 .grid-main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
 .decision-context { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
@@ -1783,6 +1784,7 @@ table.data.meds td.med-compact { display: none; }
 .problem.p-red { border-left-color: #bb391f; }
 .problem.p-orange { border-left-color: #d77b25; }
 .problem.p-yellow { border-left-color: #c4a33d; }
+.problem.p-need { border-left-color: var(--line); }
 .problem.p-blue { border-left-color: var(--action); }
 .problem-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .problem-head b { font-size: 15px; color: var(--navy); }

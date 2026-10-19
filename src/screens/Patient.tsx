@@ -401,8 +401,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               aria-current={tab === key ? "page" : undefined}
             >
               {label}
-              {key === "summary" && redCount > 0 && (
-                <span className="n">{redCount}</span>
+              {/* one number everywhere: the alerts, red when any needs action now (19 Oct audit) */}
+              {key === "summary" && s.attention.length > 0 && (
+                <span className={`n${redCount > 0 ? "" : " calm"}`} aria-hidden="true" title={`${s.attention.length} alerts${redCount ? `, ${redCount} to act on now` : ""}`}>{s.attention.length}</span>
               )}
             </Link>
           ))}

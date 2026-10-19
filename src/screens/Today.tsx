@@ -87,7 +87,8 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
       ) : (
         <div className="tb-summary">
           {urgent > 0 && <span className="tb-count red"><AlertTriangle size={15} /> {urgent} urgent</span>}
-          {decisions > 0 && <span className="tb-count">{decisions} decision{decisions === 1 ? "" : "s"}</span>}
+          {decisions > 0 && <span className="tb-count">{decisions} to decide</span>}
+          {dueLabs.length > 0 && <span className="tb-count">{dueLabs.length} result{dueLabs.length === 1 ? "" : "s"} due</span>}
           {dueCodes.length > 0 && (
             <button className="btn primary small tb-labs" onClick={() => open({ kind: "labs", codes: dueCodes })}>
               <FlaskConical size={15} /> Enter due results · {dueCodes.map(labelOf).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
@@ -115,11 +116,12 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
   const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
   const consider = items.filter((a) => a.severity === "blue" && a.rule_id !== "htn.rdn");
   return (
-    <section className={`problem ${top ? `p-${top.severity}` : "ok"}`} aria-label={p.label}>
+    <section className={`problem ${top ? `p-${top.severity}` : p.need.length ? "p-need" : "ok"}`} aria-label={p.label}>
       <div className="problem-head">
         <b>{p.label}</b>
         {p.sub && <span className="problem-sub">{p.sub}</span>}
-        {!top && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {/* "On track" only when nothing is missing for the decision (19 Oct audit: BP not measured read as on track) */}
+        {!top && !p.need.length && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
       </div>
       {p.history && p.history.length > 0 && <ol className="problem-history" aria-label="History">{p.history.map((h, i) => <li key={i}>{h}</li>)}</ol>}
       {p.stats.length > 0 && (

@@ -116,10 +116,13 @@ export function monitoringDue(s: PatientState, m: MedState, k: MonCheck) {
   return { missing: due, dueDay: localDay(plusDays(ref, every)), why: `every ${every >= 360 ? "year" : every % 30 === 0 || every < 40 ? `${Math.round(every / 30)} month${every >= 60 ? "s" : ""}` : `${Math.round(every / 30.4)} months`}`, last: latest[due[0]] && latest[due[0]]! > startAt ? latest[due[0]] : null };
 }
 
+// table rows that a dedicated rule already raises with its own action: shown once (19 Oct audit — metformin
+// eGFR limits appeared twice). The rows still feed the decision panels' medicine review.
+const RAISED_ELSEWHERE = new Set(["metformin-renal"]);
 const tableRule = (id: string, kind: SafetyRow["kind"], title: string, evidence: string): RuleDef => ({
   id, kind: "clinical", title, inputs: ["meds", "conditions", "observations", "studies", "creatinine", "egfr", "weight", "lvef", "hr", "nyha"], defaultParams: {}, evidence,
   evaluate(s) {
-    return safetyHits(s, kind).map(({ row, hit }) => ({
+    return safetyHits(s, kind).filter(({ row }) => !RAISED_ELSEWHERE.has(row.id)).map(({ row, hit }) => ({
       key: `${row.id}:${hit.meds.map((m) => m.code).join("+")}`,
       signature: JSON.stringify([hit.meds.map(m=>[m.id,m.doseValue,m.frequency,m.route]).sort(),hit.reason]),
       severity: hit.severity ?? row.severity,
