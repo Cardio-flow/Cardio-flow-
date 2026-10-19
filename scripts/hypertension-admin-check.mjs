@@ -310,6 +310,7 @@ try {
   await page
     .getByRole("link", { name: "Manage patients", exact: true })
     .click();
+  await page.getByRole("heading", { name: /^(Set administration PIN|Unlock administration)$/ }).waitFor();
   if (await page.getByRole("heading", { name: "Set administration PIN" }).isVisible()) {
     await page.getByLabel("PIN", { exact: true }).fill("739204");
     await page.getByLabel("Confirm PIN", { exact: true }).fill("739204");
