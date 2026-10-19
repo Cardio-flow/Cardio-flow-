@@ -217,7 +217,7 @@ export const RULES: RuleDef[] = [
             severity: "yellow" as const,
             title: state === "overdue" ? `${a.title} overdue` : `${a.title} due today`,
             detail:
-              (ctx ? `From ${ctx.kind === "admission" ? "discharge plan" : "visit plan"} ${day(ctx.ended_at ?? ctx.started_at)} · ` : "") +
+              (ctx ? `From ${ctx.kind === "admission" ? (ctx.ended_at ? "discharge plan" : "admission plan") : "visit plan"} ${day(ctx.ended_at ?? ctx.started_at)} · ` : "") +
               (state === "overdue" ? `due ${day(a.due_date!)} · ${late} day${late === 1 ? "" : "s"} overdue` : "due today"),
             facts: [{ label: "Due", value: fmtDay(a.due_date!, { weekday: true }) }],
             missing: [],

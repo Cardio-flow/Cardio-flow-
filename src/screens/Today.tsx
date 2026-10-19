@@ -3,7 +3,7 @@
 // data the decision still needs, and every open item for it with its action. Nothing is listed twice: an item
 // lives in its problem's card; items with no problem go to "Other". Due tests are gathered in one button.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw, AlertTriangle } from "lucide-react";
+import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw, AlertTriangle, Info } from "lucide-react";
 import { api } from "../api";
 import { formatNumber, MEASURES, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
@@ -23,6 +23,9 @@ export function useTriage(s: any) {
 
 const SEV_RANK: Record<string, number> = { red: 0, orange: 1, yellow: 2, blue: 3 };
 // which problem an alert belongs to (one place only)
+// shown under "Before discharge or at clinic" during an admission (display grouping only; red never folds)
+const CLINIC_LATER = new Set(["lipids.lpa-once", "lipids.ldl-goal", "cardiorenal.screening", "cardiorenal.finerenone", "cardiorenal.ckd-stage", "cardiorenal.stage-review", "dm.annual-checks", "dm.hba1c-due", "dm.glycaemic-control", "metabolic.obesity", "metabolic.diabetes-cv-protection", "hf.device-assessment", "cad.rehab", "cad.dapt-beyond-default", "htn.bp-target", "htn.management", "htn.secondary", "htn.rdn", "lab.vitamin-d", "cmp.family-screening", "cmp.genetic-testing", "valve.echo-surveillance", "rhythm.remote-monitoring", "rhythm.device-check-due"]);
+const CLINIC_CARDS = ["lipids", "diabetes", "bp"];
 const PROBLEM_OF = (ruleId: string): string => {
   if (["hf.hyperkalaemia-review", "hf.worsening-renal-function", "safety.low-potassium", "safety.hyponatraemia", "ops.monitoring-after-change"].includes(ruleId) || ruleId.startsWith("cardiorenal.")) return "kidney";
   if (["lab.anaemia", "lab.iron-deficiency", "hf.iron-deficiency", "safety.bleeding"].includes(ruleId)) return "anaemia";
@@ -57,12 +60,26 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const [dismiss, setDismiss] = useState<string | null>(null);
   const row: RowProps = { selected, setSelected, why, setWhy, open, done, patientId: s.header.id, s, line, setLine, dismiss, setDismiss };
   const problems = buildProblems(s);
+  // Admission mode (19 Oct 2026, audit): during an open admission, outpatient screening and long-term
+  // optimisation fold into "Before discharge or at clinic" (red items never fold). Due plan items of an open
+  // complication episode live on its card, not again as alerts.
+  const admitted = s.header?.openContext?.kind === "admission";
+  const onEpisode = new Set<string>((s.episodes ?? []).filter((e: any) => e.status === "open").flatMap((e: any) => (e.open ?? []).map((x: any) => x.id)));
+  const later = (a: any) => admitted && a.severity !== "red" && CLINIC_LATER.has(a.rule_id);
+  const attention = (s.attention as any[]).filter((a) => !(a.action?.type === "plan" && onEpisode.has(a.action.planId)));
+  const deferred = attention.filter(later);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
-  for (const key of new Set((s.attention as any[]).map((a) => PROBLEM_OF(a.rule_id))))
+  for (const key of new Set(attention.map((a) => PROBLEM_OF(a.rule_id))))
     if (!problems.some((p) => p.key === key)) problems.splice(problems.length - 1, 0, { key, label: TITLES[key] ?? TITLES.other, stats: [], need: [] } as Problem);
-  const items = (key: string) => (s.attention as any[]).filter((a) => PROBLEM_OF(a.rule_id) === key).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
-  const shown = problems.filter((p) => p.key !== "other" || items("other").length);
+  const items = (key: string) => attention.filter((a) => PROBLEM_OF(a.rule_id) === key && !later(a)).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
+  const laterOf = (key: string) => deferred.filter((a) => PROBLEM_OF(a.rule_id) === key);
+  // a card left with nothing for today during an admission goes into the folded clinic section
+  // (only lipids, diabetes and BP: kidney, HF and the rest keep their results in view during the admission)
+  const clinicCard = (p: Problem) => admitted && !items(p.key).length && CLINIC_CARDS.includes(p.key);
+  const all = problems.filter((p) => p.key !== "other" || items("other").length || laterOf("other").length);
+  const shown = all.filter((p) => !clinicCard(p));
+  const clinic = all.filter(clinicCard);
   const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : 9; };
   shown.sort((x, y) => rank(x) - rank(y));
   // one decision per pathway: the first alert (in display order) that opens it carries the plan
@@ -71,10 +88,12 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
     if (decides(a) && !seenWiz.has(a.action.wizard)) { seenWiz.add(a.action.wizard); panels.add(a.id); }
   row.panels = panels;
   // every due test in one entry (the items stay in their problem cards)
-  const dueLabs = (s.attention as any[]).filter((a) => a.action?.type === "add-labs");
+  const today = attention.filter((a) => !later(a));
+  const dueLabs = today.filter((a) => a.action?.type === "add-labs");
   const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
-  const urgent = (s.attention as any[]).filter((a) => a.severity === "red").length;
-  const decisions = (s.attention as any[]).filter((a) => a.action?.type !== "add-labs").length;
+  const urgent = today.filter((a) => a.severity === "red").length;
+  const decisions = today.filter((a) => a.action?.type !== "add-labs").length;
+  const onCards = s.attention.length - attention.length;
   const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   return (
     <section className="tb" aria-labelledby="att-h" id="att">
@@ -89,6 +108,8 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           {urgent > 0 && <span className="tb-count red"><AlertTriangle size={15} /> {urgent} urgent</span>}
           {decisions > 0 && <span className="tb-count">{decisions} to decide</span>}
           {dueLabs.length > 0 && <span className="tb-count">{dueLabs.length} result{dueLabs.length === 1 ? "" : "s"} due</span>}
+          {onCards > 0 && <a className="tb-count" href="#eph">{onCards} complication task{onCards === 1 ? "" : "s"}</a>}
+          {deferred.length > 0 && <a className="tb-count muted" href="#clinic-later">{deferred.length} for discharge / clinic</a>}
           {dueCodes.length > 0 && (
             <button className="btn primary small tb-labs" onClick={() => open({ kind: "labs", codes: dueCodes })}>
               <FlaskConical size={15} /> Enter due results · {dueCodes.map(labelOf).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
@@ -102,15 +123,29 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="lane-rows">{s.plan.filter((p: any) => p.awaitingReview).map((p: any) => <div className="review-row" key={p.id}><div><b>{p.title}</b><span className="small muted">{p.owner ? `Owner: ${p.owner} · ` : ""}{p.completedAt ? fmtDay(p.completedAt) : "Result recorded"}</span></div><button className="btn secondary small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Review result</button></div>)}</div>
       </div>}
       <div className="problems" aria-label="Problems at a glance">
-        {shown.map((p) => <ProblemCard key={p.key} p={p} items={items(p.key)} row={row} />)}
+        {shown.map((p) => <ProblemCard key={p.key} p={p} items={items(p.key)} later={laterOf(p.key)} row={row} />)}
       </div>
+      {admitted && (clinic.length > 0 || deferred.length > 0) && (
+        <details className="clinic-later" id="clinic-later">
+          <summary>
+            <b>Before discharge or at clinic</b>
+            <span>{deferred.length} item{deferred.length === 1 ? "" : "s"}{clinic.length ? ` · ${clinic.map((p) => p.label.split(" · ")[0]).join(", ")}` : ""}</span>
+            <ChevronDown size={16} />
+          </summary>
+          <p className="small muted">Screening and long-term optimisation, kept out of the admission view. Nothing here is dropped: it stays on the record and returns at discharge and clinic.</p>
+          <div className="problems">
+            {clinic.map((p) => <ProblemCard key={p.key} p={p} items={laterOf(p.key)} row={row} />)}
+          </div>
+        </details>
+      )}
       <Dismissed s={s} done={done} />
     </section>
   );
 }
 
-function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProps }) {
+function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; later?: any[]; row: RowProps }) {
   const [more, setMore] = useState(false);
+  const [moreLater, setMoreLater] = useState(false);
   const top = items[0];
   // low-priority suggestions fold under "to consider" so the card leads with what matters
   const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
@@ -121,7 +156,7 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
         <b>{p.label}</b>
         {p.sub && <span className="problem-sub">{p.sub}</span>}
         {/* "On track" only when nothing is missing for the decision (19 Oct audit: BP not measured read as on track) */}
-        {!top && !p.need.length && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {!top && !p.need.length && !later.length && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
       </div>
       {p.history && p.history.length > 0 && <ol className="problem-history" aria-label="History">{p.history.map((h, i) => <li key={i}>{h}</li>)}</ol>}
       {p.stats.length > 0 && (
@@ -137,6 +172,12 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
         </div>
       )}
       {main.length > 0 && <div className="problem-items">{main.map((a) => <Item key={a.id} a={a} {...row} />)}</div>}
+      {later.length > 0 && items.length > 0 && (
+        <div className="problem-consider">
+          <button type="button" className="btn ghost small" aria-expanded={moreLater} onClick={() => setMoreLater(!moreLater)}>{moreLater ? "Hide" : `${later.length} for discharge / clinic`} <ChevronDown size={14} style={{ transform: moreLater ? "rotate(180deg)" : undefined }} /></button>
+          {moreLater && <div className="problem-items">{later.map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>}
+        </div>
+      )}
       {consider.length > 0 && (
         <div className="problem-consider">
           <button type="button" className="btn ghost small" aria-expanded={more} onClick={() => setMore(!more)}>{more ? "Hide" : `${consider.length} to consider`} <ChevronDown size={14} style={{ transform: more ? "rotate(180deg)" : undefined }} /></button>
@@ -225,16 +266,17 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
     <div data-recommendation-id={a.id} tabIndex={-1} className={`item${compact ? " compact" : ""}`}>
       <div className="item-main">
         <span className={`tick sev-${a.severity}`} aria-hidden="true" />
+        {/* one line per alert (19 Oct 2026): the title opens the reasons (with "Not now / Not appropriate"); the action sits on the right */}
         <div className="item-txt">
-          <span className="t">
+          <button type="button" className="t t-btn" aria-expanded={p.why === a.id} title="Why? — reasons and source" onClick={() => p.setWhy(p.why === a.id ? null : a.id)}>
             {a.title}
             {a.rule_status !== "PUBLISHED" && <em className="review">in review</em>}
-          </span>
+            <Info size={13} className="t-why" aria-label="Why?" />
+          </button>
           {!compact && p.why === a.id && a.detail && <span className="d">{a.detail}</span>}
         </div>
         <div className="item-acts">
-          <button className="why" aria-expanded={p.why === a.id} onClick={() => p.setWhy(p.why === a.id ? null : a.id)}>Why?</button>
-          <button className="dismiss" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Not needed — dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /></button>
+          <button className="dismiss wide-only" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Not needed — dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /></button>
           {inline ? (
             <button className="go" aria-expanded={p.line === a.id} onClick={() => p.setLine(p.line === a.id ? null : a.id)}>{a.action.label}</button>
           ) : (

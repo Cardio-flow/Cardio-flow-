@@ -79,13 +79,15 @@ try {
   );
   await page.goto(base + "/patients/" + id);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  // the switch is hidden in the compact phone header (19 Oct 2026); its state still follows the patient
   await expect(
-    page.getByRole("button", { name: "Sample patients", exact: true }),
+    page.locator(".sample-switch button", { hasText: "Sample patients" }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  // the switch is hidden in the compact phone header (19 Oct 2026); its state still follows the patient
   await expect(
-    page.getByRole("button", { name: "Sample patients", exact: true }),
+    page.locator(".sample-switch button", { hasText: "Sample patients" }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".pulse-vitals")).not.toContainText("126/96");
   await expect(page.locator(".pulse-vitals")).toContainText("SBP");

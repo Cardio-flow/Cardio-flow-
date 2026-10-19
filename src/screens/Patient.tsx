@@ -1,5 +1,5 @@
 import { PregnancyContextDrawer } from "../drawers/Pregnancy";
-import { lazy, Suspense, useCallback, useState, useEffect } from "react";
+import { lazy, Suspense, useCallback, useState, useEffect, useRef } from "react";
 import {
   FlaskConical,
   Plus,
@@ -177,6 +177,18 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
     },
     [reload, toast, suspendedVisit, open],
   );
+  // phones: the diagnosis and risk lines fold to two lines each; a tap shows everything (19 Oct 2026)
+  const [linesOpen, setLinesOpen] = useState(false);
+  const [linesOverflow, setLinesOverflow] = useState(false);
+  const linesRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = linesRef.current;
+    if (!el) return;
+    const check = () => setLinesOverflow([...el.querySelectorAll<HTMLElement>(".line-scroll")].some((x) => x.scrollHeight > x.clientHeight + 1));
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  });
   const close = useCallback(() => {
     setOpen(suspendedVisit);
     setSuspendedVisit(null);
@@ -236,7 +248,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                   })
                 }
               >
-                <Pencil size={14} /> Edit details
+                <Pencil size={14} /> <span className="lbl">Edit details</span>
               </button>
               {h.sample && (
                 <span className="chip sample-chip">
@@ -285,7 +297,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                 onClick={() => setOpen({ kind: "pathways" })}
               >
                 <Route size={18} />
-                Pathways
+                <span className="lbl">Pathways</span>
               </button>
             )}
             {tab !== "investigations" && (<button
@@ -293,21 +305,21 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               onClick={() => setOpen({ kind: "labs" })}
             >
               <FlaskConical size={18} />
-              Add labs
+              <span className="lbl">Add labs</span>
             </button>)}
             <button
               className="btn secondary docs-phone"
               onClick={() => setOpen({ kind: "documents" })}
             >
               <FileText size={18} />
-              Documents
+              <span className="lbl">Documents</span>
             </button>
             {h.deceased ? (
               <button
                 className="btn secondary"
                 onClick={() => setOpen({ kind: "status" })}
               >
-                Patient status
+                <span className="lbl">Patient status</span>
               </button>
             ) : ctx?.kind === "admission" ? (
               <button
@@ -334,7 +346,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                   onClick={() => setOpen({ kind: "admit" })}
                 >
                   <BedDouble size={18} />
-                  Admit
+                  <span className="lbl">Admit</span>
                 </button>
                 <button
                   className="btn primary"
@@ -347,7 +359,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             )}
           </div>
         </div>
-        <div className="patient-lines">
+        <div ref={linesRef} className={`patient-lines${linesOpen ? " open" : ""}`}>
           <div className="patient-line diagnosis-line" aria-label="Diagnoses">
             <span className="line-label">Diagnoses</span>
             <div className="line-scroll">
@@ -382,6 +394,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           {h.allergies && h.allergies !== "Not recorded" && (
             <span className="patient-allergy">Allergies: {h.allergies}</span>
           )}
+          {(linesOpen || linesOverflow) && <button type="button" className="lines-more" aria-expanded={linesOpen} onClick={() => setLinesOpen(!linesOpen)}>
+            {linesOpen ? "Show less" : "Show full diagnoses"}
+          </button>}
         </div>
         <nav
           className="tabs"
