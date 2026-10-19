@@ -28,6 +28,7 @@ const PROBLEM_OF = (ruleId: string): string => {
   if (["lab.anaemia", "lab.iron-deficiency", "hf.iron-deficiency", "safety.bleeding"].includes(ruleId)) return "anaemia";
   if (ruleId.startsWith("med.") || ruleId === "meds.not-taking") return "medication";
   if (ruleId.startsWith("aorta.")) return "aorta";
+  if (ruleId === "event.pericarditis") return "pericardial";
   if (ruleId === "event.syncope") return "syncope";
   if (["safety.inr", "safety.digoxin", "event.amiodarone-thyroid"].includes(ruleId)) return "af";
   if (["lab.liver-enzymes", "lab.statin-ck"].includes(ruleId)) return "lipids";
@@ -44,7 +45,7 @@ const PROBLEM_OF = (ruleId: string): string => {
 };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
 type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
-const TITLES: Record<string, string> = { medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const TITLES: Record<string, string> = { pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
 

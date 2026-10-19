@@ -90,6 +90,7 @@ export const MIGRATIONS = [
   { name: "v2-017-preexisting-medicines", file: "./017-preexisting-medicines.sql" },
   { name: "v2-018-orthostatic-study", file: "./018-orthostatic-study.sql" },
   { name: "v2-019-aortic-imaging", file: "./019-aortic-imaging.sql" },
+  { name: "v2-020-pericardial-studies", file: "./020-pericardial-studies.sql" },
 ];
 
 export async function migrate(db: DB) {

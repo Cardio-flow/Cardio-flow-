@@ -46,7 +46,7 @@ export function ChecklistDrawer({ patientId, initial, onClose, open }: { patient
           <span className="note">{data ? `${n.ok} ready · ${n.flag} to act on · ${n.missing} not recorded` : "Reading the record…"}</span>
           <span className="end">
             {missingLabs.length > 0 && <button className="btn secondary" onClick={() => open({ kind: "labs", codes: missingLabs })}>Enter missing results</button>}
-            {kind !== "pericardiocentesis" && <button className="btn primary" onClick={() => open({ kind: "procedure", group: kind === "pci" || kind === "cabg" ? "coronary" : kind === "valve" ? "valve" : kind === "rhc" ? "ph" : "rhythm" })}>Record the procedure</button>}
+            <button className="btn primary" onClick={() => open({ kind: "procedure", procedureKind:kind, group: kind === "pericardiocentesis" ? "pericardial" : kind === "pci" || kind === "cabg" ? "coronary" : kind === "valve" ? "valve" : kind === "rhc" ? "ph" : "rhythm" })}>Record the procedure</button>
           </span>
         </>
       }

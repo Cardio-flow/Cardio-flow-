@@ -180,6 +180,9 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
 export type DiagnosisDef = { code: string; display: string; family: string; tags: string[]; hidden?: boolean };
 
 export const DIAGNOSES: DiagnosisDef[] = [
+  {code:"pericarditis",display:"Pericarditis",family:"Pericardial disease",tags:["pericardial"]},
+  {code:"pericardial-effusion",display:"Pericardial effusion",family:"Pericardial disease",tags:["pericardial"]},
+  {code:"constrictive-pericarditis",display:"Constrictive pericarditis",family:"Pericardial disease",tags:["pericardial"]},
   { code: "hfref", display: "HFrEF", family: "Heart failure", tags: ["hf"] },
   { code: "hfmref", display: "HFrEF (LVEF 41–49%)", family: "Heart failure", tags: ["hf"] },
   { code: "hfpef", display: "HFpEF", family: "Heart failure", tags: ["hf"] },

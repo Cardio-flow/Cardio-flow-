@@ -183,19 +183,15 @@ test("pre-procedure and chest-infection pathways write the dated plan and holds 
 test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated plan; options follow the medicines", async () => {
   const pid = await newPatient(["af"]);
   await start(pid, "apixaban", 5, "BID", "af");
-  const peri = WIZARDS.pericarditis.steps.find((s) => s.id === "treatment")!.questions[0];
-  const opts = (await tx((q) => getWizard(q, pid, "pericarditis"))).context;
-  const { optionsFor } = await import("../shared/wizards.js");
-  const shown = optionsFor(peri, opts).map((o: any) => o.value);
-  assert.ok(shown.includes("aspirin") && !shown.includes("nsaid"), "no NSAID option on anticoagulation");
   await tx((q) => completeWizard(q, doc, pid, "pericarditis", { answers: {
-    criteria: ["ecg", "crp"], episode: "first", myocardium: "yes", highrisk: ["oac"], tests: ["ecg", "echo"],
-    first: ["aspirin", "colchicine", "ppi"], activity: "myo", crp: "7", review: "clinic-7",
+    safety:"stable",type:"pericarditis",symptoms:"present",presentation:"compatible",criteria:["ecg","crp"],episode:"first",myocardium:"yes",highrisk:["oac"],
+    route:"hospital",cause:"needed",inflammation:"confirmed",actionDate:T,drugSafety:"needed",first:["none"],second:"none",tests:["ecg","echo","cmr"],followDate:addDays(T,7),activity:"reviewed",
   } }));
   const t1 = ((await db.query(`SELECT title,indications FROM cf.plan_action WHERE patient_id=$1`, [pid])).rows as any[]).flatMap((r) => [r.title,...r.indications]);
-  assert.ok(t1.some((t) => /Colchicine for pericarditis: continue at least 3–6 months/.test(t)));
-  assert.ok(t1.some((t) => /Cardiac MRI/.test(t)));
-  assert.ok(t1.some((t) => /haemopericardium/.test(t)));
+  assert.ok(t1.some((t) => /CMR specialist assessment/.test(t)));
+  assert.ok(t1.some((t) => /high-risk pericardial disease/.test(t)));
+  assert.ok(t1.some((t) => /myocarditis pathway/.test(t)));
+  assert.ok(!t1.some((t) => /anti-inflammatory aspirin/.test(t)),"anticoagulation does not itself suggest high-dose aspirin");
 
   const p2 = await newPatient(["prosthetic-valve"]);
   await tx((q) => completeWizard(q, doc, p2, "endocarditis", { answers: {

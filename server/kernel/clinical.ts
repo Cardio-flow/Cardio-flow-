@@ -588,7 +588,7 @@ export async function recordStudy(
   tx: Q,
   actor: Actor,
   patientId: string,
-  input: { kind: string; date: string; findings: Record<string, unknown>; conclusion?: string; contextId?: string | null },
+  input: { kind: string; date: string; findings: Record<string, unknown>; conclusion?: string; procedureId?:string; contextId?: string | null },
 ) {
   await patientInSite(tx, actor, patientId);
   const def = STUDY[input.kind];
@@ -601,6 +601,13 @@ export async function recordStudy(
     throw new ApiError(400, `${def.short}: ${(e as Error).message}`);
   }
   if (!Object.keys(attributes).length) throw new ApiError(400, `${def.short}: record at least one finding`);
+  if(input.kind === "pericardial_fluid") {
+    const s=await loadState(tx,patientId);
+    const p=s.procedures.find(p=>p.id===input.procedureId && p.kind === "pericardiocentesis" && p.attributes.result === "Drainage performed");
+    if(!p)throw new ApiError(400,"Link a completed drainage procedure for this patient");
+    if(new Date(input.date)<new Date(p.performed_at))throw new ApiError(400,"Fluid result cannot precede its drainage procedure");
+    attributes.procedureId=p.id;
+  } else if(input.procedureId)throw new ApiError(400,"Procedure link is only for pericardial fluid results");
   const summary = studySummary(input.kind, attributes);
   const id = uuid();
   await tx.query(
@@ -1025,7 +1032,10 @@ export async function completeMatching(
     if (trigger.type === "study" && c.kind === "structural_imaging" && c.intervention && c.intervention !== trigger.detail?.intervention) continue;
     if (trigger.type === "study" && c.kind === "structural_imaging" && c.aorticMorphology && c.aorticMorphology !== trigger.detail?.aorticMorphology) continue;
     if (trigger.type === "study" && c.kind === "aortic_imaging" && ((c.method && c.method !== trigger.detail?.modality) || (c.purpose && c.purpose !== trigger.detail?.purpose))) continue;
+    if (trigger.type === "study" && c.kind === "pericardial_imaging" && ((c.method && c.method !== trigger.detail?.modality) || (c.purpose && c.purpose !== trigger.detail?.purpose))) continue;
+    if (trigger.type === "study" && c.kind === "pericardial_fluid" && (c.procedureId !== trigger.detail?.procedureId || ["microbiology","cytology","tb"].some(k=>["Pending","Not sent"].includes(trigger.detail?.[k])))) continue;
     if (trigger.type === "study" && c.after && day < c.after) continue;
+    if (trigger.type === "procedure" && trigger.kind === "pericardiocentesis" && trigger.detail.result !== "Drainage performed") continue;
     if (trigger.type === "procedure" && trigger.kind === "rdn" && trigger.detail.result !== "Completed") continue;
     if (trigger.type === "procedure" && trigger.kind === "valve" && (trigger.detail.result === "Aborted / no implant" || (c.position && c.position !== trigger.detail.position) || (c.procedure && c.procedure !== trigger.detail.procedure))) continue;
     if (trigger.type === "procedure" && (c.kind !== trigger.kind || (c.method && c.method !== trigger.detail.method) || (c.target === "AF" && !(trigger.detail.targets ?? []).some((t: string) => /^AF/.test(t))) || (trigger.kind === "laao" && trigger.detail.result !== "Implanted / completed"))) continue;
@@ -1037,7 +1047,7 @@ export async function completeMatching(
     if (!usedDue.has(signature)) usedDue.set(signature, due);
     const refs = trigger.type === "lab" && trigger.results
       ? [...new Set(collected.flatMap((r: any) => [r.id, ...collection.filter(p => r.derived_from?.includes(p.logical_id)).map(p => p.id)]))]
-      : [trigger.ref];
+      : [trigger.ref, ...(trigger.type === "study" && trigger.kind === "pericardial_fluid" && trigger.detail?.procedureId ? [trigger.detail.procedureId] : [])];
     await tx.query(`UPDATE cf.plan_action SET status='completed', progress=$5, completed_at=$2, completed_by_ref=$3, completion_refs=$6, outcome=$4, updated_at=now(), version=version+1 WHERE id=$1 AND status='planned'`, [
       a.id, trigger.at, refs[0] ?? trigger.ref, "Completed automatically when the result was recorded", trigger.type === "visit" ? "reviewed" : "performed", refs,
     ]);

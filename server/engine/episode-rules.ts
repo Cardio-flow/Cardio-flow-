@@ -1,3 +1,4 @@
+import { pericardialProfile } from "./pericardial-profile.js";
 // Event-triggered pathways (Ahmed, 2 Oct 2026): a complication recorded anywhere in the record —
 // an admission or visit reason, a medicine started for it, a thyroid result on amiodarone, a
 // pre-operative visit — offers its pathway under Needs attention. The pathway never opens by
@@ -98,13 +99,14 @@ export const EPISODE_RULES: RuleDef[] = [
   {
     id: "event.pericarditis",
     kind: "clinical",
-    title: "Pericarditis recorded → pericarditis pathway",
-    inputs: ["contexts", "meds", "episodes"],
+    title: "Pericardial disease: assessment and follow-up",
+    inputs: ["contexts","meds","episodes","studies","procedures","conditions","pathways","plan","crp","hs-troponin","creatinine","egfr","haemoglobin","temp","sbp","hr"],
     defaultParams: {},
-    evidence: "2025 ESC myocarditis and pericarditis guidelines: confirm the diagnosis, triage high-risk features, aspirin/NSAID + colchicine (I A), exercise restriction and CRP-guided follow-up.",
+    evidence: "ESC myocarditis/pericarditis 2025 (10.1093/eurheartj/ehaf192), Tables 4, 10, 16; Figure 16 and effusion / tamponade / constriction sections. Clinical presentation plus >1 supporting criterion for definite pericarditis; distinguish effusion size from tamponade, avoid empirical anti-inflammatories without inflammation, and use specialist constriction/drainage strategies. No automatic prescriptions.",
     evaluate(s) {
-      const t = trigger(s, "pericarditis", /pericarditis/i, /^pericarditis/i);
-      return t ? [offer("pericarditis", t, "Diagnosis, high-risk features, myocardial involvement, first-line therapy and its duration, activity and CRP follow-up.")] : [];
+      const p=pericardialProfile(s);
+      if(!p.eligible || s.procedureReviews?.pericarditis?.answers._pericardialKey === p.key)return [];
+      return [{key:"pericardial",signature:p.key,severity:p.urgent.length?"red":"orange",title:p.urgent.length?"Pericardial disease: urgent assessment needed":`${p.label}: review pericardial care`,detail:"One plan for haemodynamics, inflammation, drainage / constriction and dated results review.",facts:[...(p.report?[{label:"Report",value:p.report.summary,date:p.report.at}]:[]),...(p.fluid?[{label:"Linked fluid result",value:p.fluid.summary,date:p.fluid.at}]:[]),...p.urgent.map(value=>({label:"Urgent concern",value}))],missing:p.missing,action:{type:"wizard",wizard:"pericarditis"}}];
     },
   },
   {

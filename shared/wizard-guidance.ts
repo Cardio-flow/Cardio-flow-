@@ -1,3 +1,4 @@
+import { pericardialSuggestions } from "./wizards-pericardial.js";
 import { aortaUrgent } from "./wizards-aorta.js";
 import { syncopeConcern } from "./wizards-syncope.js";
 import { labSuggestions, LAB_WIZARDS } from "./wizards-lab.js";
@@ -1080,24 +1081,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   },
 
   // ---------------- Inflammatory & infective ----------------
-  pericarditis: {
-    criteria: (_a, c) => {
-      const crp = val(c, "crp");
-      return [crp != null && crp > 5 && S("crp", `CRP ${crp} mg/L`)];
-    },
-    highrisk: (_a, c) => {
-      const t = val(c, "temp");
-      return [t != null && t > 38 && S("fever", `Temperature ${n1(t)} °C`), on(c, "oac") && S("oac", "On oral anticoagulation")];
-    },
-    tests: (a) => [S("ecg", "ECG for every patient (ESC)"), S("bloods", "CRP, troponin, FBC, renal function"), S("echo", "Echo for every patient (ESC)"), list(a, "highrisk").length > 0 && S("cause", "High-risk features: look for a specific cause")],
-    first: (_a, c) => [
-      on(c, "oac", "antiplatelet") || dx(c, "cad", "prior-mi") ? S("aspirin", "Coronary disease / on antithrombotics: aspirin preferred to NSAIDs") : S("nsaid", "Aspirin or NSAID at anti-inflammatory dose (ESC 2025, I A)"),
-      S("colchicine", "Add colchicine for at least 3–6 months, stopped last (ESC 2025, I A)"),
-      S("ppi", "Gastroprotection while on aspirin/NSAID"),
-    ],
-    activity: (a) => [a.myocardium === "yes" ? S("myo", "Myocardial involvement: longer restriction until recovery is confirmed") : S("1m", "Restrict exercise for 1 month, then individualise (ESC 2025)")],
-    crp: () => [S("7", "CRP in 1–2 weeks to guide tapering (ESC)")],
-  },
+  pericarditis: pericardialSuggestions,
+
   endocarditis: {
     tests: (a) => {
       const pv = is(a, "features", "prosthetic") || is(a, "features", "device");

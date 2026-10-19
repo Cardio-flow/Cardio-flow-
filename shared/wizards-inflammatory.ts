@@ -1,19 +1,11 @@
+import { PERICARDIAL_WIZARD } from "./wizards-pericardial.js";
 // Inflammatory and infective heart disease, and amiodarone thyroid dysfunction (Ahmed, 2 Oct 2026:
 // "include what is needed"). Content only: the one wizard engine renders them; each chosen option
 // writes dated plan items. No doses: CardioFlow names the guideline choice; the prescriber, the
 // Endocarditis Team / microbiology and endocrinology set doses and durations.
 //
 // Sources:
-//  - Pericarditis: 2025 ESC Guidelines for the management of myocarditis and pericarditis
-//    (Eur Heart J 2025;46:3952). Diagnosis = typical chest pain + ≥1 of rub, ECG changes, raised CRP,
-//    pericardial effusion, CMR pericardial oedema/LGE; high-risk patients admitted, low-risk managed
-//    as outpatients; aspirin or NSAID + colchicine (I A) for at least 3–6 months, colchicine the last
-//    drug stopped after sustained remission; low-to-moderate dose corticosteroids only when first-line
-//    therapy fails (IIa C); IL-1 inhibitors for refractory recurrences (IIa C; I A with raised CRP);
-//    exercise restriction for 1 month initially, then individualised; myocardial involvement =
-//    inflammatory myopericardial syndrome. High-risk features as listed in the ESC pericardial
-//    guidance (fever >38 °C, subacute course, large effusion / tamponade, no response to aspirin/NSAID
-//    after 1 week, myocardial involvement, immunosuppression, trauma, oral anticoagulation).
+//  - Pericardial disease: see wizards-pericardial.ts (ESC 2025).
 //  - Endocarditis: 2023 ESC Guidelines for the management of endocarditis and the 2023 Duke-ISCVID
 //    criteria. TTE first line; TOE when TTE is negative and suspicion remains, with a prosthetic
 //    valve, and before IV → oral switch; repeat TTE/TOE within 5–7 days if suspicion stays high;
@@ -37,126 +29,7 @@ const REVIEW: Option[] = [
 ];
 
 export const INFLAMMATORY_WIZARDS: Record<string, WizardDef> = {
-  pericarditis: {
-    id: "pericarditis", title: "Acute or recurrent pericarditis", tone: "orange", group: "Inflammatory & infective heart disease",
-    source: "ESC 2025 myocarditis and pericarditis",
-    note: "Diagnosis needs typical chest pain plus at least one of: rub, ECG changes, raised CRP, pericardial effusion or CMR pericardial oedema/LGE. A raised troponin means myocardial involvement (myopericarditis). Doses are set by the prescriber; CardioFlow records the plan.",
-    facts: ["crp", "hs-troponin", "wbc", "temp", "hr", "sbp", "creatinine"], trend: "crp",
-    recheck: { title: "CRP", codes: ["crp"] },
-    steps: [
-      {
-        id: "diagnosis", title: "Diagnosis",
-        questions: [
-          {
-            id: "criteria", label: "Findings besides typical chest pain", type: "multi", required: true,
-            options: [
-              { value: "rub", label: "Pericardial rub" },
-              { value: "ecg", label: "ECG: widespread ST elevation / PR depression" },
-              { value: "crp", label: "Raised CRP" },
-              { value: "effusion", label: "New or worsening pericardial effusion" },
-              { value: "cmr", label: "CMR pericardial oedema / LGE" },
-              { value: "none", label: "None of these (pericarditis not confirmed: consider other causes)" },
-            ],
-          },
-          {
-            id: "episode", label: "Episode", type: "single", required: true,
-            options: [
-              { value: "first", label: "First episode" },
-              { value: "recurrent", label: "Recurrence after a symptom-free interval" },
-              { value: "incessant", label: "Incessant (symptoms persist >4–6 weeks)" },
-            ],
-          },
-          {
-            id: "myocardium", label: "Myocardial involvement", type: "single", required: true,
-            options: [
-              { value: "no", label: "No: troponin normal, LV function normal" },
-              { value: "yes", label: "Yes: raised troponin or new LV dysfunction (myopericarditis)", effects: { plan: [
-                { category: "investigation", title: "Cardiac MRI (myocardial involvement)", days: 7, completesOn: { type: "study", kind: "cmr" } },
-                { category: "follow_up", title: "Admit / monitor: myopericarditis (ECG monitoring for arrhythmia)", days: 0, completesOn: { type: "manual" } },
-              ] } },
-            ],
-          },
-        ],
-      },
-      {
-        id: "risk", title: "Risk and setting",
-        questions: [
-          {
-            id: "highrisk", label: "High-risk features", type: "multi", required: true,
-            help: "Any high-risk feature → admit and look for a specific cause. None → treat as an outpatient and review in about a week.",
-            options: [
-              { value: "none", label: "None (low risk: outpatient)" },
-              { value: "fever", label: "Fever >38 °C", effects: now("Admit: high-risk pericarditis; screen for a specific cause", { type: "manual" }) },
-              { value: "subacute", label: "Subacute onset over days–weeks", effects: now("Admit: high-risk pericarditis; screen for a specific cause", { type: "manual" }) },
-              { value: "large", label: "Large effusion (>20 mm) or tamponade", effects: now("Urgent Echo-guided assessment for pericardiocentesis (tamponade / large effusion)", { type: "manual" }, "referral") },
-              { value: "noresponse", label: "No response to aspirin/NSAID after 1 week", effects: now("Admit: no response to first-line therapy; look for a specific cause", { type: "manual" }) },
-              { value: "immuno", label: "Immunosuppressed", effects: now("Admit: high-risk pericarditis (immunosuppression)", { type: "manual" }) },
-              { value: "trauma", label: "After trauma", effects: now("Admit: post-traumatic pericarditis", { type: "manual" }) },
-              { value: "oac", label: "On oral anticoagulation", requires: ["oac"], effects: now("Admit / observe: pericarditis on anticoagulation (haemopericardium risk); review anticoagulant", { type: "manual" }) },
-            ],
-          },
-        ],
-      },
-      {
-        id: "tests", title: "Tests",
-        questions: [
-          {
-            id: "tests", label: "Tests", type: "multi", required: true,
-            options: [
-              { value: "ecg", label: "12-lead ECG", effects: now("12-lead ECG", { type: "study", kind: "ecg" }, "investigation") },
-              { value: "bloods", label: "CRP, troponin, FBC, renal function", effects: now("CRP, troponin, FBC and renal function", { type: "lab", codes: ["crp", "hs-troponin", "wbc", "creatinine"] }, "monitoring") },
-              { value: "echo", label: "Echo (effusion, LV function)", effects: now("Echo: pericardial effusion and LV function", { type: "study", kind: "echo" }, "investigation") },
-              { value: "cxr", label: "Chest X-ray", effects: now("Chest X-ray", { type: "manual" }, "investigation") },
-              { value: "cause", label: "Targeted tests for a specific cause (TB, autoimmune, renal, cancer, post-cardiac injury)", effects: now("Targeted tests for a specific cause of pericarditis", { type: "manual" }, "investigation") },
-            ],
-          },
-        ],
-      },
-      {
-        id: "treatment", title: "Treatment",
-        questions: [
-          {
-            id: "first", label: "First-line therapy (I A)", type: "multi", required: true,
-            help: "Aspirin or an NSAID plus colchicine, for at least 3–6 months; taper by symptoms and CRP; colchicine is the last drug stopped. After MI, or on anticoagulation, aspirin is usually preferred to other NSAIDs.",
-            options: [
-              { value: "aspirin", label: "Aspirin (anti-inflammatory dose, tapered)", effects: now("Pericarditis: aspirin at anti-inflammatory dose, taper by symptoms and CRP", { type: "manual" }, "medication") },
-              { value: "nsaid", label: "NSAID (e.g. ibuprofen), tapered", unless: ["oac"], effects: now("Pericarditis: NSAID at anti-inflammatory dose, taper by symptoms and CRP", { type: "manual" }, "medication") },
-              { value: "colchicine", label: "Colchicine, at least 3–6 months, stopped last", effects: now("Colchicine for pericarditis: continue at least 3–6 months; stop last, after sustained remission", { type: "manual" }, "medication") },
-              { value: "ppi", label: "Gastroprotection (PPI) while on aspirin / NSAID", effects: now("PPI while on high-dose aspirin / NSAID", { type: "manual" }, "medication") },
-            ],
-          },
-          {
-            id: "second", label: "If first-line therapy fails or is contraindicated", type: "multi",
-            options: [
-              { value: "steroid", label: "Low-to-moderate dose corticosteroid, slow taper (IIa C)", effects: now("Corticosteroid for pericarditis (low-to-moderate dose, slow taper); infection (incl. TB) excluded", { type: "manual" }, "medication") },
-              { value: "il1", label: "Refractory recurrences: IL-1 inhibitor (I A with raised CRP; IIa C otherwise)", effects: now("Refer for IL-1 inhibitor (anakinra / rilonacept) for refractory recurrent pericarditis", { type: "manual" }, "referral") },
-              { value: "pericardiectomy", label: "Constriction or refractory to medical therapy: pericardial centre / surgery", effects: now("Pericardial centre / surgical review (constriction or refractory pericarditis)", { type: "manual" }, "referral") },
-            ],
-          },
-        ],
-      },
-      {
-        id: "follow", title: "Activity and follow-up",
-        questions: [
-          {
-            id: "activity", label: "Activity", type: "single", required: true,
-            options: [
-              { value: "1m", label: "No competitive or strenuous exercise for 1 month, then individualise", effects: now("Exercise restriction: 1 month, then reassess (symptoms, CRP, ECG, arrhythmia)", { type: "manual" }, "education", 30) },
-              { value: "myo", label: "Myocardial involvement: restriction until CMR, ECG and Holter allow return", effects: now("Exercise restriction until recovery is confirmed (CMR, ECG, Holter)", { type: "manual" }, "education", 30) },
-            ],
-          },
-          {
-            id: "crp", label: "Repeat CRP", type: "single", required: true,
-            options: [
-              { value: "7", label: "In 1 week", effects: now("Repeat CRP to guide tapering", { type: "lab", codes: ["crp"] }, "monitoring", 7) },
-              { value: "14", label: "In 2 weeks", effects: now("Repeat CRP to guide tapering", { type: "lab", codes: ["crp"] }, "monitoring", 14) },
-            ],
-          },
-          { id: "review", label: "Cardiology review", type: "single", options: REVIEW, required: true },
-        ],
-      },
-    ],
-  },
+  pericarditis: PERICARDIAL_WIZARD,
 
   endocarditis: {
     id: "endocarditis", title: "Suspected infective endocarditis", tone: "red", group: "Inflammatory & infective heart disease",

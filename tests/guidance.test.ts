@@ -97,7 +97,7 @@ test("pre-procedure, diabetes and pericarditis follow their guidelines", () => {
   assert.ok(vals("diabetes", "protect", {}, dm).includes("sglt2"));
   assert.ok(vals("diabetes", "safety", {}, dm).includes("stop-tzd"));
   assert.ok(vals("diabetes", "lower", {}, dm).includes("metformin"));
-  const peri = vals("pericarditis", "first", {}, ctx({}, [["aspirin", ["antiplatelet"]]], ["cad"]));
+  const peri = vals("pericarditis", "first", {presentation:"compatible",criteria:["rub","ecg"],drugSafety:"reviewed"}, ctx({}, [["aspirin", ["antiplatelet"]]], ["cad"]));
   assert.deepEqual(peri, ["aspirin", "colchicine", "ppi"]);
 });
 

@@ -411,7 +411,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["rdn", "pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao"]),
+        kind: z.enum(["rdn", "pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao", "pericardiocentesis"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),
@@ -462,10 +462,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging", "pericardial_imaging", "pericardial_fluid"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),
+        procedureId: uuidS.optional(),
         contextId: uuidS.nullish(),
       })
       .parse(req.body);

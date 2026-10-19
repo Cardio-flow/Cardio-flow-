@@ -27,6 +27,7 @@ import { MedicationReview } from "./MedicationReview";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 
 const PROC_LABEL: Record<string, string> = {
+  pericardiocentesis:"Pericardial drainage",
   rdn: "Renal denervation",
   pci: "PCI",
   cabg: "CABG",

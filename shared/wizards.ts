@@ -1,3 +1,4 @@
+import type { PericardialContext } from "./pericardial.js";
 // Config-driven complication wizards. One engine renders every wizard; a new
 // complication is new content here, not new UI code. `buildOutcome` is shared so
 // the preview the clinician confirms is exactly what the server records.
@@ -48,6 +49,7 @@ export type Option = {
   detectCondition?: string[];
   detectLab?: { code: string; above: number };
 };
+export type QuestionCondition = { question:string; includes:string; and?:QuestionCondition };
 export type Question = {
   exclusive?: string[]; // mutually exclusive options inside an otherwise multi-choice question
   id: string;
@@ -59,7 +61,7 @@ export type Question = {
   // dose questions pick a new dose for the medication tagged with `medTag`
   medTag?: string;
   direction?: "lower" | "any";
-  showIf?: { question: string; includes: string };
+  showIf?: QuestionCondition;
   required?: boolean;
 };
 export type Step = { id: string; title: string; questions: Question[] };
@@ -99,6 +101,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  pericardial?: PericardialContext;
   medicationReview?: MedicationReviewContext;
   aorta?: AortaContext;
   syncope?: { key:string; contextId:string|null; at:string|null; presentation:string|null; urgent:string[]; ecg:{id:string;at:string;summary:string}|null; standing:{id:string;at:string;result:string;symptoms:string}|null; hasDevice:boolean; structuralConcern:boolean; medicineNames:string[] };
@@ -690,9 +693,18 @@ export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medic
 export function visibleQuestions(step: Step, answers: Answers) {
   return step.questions.filter((q) => {
     if (!q.showIf) return true;
-    const v = answers[q.showIf.question];
-    return Array.isArray(v) ? v.includes(q.showIf.includes) : v === q.showIf.includes;
+    const matches=(c:QuestionCondition):boolean=>{
+      const v=answers[c.question];
+      return (Array.isArray(v)?v.includes(c.includes):v===c.includes) && (!c.and || matches(c.and));
+    };
+    return matches(q.showIf);
   });
+}
+
+// Only active questions participate when the revised pericardial flow changes route.
+export function visibleAnswers(wizardId:string, answers:Answers):Answers {
+  const ids=new Set(WIZARDS[wizardId].steps.flatMap(st=>visibleQuestions(st,answers)).map(q=>q.id));
+  return Object.fromEntries(Object.entries(answers).filter(([id])=>ids.has(id)));
 }
 
 export function missingRequired(step: Step, answers: Answers) {
@@ -734,6 +746,7 @@ export type OutcomeItem =
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
+  if(wizardId === "pericarditis")answers=visibleAnswers(wizardId,answers);
   const out: OutcomeItem[] = [];
   const actions = (answers.actions as string[] | undefined) ?? [];
   const today = ctx.today;
@@ -871,7 +884,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
   const aorta = wizardId === "aorta-plan";
-  const htn = wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const htn = wizardId === "pericarditis" || wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];
@@ -880,9 +893,10 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
       if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
       if (p.completesOn.type !== target.type) return false;
-      if (aorta && target.purpose === "Surveillance" && p.dueDate !== date) return false;
+      if ((aorta || wizardId === "pericarditis") && target.purpose === "Surveillance" && p.dueDate !== date) return false;
       if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
-      if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!aorta || p.completesOn.method === target.method);
+      if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!(aorta || wizardId === "pericarditis") || (p.completesOn.method === target.method && p.completesOn.procedureId === target.procedureId));
+      if(wizardId === "pericarditis" && target.type === "manual" && target.purpose === "pericardial-review")return p.completesOn.purpose === target.purpose && p.dueDate === date;
       return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
     }) : null;
     const key = `${item.title}:${date}`;

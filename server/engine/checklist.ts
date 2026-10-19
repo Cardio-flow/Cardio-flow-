@@ -177,10 +177,11 @@ export function checklist(s: PatientState, kind: CheckKind): { title: string; it
   }
 
   if (kind === "pericardiocentesis") {
-    const echo = latestStudy(s, "echo", 100000);
+    const echo = latestStudy(s,"pericardial_imaging") ?? latestStudy(s,"echo");
     items.push(echo
-      ? { key: "echo", label: "Echo (effusion size and site)", status: "ok", date: echo.performed_at, why: `${ago(daysBetween(echo.performed_at, s.today))} · echo-guided procedure` }
-      : { key: "echo", label: "Echo (effusion size and site)", status: "missing", why: "Echo guides the procedure.", source: "ESC pericardial 2015" });
+      ? {key:"echo",label:"Current image-guided drainage assessment",status:"info",date:echo.performed_at,why:"Confirm present size, accessible site and haemodynamics with the procedural team; historical imaging does not establish procedural clearance.",source:"ESC pericardial 2025"}
+      : {key:"echo",label:"Echo-guided assessment",status:"missing",why:"Assess haemodynamics and the drainage site; do not delay emergency drainage.",source:"ESC pericardial 2025"});
+    items.push(lab(s,"haemoglobin"),lab(s,"platelets"),lab(s,"creatinine"));
     if (oac.length) items.push({ key: "oac", label: "Anticoagulant", status: "flag", value: oac.map((m) => m.name).join(", "), why: "Elective procedure: plan the interruption; tamponade is not delayed for it." });
     if (antiplatelets.length) items.push({ key: "ap", label: "Antiplatelet therapy", status: "info", value: antiplatelets.map((m) => m.name).join(", "), why: "Weigh against the indication with the team." });
   }
