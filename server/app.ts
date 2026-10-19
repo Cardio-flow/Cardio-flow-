@@ -140,7 +140,13 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     if (!hosted) return next();
     try {
       const path = req.originalUrl.split("?", 1)[0];
-      const patientId = path.match(/^\/api\/patients\/([0-9a-f-]{36})(?:\/|$)/)?.[1];
+      const rawPatientId = path.match(/^\/api\/patients\/([^/]+)(?:\/|$)/)?.[1];
+      let decodedId = "";
+      if (rawPatientId) {
+        try { decodedId = decodeURIComponent(rawPatientId); }
+        catch { throw new ApiError(400, "Invalid patient ID"); }
+      }
+      const patientId = uuidS.safeParse(decodedId).success ? decodedId : null;
       let sample = req.query.sample === "1" ||
         ((path === "/api/patients" || path === "/api/patients/import") && req.method === "POST" && req.body?.sample === true) ||
         (patientId != null && path.endsWith("/move-to-sample"));

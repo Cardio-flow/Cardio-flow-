@@ -19,12 +19,13 @@ import { nowIso, today } from "../server/kernel/base.js";
 let db: DB,
   server: any,
   base: string,
+  adminToken = "",
   seq = 0;
 const actor: Session = {
   id: "past@example.test",
   email: "past@example.test",
-  name: "Synthetic history clinician",
-  role: "clinician",
+  name: "Synthetic history administrator",
+  role: "admin",
   siteId: SITE_ID,
   csrf: "synthetic-past",
   expires: Date.now() + 3600000,
@@ -53,7 +54,7 @@ const history = (extra: any = {}) => ({
 const post = async (path: string, body: any, csrf = actor.csrf) => {
   const r = await fetch(base + "/api" + path, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-csrf-token": csrf },
+    headers: { "content-type": "application/json", "x-csrf-token": csrf, ...(adminToken ? { "x-admin-unlock": adminToken } : {}) },
     body: JSON.stringify(body),
   });
   return { status: r.status, body: await r.json() };
@@ -71,6 +72,10 @@ before(async () => {
   }).listen(0, "127.0.0.1");
   await new Promise<void>((r) => server.once("listening", r));
   base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await post("/admin/pin/set", { pin: "739204" })).status, 200);
+  const unlocked = await post("/admin/pin/unlock", { pin: "739204" });
+  assert.equal(unlocked.status, 200);
+  adminToken = unlocked.body.token;
 });
 after(async () => {
   server.close();

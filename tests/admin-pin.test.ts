@@ -101,6 +101,8 @@ test("hosted synthetic records require a PIN unlock even through direct clinical
     assert.equal((await hostedCall("/patients?sample=1", "clinician")).status, 403);
     assert.equal((await hostedCall("/worklist?sample=1", "clinician")).status, 403);
     assert.equal((await hostedCall(`/patients/${sample.body.id}/summary`, "clinician")).status, 403);
+    assert.equal((await hostedCall(`/patients/${String(sample.body.id).toUpperCase()}/summary`, "clinician")).status, 403);
+    assert.equal((await hostedCall(`/patients/${String(sample.body.id).replace("-", "%2D")}/summary`, "clinician")).status, 403);
     assert.equal((await hostedCall(`/patients/${sample.body.id}/summary`, "admin")).status, 403);
     assert.equal((await hostedCall(`/patients/${sample.body.id}/summary`, "admin2", undefined, token)).status, 403);
     assert.equal((await hostedCall(`/patients/${sample.body.id}/summary`, "admin", undefined, token)).status, 200);
