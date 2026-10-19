@@ -298,6 +298,13 @@ try {
   await continueAfterEntry(page);
   await page
     .locator(".phone-nav")
+    .getByRole("link", { name: "Admin", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "Administrator access required" }).waitFor();
+  await page.getByText("Your account is signed in as clinician.", { exact: false }).waitFor();
+  await noOverflow();
+  await page
+    .locator(".phone-nav")
     .getByRole("button", { name: "Sign out", exact: true })
     .click();
   await page.getByText("Rule Administrator", { exact: true }).click();
@@ -305,10 +312,7 @@ try {
   csrf = (await api("/session")).csrf;
   await page
     .locator(".phone-nav")
-    .getByRole("link", { name: "Patients", exact: true })
-    .click();
-  await page
-    .getByRole("link", { name: "Manage patients", exact: true })
+    .getByRole("link", { name: "Admin", exact: true })
     .click();
   await page.getByRole("heading", { name: /^(Set administration PIN|Unlock administration)$/ }).waitFor();
   if (await page.getByRole("heading", { name: "Set administration PIN" }).isVisible()) {
