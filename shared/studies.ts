@@ -12,6 +12,7 @@ export type StudyField =
   | { key: string; label: string; type: "number"; unit: string; min: number; max: number; decimals?: number; obs?: string; required?: boolean; when?: Cond };
 type Cond = { field: string; in?: string[]; notIn?: string[]; and?: Cond };
 
+import { PERICARDIAL_FIELDS, PERICARDIAL_FLUID_FIELDS, validatePericardialReport } from "./pericardial.js";
 import { AORTA_FIELDS } from "./aorta.js";
 export type StudyDef = { kind: string; label: string; short: string; help: string; fields: StudyField[] };
 
@@ -19,6 +20,8 @@ const AV = ["None", "First-degree", "Mobitz I", "Mobitz II", "Complete"];
 const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not assessed"];
 
 export const STUDIES: StudyDef[] = [
+  {kind:"pericardial_imaging",label:"Pericardial imaging",short:"Pericardial imaging",help:"Report size, haemodynamics, inflammation and constrictive physiology. Missing findings remain unknown.",fields:PERICARDIAL_FIELDS},
+  {kind:"pericardial_fluid",label:"Pericardial fluid results",short:"Pericardial fluid",help:"Link actual drainage and record the laboratory report; pending tests require later results and clinical review.",fields:PERICARDIAL_FLUID_FIELDS},
   {kind:"aortic_imaging",label:"Thoracic aorta imaging",short:"Aortic imaging",help:"Dated dimensions in mm, imaging extent and the reporter’s assessment.",fields:AORTA_FIELDS},
   {kind:"orthostatic_bp",label:"Standing BP (orthostatic)",short:"Standing BP",help:"Supine and standing readings with symptom correlation and clinical interpretation.",fields:[
     {key:"supineSbp",label:"Supine systolic BP",type:"number",unit:"mmHg",required:true,min:40,max:300},
@@ -258,6 +261,7 @@ export function cleanStudy(kind: string, values: Record<string, unknown>) {
       out[f.key] = n;
     }
   }
+  if(kind === "pericardial_imaging")validatePericardialReport(out);
   return out;
 }
 
@@ -284,6 +288,8 @@ export function studySummary(kind: string, a: Record<string, any>): string {
   if (kind === "structural_imaging") return [a.intervention,a.modality,a.aorticMorphology,a.aorticMorphology === "Bicuspid" ? `Sinus ${a.sinusDiameter ?? "—"} / STJ ${a.stjDiameter ?? "—"} / ascending ${a.ascendingDiameter ?? "—"} mm` : null,a.suitability,a.reviewed === "Yes" ? "team reviewed" : "review pending"].filter(Boolean).join(" · ");
   const u = (n: unknown, unit: string) => (n == null ? null : `${n}${unit}`);
   switch (kind) {
+    case "pericardial_imaging": return [a.modality,a.purpose,a.effusion === "Absent"?"No effusion":a.effusion,a.size!=null?`${a.size} mm`:null,a.haemodynamics,`Inflammation: ${a.inflammation}`,`Constriction: ${a.constriction}`].filter(Boolean).join(" · ");
+    case "pericardial_fluid": return [`Culture: ${a.microbiology}`,`Cytology: ${a.cytology}`,a.tb?`TB: ${a.tb}`:null,a.appearance].filter(Boolean).join(" · ");
     case "aortic_imaging": return [a.modality, a.aorticMorphology, a.sinusDiameter != null ? `Sinus ${a.sinusDiameter} mm` : null, a.ascendingDiameter != null ? `Ascending ${a.ascendingDiameter} mm` : null, a.archDiameter != null ? `Arch ${a.archDiameter} mm` : null, a.descendingDiameter != null ? `Descending ${a.descendingDiameter} mm` : null, a.interpretation].filter(Boolean).join(" · ");
     case "laa_imaging": return [a.purpose, a.modality, `LAA thrombus: ${a.laaThrombus}`, a.deviceThrombus ? `Device thrombus: ${a.deviceThrombus}` : null, a.leak ? `Leak: ${a.leak}${a.leakMm != null ? ` (${a.leakMm} mm)` : ""}` : null].filter(Boolean).join(" · ");
     case "ecg":

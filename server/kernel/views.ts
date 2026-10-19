@@ -1,3 +1,4 @@
+import { medicationReview } from "../engine/medication-review.js";
 import { medicationOverlaps } from "../../shared/medication-identity.js";
 import { needsExplicitReview } from "../../shared/plan-evidence.js";
 import { correctedRefs } from "./corrections.js";
@@ -564,6 +565,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     plan: active,
     planSource: lastSource ? { kind: lastSource.kind, at: lastSource.ended_at ?? lastSource.started_at } : null,
     medications: medicationGroups(s),
+    medicationReview: medicationReview(s,attention),
     results: results(s),
     // the last echo's valve grades: the echo form offers "same as last echo"
     lastEcho: (() => {

@@ -1,3 +1,4 @@
+import { DRAIN_METHODS, DRAIN_RESULTS, DRAIN_INDICATIONS, DRAIN_COMPLICATIONS } from "./pericardial.js";
 import { LAA_METHODS, LAA_DEVICES, LAA_RESULTS, LAA_REGIMENS } from "./af.js";
 import { STRUCTURAL_RESULTS, STRUCTURAL_COMPLICATIONS, RESIDUAL_GRADES } from "./structural.js";
 // Procedures (coronary module, 4 Oct 2026): PCI and CABG as their own dated records, so that
@@ -65,8 +66,8 @@ export const PROSTHESIS_TYPE = (a: Record<string, any>): string | null =>
 export const RDN_RESULTS = ["Completed", "Partial treatment", "Aborted / not performed"] as const;
 export const RDN_DEVICES = ["Symplicity Spyral", "Paradise", "Other approved device"] as const;
 export const RDN_COMPLICATIONS = ["Access-site bleeding / haematoma", "Renal artery injury / dissection", "Renal artery stenosis", "Contrast reaction", "Acute kidney injury", "Other"] as const;
-export type ProcedureKind = "rdn" | "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc" | "laao";
-export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { rdn: "Renal denervation", pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation", laao: "LAA closure" };
+export type ProcedureKind = "pericardiocentesis" | "rdn" | "pci" | "cabg" | "device" | "ablation" | "cardioversion" | "valve" | "rhc" | "laao";
+export const PROCEDURE_LABEL: Record<ProcedureKind, string> = { pericardiocentesis:"Pericardial drainage", rdn: "Renal denervation", pci: "PCI", cabg: "CABG", device: "Device", ablation: "Ablation", cardioversion: "Cardioversion", valve: "Valve intervention", rhc: "Right heart catheterisation", laao: "LAA closure" };
 // Right heart catheterisation (PH module, slice 2): the measured pressures, flow and resistance, and the
 // 2022 ESC/ERS haemodynamic definition they meet. PVR is taken as measured, or computed as
 // (mPAP − PAWP) / cardiac output when only the cardiac output is given.
@@ -154,6 +155,17 @@ export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) 
   if (a.historical != null && a.historical !== "") {
     const precision = oneOf(DATE_PRECISION, a.historical, "Date precision");
     return { ...cleanHistorical(kind, a), historical: precision };
+  }
+  if(kind === "pericardiocentesis") {
+    const method=oneOf(DRAIN_METHODS,a.method,"Drainage method"),result=oneOf(DRAIN_RESULTS,a.result,"Drainage result"),indication=oneOf(DRAIN_INDICATIONS,a.indication,"Drainage indication");
+    if(!method||!result||!indication)throw Error("Drainage method, result and indication are required");
+    const volume=a.volume==null||a.volume===""?null:Number(a.volume);
+    if(volume!=null&&(!Number.isFinite(volume)||volume<0||volume>10000))throw Error("Drained volume: 0–10000 mL");
+    if(result === "Attempted / no drainage" && volume)throw Error("No-drainage result cannot have a drained volume");
+    const complications=someOf(DRAIN_COMPLICATIONS,a.complications,"Drainage complications");
+    if(!complications.length)throw Error("Record drainage complication assessment");
+    if(complications.includes("None identified")&&complications.length>1)throw Error("Choose no complications or the findings, not both");
+    return {method,result,indication,volume,complications,drain:oneOf(["Left in situ","Removed","Not placed","Not recorded"],a.drain,"Drain status")??"Not recorded"};
   }
   if (kind === "rdn") {
     const device=oneOf(RDN_DEVICES,a.device,"Device"), result=oneOf(RDN_RESULTS,a.result,"Result"), arteries=oneOf(["Bilateral","Left only","Right only","No treatment"] as const,a.arteries,"Arteries");
@@ -280,6 +292,7 @@ export const isComplexPci = (p: { kind: string; attributes: Record<string, any> 
 // One line for lists, the journey and notes.
 export function procedureSummary(kind: string, a: Record<string, any>) {
   if (a.historical) return `${historicalLabel(kind, a)} (past history)`;
+  if(kind === "pericardiocentesis")return [a.method,a.result,a.indication,a.volume!=null?`${a.volume} mL`:null,a.drain,(a.complications??[]).join(", ")].filter(Boolean).join(" · ");
   if (kind === "rdn") return [a.device,a.result,a.arteries,(a.complications ?? []).join(", ")].filter(Boolean).join(" · ");
   if (kind === "pci") {
     const setting = PCI_SETTINGS.find((s) => s.value === a.setting)?.label ?? "";

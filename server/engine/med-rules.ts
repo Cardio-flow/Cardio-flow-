@@ -5,8 +5,9 @@
 import { addDays, fmtDay, localDay } from "../../shared/clinical.js";
 import type { PatientState } from "../kernel/state.js";
 import type { Finding, RuleDef } from "./rules.js";
-import { safetyHits, type SafetyRow } from "./med-safety.js";
+import { facts, safetyHits, type SafetyRow } from "./med-safety.js";
 import { daptIndication } from "./valve-rules.js";
+import { medicationOverlaps } from "../../shared/medication-identity.js";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog.js";
 import { cockcroftGault, daysBetween } from "../../shared/clinical.js";
 import { monitoringFor, targetCodes, type MonCheck, type MonContext } from "../../shared/drug-monitoring.js";
@@ -54,7 +55,7 @@ const TEMPLATE = (k: MonCheck) => {
 export function monContext(s: PatientState, m: MedState): MonContext {
   const recent = (code: string, days: number) => {
     const o = s.resolved(code).current;
-    return o?.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
+    return o?.status === "final" && o.value_num != null && daysBetween(localDay(o.effective_at), s.today) <= days ? o.value_num : null;
   };
   const cr = recent("creatinine", 180), wt = recent("weight", 365);
   const conds = s.conditions.filter((c) => c.status === "active");
@@ -116,11 +117,11 @@ export function monitoringDue(s: PatientState, m: MedState, k: MonCheck) {
 }
 
 const tableRule = (id: string, kind: SafetyRow["kind"], title: string, evidence: string): RuleDef => ({
-  id, kind: "clinical", title, inputs: ["meds", "conditions", "creatinine", "egfr", "weight", "lvef", "hr", "nyha"], defaultParams: {}, evidence,
+  id, kind: "clinical", title, inputs: ["meds", "conditions", "observations", "studies", "creatinine", "egfr", "weight", "lvef", "hr", "nyha"], defaultParams: {}, evidence,
   evaluate(s) {
     return safetyHits(s, kind).map(({ row, hit }) => ({
       key: `${row.id}:${hit.meds.map((m) => m.code).join("+")}`,
-      signature: `${hit.meds.map((m) => m.id).sort().join(",")}:${hit.reason}`,
+      signature: JSON.stringify([hit.meds.map(m=>[m.id,m.doseValue,m.frequency,m.route]).sort(),hit.reason]),
       severity: hit.severity ?? row.severity,
       title: row.title(hit),
       detail: hit.reason ? `${hit.reason}. ${row.detail}`.replace(/\.\. /, ". ") : row.detail,
@@ -135,8 +136,42 @@ const tableRule = (id: string, kind: SafetyRow["kind"], title: string, evidence:
 });
 
 export const MED_RULES: RuleDef[] = [
+  {
+    id:"med.renal-data",kind:"operational",title:"Renal safety check incomplete",inputs:["meds","creatinine","egfr","weight","conditions"],defaultParams:{},
+    evidence:"Missing inputs for existing label renal checks: Cockcroft–Gault needs verified creatinine and weight; eGFR-based checks need verified renal function. Same freshness conventions as the safety table (creatinine 180 days, weight 365 days). AF DOAC input requests remain owned by af.doac-dose. No new dosing limit.",
+    evaluate(s) {
+      const f=facts(s);
+      const afDoac=(m:MedState)=>m.tags.includes("doac") && (m.indication==="af" || ((!m.indication || m.indication==="unspecified") && s.tags.has("af")));
+      const crclMeds=f.meds.filter(m=>["rosuvastatin","atenolol","sotalol","dronedarone","apixaban","rivaroxaban","edoxaban","dabigatran"].includes(m.code) && !afDoac(m));
+      const egfrMeds=f.meds.filter(m=>["eplerenone","colchicine","metformin"].includes(m.code));
+      const recent=(code:string,days:number)=>{const o=s.resolved(code).current;return o?.status==="final" && o.value_num!=null && daysBetween(localDay(o.effective_at),s.today)<=days;};
+      const need=[(crclMeds.length && !recent("creatinine",180) || egfrMeds.length && !recent("egfr",365)) && "creatinine",crclMeds.length && !recent("weight",365) && "weight"].filter(Boolean) as string[];
+      if(!need.length)return [];
+      const medicines=[...new Set([...crclMeds,...egfrMeds].map(m=>m.name))];
+      return [{key:"renal-inputs",signature:JSON.stringify([[...crclMeds,...egfrMeds].map(m=>[m.id,m.doseValue,m.frequency]),need]),severity:"orange",title:"Renal dose checks need current inputs",detail:medicines.join(", ")+": record the missing verified inputs before judging dose suitability. eGFR does not replace Cockcroft–Gault for CrCl-based labels.",facts:[{label:"Medicines",value:medicines.join(", ")}],missing:need,action:{type:"add-labs",codes:need,label:"Add renal inputs"}}];
+    },
+  },
+  {
+    id:"med.regimen",kind:"operational",title:"Current medication details and ingredient overlap",
+    inputs:["meds"],defaultParams:{},evidence:"Medication-list completeness and ingredient reconciliation (HFA/ESC polypharmacy consensus 2025, 10.1002/ejhf.3642). Missing regimen is not treatment failure; shared ingredients prompt review, not an automatic stop.",
+    evaluate(s) {
+      const live=s.meds.filter(m=>m.status==="active");
+      const out:Finding[]=live.filter(m=>m.doseValue==null || !m.frequency || !m.route).map(m=>({
+        key:`regimen:${m.id}`,signature:JSON.stringify([m.id,m.doseValue,m.frequency,m.route,m.lastChange?.id]),severity:"orange",
+        title:`${m.name}: complete the recorded regimen`,detail:"Confirm the dose, frequency and route actually taken. Keep an unknown historical start date unknown.",
+        facts:[{label:"Medicine",value:m.name}],missing:[m.doseValue==null && "Dose",!m.frequency && "Frequency",!m.route && "Route"].filter(Boolean) as string[],
+        action:{type:"med-correct",medicationId:m.id,label:"Complete regimen"},
+      }));
+      for(const pair of medicationOverlaps(live)) out.push({
+        key:`overlap:${[...pair.ids].sort().join(":")}`,signature:JSON.stringify(pair.ids.map(id=>{const m=live.find(m=>m.id===id)!;return [id,m.doseValue,m.frequency,m.lastChange?.id]})),severity:"orange",
+        title:`${pair.names.join(" + ")}: review overlap`,detail:pair.detail+". Confirm intentional use or correct the recorded list; no automatic withdrawal.",facts:[{label:"Medicines",value:pair.names.join(" + ")}],missing:[],
+        action:{type:"med-action",medicationId:pair.ids[0],label:"Review overlap"},
+      });
+      return out;
+    },
+  },
   tableRule("med.interaction", "interaction", "Medicine combination contraindicated or not recommended",
-    "Medicine safety table (server/engine/med-safety.ts), combinations of two current medicines, each row quoting its product label (EU/UK SmPC section) or guideline: PDE5 inhibitor + nitrate, riociguat + PDE5 inhibitor or nitrate, ivabradine + verapamil/diltiazem or a strong CYP3A4 inhibitor, ticagrelor / simvastatin / dronedarone / eplerenone / finerenone + a strong CYP3A4 inhibitor, dronedarone + dabigatran, sacubitril/valsartan + ACE inhibitor, two potassium-sparing medicines, eplerenone + ACEi + ARB, colchicine + P-gp/CYP3A4 inhibitor with renal or hepatic impairment, mavacamten + strong CYP3A4 inhibitor in a CYP2C19 poor or undetermined metaboliser (all section 4.3 contraindications: red); mavacamten + verapamil/diltiazem in a poor or undetermined metaboliser (reduce 5 → 2.5 mg or pause: orange), + omeprazole ≥40 mg/day (moderate CYP2C19 inhibitor: reduce one level: orange) or omeprazole 20 mg / esomeprazole / a strong CYP3A4 inhibitor in other phenotypes (monitor LVEF 4 weeks later: yellow) — Camzyos 4.5 Table 2; ACEi + ARB (4.4 not recommended) and DOAC + rifampicin (avoid: orange; caution: yellow); clopidogrel + omeprazole/esomeprazole (discouraged: yellow)."),
+    "Ibuprofen with current anticoagulant/antiplatelet treatment increases bleeding risk (ibuprofen SmPC 4.4/4.5; apixaban SmPC 4.4/4.5), a caution rather than automatic anticoagulant withdrawal. Medicine safety table (server/engine/med-safety.ts), combinations of two current medicines, each row quoting its product label (EU/UK SmPC section) or guideline: PDE5 inhibitor + nitrate, riociguat + PDE5 inhibitor or nitrate, ivabradine + verapamil/diltiazem or a strong CYP3A4 inhibitor, ticagrelor / simvastatin / dronedarone / eplerenone / finerenone + a strong CYP3A4 inhibitor, dronedarone + dabigatran, sacubitril/valsartan + ACE inhibitor, two potassium-sparing medicines, eplerenone + ACEi + ARB, colchicine + P-gp/CYP3A4 inhibitor with renal or hepatic impairment, mavacamten + strong CYP3A4 inhibitor in a CYP2C19 poor or undetermined metaboliser (all section 4.3 contraindications: red); mavacamten + verapamil/diltiazem in a poor or undetermined metaboliser (reduce 5 → 2.5 mg or pause: orange), + omeprazole ≥40 mg/day (moderate CYP2C19 inhibitor: reduce one level: orange) or omeprazole 20 mg / esomeprazole / a strong CYP3A4 inhibitor in other phenotypes (monitor LVEF 4 weeks later: yellow) — Camzyos 4.5 Table 2; ACEi + ARB (4.4 not recommended) and DOAC + rifampicin (avoid: orange; caution: yellow); clopidogrel + omeprazole/esomeprazole (discouraged: yellow)."),
   tableRule("med.contraindication", "condition", "Medicine contraindicated or not recommended with a condition in the record",
     "Medicine safety table (server/engine/med-safety.ts), a current medicine with a condition or value in the record, each row quoting its product label section: dronedarone with heart failure / LV systolic dysfunction or permanent AF; dabigatran and dronedarone CrCl <30, sotalol CrCl <10; eplerenone and colchicine eGFR <30; flecainide with heart failure; propafenone with MI within 3 months or heart failure with LVEF <35%; diltiazem with heart rate <50 (all section 4.3: red); apixaban/rivaroxaban/edoxaban CrCl <15 or dialysis and DOACs with antiphospholipid syndrome (not recommended: orange); flecainide after MI or with severe valve disease, verapamil/diltiazem with LVEF ≤40%, ibuprofen with heart failure (orange; red at NYHA IV). On-treatment limits: mavacamten with LVEF <50% after the start (interrupt, red; Camzyos 4.2); ALT >3 × ULN on amiodarone (reduce or stop, orange), dronedarone (re-measure in 48–72 h, orange; confirmed on two results, withdraw, red) and bosentan (3–5 × confirm, orange; >5 × stop, >8 × do not reintroduce, red); dronedarone creatinine still rising after the first rise (yellow). ULN = the actual laboratory report upper reference limit recorded with each result; missing limits go to the liver result review. CrCl by Cockcroft–Gault from creatinine within 180 days and weight within 365 days."),
   {

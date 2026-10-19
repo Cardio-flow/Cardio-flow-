@@ -86,7 +86,7 @@ export type Open =
   | { kind: "procedure-pick" }
   | {
       kind: "procedure";
-      group?: "coronary" | "rhythm" | "valve" | "ph" | "hypertension";
+      group?: "coronary" | "rhythm" | "valve" | "ph" | "hypertension" | "pericardial";
       procedureKind?: import("../../shared/procedures").ProcedureKind;
     }
   | { kind: "history"; focus?: "risk" | "cardiac" | "past" }
@@ -666,6 +666,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                       label: "Structural & valve",
                       hint: "TAVI · TEER · Surgery",
                     },
+                    {group:"pericardial",label:"Pericardial drainage",hint:"Pericardiocentesis · Surgical drainage"},
                     {
                       group: "hypertension",
                       label: "Renal denervation",

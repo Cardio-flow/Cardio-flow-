@@ -11,11 +11,12 @@ import * as C from "./kernel/corrections.js";
 import { civilIdBirthDate } from "../shared/civil-id.js";
 import { loadState } from "./kernel/state.js";
 import { preStartCheck, proposedMedicines } from "./engine/med-safety.js";
+import { medicationReview } from "./engine/medication-review.js";
 import { bookMonitoringAtStart, monitoringPreview } from "./engine/med-rules.js";
 import { mavacamtenStart } from "../shared/mavacamten.js";
 import { applyAfterPci, pciContext, Refused } from "./engine/after-pci.js";
 import { checklist } from "./engine/checklist.js";
-import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups } from "./kernel/views.js";
+import { attentionCount, historyView, journey, summary, worklist, planView, results, medicationGroups, recommendations } from "./kernel/views.js";
 import { entryDraft, getVisitDraft, saveVisitDraft, getDischargeDraft, saveDischargeDraft } from "./kernel/visit-drafts.js";
 import { evidenceKey, checkEvidence } from "./kernel/evidence.js";
 import { draftNote } from "./kernel/notes.js";
@@ -294,6 +295,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
           meds,
           medicationHistory: medicationView.history,
           medicationWarnings: medicationView.warnings,
+          medicationReview: medicationReview(s, await recommendations(tx,id)),
           plan: planView(s),
           results: results(s, [...LABS.map((l) => l.code)]),
           procedures: s.procedures,
@@ -375,7 +377,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.post("/api/patients/:id/medications/:mid/correct", clinician, route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
     const input = z
-      .object({ doseValue: z.number().positive().nullish(), frequency: z.string().max(60).nullish(), effectiveAt: isoDateTime.optional(), reason: z.string().max(300).optional() })
+      .object({ doseValue: z.number().positive().nullish(), frequency: z.string().max(60).nullish(), route:z.string().max(20).optional(), effectiveAt: isoDateTime.optional(), reason: z.string().max(300).optional() })
       .parse(req.body);
     await write(res, id, async (tx, a) => ({ changed: await C.correctMedicationEntry(tx, a, id, uuidS.parse(req.params.mid), input) }));
   }));
@@ -409,7 +411,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["rdn", "pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao"]),
+        kind: z.enum(["rdn", "pci", "cabg", "device", "ablation", "cardioversion", "valve", "rhc", "laao", "pericardiocentesis"]),
         date: isoDateTime,
         details: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         contextId: uuidS.nullish(),
@@ -460,10 +462,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging", "pericardial_imaging", "pericardial_fluid"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),
+        procedureId: uuidS.optional(),
         contextId: uuidS.nullish(),
       })
       .parse(req.body);

@@ -93,6 +93,13 @@ const DOACS_15 = ["apixaban", "rivaroxaban", "edoxaban"];
 
 export const SAFETY_ROWS: SafetyRow[] = [
   {
+    id:"nsaid-antithrombotic",kind:"interaction",severity:"yellow",
+    title:withPartner("", "increased bleeding risk"),
+    detail:"Review the need for the NSAID, bleeding symptoms and alternatives. Do not stop anticoagulation solely because this interaction is present.",
+    source:"Ibuprofen SmPC 4.4/4.5 (https://www.medicines.org.uk/emc/product/14695/smpc); apixaban SmPC 4.4/4.5 (https://www.medicines.org.uk/emc/product/2878/smpc): increased bleeding risk",
+    check:pair(["ibuprofen"],["oac","antiplatelet"]),
+  },
+  {
     id:"statin-lab-before-start",kind:"prestart",severity:"red",
     title:()=>"Statin start: review abnormal ALT / CK first",
     detail:"Do not initiate a statin with baseline CK >4× the actual lab ULN. Review ALT ≥3× ULN before prescribing; no lab-based limit is assumed when the report range is missing.",

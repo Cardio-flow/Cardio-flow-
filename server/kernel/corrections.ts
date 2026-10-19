@@ -4,7 +4,7 @@
 import type { Q } from "../db/db.js";
 import { ApiError, audit, journeyEvent, nowIso, patientInSite, uuid, type Actor } from "./base.js";
 import { LIVE_EVENT, LIVE_MED, correctObservation, newConditionVersion, type Changed } from "./clinical.js";
-import { MEDICATION, doseLabel } from "../../shared/catalog.js";
+import { MEDICATION, FREQUENCIES, doseLabel } from "../../shared/catalog.js";
 import { localDay } from "../../shared/clinical.js";
 
 export const CORRECTION_REASONS = ["Wrong patient", "Wrong entry", "Duplicate entry", "Never happened"] as const;
@@ -108,7 +108,7 @@ export async function undoLastMedicationChange(tx: Q, actor: Actor, patientId: s
 // The last entry with a wrong dose, frequency or date: replaced by a corrected copy (same kind of change).
 export async function correctMedicationEntry(
   tx: Q, actor: Actor, patientId: string, medicationId: string,
-  input: { doseValue?: number | null; frequency?: string | null; effectiveAt?: string; reason?: string },
+  input: { doseValue?: number | null; frequency?: string | null; route?:string; effectiveAt?: string; reason?: string },
 ) {
   await patientInSite(tx, actor, patientId);
   const med = (await tx.query(`SELECT drug FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${LIVE_MED}`, [medicationId, patientId])).rows[0] as any;
@@ -129,13 +129,16 @@ export async function correctMedicationEntry(
   )).rows[0] as any;
   if (prev && Date.parse(at) < Date.parse(new Date(prev.effective_at).toISOString())) throw new ApiError(400, "The date cannot be before the previous change");
   const freq = input.frequency ?? last.frequency;
-  if (dose === last.dose_value && freq === last.frequency && Date.parse(at) === Date.parse(new Date(last.effective_at).toISOString()))
+  const route=input.route ?? last.route;
+  if(input.route && input.route !== last.route && def && !def.routes.includes(input.route))throw new ApiError(400,"Choose a listed medication route");
+  if(input.frequency && input.frequency !== last.frequency && def && !FREQUENCIES.includes(input.frequency))throw new ApiError(400,"Choose a listed medication frequency");
+  if (dose === last.dose_value && freq === last.frequency && route === last.route && Date.parse(at) === Date.parse(new Date(last.effective_at).toISOString()))
     throw new ApiError(400, "Nothing changed");
   const id = uuid();
   await tx.query(
     `INSERT INTO cf.medication_event(id,medication_id,patient_id,kind,dose_value,dose_unit,frequency,route,reason,effective_at,context_id,decision_id,recorded_by)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [id, medicationId, patientId, last.kind, dose, last.dose_unit, freq, last.route, last.reason, at, last.context_id, last.decision_id, actor.id],
+    [id, medicationId, patientId, last.kind, dose, last.dose_unit, freq, route, last.reason, at, last.context_id, last.decision_id, actor.id],
   );
   await mark(tx, actor, patientId, "medication_event", last.id, why(input.reason) === "Entered in error" ? "Corrected" : why(input.reason), id);
   await journeyEvent(tx, actor, {
@@ -144,8 +147,8 @@ export async function correctMedicationEntry(
     refType: "medication", refId: medicationId,
   });
   await audit(tx, actor, "correct", "medication", medicationId, patientId, {
-    before: { dose: last.dose_value, frequency: last.frequency, at: new Date(last.effective_at).toISOString() },
-    after: { dose, frequency: freq, at },
+    before: { dose: last.dose_value, frequency: last.frequency, route:last.route, at: new Date(last.effective_at).toISOString() },
+    after: { dose, frequency: freq, route, at },
   });
   return ["meds"] as Changed;
 }

@@ -27,22 +27,25 @@ export function AddStudy({
   onDone(m?: string, r?: any): void;
 }) {
   const { data: health } = useData<any>("/health");
+  const [procedureId,setProcedureId]=useState(initial?.procedureId ?? "");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState(initialKind ?? "");
+  const {data:record,error:recordError}=useData<any>(kind === "pericardial_fluid" ? `/patients/${patientId}/record` : null);
+  const drainage=(record?.procedures ?? []).filter((p:any)=>p.kind === "pericardiocentesis" && p.attributes.result === "Drainage performed");
   const [date, setDate] = useState("");
-  const [values, setValues] = useState<Record<string, any>>(initial ?? {});
+  const [values, setValues] = useState<Record<string, any>>(Object.fromEntries(Object.entries(initial ?? {}).filter(([k])=>k!=="procedureId")));
   const [conclusion, setConclusion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const def = STUDY[kind];
   const active = def ? def.fields.filter((f) => fieldActive(f, values)) : [];
-  const missing = active
+  const missing = [...(kind === "pericardial_fluid" && !procedureId ? ["Actual drainage"] : []), ...active
     .filter(
       (f) =>
         (f as any).required && (values[f.key] == null || values[f.key] === ""),
     )
-    .map((f) => f.label);
-  const bad = active
+    .map((f) => f.label)];
+  const bad = [...active
     .filter(
       (f) =>
         f.type === "number" &&
@@ -50,7 +53,7 @@ export function AddStudy({
         values[f.key] != null &&
         (Number(values[f.key]) < f.min || Number(values[f.key]) > f.max),
     )
-    .map((f) => f.label);
+    .map((f) => f.label)];
   const clean = () =>
     Object.fromEntries(
       active
@@ -70,7 +73,7 @@ export function AddStudy({
     setBusy(true);
     setError("");
     try {
-      const at = date
+      const at = date && date !== health?.today
         ? new Date(`${date}T10:00:00+03:00`).toISOString()
         : new Date().toISOString();
       const r = await api(`/patients/${patientId}/studies`, {
@@ -78,6 +81,7 @@ export function AddStudy({
           kind,
           date: at,
           findings: clean(),
+          ...(kind === "pericardial_fluid"?{procedureId}:{}),
           conclusion: conclusion || undefined,
           contextId: contextId ?? null,
         },
@@ -132,6 +136,7 @@ export function AddStudy({
       }
     >
       <div className="drawer-body">
+        {kind === "pericardial_fluid" && <div className="q"><div className="label">Actual drainage</div><SingleChoice label="Actual drainage" options={drainage.map((p:any)=>({value:p.id,label:`${p.performed_at.slice(0,10)} · ${p.summary}`}))} value={procedureId} onChange={setProcedureId} />{recordError ? <p role="alert">{recordError}</p> : !record ? <p className="muted">Loading drainage records…</p> : !drainage.length ? <p className="muted">Record the completed drainage procedure first.</p> : null}</div>}
         {!def ? (
           <div className="study-picker">
             <input
@@ -333,6 +338,7 @@ function Field({
 }
 
 const STUDY_GROUPS = [
+  {label:"Pericardial disease",kinds:["pericardial_imaging","pericardial_fluid"]},
   {
     label: "Blood pressure",
     kinds: ["home_bp", "abpm", "hypertension_workup", "orthostatic_bp"],

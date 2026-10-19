@@ -1,3 +1,4 @@
+import { pericardialSuggestions } from "./wizards-pericardial.js";
 import { aortaUrgent } from "./wizards-aorta.js";
 import { syncopeConcern } from "./wizards-syncope.js";
 import { labSuggestions, LAB_WIZARDS } from "./wizards-lab.js";
@@ -55,6 +56,10 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "medication-monitoring": {
+    medicationChecks:(_a,c)=>(c.medicationReview?.checks ?? []).map(check=>S(check.id,`${check.medicines.join(", ")}: ${check.sources.join("; ")}`)),
+    monitorDate:(_a,c)=>[S(c.today,"Monitoring is already due; choose an actual date or use today")],
+  },
   "aorta-plan": {
     strategy:(a,c)=>[aortaUrgent(a,c)?S("urgent","Suspected acute aortic syndrome needs urgent assessment (ESC 2024)"):a.safety !== "stable"?null:c.aorta?.referral.length || (a.risks as string[]|undefined)?.some(v=>v!=="none")?S("specialist","Recorded size, growth or risk findings need an individualized aortic-team strategy (ESC 2024)"):c.aorta?.missing.length?S("workup","Complete the missing measured anatomy and imaging extent before surveillance"):S("surveillance","Complete baseline anatomy without a recorded specialist risk finding: confirm an individualized surveillance date")],
     family:(_a,c)=>[c.aorta?.heritable?S("genetics","Heritable features: specialist genetic counselling and family assessment (ESC 2024; ACC/AHA 2022)"):c.aorta?.familyRecommended?S("screen","Review first-degree relative aortic/valve imaging (ESC 2024; ACC/AHA 2022)"):null],
@@ -1076,24 +1081,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   },
 
   // ---------------- Inflammatory & infective ----------------
-  pericarditis: {
-    criteria: (_a, c) => {
-      const crp = val(c, "crp");
-      return [crp != null && crp > 5 && S("crp", `CRP ${crp} mg/L`)];
-    },
-    highrisk: (_a, c) => {
-      const t = val(c, "temp");
-      return [t != null && t > 38 && S("fever", `Temperature ${n1(t)} °C`), on(c, "oac") && S("oac", "On oral anticoagulation")];
-    },
-    tests: (a) => [S("ecg", "ECG for every patient (ESC)"), S("bloods", "CRP, troponin, FBC, renal function"), S("echo", "Echo for every patient (ESC)"), list(a, "highrisk").length > 0 && S("cause", "High-risk features: look for a specific cause")],
-    first: (_a, c) => [
-      on(c, "oac", "antiplatelet") || dx(c, "cad", "prior-mi") ? S("aspirin", "Coronary disease / on antithrombotics: aspirin preferred to NSAIDs") : S("nsaid", "Aspirin or NSAID at anti-inflammatory dose (ESC 2025, I A)"),
-      S("colchicine", "Add colchicine for at least 3–6 months, stopped last (ESC 2025, I A)"),
-      S("ppi", "Gastroprotection while on aspirin/NSAID"),
-    ],
-    activity: (a) => [a.myocardium === "yes" ? S("myo", "Myocardial involvement: longer restriction until recovery is confirmed") : S("1m", "Restrict exercise for 1 month, then individualise (ESC 2025)")],
-    crp: () => [S("7", "CRP in 1–2 weeks to guide tapering (ESC)")],
-  },
+  pericarditis: pericardialSuggestions,
+
   endocarditis: {
     tests: (a) => {
       const pv = is(a, "features", "prosthetic") || is(a, "features", "device");

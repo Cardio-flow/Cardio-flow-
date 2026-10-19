@@ -23,9 +23,11 @@ import { flagFor, fmtDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
+import { MedicationReview } from "./MedicationReview";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 
 const PROC_LABEL: Record<string, string> = {
+  pericardiocentesis:"Pericardial drainage",
   rdn: "Renal denervation",
   pci: "PCI",
   cabg: "CABG",
@@ -72,7 +74,7 @@ export function MedicationsTab({
           </button>
         </span>
       </div>
-      {!!data.medicationWarnings?.length && <section className="infobox warn" role="status" style={{display:"grid",gap:8}}><b>Medication reconciliation needed</b>{data.medicationWarnings.map((w: any, i: number) => <div key={i}>{w.names.join(" + ")} · {w.detail}</div>)}</section>}
+      <MedicationReview review={data.medicationReview} open={open} />
       {PURPOSE_ORDER.map((purpose) => {
         const meds = live.filter((m: any) => m.purpose === purpose);
         if (!meds.length) return null;

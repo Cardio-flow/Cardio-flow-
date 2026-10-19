@@ -45,7 +45,7 @@ export type PlanRow = {
   title: string;
   reason: string;
   due_date: string | null;
-  completes_on: { type: string; codes?: string[]; kind?: string; purpose?: string; after?: string; target?: string; method?: string; requiresReview?: boolean };
+  completes_on: { type: string; codes?: string[]; kind?: string; purpose?: string; after?: string; target?: string; method?: string; requiresReview?: boolean; procedureId?:string };
   status: string;
   outcome: string;
   completed_at: string | null;
@@ -144,7 +144,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(pr ORDER BY pr.performed_at), '[]') FROM (SELECT p.id,p.kind,p.performed_at,p.attributes,p.summary,p.context_id FROM cf.procedure p
             WHERE p.patient_id=$1 AND p.status='final' AND NOT EXISTS (SELECT 1 FROM cf.procedure r WHERE r.replaces=p.id)) pr) AS procedures,
         (SELECT coalesce(json_object_agg(w.wizard, w.at), '{}') FROM (SELECT wizard, max(decided_at) AS at FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IS NOT NULL GROUP BY wizard) w) AS pathways,
-        (SELECT coalesce(json_object_agg(d.wizard, json_build_object('id',d.id,'at',d.decided_at,'answers',d.answers)), '{}') FROM (SELECT DISTINCT ON (wizard) id,wizard,decided_at,answers FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IN ('after-laao','after-af-ablation','after-structural','tavi-plan','teer-plan','other-structural-plan','htn-review','htn-resistance','htn-secondary','rdn-plan','after-rdn','syncope','aorta-plan') ORDER BY wizard,decided_at DESC) d) AS af_reviews`,
+        (SELECT coalesce(json_object_agg(d.wizard, json_build_object('id',d.id,'at',d.decided_at,'answers',d.answers)), '{}') FROM (SELECT DISTINCT ON (wizard) id,wizard,decided_at,answers FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IN ('after-laao','after-af-ablation','after-structural','tavi-plan','teer-plan','other-structural-plan','htn-review','htn-resistance','htn-secondary','rdn-plan','after-rdn','syncope','aorta-plan','pericarditis') ORDER BY wizard,decided_at DESC) d) AS af_reviews`,
       [patientId],
     )
   ).rows[0];

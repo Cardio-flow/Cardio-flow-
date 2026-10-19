@@ -98,7 +98,7 @@ test("admission and visit reasons, colchicine for pericarditis and TSH on amioda
 
   const p2 = await newPatient(["cad-ccs"]);
   await start(p2, "colchicine", 0.5, "BID", "Pericarditis", -1);
-  assert.match((await rec(p2, "event.pericarditis")).title, /Colchicine started for pericarditis/);
+  assert.match((await rec(p2, "event.pericarditis")).title, /Colchicine recorded for pericarditis/);
 
   const p3 = await newPatient(["af"]);
   await start(p3, "amiodarone", 200, "OD", "af");
