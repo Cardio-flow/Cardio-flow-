@@ -253,7 +253,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
-      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-label={`${p.selected===a.id?"Close":"Review"} ${a.action?.wizard === "pregnancy-plan" ? "pregnancy care" : a.title}`} aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
+      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
     </div>
   );
 }
