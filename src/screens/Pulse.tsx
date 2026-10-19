@@ -5,6 +5,7 @@ import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { Sparkline, type Sev } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { MEASURES, formatNumber } from "../../shared/catalog";
+import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import type { Open } from "./Patient";
 
 // the results a cardiologist looks for first, in this order (others follow by date)
@@ -12,17 +13,23 @@ const KEY = ["creatinine", "egfr", "potassium", "sodium", "nt-probnp", "haemoglo
 const PURPOSE_HUE: Record<string, string> = {};
 const HUES = ["#1757a8", "#0f7b6c", "#8a4fbf", "#b45309", "#be185d", "#475569", "#0e7490", "#4d7c0f"];
 
-export const toneOf = (r: any): Sev => {
+export const toneOf = (r: any, s?: any): Sev => {
   const v = r.latest?.value ?? r.current?.value;
   if (v == null) return "gray";
+  if (s?.pregnancy?.phase === "Pregnant" && r.code === "haemoglobin") {
+    const at = r.latest?.at ?? r.current?.at;
+    const cutoff = at ? pregnancyHaemoglobinCutoff(s.pregnancy.edd ?? undefined, String(at).slice(0, 10)) : null;
+    return cutoff == null ? "gray" : v < cutoff ? "orange" : "blue";
+  }
   if (r.ref?.high != null && v > r.ref.high) return r.code === "potassium" ? "red" : "orange";
   if (r.ref?.low != null && v < r.ref.low) return "orange";
   return "blue";
 };
 
 export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: string, code?: string): void }) {
-  const byCode = new Map<string, any>((s.results ?? []).map((r: any) => [r.code, r]));
-  const trends = [...KEY.filter((c) => byCode.has(c)).map((c) => byCode.get(c)), ...(s.results ?? []).filter((r: any) => !KEY.includes(r.code))].slice(0, 10);
+  const results = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr"));
+  const byCode = new Map<string, any>(results.map((r: any) => [r.code, r]));
+  const trends = [...KEY.filter((c) => byCode.has(c)).map((c) => byCode.get(c)), ...results.filter((r: any) => !KEY.includes(r.code))].slice(0, 10);
   const v = Object.fromEntries((s.vitals ?? []).map((x: any) => [x.code, x]));
   const vitals: [string, string, string | undefined][] = [];
   const paired = v.sbp && v.dbp && v.sbp.at === v.dbp.at && v.sbp.contextId === v.dbp.contextId && v.sbp.source === v.dbp.source;
@@ -49,7 +56,7 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
       {trends.length > 0 && (
         <div className="pulse-strip" role="list" aria-label="Key result trends">
           {trends.map((r: any) => {
-            const t = toneOf(r), latest = r.latest ?? r.current, tr = r.trend;
+            const t = toneOf(r, s), latest = r.latest ?? r.current, tr = r.trend;
             const Dir = tr?.direction === "up" ? ArrowUpRight : tr?.direction === "down" ? ArrowDownRight : Minus;
             const pct = tr?.percent;
             return (
@@ -64,7 +71,7 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
               </button>
             );
           })}
-          <button className="ptile more" onClick={() => go("results")}>All {s.results.length}<small>results</small></button>
+          <button className="ptile more" onClick={() => go("results")}>All {results.length}<small>results</small></button>
         </div>
       )}
       <div className="pulse-meds" aria-label="Current medicines">

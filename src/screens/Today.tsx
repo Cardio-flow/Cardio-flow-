@@ -12,6 +12,7 @@ import { ActionButton, WhyPanel } from "./Summary";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
+import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import type { Open } from "./Patient";
 
 export function useTriage(s: any) {
@@ -45,7 +46,7 @@ const PROBLEM_OF = (ruleId: string): string => {
   return "other";
 };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
-type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[] };
+type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[]; assessment?: "met" | "above" | "incomplete" | "review" };
 const TITLES: Record<string, string> = { pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
@@ -72,6 +73,7 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   row.panels = panels;
   // every due test in one entry (the items stay in their problem cards)
   const dueLabs = (s.attention as any[]).filter((a) => a.action?.type === "add-labs");
+  const dueLabCodes = [...new Set(dueLabs.flatMap((a) => a.action.codes ?? []))];
   const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
   const urgent = (s.attention as any[]).filter((a) => a.severity === "red").length;
   const decisions = (s.attention as any[]).filter((a) => a.action?.type !== "add-labs").length;
@@ -88,10 +90,10 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="tb-summary">
           {urgent > 0 && <span className="tb-count red"><AlertTriangle size={15} /> {urgent} urgent</span>}
           {decisions > 0 && <span className="tb-count">{decisions} to decide</span>}
-          {dueLabs.length > 0 && <span className="tb-count">{dueLabs.length} result{dueLabs.length === 1 ? "" : "s"} due</span>}
+          {dueLabCodes.length > 0 && <span className="tb-count">{dueLabCodes.length} test{dueLabCodes.length === 1 ? "" : "s"} to arrange</span>}
           {dueCodes.length > 0 && (
             <button className="btn primary small tb-labs" onClick={() => open({ kind: "labs", codes: dueCodes })}>
-              <FlaskConical size={15} /> Enter due results · {dueCodes.map(labelOf).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
+              <FlaskConical size={15} /> Enter results · {dueCodes.map(labelOf).filter((v, i, all) => all.indexOf(v) === i).slice(0, 5).join(", ")}{dueCodes.length > 5 ? "…" : ""}
             </button>
           )}
         </div>
@@ -116,12 +118,13 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
   const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
   const consider = items.filter((a) => a.severity === "blue" && a.rule_id !== "htn.rdn");
   return (
-    <section className={`problem ${top ? `p-${top.severity}` : p.need.length ? "p-need" : "ok"}`} aria-label={p.label}>
+    <section className={`problem ${top ? `p-${top.severity}` : p.assessment === "above" ? "p-orange" : p.need.length || p.assessment === "incomplete" ? "p-need" : p.assessment === "met" ? "ok" : ""}`} aria-label={p.label}>
       <div className="problem-head">
         <b>{p.label}</b>
         {p.sub && <span className="problem-sub">{p.sub}</span>}
-        {/* "On track" only when nothing is missing for the decision (19 Oct audit: BP not measured read as on track) */}
-        {!top && !p.need.length && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {!top && !p.need.length && p.assessment === "met" && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {!top && p.assessment === "above" && <span className="problem-sub">{p.key === "bp" && row.s.pregnancy?.phase === "Pregnant" ? "Above pregnancy target" : "Above target"}</span>}
+        {!top && p.assessment === "incomplete" && <span className="problem-sub">Incomplete reading</span>}
       </div>
       {p.history && p.history.length > 0 && <ol className="problem-history" aria-label="History">{p.history.map((h, i) => <li key={i}>{h}</li>)}</ol>}
       {p.stats.length > 0 && (
@@ -133,7 +136,7 @@ function ProblemCard({ p, items, row }: { p: Problem; items: any[]; row: RowProp
       {p.need.length > 0 && (
         <div className="problem-need">
           <span>Needed for the decision: <b>{[...new Set(p.need.map((n) => n.label))].join(", ")}</b></span>
-          <button className="btn ghost small" onClick={() => row.open({ kind: "labs", codes: [...new Set(p.need.map((n) => n.code))] })}>Record</button>
+          <button className="btn ghost small" aria-label={`Record ${p.label}: ${[...new Set(p.need.map((n) => n.label))].join(", ")}`} onClick={() => row.open({ kind: "labs", codes: [...new Set(p.need.map((n) => n.code))] })}>Record</button>
         </div>
       )}
       {main.length > 0 && <div className="problem-items">{main.map((a) => <Item key={a.id} a={a} {...row} />)}</div>}
@@ -161,6 +164,10 @@ function buildProblems(s: any): Problem[] {
   const tagSet = new Set<string>(s.header?.tags ?? []);
   const has = (...codes: string[]) => codes.some((c) => dx.has(c) || tagSet.has(c));
   const need = (codes: string[], within: number) => codes.filter((c) => !recent(c, within)).map((c) => ({ code: c, label: labelOf(c) }));
+  const pregnant = s.pregnancy?.phase === "Pregnant";
+  const hb = R.haemoglobin;
+  const hbCutoff = pregnant && hb?.at ? pregnancyHaemoglobinCutoff(s.pregnancy?.edd ?? undefined, String(hb.at).slice(0, 10)) : null;
+  const lowHb = hb?.value != null && (pregnant ? hbCutoff != null && hb.value < hbCutoff : hb.value < (s.header?.sex === "Female" ? 12 : 13));
   const out: Problem[] = [];
   if (t.hf) {
     const on = t.hf.pillars.filter((x: any) => x.state === "on" || x.state === "target").length;
@@ -177,17 +184,18 @@ function buildProblems(s: any): Problem[] {
     });
   }
   const k = t.kidney;
-  if (k && (k.egfr != null || k.k != null || has("ckd"))) {
+  if (k && (k.egfr != null || k.creatinineCurrent != null || k.k != null || has("ckd"))) {
     const stats: Stat[] = [];
     if (k.egfr != null) stats.push({ label: "eGFR", value: `${n(k.egfr)}${k.egfrAt ? ` · ${fmtDay(k.egfrAt)}` : ""}`, tone: k.egfr < 30 ? "bad" : k.egfr < 60 ? "warn" : "ok" });
+    if (pregnant && k.creatinineCurrent != null) stats.push({ label: "Serum creatinine", value: `${n(k.creatinineCurrent)} µmol/L${k.creatinineAt ? ` · ${fmtDay(k.creatinineAt)}` : ""}` });
     if (k.creatinine) stats.push({ label: "Creatinine vs baseline", value: `${n(k.creatinine.baseline)} → ${n(k.creatinine.current)} (${k.creatinine.rise >= 0 ? "+" : ""}${k.creatinine.rise}%)`, tone: k.creatinine.review ? "bad" : undefined });
     if (k.k != null) stats.push({ label: "Potassium", value: `${n(k.k, 1)}${k.kAt ? ` · ${fmtDay(k.kAt)}` : ""}`, tone: k.k > 5.5 || k.k < 3.5 ? "bad" : k.k > 5.0 ? "warn" : "ok" });
     if (R.sodium?.value != null) stats.push({ label: "Sodium", value: val("sodium"), tone: R.sodium.value < 135 ? "warn" : "ok" });
     if (k.uacr != null) stats.push({ label: "UACR", value: `${n(k.uacr, 1)} mg/mmol`, tone: k.uacr >= 3 ? "warn" : "ok" });
     out.push({ key: "kidney", label: TITLES.kidney, stats, therapy: line(["raas", "mra", "sglt2", "k-binder"]) || undefined, need: has("ckd") || t.hf ? need(["creatinine", "potassium"], 90) : [] });
   }
-  if (has("anaemia") || (R.haemoglobin?.value != null && R.haemoglobin.value < (s.header?.sex === "Female" ? 12 : 13)) || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "anaemia"))
-    out.push({ key: "anaemia", label: TITLES.anaemia, stats: [{ label: "Hb", value: val("haemoglobin", 1), tone: "warn" }, { label: "Ferritin", value: val("ferritin") }, { label: "TSAT", value: R.tsat?.value != null ? `${n(R.tsat.value)}%` : "Not recorded" }], therapy: line(["oac", "antiplatelet"]) ? `Antithrombotic: ${line(["oac", "antiplatelet"])}` : undefined, need: need(["ferritin", "tsat"], 365) });
+  if (has("anaemia") || lowHb || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "anaemia"))
+    out.push({ key: "anaemia", label: TITLES.anaemia, stats: [{ label: "Hb", value: val("haemoglobin", 1), tone: lowHb ? "warn" : undefined }, { label: "Ferritin", value: val("ferritin") }, { label: "TSAT", value: R.tsat?.value != null ? `${n(R.tsat.value)}%` : "Not recorded" }], therapy: line(["oac", "antiplatelet"]) ? `Antithrombotic: ${line(["oac", "antiplatelet"])}` : undefined, need: lowHb || has("anaemia") ? need(["ferritin", "tsat"], 365) : [] });
   if (t.af) {
     const hr = R.hr?.value;
     out.push({
@@ -204,9 +212,9 @@ function buildProblems(s: any): Problem[] {
   }
   if (has("cad", "ascvd") || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "cad"))
     out.push({ key: "cad", label: TITLES.cad, sub: s.header?.ihd?.label?.replace(/^IHD · /, ""), history: (s.header?.ihd?.events ?? []).map((e: any) => e.text), stats: [{ label: "Antithrombotic", value: line(["antiplatelet", "oac"]) || "None" }, ...(line(["nitrate", "nitrate-sl", "ranolazine", "ivabradine"]) ? [{ label: "Anti-anginal", value: line(["nitrate", "ranolazine", "ivabradine"]) }] : [])], need: [] });
-  if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365) });
-  if (t.bp) out.push({ key: "bp", label: TITLES.bp, stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.label ?? (t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)`), need: need(["sbp"], 90) });
-  if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180) });
+  if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365), assessment: t.ldl.met === true ? "met" : t.ldl.met === false ? "above" : "review" });
+  if (t.bp) out.push({ key: "bp", label: TITLES.bp, stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : t.bp.dbp != null ? `DBP ${n(t.bp.dbp)} mmHg` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.label ?? (t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)`), need: t.bp.sbp == null || t.bp.dbp == null || !recent("sbp", 90) || !recent("dbp", 90) ? [{code:"sbp",label:"BP"},{code:"dbp",label:"BP"}] : [], assessment: t.bp.met === true ? "met" : t.bp.met === false ? "above" : t.bp.sbp == null || t.bp.dbp == null ? "incomplete" : "review" });
+  if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180), assessment: t.diabetes.met === true ? "met" : t.diabetes.met === false ? "above" : "review" });
   for (const key of ["valve", "cmp", "ph"]) if ((s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === key)) out.push({ key, label: TITLES[key], stats: [], need: [] });
   out.push({ key: "other", label: TITLES.other, stats: [], need: [] });
   return out;
@@ -233,11 +241,11 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
           {!compact && p.why === a.id && a.detail && <span className="d">{a.detail}</span>}
         </div>
         <div className="item-acts">
-          <button className="why" aria-expanded={p.why === a.id} onClick={() => p.setWhy(p.why === a.id ? null : a.id)}>Why?</button>
+          <button className="why" aria-label={`Why: ${a.title}`} aria-expanded={p.why === a.id} onClick={() => p.setWhy(p.why === a.id ? null : a.id)}>Why?</button>
           <button className="dismiss" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Not needed — dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /></button>
           {inline ? (
             <button className="go" aria-expanded={p.line === a.id} onClick={() => p.setLine(p.line === a.id ? null : a.id)}>{a.action.label}</button>
-          ) : (
+          ) : !(a.action?.wizard === "pregnancy-plan" && p.panels?.has(a.id) && !compact) && (
             <ActionButton a={a} open={p.open} />
           )}
         </div>
@@ -245,7 +253,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
-      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
+      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-label={`${p.selected===a.id?"Close":"Review"} ${a.action?.wizard === "pregnancy-plan" ? "pregnancy care" : a.title}`} aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
     </div>
   );
 }
