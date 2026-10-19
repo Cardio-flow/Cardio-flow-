@@ -15,7 +15,7 @@ import { DateField } from "../screens/SuggestLine";
 const COMMON = ["Dilated LV", "LV hypertrophy", "RV dysfunction", "Pericardial effusion", "LV thrombus"];
 const MORE = [
   "LV size normalised", "Calcified aortic valve", "Bicuspid aortic valve", "Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)", "LV apical aneurysm", "Rheumatic mitral valve",
-  "Prosthetic valve dysfunction", "Prosthetic valve thrombus", "Paravalvular leak", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "Limited windows",
+  "Prosthetic valve dysfunction", "Prosthetic valve thrombus", "Paravalvular leak", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "ASD / interatrial shunt", "Mass on device lead", "Valve vegetation / mass", "Thinned scarred segments", "Limited windows",
 ];
 const NUM = (code: string) => ECHO_NUMBERS.find((n) => n.code === code)!;
 const RANK: Record<string, number> = { None: 0, Mild: 1, Moderate: 2, Severe: 3 };
@@ -284,8 +284,8 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
           <MultiChoice options={PH_SIGNS.map((s) => ({ value: s.key, label: s.label }))} value={phSigns} onChange={setPhSigns} />
           {prob && <div className="infobox"><span>{`Echo probability of PH: ${PROBABILITY_LABEL[prob.probability]}${prob.trv != null ? ` · TRV ${prob.trv} m/s` : " · TRV not measured"}${prob.categories.length ? ` · signs in ${prob.categories.length} categor${prob.categories.length > 1 ? "ies" : "y"}` : ""} (ESC/ERS 2022)`}</span></div>}
         </Fold>
-        <Fold title="Cardiomyopathy measurements" hint="wall thickness, LA, LVOT gradients" open={show.cmp}>
-          <div className="ef-nums">{!hasLvh && numField("mwt")}{numField("la-diam")}{numField("lvot-rest")}{numField("lvot-provoked")}</div>
+        <Fold title="Cardiomyopathy measurements" hint="wall thickness, LA, LAVI, LVOT gradients" open={show.cmp}>
+          <div className="ef-nums">{!hasLvh && numField("mwt")}{numField("la-diam")}{numField("lavi")}{numField("lvot-rest")}{numField("lvot-provoked")}</div>
           {!hasLvh && mwtHint && <div className="ef-panel-out">{mwtHint}</div>}
         </Fold>
         <Fold title="More findings and conclusion" hint={`${MORE.filter((f) => findings.includes(f)).length || "none"} selected`} open={false}>

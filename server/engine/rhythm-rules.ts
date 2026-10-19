@@ -169,7 +169,8 @@ export const RHYTHM_RULES: RuleDef[] = [
       const last = d.check ? `last check ${fmtDay(d.check.at, { year: true })}` : `no check since ${d.implantAt === d.since ? "the implant" : "it was recorded"} ${fmtDay(d.since!, { year: true })}`;
       return [{
         key: "device-check", signature: `${d.check?.id ?? d.since}:${d.intervalMonths}`, severity: "yellow",
-        title: `${d.type}: device check overdue since ${fmtDay(d.dueAt, { year: true })}`,
+        // no check on record for a device known only from the history: the due date says nothing useful
+        title: !d.check && d.procs.length > 0 && d.procs.every((p) => p.attributes.historical) ? `${d.type}: no device check recorded` : `${d.type}: device check overdue since ${fmtDay(d.dueAt, { year: true })}`,
         detail: `${last[0].toUpperCase()}${last.slice(1)}. ${d.batteryLow ? "Battery near replacement: check every 1–3 months." : `${d.type === "ICD" || d.type === "CRT-D" ? "ICD / CRT-D: at least every 3–6 months" : "Pacemaker / CRT-P: at least every 3–12 months"} (remote or in clinic).`}`,
         facts: [{ label: "Device", value: d.type ?? "Cardiac device", date: d.implantAt ?? undefined }, { label: "Last check", value: d.check ? d.check.summary : "None recorded", date: d.check?.at }, { label: "Source", value: "HRS/EHRA 2023" }],
         missing: [], action: { type: "add-plan", template: "device-check" },

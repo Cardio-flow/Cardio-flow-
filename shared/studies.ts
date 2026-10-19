@@ -349,6 +349,7 @@ export const ECHO_NUMBERS = [
   { code: "trv", label: "Peak TR velocity", unit: "m/s", min: 0.5, max: 7, step: 0.1 },
   { code: "mwt", label: "Max wall thickness", unit: "mm", min: 5, max: 60, step: 1 },
   { code: "la-diam", label: "LA diameter", unit: "mm", min: 15, max: 90, step: 1 },
+  { code: "lavi", label: "LA volume index", unit: "mL/m²", min: 5, max: 300, step: 1 },
   { code: "lvot-rest", label: "LVOT gradient, rest", unit: "mmHg", min: 0, max: 250, step: 1 },
   { code: "lvot-provoked", label: "LVOT gradient, provoked", unit: "mmHg", min: 0, max: 250, step: 1 },
 ] as const;

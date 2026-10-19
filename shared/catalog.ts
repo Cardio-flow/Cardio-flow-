@@ -139,6 +139,7 @@ export const STUDY_MEASURES: LabDef[] = [
   // cardiomyopathy module: the inputs of HCM risk assessment (echo / CMR) and LGE extent (CMR)
   { code: "mwt", display: "Maximal LV wall thickness", short: "MWT", unit: "mm", category: "Echo", decimals: 0, max: 60 },
   { code: "la-diam", display: "Left atrial diameter", short: "LA", unit: "mm", category: "Echo", decimals: 0, max: 90 },
+  { code: "lavi", display: "Left atrial volume index", short: "LAVI", unit: "mL/m²", category: "Echo", decimals: 0, max: 300 },
   { code: "lvot-rest", display: "LVOT gradient at rest", short: "LVOT rest", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
   { code: "lvot-provoked", display: "LVOT gradient, provoked (Valsalva / standing)", short: "LVOT provoked", unit: "mmHg", category: "Echo", decimals: 0, max: 250 },
   { code: "lge-extent", display: "LGE extent (% of LV mass)", short: "LGE %", unit: "%", category: "CMR", decimals: 0, max: 100 },
@@ -221,6 +222,8 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "vt", display: "Ventricular tachycardia", family: "Arrhythmia", tags: [] },
   { code: "av-block", display: "AV block", family: "Arrhythmia", tags: [] },
   { code: "cied", display: "Cardiac device", family: "Device", tags: [] },
+  // adult congenital (19 Oct 2026, from a discharge summary): recorded as reported — type, shunt direction, closure
+  { code: "asd", display: "Atrial septal defect / interatrial shunt", family: "Congenital", tags: ["chd"] },
   { code: "htn", display: "Hypertension", family: "Comorbidity", tags: ["htn"] },
   { code: "t2dm", display: "Type 2 diabetes", family: "Comorbidity", tags: ["dm", "t2dm"] },
   { code: "t1dm", display: "Type 1 diabetes", family: "Comorbidity", tags: ["dm", "t1dm"] },
@@ -248,6 +251,7 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "prior-bleeding", display: "Previous major bleeding", family: "Comorbidity", tags: ["bleeding-history"] },
   { code: "anaemia", display: "Anaemia", family: "Comorbidity", tags: [] },
   { code: "thyroid", display: "Thyroid disease", family: "Comorbidity", tags: [] },
+  { code: "gout", display: "Gout", family: "Comorbidity", tags: [] },
   { code: "liver-disease", display: "Chronic liver disease", family: "Comorbidity", tags: [] },
   { code: "cancer", display: "Cancer (active or past)", family: "Comorbidity", tags: [] },
   { code: "smoker", display: "Current smoker", family: "Comorbidity", tags: [], hidden: true },

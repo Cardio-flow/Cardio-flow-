@@ -51,6 +51,8 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [asOf, setAsOf] = useState("");
+  const [past, setPast] = useState<PastProc[]>([]);
+  const pastProblem = past.find((p) => !/^\d{4}$/.test(p.year) || Number(p.year) < 1960 || Number(p.year) > Number((data?.today ?? "2100").slice(0, 4)));
   if (data && !rows) {
     setRows(Object.fromEntries(HISTORY_ITEMS.map((i) => [i.key, initialRow(i, data.items.find((x: any) => x.key === i.key))])));
     setAsOf(data.today);
@@ -83,7 +85,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
     }
     return { answers, add, update, change, problems };
   }, [rows]);
-  const count = payload ? payload.answers.length + payload.add.length + payload.update.length + payload.change.length : 0;
+  const count = (payload ? payload.answers.length + payload.add.length + payload.update.length + payload.change.length : 0) + past.length;
 
   async function save() {
     if (!payload) return;
@@ -96,6 +98,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
       const r = payload.answers.length + payload.add.length + payload.update.length
         ? await api(`/patients/${patientId}/history`, { body: { answers: payload.answers, add: payload.add, update: payload.update, effectiveAt } })
         : null;
+      for (const p of past) await api(`/patients/${patientId}/procedures`, { body: pastBody(p) });
       onDone(`History saved · ${count} change${count === 1 ? "" : "s"}`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -118,11 +121,11 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
       footer={
         <>
           <span className="note">
-            {payload?.problems.length ? <span style={{ color: "var(--orange-ink)" }}>{payload.problems[0]}</span> : count ? `${count} change${count === 1 ? "" : "s"} to save` : "No changes yet"}
+            {pastProblem ? <span style={{ color: "var(--orange-ink)" }}>{PAST_PRESETS.find((x) => x.id === pastProblem.preset)?.label}: enter the year</span> : payload?.problems.length ? <span style={{ color: "var(--orange-ink)" }}>{payload.problems[0]}</span> : count ? `${count} change${count === 1 ? "" : "s"} to save` : "No changes yet"}
           </span>
           <span className="end">
             <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={onClose}>Cancel</button>
-            <button className="btn primary" disabled={!count || !!payload?.problems.length || busy} onClick={save}>{busy ? "Saving…" : "Save history"}</button>
+            <button className="btn primary" disabled={!count || !!payload?.problems.length || !!pastProblem || busy} onClick={save}>{busy ? "Saving…" : "Save history"}</button>
           </span>
         </>
       }
@@ -180,6 +183,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
               )}
             </section>
           ))}
+        {rows && <PastProcedures rows={past} setRows={setPast} thisYear={Number(String(data.today).slice(0, 4))} recorded={[...(summary?.header?.ihd?.events ?? []).map((e: any) => e.text), ...(summary?.header?.structural?.items ?? [])]} />}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>
@@ -658,5 +662,77 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved
         </div>
       </div>
     </Drawer>
+  );
+}
+
+// ---------- Past procedures & devices (19 Oct 2026, Ahmed: "add mitral clipping, Watchman devices to the history")
+// What a referral letter gives: the procedure, the year (month if known) and its one detail. Recorded as a
+// past procedure (date precision kept), so the clip, the occluder, the ICD and the stents count in every rule
+// while the early after-procedure checks do not start.
+export type PastProc = { key: string; preset: string; year: string; month: string; detail: Record<string, any> };
+export const PAST_PRESETS: { id: string; label: string; kind: string; base: Record<string, any> }[] = [
+  { id: "pci", label: "PCI", kind: "pci", base: {} },
+  { id: "cabg", label: "CABG", kind: "cabg", base: {} },
+  { id: "teer", label: "Mitral clip (TEER)", kind: "valve", base: { position: "Mitral", procedure: "Transcatheter edge-to-edge repair (TEER)", deviceModel: "MitraClip" } },
+  { id: "tavi", label: "TAVI", kind: "valve", base: { position: "Aortic", procedure: "TAVI" } },
+  { id: "valve-surgery", label: "Valve surgery", kind: "valve", base: { procedure: "Surgical replacement", prosthesis: "Mechanical", position: "Mitral" } },
+  { id: "laao", label: "Watchman / LAA closure", kind: "laao", base: { device: "WATCHMAN (earlier generation)" } },
+  { id: "icd", label: "ICD", kind: "device", base: { type: "ICD (transvenous)" } },
+  { id: "crt", label: "CRT", kind: "device", base: { type: "CRT-D" } },
+  { id: "ppm", label: "Pacemaker", kind: "device", base: { type: "Pacemaker (dual chamber)" } },
+  { id: "ablation", label: "Ablation", kind: "ablation", base: { targets: ["AF (pulmonary vein isolation)"] } },
+];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const chips = (opts: string[], value: string | string[] | undefined, multi: boolean, set: (v: any) => void, label: string) => (
+  <div className="past-chips" role="group" aria-label={label}>
+    {opts.map((o) => {
+      const on = multi ? ((value as string[] | undefined) ?? []).includes(o) : value === o;
+      return <button key={o} type="button" aria-pressed={on} className={on ? "on" : ""} onClick={() => set(multi ? (on ? ((value as string[]) ?? []).filter((x) => x !== o) : [...((value as string[]) ?? []), o]) : o)}>{o}</button>;
+    })}
+  </div>
+);
+export function pastBody(p: PastProc) {
+  const pre = PAST_PRESETS.find((x) => x.id === p.preset)!;
+  const y = Number(p.year), m = p.month ? MONTHS.indexOf(p.month) + 1 : 0;
+  const date = new Date(`${y}-${String(m || 7).padStart(2, "0")}-${m ? 15 : "01"}T09:00:00+03:00`).toISOString();
+  return { kind: pre.kind, date, details: { ...pre.base, ...p.detail, historical: m ? "month" : "year" } };
+}
+export function PastProcedures({ rows, setRows, recorded, thisYear }: { rows: PastProc[]; setRows(r: PastProc[]): void; recorded: string[]; thisYear: number }) {
+  const upd = (key: string, patch: Partial<PastProc>) => setRows(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const det = (r: PastProc, k: string, v: any) => upd(r.key, { detail: { ...r.detail, [k]: v } });
+  return (
+    <section className="hx-section">
+      <div className="hx-section-head">
+        <h3>Past procedures & devices</h3>
+        <p>Tap what the patient had, then the year (and month if known). One detail is enough; the record keeps it as past history.</p>
+      </div>
+      {recorded.length > 0 && <p className="small muted">Already in the record: {recorded.join(" · ")}</p>}
+      <div className="past-chips add" role="group" aria-label="Add a past procedure">
+        {PAST_PRESETS.map((p) => <button key={p.id} type="button" onClick={() => setRows([...rows, { key: `${p.id}-${Date.now()}`, preset: p.id, year: "", month: "", detail: {} }])}>+ {p.label}</button>)}
+      </div>
+      {rows.map((r) => {
+        const pre = PAST_PRESETS.find((x) => x.id === r.preset)!;
+        const d = { ...pre.base, ...r.detail };
+        const yOk = /^\d{4}$/.test(r.year) && Number(r.year) >= 1960 && Number(r.year) <= thisYear;
+        return (
+          <div key={r.key} className="past-row">
+            <div className="past-head">
+              <b>{pre.label}</b>
+              <label className="past-year"><span>Year</span><input className={`input num${r.year && !yOk ? " bad" : ""}`} inputMode="numeric" value={r.year} onChange={(e) => upd(r.key, { year: e.target.value.replace(/\D/g, "").slice(0, 4) })} aria-label={`${pre.label} year`} placeholder="YYYY" /></label>
+              <label className="past-month"><span>Month</span><select className="input" value={r.month} onChange={(e) => upd(r.key, { month: e.target.value })} aria-label={`${pre.label} month`}><option value="">—</option>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></label>
+              <button type="button" className="icon-btn" aria-label={`Remove ${pre.label}`} onClick={() => setRows(rows.filter((x) => x.key !== r.key))}><X size={16} /></button>
+            </div>
+            {r.preset === "pci" && <>{chips(["LAD", "LCx", "RCA", "Left main", "Graft"], d.vessels, true, (v) => det(r, "vessels", v), "Vessels")}{chips(["Primary PCI (STEMI)", "NSTE-ACS", "Elective"], d.settingLabel, false, (v) => upd(r.key, { detail: { ...r.detail, settingLabel: v, setting: v === "Elective" ? "elective" : v === "NSTE-ACS" ? "nste-acs" : "stemi" } }), "Setting")}</>}
+            {r.preset === "teer" && <>{chips(["Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["MitraClip", "PASCAL", "TriClip"], d.deviceModel, false, (v) => det(r, "deviceModel", v), "Device")}</>}
+            {r.preset === "valve-surgery" && <>{chips(["Aortic", "Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["Mechanical", "Bioprosthetic", "Repair"], d.procedure === "Surgical repair" ? "Repair" : d.prosthesis, false, (v) => upd(r.key, { detail: { ...r.detail, ...(v === "Repair" ? { procedure: "Surgical repair", prosthesis: null } : { procedure: "Surgical replacement", prosthesis: v }) } }), "Type")}</>}
+            {r.preset === "laao" && chips(["WATCHMAN (earlier generation)", "WATCHMAN FLX", "WATCHMAN FLX Pro", "Amplatzer Amulet", "Surgical clip"], d.device, false, (v) => det(r, "device", v), "Device")}
+            {r.preset === "icd" && chips(["ICD (transvenous)", "Subcutaneous ICD"], d.type, false, (v) => det(r, "type", v), "Device")}
+            {r.preset === "crt" && chips(["CRT-D", "CRT-P"], d.type, false, (v) => det(r, "type", v), "Device")}
+            {r.preset === "ppm" && chips(["Pacemaker (single chamber)", "Pacemaker (dual chamber)", "Leadless pacemaker"], d.type, false, (v) => det(r, "type", v), "Device")}
+            {r.preset === "ablation" && chips(["AF (pulmonary vein isolation)", "Atrial flutter (CTI)", "AVNRT", "Accessory pathway", "VT", "AV node (pace and ablate)"], d.targets, true, (v) => det(r, "targets", v), "Ablation")}
+          </div>
+        );
+      })}
+    </section>
   );
 }

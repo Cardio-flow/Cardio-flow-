@@ -14,13 +14,14 @@ import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
 import { hfDoseProgress } from "../engine/medication-progress.js";
 import { ageOn, bmi, daysBetween, fmtDay, localDay, planStatusView } from "../../shared/clinical.js";
+import { historicalLabel } from "../../shared/procedures.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
 import { WIZARDS } from "../../shared/wizards.js";
 import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
 
-const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Arrhythmia", "Device", "Comorbidity"];
+const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Congenital", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 
 // Suggestions that propose a drug of the same class (an SGLT2 inhibitor from the HF rule and from
@@ -108,6 +109,8 @@ export function header(s: PatientState) {
     riskFactors: { ...riskRow(s), other: otherConditions(s) },
     // coronary disease as one line with its history (14 Oct 2026, Ahmed: "IHD post PCI" with numbers and dates)
     ihd: ihdSummary(s),
+    // valve interventions, LAA closure, devices and ablations with their year (19 Oct 2026)
+    structural: structuralSummary(s),
     // diagnosis tags (cad, ascvd, ckd, dm…): the overview groups its problems by them
     tags: [...s.tags],
     deceased: s.deceased,
@@ -117,6 +120,8 @@ export function header(s: PatientState) {
 }
 
 const MON = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "Asia/Kuwait" });
+// a procedure's date as precise as it was recorded (past history may give only the year)
+const WHEN = (p: { performed_at: string; attributes?: Record<string, any> }) => (p.attributes?.historical === "year" ? new Date(p.performed_at).toLocaleDateString("en-GB", { year: "numeric", timeZone: "Asia/Kuwait" }) : MON(p.performed_at));
 const CORONARY = new Set(["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi", "acs-ua", "ischaemic-cmp", "inoca"]);
 // "IHD — CCS · NSTEMI Mar 2023 · PCI ×3 (last Dec 2025) · CABG 2019" and the dated events behind it
 export function ihdSummary(s: PatientState) {
@@ -131,9 +136,9 @@ export function ihdSummary(s: PatientState) {
   for (const p of pcis) {
     const a = p.attributes ?? {};
     const bits = [(a.vessels ?? []).join("/"), a.stents ? (() => { const d = String((a.devices ?? [])[0] ?? "stent").replace("Drug-eluting stent", "DES").replace("Drug-coated balloon", "DCB").replace("Bare-metal stent", "BMS"); return `${a.stents} ${d}${a.stents > 1 && !/^(DES|DCB|BMS)$/.test(d) ? "s" : ""}`; })() : (a.devices ?? []).join(", "), a.setting && a.setting !== "elective" ? String(a.setting).toUpperCase() : "", ...(a.complex ?? []).filter((x: string) => !/stents/.test(x))].filter(Boolean);
-    events.push({ at: p.performed_at, text: `PCI ${MON(p.performed_at)}${bits.length ? ` · ${bits.join(" · ")}` : ""}` });
+    events.push({ at: p.performed_at, text: `PCI ${WHEN(p)}${bits.length ? ` · ${bits.join(" · ")}` : ""}` });
   }
-  for (const p of cabgs) events.push({ at: p.performed_at, text: `CABG ${MON(p.performed_at)}${p.attributes?.grafts ? ` · ${p.attributes.grafts} grafts` : ""}` });
+  for (const p of cabgs) events.push({ at: p.performed_at, text: `CABG ${WHEN(p)}${p.attributes?.grafts ? ` · ${p.attributes.grafts} grafts` : ""}` });
   const priorCabg = conds.find((c) => c.code === "prior-cabg");
   if (priorCabg && !cabgs.length) events.push({ at: priorCabg.onset ?? null, text: `CABG${when(priorCabg) ? ` ${when(priorCabg)}` : ""}` });
   const priorPci = conds.find((c) => c.code === "prior-pci");
@@ -142,10 +147,23 @@ export function ihdSummary(s: PatientState) {
   const parts = [
     conds.some((c) => c.code === "cad-ccs") ? "chronic coronary syndrome" : null,
     conds.some((c) => c.code === "prior-mi" || c.code.startsWith("acs-")) ? "MI" : null,
-    pcis.length ? `post-PCI${pcis.length > 1 ? ` ×${pcis.length}` : ""} (last ${MON(pcis[pcis.length - 1].performed_at)})` : priorPci ? "post-PCI" : null,
-    cabgs.length ? `post-CABG ${MON(cabgs[cabgs.length - 1].performed_at)}` : priorCabg ? "post-CABG" : null,
+    pcis.length ? `post-PCI${pcis.length > 1 ? ` ×${pcis.length}` : ""} (last ${WHEN(pcis[pcis.length - 1])})` : priorPci ? "post-PCI" : null,
+    cabgs.length ? `post-CABG ${WHEN(cabgs[cabgs.length - 1])}` : priorCabg ? "post-CABG" : null,
   ].filter(Boolean);
   return { label: `IHD${parts.length ? ` · ${parts.join(" · ")}` : ""}`, events, codes: conds.map((c) => c.code), ids: conds.map((c) => c.logical_id) };
+}
+
+// structural interventions and devices as one line: "Mitral TEER (clip) 2021 · Watchman LAA occluder 2019 · ICD 2017"
+export function structuralSummary(s: PatientState) {
+  const items: { at: string | null; label: string; covers: string[] }[] = [];
+  const procs = s.procedures.filter((p) => ["valve", "laao", "device", "ablation"].includes(p.kind) && p.attributes?.result !== "Aborted / not implanted" && p.attributes?.result !== "Aborted / no implant" && !(p.kind === "device" && ["Extraction", "Lead revision"].includes(p.attributes?.action)));
+  for (const p of procs) items.push({ at: p.performed_at, label: `${historicalLabel(p.kind, p.attributes ?? {})} ${WHEN(p)}`, covers: p.kind === "valve" ? ["prosthetic-valve"] : p.kind === "device" ? ["cied"] : [] });
+  // listed on the problem list without a recorded procedure
+  if (!procs.some((p) => p.kind === "device")) for (const c of s.conditions.filter((c) => c.status === "active" && c.code === "cied")) items.push({ at: c.onset, label: `${c.attributes?.type ?? "Cardiac device"}${c.onset ? ` ${new Date(c.onset).getFullYear()}` : ""}`, covers: ["cied"] });
+  for (const c of s.conditions.filter((c) => c.status === "active" && c.code === "prosthetic-valve" && !procs.some((p) => p.kind === "valve" && p.attributes?.position === c.attributes?.position)))
+    items.push({ at: c.onset, label: `${conditionLabel(c)}${c.onset ? ` ${new Date(c.onset).getFullYear()}` : ""}`, covers: ["prosthetic-valve"] });
+  items.sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
+  return items.length ? { label: items.map((i) => i.label).join(" · "), items: items.map((i) => i.label), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
 }
 
 // non-cardiac conditions with a brief history: onset, detail and the treatment for it

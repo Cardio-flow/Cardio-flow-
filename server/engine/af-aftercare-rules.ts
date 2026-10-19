@@ -9,7 +9,8 @@ const closureOf = (s: PatientState) =>
     .reverse()
     .find(
       (p) =>
-        p.kind === "laao" && p.attributes.result === "Implanted / completed",
+        // a closure entered as past history (year only) has its early imaging/regimen phase behind it
+        p.kind === "laao" && p.attributes.result === "Implanted / completed" && !p.attributes.historical,
     );
 const imageOf = (s: PatientState, at: string) =>
   [...s.studies]

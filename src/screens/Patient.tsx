@@ -114,6 +114,7 @@ const TABS = [
   ["registries", "Registries"],
 ] as const;
 
+const LEAD_FAMILIES = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const { data: s, error, reload } = useData<any>(`/patients/${id}/summary`);
   const [open, setOpen] = useState<Open | null>(null);
@@ -193,7 +194,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const dxOnly = h.diagnoses.filter((d: any) => !d.riskFactor);
   // header line: cardiac diagnoses only — coronary disease as one IHD line with its history, non-cardiac
   // conditions on the risk-factor line (14 Oct 2026, Ahmed)
-  const headDx = dxOnly.filter((d: any) => d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)));
+  const headDx = dxOnly.filter((d: any) => d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)) && !(h.structural && h.structural.covers.includes(d.code)));
   const ctx = h.openContext;
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (
@@ -348,25 +349,20 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           <div className="patient-line diagnosis-line" aria-label="Diagnoses">
             <span className="line-label">Diagnoses</span>
             <div className="line-scroll">
-              {h.ihd && (
-                <span>
-                  <button className="line-text" title={h.ihd.events.map((e: any) => e.text).join("\n")} onClick={() => setOpen({ kind: "dx-manage" })}>
-                    {h.ihd.label}
-                  </button>
-                </span>
-              )}
-              {headDx.map((d: any, i: number) => (
-                <span key={d.id}>
-                  {(i > 0 || h.ihd) && <span className="line-dot"> · </span>}
-                  <button
-                    className="line-text"
-                    onClick={() => setOpen({ kind: "dx-edit", dx: d })}
-                  >
-                    {d.label.replace(" · EF", " EF")}
-                  </button>
+              {/* heart failure / cardiomyopathy / PH first, then IHD with its history, then valve interventions,
+                  LAA closure and devices, then the remaining cardiac diagnoses (19 Oct 2026) */}
+              {[
+                ...headDx.filter((d: any) => LEAD_FAMILIES.includes(d.family)).map((d: any) => ({ key: d.id, text: d.label.replace(" · EF", " EF"), title: undefined as string | undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) })),
+                ...(h.ihd ? [{ key: "ihd", text: h.ihd.label, title: h.ihd.events.map((e: any) => e.text).join("\n"), click: () => setOpen({ kind: "dx-manage" }) }] : []),
+                ...(h.structural?.items ?? []).map((t: string, i: number) => ({ key: `st${i}`, text: t, title: undefined, click: () => setOpen({ kind: "dx-manage" }) })),
+                ...headDx.filter((d: any) => !LEAD_FAMILIES.includes(d.family)).map((d: any) => ({ key: d.id, text: d.label.replace(" · EF", " EF"), title: undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) })),
+              ].map((x, i) => (
+                <span key={x.key}>
+                  {i > 0 && <span className="line-dot"> · </span>}
+                  <button className="line-text" title={x.title} onClick={x.click}>{x.text}</button>
                 </span>
               ))}
-              {!headDx.length && !h.ihd && <span className="muted">Add diagnosis</span>}
+              {!headDx.length && !h.ihd && !h.structural && <span className="muted">Add diagnosis</span>}
             </div>
             <button
               className="record-icon"

@@ -110,8 +110,49 @@ const someOf = <T extends readonly string[]>(list: T, v: unknown, what: string) 
   return [...new Set(v as string[])];
 };
 
+// Past procedures from the history (19 Oct 2026, Ahmed: "add mitral clipping, Watchman devices to the history"):
+// what a referral letter says — the kind, the year (or month) and the one detail it gives (vessel, device,
+// valve). Recorded in the same procedure table, marked `historical` with the date precision, so the long-term
+// facts (a closed appendage, a clip, an ICD, stents) count while early after-procedure checks do not start.
+export const HISTORICAL_KINDS = ["pci", "cabg", "valve", "laao", "device", "ablation"] as const;
+export const DATE_PRECISION = ["year", "month", "day"] as const;
+function cleanHistorical(kind: ProcedureKind, a: Record<string, unknown>): Record<string, unknown> {
+  if (kind === "pci") {
+    const devices = someOf(PCI_DEVICES, a.devices, "Devices");
+    const stents = a.stents == null || a.stents === "" ? null : Number(a.stents);
+    if (stents != null && (!Number.isInteger(stents) || stents < 0 || stents > 12)) throw new Error("Number of stents: 0–12");
+    return { setting: oneOf(PCI_SETTINGS.map((s) => s.value), a.setting, "Setting"), vessels: someOf(PCI_VESSELS, a.vessels, "Vessels"), devices, device: devices[0] ?? null, stents, dcb: null, complex: someOf(COMPLEX_FEATURES, a.complex, "Complex PCI"), complications: someOf(PCI_COMPLICATIONS, a.complications, "Complications"), access: null };
+  }
+  if (kind === "cabg") return { grafts: someOf(CABG_GRAFTS, a.grafts, "Grafts"), count: null, setting: oneOf(["acs", "elective"] as const, a.setting, "Setting") ?? "elective" };
+  if (kind === "device") {
+    const type = oneOf(DEVICE_TYPES, a.type, "Device");
+    if (!type) throw new Error("Choose the device");
+    return { type, action: "New implant", indication: oneOf(DEVICE_INDICATIONS, a.indication, "Indication"), pacing: null, remote: null };
+  }
+  if (kind === "laao") {
+    const device = oneOf(LAA_DEVICES, a.device, "Closure device") ?? "Other transcatheter device";
+    return { method: device.startsWith("Surgical") ? "Surgical exclusion" : "Transcatheter occlusion", device, result: "Implanted / completed", regimen: oneOf(LAA_REGIMENS, a.regimen, "Antithrombotic regimen") ?? "Not documented", reviewDate: null };
+  }
+  if (kind === "valve") {
+    const position = oneOf(VALVE_POSITIONS, a.position, "Valve");
+    const procedure = oneOf(VALVE_PROCEDURES, a.procedure, "Procedure");
+    if (!position || !procedure) throw new Error("Choose the valve and the procedure");
+    if (procedure === "TAVI" && position !== "Aortic") throw new Error("TAVI is an aortic procedure");
+    if (procedure === "Transcatheter edge-to-edge repair (TEER)" && !["Mitral", "Tricuspid"].includes(position)) throw new Error("TEER requires a mitral or tricuspid valve");
+    const prosthesis = procedure === "Surgical replacement" ? oneOf(VALVE_PROSTHESES, a.prosthesis, "Prosthesis") : null;
+    if (procedure === "Surgical replacement" && !prosthesis) throw new Error("Mechanical or bioprosthetic?");
+    return { position, procedure, prosthesis, design: prosthesis === "Mechanical" ? "Unknown" : null, access: null, result: "Completed", deviceModel: a.deviceModel == null ? null : String(a.deviceModel).trim().slice(0, 80), deviceSize: null, implantCount: null, residualGrade: null, meanGradient: null, complications: [] };
+  }
+  if (kind === "ablation") return { targets: someOf(ABLATION_TARGETS, a.targets, "Target"), energy: null, result: "Acute success" };
+  throw new Error("This procedure is recorded with its full details, not as past history");
+}
+
 // Validate and clean a procedure's details.
 export function cleanProcedure(kind: ProcedureKind, a: Record<string, unknown>) {
+  if (a.historical != null && a.historical !== "") {
+    const precision = oneOf(DATE_PRECISION, a.historical, "Date precision");
+    return { ...cleanHistorical(kind, a), historical: precision };
+  }
   if (kind === "rdn") {
     const device=oneOf(RDN_DEVICES,a.device,"Device"), result=oneOf(RDN_RESULTS,a.result,"Result"), arteries=oneOf(["Bilateral","Left only","Right only","No treatment"] as const,a.arteries,"Arteries");
     if (!device || !result || !arteries) throw new Error("Device, result and treated arteries are required");
@@ -236,6 +277,7 @@ export const isComplexPci = (p: { kind: string; attributes: Record<string, any> 
 
 // One line for lists, the journey and notes.
 export function procedureSummary(kind: string, a: Record<string, any>) {
+  if (a.historical) return `${historicalLabel(kind, a)} (past history)`;
   if (kind === "rdn") return [a.device,a.result,a.arteries,(a.complications ?? []).join(", ")].filter(Boolean).join(" · ");
   if (kind === "pci") {
     const setting = PCI_SETTINGS.find((s) => s.value === a.setting)?.label ?? "";
@@ -275,4 +317,15 @@ export function checklistForPlan(title: string, category: string): CheckKind | n
   if (/pericardiocentesis/i.test(title)) return "pericardiocentesis";
   if (/pacemaker implant|ICD implant|CRT implant|device implant/i.test(title)) return "device";
   return null;
+}
+
+// "Watchman 2019", "Mitral TEER (MitraClip) 2021", "ICD 2017": a past or recorded procedure as one short label
+export function historicalLabel(kind: string, a: Record<string, any>) {
+  if (kind === "laao") return a.method === "Surgical exclusion" ? "Surgical LAA exclusion" : /WATCHMAN/i.test(String(a.device)) ? "Watchman LAA occluder" : /Amulet/.test(String(a.device)) ? "Amulet LAA occluder" : "LAA closure";
+  if (kind === "valve") return a.procedure === "Transcatheter edge-to-edge repair (TEER)" ? `${a.position} TEER${a.deviceModel ? ` (${a.deviceModel})` : a.position === "Mitral" ? " (clip)" : ""}` : a.procedure === "TAVI" ? "TAVI" : a.procedure === "Surgical replacement" ? `${a.position} valve replacement (${String(a.prosthesis ?? "").toLowerCase()})` : `${a.position} ${String(a.procedure).toLowerCase()}`;
+  if (kind === "device") return String(a.type).replace(" (transvenous)", "").replace(/^Pacemaker \((single|dual) chamber\)/, "Pacemaker");
+  if (kind === "ablation") return `Ablation${(a.targets ?? []).length ? ` (${(a.targets ?? []).join(", ")})` : ""}`;
+  if (kind === "pci") return `PCI${(a.vessels ?? []).length ? ` ${(a.vessels ?? []).join("/")}` : ""}`;
+  if (kind === "cabg") return "CABG";
+  return kind;
 }

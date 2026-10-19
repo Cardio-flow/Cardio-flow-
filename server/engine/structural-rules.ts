@@ -133,7 +133,8 @@ export const STRUCTURAL_RULES: RuleDef[] = [
             p.attributes.result !== "Aborted / no implant" &&
             structuralTarget(p.attributes),
         );
-      if (!actual) return [];
+      // an intervention entered as past history: the post-procedure phase is behind it
+      if (!actual || actual.attributes.historical) return [];
       const review = s.procedureReviews?.["after-structural"];
       const echo = [...s.studies].reverse().find((st) => st.kind === "echo");
       const a = review?.answers;

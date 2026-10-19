@@ -179,6 +179,11 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   hfpef: HF_FIELDS,
   hfimpef: HF_FIELDS,
   cied: [{ key: "type", label: "Device", options: ["Pacemaker", "ICD", "CRT-P", "CRT-D", "Loop recorder"] }],
+  asd: [
+    { key: "type", label: "Type", options: ["Secundum ASD", "Primum ASD", "Sinus venosus defect", "Coronary sinus defect", "PFO", "Not specified"], text: (v) => (v === "Not specified" ? null : v) },
+    { key: "shunt", label: "Shunt", options: ["Left-to-right", "Right-to-left", "Bidirectional", "Not reported"], text: (v) => (v === "Not reported" ? null : `${v.toLowerCase()} shunt`) },
+    { key: "closure", label: "Closure", options: ["Not closed", "Device closure", "Surgical closure"], text: (v) => (v === "Not closed" ? null : v.toLowerCase()) },
+  ],
   af: [{ key: "pattern", label: "Pattern", options: ["First diagnosed", "Paroxysmal", "Persistent", "Permanent", "Unknown"] }],
   "av-block": [{ key: "degree", label: "Degree", options: ["First-degree", "Mobitz I", "Mobitz II", "Complete"] }],
   "stroke-tia": [{ key: "type", label: "Type", options: ["Ischaemic stroke", "Haemorrhagic stroke", "TIA", "Unknown"] }],

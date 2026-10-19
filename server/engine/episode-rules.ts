@@ -15,6 +15,7 @@ import { localDay } from "../../shared/clinical.js";
 
 // echo findings and grades that point at a prosthesis problem (valve module, slice 5): the
 // echocardiographer's own words and grades, on a position treated before that echo
+export const ENDOCARDITIS_FINDINGS = ["Mass on device lead", "Valve vegetation / mass"];
 export const PROSTHESIS_FINDINGS = ["Prosthetic valve thrombus", "Prosthetic valve dysfunction", "Paravalvular leak"];
 const POSITION_GRADES: Record<string, [string, string][]> = { Aortic: [["as", "stenosis"], ["ar", "regurgitation"]], Mitral: [["ms", "stenosis"], ["mr", "regurgitation"]], Tricuspid: [["tr", "regurgitation"]] };
 export function prosthesisEchoProblem(s: PatientState) {
@@ -111,12 +112,24 @@ export const EPISODE_RULES: RuleDef[] = [
     id: "event.endocarditis",
     kind: "clinical",
     title: "Endocarditis recorded → endocarditis pathway",
-    inputs: ["contexts", "meds", "episodes"],
+    inputs: ["contexts", "meds", "episodes", "studies"],
     defaultParams: {},
     evidence: "2023 ESC endocarditis guidelines: blood cultures, TTE/TOE and further imaging, Endocarditis Team, surgical indications and timing.",
     evaluate(s) {
-      const t = trigger(s, "endocarditis", /endocarditis/i, /endocarditis/i);
-      return t ? [offer("endocarditis", t, "Blood cultures, imaging, Duke-ISCVID, Endocarditis Team and surgical indications, antibiotic monitoring.")] : [];
+      const found: Trigger[] = [];
+      const c = trigger(s, "endocarditis", /endocarditis/i, /endocarditis/i);
+      if (c) found.push(c);
+      // the echocardiographer's own finding: a mass on a lead or a valve (19 Oct 2026)
+      const e = latestStudy(s, "echo");
+      const mass = e?.findings.filter((f) => ENDOCARDITIS_FINDINGS.includes(f)) ?? [];
+      if (e && mass.length && !handled(s, "endocarditis", e.performed_at))
+        found.push({ at: e.performed_at, label: `Echo ${fmtDay(e.performed_at)}: ${mass.join(", ").toLowerCase().replace(/^./, (x) => x.toUpperCase())}`, ref: e.id });
+      const t = found.sort((x, y) => y.at.localeCompare(x.at))[0];
+      if (!t) return [];
+      const lead = t.ref === e?.id && mass.includes("Mass on device lead");
+      return [offer("endocarditis", t, lead
+        ? "Mass on a device lead: exclude CIED-related endocarditis — three sets of blood cultures and TOE (ESC 2023); Duke-ISCVID and the Endocarditis Team decide."
+        : "Blood cultures, imaging, Duke-ISCVID, Endocarditis Team and surgical indications, antibiotic monitoring.")];
     },
   },
   {

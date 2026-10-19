@@ -14,6 +14,7 @@ export const LAA_METHODS = [
   "Surgical exclusion",
 ] as const;
 export const LAA_DEVICES = [
+  "WATCHMAN (earlier generation)",
   "WATCHMAN FLX",
   "WATCHMAN FLX Pro",
   "Amplatzer Amulet",

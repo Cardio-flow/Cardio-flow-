@@ -1950,3 +1950,16 @@ table.data.meds td.med-compact { display: none; }
  .sample-band .linkish { margin-left:auto; }
  .admission-actions .admission-labs, .admission-actions .admission-medicines { grid-column:auto; font-size:13px; }
 }
+/* past procedures in the structured history (19 Oct 2026) */
+.past-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.past-chips button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.past-chips button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+.past-chips.add button { color: var(--blue-ink); border-style: dashed; }
+.past-row { display: grid; gap: 8px; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f6f8fb); }
+.past-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.past-head b { flex: 1 1 calc(100% - 56px); color: var(--navy); align-self: center; }
+.past-year, .past-month { display: grid; gap: 2px; font-size: 12px; font-weight: 600; color: var(--ink-4); }
+.past-head .past-year .input { width: 104px; }
+.past-head .past-month .input { width: 112px; }
+.past-head .icon-btn { order: -1; margin-left: auto; align-self: center; }
+.past-head b { order: -2; }
