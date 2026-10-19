@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { BarChart3, ListChecks, LogOut, Search, ShieldCheck, Users, Bell } from "lucide-react";
+import { BarChart3, ListChecks, LockKeyhole, LogOut, Search, ShieldCheck, Users, Bell } from "lucide-react";
 import { api, setAdminUnlock, setCsrf, setSampleMode, useSampleMode, withSample, type Session } from "./api";
 import { Link, Logo, SessionCtx, ToastHost, initials, navigate, usePath } from "./ui";
 import { SignIn } from "./SignIn";
@@ -111,7 +111,7 @@ function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Sess
         </nav>
         <nav className="nav" aria-label="Administration">
           <div className="nav-label">ADMIN</div>
-          {session.role === "admin" && <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}><Users size={18} />Patient administration</Link>}
+          <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}><LockKeyhole size={18} />Patient administration</Link>
           <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
             <ShieldCheck size={18} />
             Rule governance
@@ -170,6 +170,10 @@ function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Sess
             <ShieldCheck size={20} />
             <span>Rules</span>
           </Link>
+          <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}>
+            <LockKeyhole size={20} />
+            <span>Admin</span>
+          </Link>
           <button onClick={signOut} disabled={loggingOut} aria-label="Sign out">
             <LogOut size={20} />
             <span>Sign out</span>
@@ -179,7 +183,7 @@ function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Sess
         {patientMatch ? (
           <PatientPage key={patientMatch[1]} id={patientMatch[1]} tab={patientMatch[2] ?? "summary"} />
         ) : section === "administration" ? (
-          session.role === "admin" ? <PatientAdmin /> : <main className="page"><h1>Administrator access required</h1></main>
+          session.role === "admin" ? <PatientAdmin /> : <main className="page"><h1>Administrator access required</h1><p>Your account is signed in as {session.role}. Patient administration requires an administrator account and the site PIN.</p><Link className="btn secondary" to="/patients">Back to patients</Link></main>
         ) : section === "patients" ? (
           <Patients hosted={hosted} />
         ) : section === "governance" ? (
