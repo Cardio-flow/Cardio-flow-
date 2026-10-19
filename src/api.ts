@@ -2,6 +2,8 @@ export type Session = { id: string; name: string; role: "clinician" | "reviewer"
 
 let csrf = "";
 export const setCsrf = (token: string) => (csrf = token);
+let adminUnlock = "";
+export const setAdminUnlock = (token: string) => (adminUnlock = token);
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public code?: string, public details?: {contextId?: string}) {
@@ -12,7 +14,7 @@ export class HttpError extends Error {
 export async function api<T = any>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch("/api" + path, {
     method: init.method ?? (init.body ? "POST" : "GET"),
-    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(csrf ? { "x-csrf-token": csrf } : {}) },
+    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(csrf ? { "x-csrf-token": csrf } : {}), ...(path.startsWith("/admin/") && adminUnlock ? { "x-admin-unlock": adminUnlock } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
     credentials: "same-origin",
   });

@@ -6,6 +6,7 @@ import { Sparkline, type Sev } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { MEASURES, formatNumber } from "../../shared/catalog";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
+import { trendPercent } from "../lab-trend";
 import type { Open } from "./Patient";
 
 // the results a cardiologist looks for first, in this order (others follow by date)
@@ -59,15 +60,17 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
             const t = toneOf(r, s), latest = r.latest ?? r.current, tr = r.trend;
             const Dir = tr?.direction === "up" ? ArrowUpRight : tr?.direction === "down" ? ArrowDownRight : Minus;
             const pct = tr?.percent;
+            const change = trendPercent(pct);
             return (
-              <button key={r.code} role="listitem" className={`ptile tone-${t}`} onClick={() => go("results", r.code)} aria-label={`${r.display} ${latest.value} ${r.unit}`}>
+              <button key={r.code} role="listitem" className={`ptile tone-${t}`} onClick={() => go("results", r.code)} aria-label={`${r.display} ${latest.value} ${r.unit}${change ? `, ${change} from previous ${tr.previous.value} ${r.unit}` : tr?.note ? `, ${tr.note}` : ""}`}>
                 <span className="ptile-name">{MEASURES[r.code]?.short ?? r.display}</span>
                 <span className="ptile-val">{latest.value == null ? "—" : formatNumber(latest.value, r.decimals)}<small>{r.unit}</small></span>
                 <Sparkline values={(r.displaySeries ?? r.series).map((p: any) => p.value)} tone={t} width={84} height={22} />
                 <span className="ptile-foot">
-                  {pct != null ? <b><Dir size={12} aria-hidden="true" />{`${pct > 0 ? "+" : ""}${formatNumber(pct, 0)}%`}</b> : <b className="muted">first</b>}
+                  {change ? <b><Dir size={12} aria-hidden="true" />{change}</b> : <b className="muted">{tr?.note === "Awaiting verification" ? "Pending" : tr?.delta != null ? `${tr.delta > 0 ? "+" : ""}${formatNumber(tr.delta, r.decimals)} ${r.unit}` : "No prior"}</b>}
                   <time>{fmtDay(latest.at)}</time>
                 </span>
+                {tr?.previous && <span className="ptile-previous">Previous {formatNumber(tr.previous.value, r.decimals)} · {fmtDay(tr.previous.at)}</span>}
               </button>
             );
           })}

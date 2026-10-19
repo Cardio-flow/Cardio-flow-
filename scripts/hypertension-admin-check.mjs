@@ -310,6 +310,15 @@ try {
   await page
     .getByRole("link", { name: "Manage patients", exact: true })
     .click();
+  if (await page.getByRole("heading", { name: "Set administration PIN" }).isVisible()) {
+    await page.getByLabel("PIN", { exact: true }).fill("739204");
+    await page.getByLabel("Confirm PIN", { exact: true }).fill("739204");
+    await page.getByRole("button", { name: "Set PIN", exact: true }).click();
+  }
+  await page.getByRole("heading", { name: "Unlock administration" }).waitFor();
+  await page.getByLabel("PIN", { exact: true }).fill("739204");
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await page.getByRole("group", { name: "Patient group" }).getByRole("button", { name: "Real" }).click();
   await page
     .getByRole("textbox", { name: "Find patient to manage" })
     .fill(fixtureName);

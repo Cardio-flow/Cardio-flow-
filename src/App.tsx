@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BarChart3, ListChecks, LogOut, Search, ShieldCheck, Users, Bell } from "lucide-react";
-import { api, setCsrf, setSampleMode, useSampleMode, withSample, type Session } from "./api";
+import { api, setAdminUnlock, setCsrf, setSampleMode, useSampleMode, withSample, type Session } from "./api";
 import { Link, Logo, SessionCtx, ToastHost, initials, navigate, usePath } from "./ui";
 import { SignIn } from "./SignIn";
 import { Worklist } from "./screens/Worklist";
@@ -44,6 +44,7 @@ export function App() {
         <Shell session={session} site={site} refreshSite={refreshSite} onLogout={async () => {
           await api("/logout", { body: {} });
           setCsrf("");
+          setAdminUnlock("");
           setSampleMode(false);
           setSite(null);
           setSession(null);

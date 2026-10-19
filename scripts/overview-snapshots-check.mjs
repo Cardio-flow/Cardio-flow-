@@ -138,6 +138,8 @@ try {
     dispatchEvent(new PopStateEvent("popstate"));
   }, id);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  await expect(page.locator(".ptile").filter({ hasText: "Cr" }).first()).toContainText("+25.0%");
+  await expect(page.locator(".ptile").filter({ hasText: "Cr" }).first()).toContainText("Previous 100");
   // phones: the overview shows one section at a time (Decide / Medicines / Results / Plan)
   const section = async (name) => { const t = page.getByRole("tab", { name: new RegExp(`^${name}`) }); if (await t.count()) await t.click(); };
   await section("Results");
@@ -222,6 +224,10 @@ try {
     path: `${out}/05-desktop-overview.png`,
     fullPage: true,
   });
+  await page.getByRole("link", { name: "Investigations", exact: true }).click();
+  const creatinineRow = page.locator("table.data tr").filter({ has: page.getByRole("cell", { name: "Creatinine", exact: true }) });
+  await expect(creatinineRow).toContainText("+25.0%");
+  await expect(creatinineRow).toContainText("100");
   assert.deepEqual(errors, []);
   console.log(
     "Overview snapshots passed: latest + trends, zero/first result, HF daily-dose reference, held/stopped history, phone/desktop widths, reduced motion.",
