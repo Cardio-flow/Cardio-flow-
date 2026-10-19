@@ -501,7 +501,7 @@ export function InvestigationsTab({
               {data.results.map((r: any) => {
                 const def = MEASURES[r.code];
                 const latest = r.latest ?? r.current;
-                const flag = flagFor(
+                const flag = latest.value == null ? null : flagFor(
                   latest.value,
                   latest.referenceHigh != null
                     ? { high: latest.referenceHigh }
@@ -531,7 +531,7 @@ export function InvestigationsTab({
                                 : undefined,
                         }}
                       >
-                        {formatNumber(latest.value, r.decimals)}
+                        {latest.value == null ? "—" : formatNumber(latest.value, r.decimals)}
                       </b>{" "}
                       <span className="muted small">{r.unit}</span>{" "}
                       {flag && (
@@ -540,7 +540,7 @@ export function InvestigationsTab({
                         </Tag>
                       )}
                       {latest.status === "preliminary" && <Tag sev="orange">Preliminary</Tag>}
-                      {r.current.id !== latest.id && <div className="small muted">Clinical value: {formatNumber(r.current.value, r.decimals)} {r.unit}</div>}
+                      {r.current.id !== latest.id && <div className="small muted">Clinical value: {r.current.value == null ? "—" : formatNumber(r.current.value, r.decimals)} {r.unit}</div>}
                     </td>
                     <td data-label="Date">
                       {fmtDay(latest.at, { year: true })}
