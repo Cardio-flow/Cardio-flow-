@@ -41,7 +41,7 @@ export function App() {
   return (
     <SessionCtx.Provider value={{ name: session.name, role: session.role, siteMode: site?.mode ?? "sandbox" }}>
       <ToastHost>
-        <Shell session={session} site={site} refreshSite={refreshSite} onLogout={async () => {
+        <Shell session={session} site={site} hosted={config.hosted} refreshSite={refreshSite} onLogout={async () => {
           await api("/logout", { body: {} });
           setCsrf("");
           setAdminUnlock("");
@@ -55,7 +55,7 @@ export function App() {
   );
 }
 
-function Shell({ session, site, refreshSite, onLogout }: { session: Session; site: Site | null; refreshSite(): void; onLogout(): Promise<void> }) {
+function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Session; site: Site | null; hosted: boolean; refreshSite(): void; onLogout(): Promise<void> }) {
   const [logoutError, setLogoutError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const signOut = async () => {
@@ -84,6 +84,9 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
   const samples = site?.patients?.sample ?? 0;
   const section = path.startsWith("/administration") ? "administration" : path.startsWith("/patients") ? "patients" : path.startsWith("/governance") ? "governance" : path.startsWith("/registries") ? "registries" : "worklist";
   const patientMatch = path.match(/^\/patients\/([0-9a-f-]{36})(?:\/(\w+))?/);
+  useEffect(() => {
+    if (hosted && !patientMatch && sample) setSampleMode(false);
+  }, [hosted, path, sample, patientMatch?.[1]]);
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -130,7 +133,7 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
         <header className="topbar">
           <PatientSearch />
           <span className="spacer" />
-          {(samples > 0 || sample) && (
+          {!hosted && (samples > 0 || sample) && (
             <div className="sample-switch" role="group" aria-label="Which patients">
               <button aria-pressed={!sample} onClick={() => switchPatients(false)}>Real patients</button>
               <button aria-pressed={sample} onClick={() => switchPatients(true)}>Sample patients</button>
@@ -176,15 +179,15 @@ function Shell({ session, site, refreshSite, onLogout }: { session: Session; sit
         {patientMatch ? (
           <PatientPage key={patientMatch[1]} id={patientMatch[1]} tab={patientMatch[2] ?? "summary"} />
         ) : section === "administration" ? (
-          session.role === "admin" ? <PatientAdmin key={String(sample)} /> : <main className="page"><h1>Administrator access required</h1></main>
+          session.role === "admin" ? <PatientAdmin /> : <main className="page"><h1>Administrator access required</h1></main>
         ) : section === "patients" ? (
-          <Patients />
+          <Patients hosted={hosted} />
         ) : section === "governance" ? (
           <Governance />
         ) : section === "registries" ? (
           <Registries />
         ) : (
-          <Worklist />
+          <Worklist hosted={hosted} />
         )}
         </Suspense>
       </div>

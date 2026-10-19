@@ -134,6 +134,28 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     }
   });
 
+  // Hosted synthetic records belong to PIN-unlocked administration, including direct patient URLs.
+  // The local sandbox keeps its training cases available to demo clinicians.
+  app.use("/api", async (req, res, next) => {
+    if (!hosted) return next();
+    try {
+      const path = req.originalUrl.split("?", 1)[0];
+      const patientId = path.match(/^\/api\/patients\/([0-9a-f-]{36})(?:\/|$)/)?.[1];
+      let sample = req.query.sample === "1" ||
+        ((path === "/api/patients" || path === "/api/patients/import") && req.method === "POST" && req.body?.sample === true) ||
+        (patientId != null && path.endsWith("/move-to-sample"));
+      if (patientId && !sample) {
+        const row = (await db.query<{ synthetic: boolean }>(
+          `SELECT synthetic FROM cf.patient WHERE id=$1 AND site_id=$2 AND removed_at IS NULL`,
+          [patientId, res.locals.session.siteId],
+        )).rows[0];
+        sample = !!row?.synthetic;
+      }
+      if (sample) await requireAdminUnlock(db, res.locals.session, req.get("x-admin-unlock"));
+      next();
+    } catch (e) { next(e); }
+  });
+
   const actor = (res: Response): Actor => res.locals.session;
   const siteMode = async (q: Q, siteId: string) =>
     ((await q.query(`SELECT mode FROM cf.site WHERE id=$1`, [siteId])).rows[0]?.mode ?? "production") as "sandbox" | "production";

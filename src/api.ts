@@ -14,7 +14,7 @@ export class HttpError extends Error {
 export async function api<T = any>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch("/api" + path, {
     method: init.method ?? (init.body ? "POST" : "GET"),
-    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(csrf ? { "x-csrf-token": csrf } : {}), ...(path.startsWith("/admin/") && adminUnlock ? { "x-admin-unlock": adminUnlock } : {}) },
+    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(csrf ? { "x-csrf-token": csrf } : {}), ...(adminUnlock ? { "x-admin-unlock": adminUnlock } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
     credentials: "same-origin",
   });

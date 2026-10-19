@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LockKeyhole, PencilLine, Trash2 } from "lucide-react";
 import { api, setAdminUnlock, useData } from "../api";
 import { IdentityDrawer } from "../drawers/History";
+import { NewPatient } from "../drawers/NewPatient";
 import { Link, useToast } from "../ui";
 
 export function PatientAdmin() {
@@ -18,11 +19,12 @@ export function PatientAdmin() {
     patient: any;
     remove: boolean;
   } | null>(null);
+  const [addingSample, setAddingSample] = useState(false);
   const { data, error, reload } = useData<{ rows: any[]; hasMore: boolean }>(unlocked
     ? `/admin/patients?q=${encodeURIComponent(q)}&offset=${offset}&group=${group}`
     : null);
   const toast = useToast();
-  const lock = () => { setAdminUnlock(""); setUnlocked(false); setEditing(null); setPin(""); };
+  const lock = () => { setAdminUnlock(""); setUnlocked(false); setEditing(null); setAddingSample(false); setPin(""); };
   async function submitPin() {
     if (busy) return;
     setBusy(true);
@@ -73,6 +75,7 @@ export function PatientAdmin() {
       {unlocked && <>
       <div className="row wrap" role="group" aria-label="Patient group" style={{ gap: 8, marginBottom: 12 }}>
         {([ ["all", "All patients"], ["real", "Real"], ["sample", "Synthetic"] ] as const).map(([value, label]) => <button key={value} className={`btn small ${group === value ? "primary" : "secondary"}`} aria-pressed={group === value} onClick={() => { setGroup(value); setOffset(0); }}>{label}</button>)}
+        <button className="btn small secondary" onClick={() => setAddingSample(true)}>+ New synthetic patient</button>
       </div>
       <input
         className="input"
@@ -166,6 +169,7 @@ export function PatientAdmin() {
           onRemoved={done}
         />
       )}
+      {addingSample && <NewPatient sample allowSampleToggle={false} onClose={() => setAddingSample(false)} onCreated={() => { setAddingSample(false); setGroup("sample"); setOffset(0); reload(); toast({ text: "Synthetic patient created" }); }} />}
     </main>
   );
 }
