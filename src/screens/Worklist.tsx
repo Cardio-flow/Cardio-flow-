@@ -5,7 +5,7 @@ import { Link, SevChip, initials, navigate, type Sev } from "../ui";
 import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
 
-type Row = {
+type Row = { lastSeen?: string | null;
   id: string; name: string; mrn: string; age: number; sex: string; where: string; inpatient: boolean; postDischarge: boolean; problem: string;
   alert: { severity: Sev; title: string; draft: boolean } | null; alertCounts: Record<string, number>;
   next: { title: string; dueDate: string; view: string } | null; overdue: number; dueToday: number; awaitingReview: number;
@@ -101,8 +101,13 @@ export function Worklist() {
                     {r.next.view === "overdue" ? `Overdue · ${fmtDay(r.next.dueDate)}` : r.next.view === "due" ? "Today" : fmtDay(r.next.dueDate, { weekday: true })}
                   </span>
                 </>
-              ) : (
+              ) : r.inpatient ? (
                 <span>Nothing planned</span>
+              ) : (
+                <>
+                  <b style={{ color: "var(--orange-ink, #a3500b)" }}>No follow-up booked</b>
+                  <span className="muted small">{r.lastSeen ? `Last seen ${fmtDay(r.lastSeen, { year: true })}` : "No visit recorded"}</span>
+                </>
               )}
             </span>
             <ChevronRight size={18} color="#98A2B3" />

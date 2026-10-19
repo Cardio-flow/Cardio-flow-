@@ -9,6 +9,11 @@ import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION,
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
+const OUTSTANDING: [string, "declined" | "deferred", string][] = [
+  ["Done", "declined", "Already done or managed elsewhere: settled at discharge"],
+  ["Defer to clinic", "deferred", "Not now — review later: deferred to clinic at discharge"],
+  ["Not applicable", "declined", "Not relevant for this patient: settled at discharge"],
+];
 import { VIEW_LABEL, VIEW_SEV } from "../screens/Summary";
 import type { Open } from "../screens/Patient";
 import { triage } from "../../shared/triage";
@@ -204,6 +209,16 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
   const ctx = jr?.contexts.find((c: any) => c.id === contextId);
+  const [settling, setSettling] = useState<string | null>(null);
+  async function settle(a: any, outcome: "declined" | "deferred", reason: string) {
+    setSettling(a.id); setError("");
+    try {
+      await api(`/patients/${patientId}/recommendations/${a.id}/decline`, { body: { outcome, reason, also: (a.also ?? []).map((x: any) => x.id) } });
+      if (outcome === "deferred") setHandover((h) => [h.trim(), `${a.title}: for clinic review`].filter(Boolean).join("\n"));
+      setReview(await api(`/patients/${patientId}/discharge-review`));
+    } catch (e) { setError((e as Error).message); }
+    setSettling(null);
+  }
   async function closeDischarge() {
     if (busy) return;
     try {await flushDraft();}
@@ -292,7 +307,17 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         <>
         <div className="q">
           <div className="label">Outstanding decisions & results</div>
-          {(currentSummary.attention ?? []).filter((a: any) => a.severity === "red" || a.severity === "orange").map((a: any) => <div key={a.id}><SevChip sev={a.severity}>{a.title}</SevChip></div>)}
+          {/* each outstanding item is settled here (19 Oct 2026, audit): done, deferred to clinic, or not applicable */}
+          {(currentSummary.attention ?? []).filter((a: any) => a.severity === "red" || a.severity === "orange").map((a: any) => (
+            <div key={a.id} className="outstanding-row">
+              <SevChip sev={a.severity}>{a.title}</SevChip>
+              <span className="outstanding-acts">
+                {OUTSTANDING.map(([label, outcome, reason]) => (
+                  <button key={label} type="button" className="btn ghost small" disabled={busy || settling === a.id} onClick={() => settle(a, outcome, reason)}>{label}</button>
+                ))}
+              </span>
+            </div>
+          ))}
           {(currentSummary.plan ?? []).filter((p: any) => p.awaitingReview).map((p: any) => <div key={p.id} className="help">Result awaiting review · {p.title}</div>)}
           <label className="field">
             <span>Handover / outstanding issues <em className="muted" style={{ fontStyle: "normal" }}>(optional)</em></span>
@@ -609,6 +634,21 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
               </div>
             </div>
             {needsBpReview && <label className="infobox" style={{display:"flex",gap:10,alignItems:"center"}}><input type="checkbox" aria-label="Both BP values checked" checked={bpPairConfirmed} onChange={e=>setBpPairConfirmed(e.target.checked)} />New BP {vit.sbp}/{vit.dbp} mmHg · both values checked</label>}
+            {/* SBP without DBP or the reverse (19 Oct 2026, audit) */}
+            {!!vit.sbp?.trim() !== !!vit.dbp?.trim() && <div className="infobox warn" role="status">Only one BP value entered: add the other if it was measured.</div>}
+            {/* "same as last visit": one tap copies the last NYHA class and congestion (19 Oct 2026, audit) */}
+            {(() => {
+              const la = (summary as any).lastAssessment ?? {};
+              const lastN = la.nyha, lastC = la.congestion;
+              if (!lastN && !lastC) return null;
+              const same = (!lastN || nyha === lastN.value) && (!lastC || cong === lastC.value);
+              return (
+                <div className="same-last">
+                  <span className="small">Last: {[lastN && `NYHA ${lastN.value}`, lastC && `congestion ${String(lastC.value).toLowerCase()}`].filter(Boolean).join(" · ")} · {fmtDay((lastN ?? lastC).at)}</span>
+                  <button type="button" className="btn secondary small" disabled={same} onClick={() => { if (lastN) setNyha(lastN.value); if (lastC) setCong(lastC.value); }}>Same as last visit</button>
+                </div>
+              );
+            })()}
             <div className="q">
               <div className="label">NYHA class</div>
               <Segmented label="NYHA class" options={FINDINGS.nyha.options.map((o) => ({ value: o, label: o }))} value={nyha} onChange={setNyha} />

@@ -115,6 +115,9 @@ const TABS = [
   ["plan", "Plan & follow-up"],
   ["registries", "Registries"],
 ] as const;
+// phones (19 Oct 2026, audit: eight tabs scrolled sideways): short labels, Journey and Registries under "More"
+const SHORT: Record<string, string> = { summary: "Overview", visits: "Visits", history: "Hx", journey: "Journey", medications: "Meds", investigations: "Tests", plan: "Plan", registries: "Registries" };
+const MORE_TABS = new Set(["journey", "registries"]);
 
 const LEAD_FAMILIES = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
@@ -179,6 +182,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   );
   // phones: the diagnosis and risk lines fold to two lines each; a tap shows everything (19 Oct 2026)
   const [linesOpen, setLinesOpen] = useState(false);
+  const [moreTabs, setMoreTabs] = useState(false);
   const [linesOverflow, setLinesOverflow] = useState(false);
   const linesRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -412,16 +416,20 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           {TABS.map(([key, label]) => (
             <Link
               key={key}
+              className={MORE_TABS.has(key) && !moreTabs && tab !== key ? "tab-more-item" : undefined}
               to={`/patients/${id}${key === "summary" ? "" : "/" + key}`}
               aria-current={tab === key ? "page" : undefined}
+              aria-label={label}
             >
-              {label}
+              <span className="tl-long">{label}</span>
+              <span className="tl-short" aria-hidden="true">{SHORT[key]}</span>
               {/* one number everywhere: the alerts, red when any needs action now (19 Oct audit) */}
               {key === "summary" && s.attention.length > 0 && (
                 <span className={`n${redCount > 0 ? "" : " calm"}`} aria-hidden="true" title={`${s.attention.length} alerts${redCount ? `, ${redCount} to act on now` : ""}`}>{s.attention.length}</span>
               )}
             </Link>
           ))}
+          {!moreTabs && !MORE_TABS.has(tab) && <button type="button" className="tab-more" aria-label="More sections" onClick={() => setMoreTabs(true)}>More</button>}
           <button
             className="tab-action"
             onClick={() => setOpen({ kind: "documents" })}

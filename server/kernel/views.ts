@@ -607,6 +607,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
       const cur = s.resolved(c).current;
       return cur ? { code: c, value: cur.value_num, at: cur.effective_at, contextId:cur.context_id, source:cur.source } : null;
     }).filter(Boolean),
+    // the last recorded NYHA class and congestion: "same as last visit" in the visit assessment (19 Oct 2026)
+    lastAssessment: Object.fromEntries((["nyha", "congestion"] as const).map((c) => { const o = s.resolved(c).current; return [c, o?.value_text ? { value: o.value_text, at: o.effective_at } : null]; })),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)
     targets: targets(s),
@@ -728,7 +730,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
          coalesce(cd.codes, '{}') AS codes,
          tr.severity AS top_severity, tr.title AS top_title, tr.rule_status AS top_status,
          rc.recs,
-         nx.title AS next_title, nx.due_date AS next_due,
+         nx.title AS next_title, nx.due_date AS next_due, ls.last_seen,
          coalesce(pc.overdue,0) overdue, coalesce(pc.due_today,0) due_today, coalesce(pc.review,0) awaiting_review
        FROM cf.patient p
        LEFT JOIN LATERAL (SELECT kind, location, service FROM cf.care_context c WHERE c.patient_id=p.id AND c.removed_at IS NULL AND c.status='open' ORDER BY started_at DESC LIMIT 1) oc ON true
@@ -744,6 +746,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
          SELECT coalesce(json_agg(json_build_object('s', severity, 'a', action) ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'orange' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END), '[]') recs
          FROM cf.recommendation r WHERE r.patient_id=p.id AND r.status='active'
        ) rc ON true
+       LEFT JOIN LATERAL (SELECT max(coalesce(ended_at, started_at)) last_seen FROM cf.care_context c WHERE c.patient_id=p.id AND c.removed_at IS NULL) ls ON true
        LEFT JOIN LATERAL (SELECT title, due_date FROM cf.plan_action a WHERE a.patient_id=p.id AND a.status='planned' AND a.due_date IS NOT NULL ORDER BY due_date LIMIT 1) nx ON true
        LEFT JOIN LATERAL (
          SELECT count(*) FILTER (WHERE status='planned' AND due_date < $2::date) overdue, count(*) FILTER (WHERE status='planned' AND due_date = $2::date) due_today,
@@ -783,6 +786,8 @@ export async function worklist(q: Q, siteId: string, sample = false) {
       alert: r.top_severity ? { severity: r.top_severity, title: r.top_title, draft: r.top_status !== "PUBLISHED" } : null,
       alertCounts: countMerged(typeof r.recs === "string" ? JSON.parse(r.recs) : r.recs ?? []),
       next: r.next_title ? { title: r.next_title, dueDate: nextDue, view: planStatusView("planned", nextDue, today) } : null,
+      // 19 Oct 2026 (audit): when nothing is planned, say so for patients outside hospital, with the last contact
+      lastSeen: r.last_seen ? new Date(r.last_seen).toISOString() : null,
       overdue: Number(r.overdue),
       dueToday: Number(r.due_today),
       awaitingReview: Number(r.awaiting_review),

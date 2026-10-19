@@ -19,7 +19,7 @@ import {
   doseLabel,
   formatNumber,
 } from "../../shared/catalog";
-import { flagFor, fmtDay } from "../../shared/clinical";
+import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
@@ -485,7 +485,7 @@ export function InvestigationsTab({
         {data.results.length === 0 ? (
           <div className="empty">No results yet.</div>
         ) : (
-          <table className="data">
+          <table className="data labs-table">
             <thead>
               <tr>
                 <th>Test</th>
@@ -547,7 +547,7 @@ export function InvestigationsTab({
                         tone={flag ? "orange" : "gray"}
                       />
                     </td>
-                    <td data-label="Previous" className="small muted">
+                    <td data-label="Previous" className="small muted lab-prev">
                       {r.series
                         .slice(0, -1)
                         .reverse()
@@ -581,6 +581,15 @@ export function InvestigationsTab({
   );
 }
 
+const PLAN_GROUPS: [string, string][] = [["review", "Results to review"], ["overdue", "Overdue"], ["today", "Today"], ["week", "Next 7 days"], ["later", "Later"], ["nodate", "No date"], ["closed", "Done and cancelled"]];
+function planGroup(p: any, today: string) {
+  if (p.awaitingReview) return "review";
+  if (p.status !== "planned") return "closed";
+  if (!p.dueDate) return "nodate";
+  if (p.dueDate < today) return "overdue";
+  if (p.dueDate === today) return "today";
+  return p.dueDate <= addDays(today, 7) ? "week" : "later";
+}
 export function PlanTab({
   id,
   version,
@@ -626,8 +635,14 @@ export function PlanTab({
           Show completed and cancelled
         </label>
         {plan.length === 0 && <div className="empty">Nothing open.</div>}
-        <div className="plan-list">
-          {plan.map((p: any) => (
+        {/* grouped by when (19 Oct 2026, audit): to review, overdue, today, this week, later, no date, closed */}
+        {PLAN_GROUPS.map(([key, label]) => {
+          const rows = plan.filter((p: any) => planGroup(p, data.today) === key);
+          return rows.length ? (
+            <div key={key} className={`plan-group g-${key}`}>
+              <h3 className="plan-group-head">{label} <span>{rows.length}</span></h3>
+              <div className="plan-list">
+                {rows.map((p: any) => (
             <div
               key={p.id}
               className={`plan-row ${p.view === "done" ? "done" : ""}`}
@@ -688,8 +703,11 @@ export function PlanTab({
                 )}
               </span>
             </div>
-          ))}
-        </div>
+                ))}
+              </div>
+            </div>
+          ) : null;
+        })}
       </section>
     </main>
   );
@@ -951,6 +969,8 @@ export function RegistriesTab({
 function RegistryCard({ r }: { r: any }) {
   const toast = useToast();
   const [showOnly, setShowOnly] = useState(false);
+  // 19 Oct 2026 (audit: up to 31,000 px on a phone): only the fields still missing, sections folded
+  const [showFilled, setShowFilled] = useState(false);
   const pct = Math.round((r.counts.filled / r.counts.mapped) * 100);
   const file = r.registry
     .toLowerCase()
@@ -1022,14 +1042,19 @@ function RegistryCard({ r }: { r: any }) {
             />{" "}
             Show registry-only fields
           </label>
+          <label className="row small" style={{ gap: 6, fontWeight: 700 }}>
+            <input type="checkbox" checked={showFilled} onChange={(e) => setShowFilled(e.target.checked)} /> Show filled fields
+          </label>
         </div>
       </div>
       {r.sections.map((sec: any) => {
-        const rows = sec.fields.filter((f: any) => f.mapped || showOnly);
-        if (!rows.length) return null;
+        const missing = sec.fields.filter((f: any) => f.mapped && f.value == null).length;
+        const mapped = sec.fields.filter((f: any) => f.mapped).length;
+        const rows = sec.fields.filter((f: any) => (f.mapped ? showFilled || f.value == null : showOnly));
         return (
-          <div key={sec.title} className="reg-sec">
-            <div className="tgt-title">{sec.title}</div>
+          <details key={sec.title} className="reg-sec" open={rows.length > 0 && (showFilled || showOnly) || undefined}>
+            <summary className="tgt-title">{sec.title} <span className="muted small">{mapped - missing} of {mapped} filled{missing ? ` · ${missing} missing` : ""}</span></summary>
+            {rows.length === 0 ? <div className="small muted" style={{ padding: "4px 0 8px" }}>All mapped fields are filled.</div> : (
             <table className="data">
               <thead>
                 <tr>
@@ -1070,7 +1095,8 @@ function RegistryCard({ r }: { r: any }) {
                 ))}
               </tbody>
             </table>
-          </div>
+            )}
+          </details>
         );
       })}
     </section>

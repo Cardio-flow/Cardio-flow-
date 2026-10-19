@@ -71,3 +71,17 @@ test("plan items made during an open admission are the admission plan; the workl
   const row = (await worklist(db as any, SITE_ID)).find((r: any) => r.id === pid)!;
   assert.equal(row.problem, "HFrEF · IHD");
 });
+
+test("summary carries the last NYHA and congestion; the worklist gives the last contact when nothing is booked", async () => {
+  const pid = await patient(["hfref"]);
+  await tx(async (q) => {
+    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "nyha", text: "II" }, { code: "congestion", text: "Mild" }] } as any);
+  });
+  const { summary } = await import("../server/kernel/views.js");
+  const s = (await db.transaction((q) => summary(q, pid))) as any;
+  assert.equal(s.lastAssessment.nyha.value, "II");
+  assert.equal(s.lastAssessment.congestion.value, "Mild");
+  const row = (await worklist(db as any, SITE_ID)).find((r: any) => r.id === pid)! as any;
+  assert.equal(row.next, null);
+  assert.ok("lastSeen" in row);
+});
