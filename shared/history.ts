@@ -125,6 +125,8 @@ const GENETIC: AttrField[] = [
   { key: "gene", label: "Gene (P/LP variant)", options: CMP_GENES, text: (v) => v, when: { key: "genetic", equals: "P/LP variant" } },
 ];
 const CMP_FIELDS: AttrField[] = GENETIC;
+// what complicated or caused an MI, as reported (descriptive, no threshold)
+export const MI_FEATURES = ["Stent thrombosis", "VF / cardiac arrest", "Cardiogenic shock", "Heart failure", "LV thrombus", "Mechanical complication"] as const;
 export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   htn: [{ key: "diagnosisStatus", label: "Hypertension status", options: [...HTN_DIAGNOSIS_STATUS], text: v => v === "Newly diagnosed" ? "New diagnosis" : null }],
   hcm: [
@@ -154,7 +156,12 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   t2dm: DIABETES_FIELDS,
   t1dm: DIABETES_FIELDS,
   "dm-other": DIABETES_FIELDS,
-  "prior-mi": [{ key: "type", label: "Type", options: ["STEMI", "NSTEMI", "Type 2 MI", "Unknown"] }],
+  "prior-mi": [
+    { key: "type", label: "Type", options: ["STEMI", "NSTEMI", "Type 2 MI", "Unknown"] },
+    // 19 Oct 2026 (Ahmed): the MI as the discharge summary tells it — territory and what complicated it
+    { key: "territory", label: "Territory", options: ["Anterior", "Inferior", "Lateral", "Posterior", "Unknown"], text: (v) => (v === "Unknown" ? null : v.toLowerCase()) },
+    { key: "features", label: "Course", options: [...MI_FEATURES], multi: true, text: (v) => v.toLowerCase() },
+  ],
   "acs-stemi": [{ key: "territory", label: "Territory", options: ["Anterior", "Inferior", "Lateral", "Posterior", "Unknown"] }],
   "prior-pci": [{ key: "vessels", label: "Vessels treated", options: ["Left main", "LAD", "LCx", "RCA", "Graft", "Unknown"], multi: true }],
   "prior-cabg": [{ key: "grafts", label: "Grafts", options: ["LIMA", "Other arterial", "Vein grafts", "Unknown"], multi: true }],

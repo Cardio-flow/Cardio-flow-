@@ -652,6 +652,8 @@ export async function recordProcedure(
   // the problem list carries the procedure as past coronary history (keeps every coronary rule in step)
   const day = isoDay(new Date(input.date));
   const changed: Changed = ["procedures", "conditions"];
+  // a past procedure known only by its year dates the problem-list entry by the year, not a made-up day
+  const condWhen = attributes.historical === "year" ? { onset: null, onsetYear: Number(day.slice(0, 4)) } : { onset: day };
   if (input.kind === "pci" || input.kind === "cabg") {
     const code = input.kind === "pci" ? "prior-pci" : "prior-cabg";
     const condAttrs = input.kind === "pci"
@@ -667,8 +669,8 @@ export async function recordProcedure(
       const attrs = typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes ?? {};
       return on ? Math.abs(Date.parse(on) - Date.parse(day)) <= 7 * 86400000 : !attrs.onsetYear || Number(attrs.onsetYear) === Number(day.slice(0, 4));
     });
-    if (same) await updateCondition(tx, actor, patientId, same.logical_id, { onset: day, attributes: condAttrs });
-    else await addCondition(tx, actor, patientId, { code, onset: day, contextId: input.contextId, attributes: condAttrs });
+    if (same) await updateCondition(tx, actor, patientId, same.logical_id, { ...condWhen, attributes: condAttrs });
+    else await addCondition(tx, actor, patientId, { code, ...condWhen, contextId: input.contextId, attributes: condAttrs });
   } else if (input.kind === "device" && ["New implant", "Upgrade", "Generator change"].includes(attributes.action)) {
     // the problem list carries the device (device rules read it); an upgrade changes the listed type
     const type = CIED_TYPE(attributes.type);
@@ -679,9 +681,9 @@ export async function recordProcedure(
     // one device on the problem list (the diagnosis is single): a pacing/defibrillator device wins
     // over a loop recorder, and a different device (upgrade, new system) replaces the listed type
     const listed = cur[0] ? (typeof cur[0].attributes === "string" ? JSON.parse(cur[0].attributes) : cur[0].attributes ?? {}).type : null;
-    if (!cur[0]) await addCondition(tx, actor, patientId, { code: "cied", onset: day, contextId: input.contextId, attributes: { type } });
+    if (!cur[0]) await addCondition(tx, actor, patientId, { code: "cied", ...condWhen, contextId: input.contextId, attributes: { type } });
     else if (listed !== type && !(type === "Loop recorder" && listed && listed !== "Loop recorder"))
-      await updateCondition(tx, actor, patientId, cur[0].logical_id, { onset: day, attributes: { type } });
+      await updateCondition(tx, actor, patientId, cur[0].logical_id, { ...condWhen, attributes: { type } });
   }
   else if (input.kind === "rhc") {
     // the measurements join the observations; PH (mPAP >20) goes on the problem list, or is updated, with
@@ -698,7 +700,7 @@ export async function recordProcedure(
       const prev = cur ? (typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes ?? {}) : {};
       const attrs = { ...prev, ...(haemo ? { haemo } : {}), ...(prev.group ? {} : { group: "Not yet classified" }) };
       if (cur) await updateCondition(tx, actor, patientId, cur.logical_id, { attributes: attrs });
-      else await addCondition(tx, actor, patientId, { code: "ph", onset: day, contextId: input.contextId, attributes: attrs });
+      else await addCondition(tx, actor, patientId, { code: "ph", ...condWhen, contextId: input.contextId, attributes: attrs });
     }
   }
   else if (input.kind === "valve") {
@@ -714,8 +716,8 @@ export async function recordProcedure(
       if (cur) {
         const prev = typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes ?? {};
         // the same prosthesis already listed without a date (or this year) is completed, keeping its INR target
-        await updateCondition(tx, actor, patientId, cur.logical_id, { onset: day, attributes: { ...(prev.type === type ? prev : {}), ...condAttrs } });
-      } else await addCondition(tx, actor, patientId, { code: "prosthetic-valve", onset: day, contextId: input.contextId, attributes: condAttrs });
+        await updateCondition(tx, actor, patientId, cur.logical_id, { ...condWhen, attributes: { ...(prev.type === type ? prev : {}), ...condAttrs } });
+      } else await addCondition(tx, actor, patientId, { code: "prosthetic-valve", ...condWhen, contextId: input.contextId, attributes: condAttrs });
     }
   }
   await journeyEvent(tx, actor, {

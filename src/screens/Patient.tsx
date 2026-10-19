@@ -89,7 +89,7 @@ export type Open =
       group?: "coronary" | "rhythm" | "valve" | "ph" | "hypertension";
       procedureKind?: import("../../shared/procedures").ProcedureKind;
     }
-  | { kind: "history"; focus?: "risk" | "cardiac" }
+  | { kind: "history"; focus?: "risk" | "cardiac" | "past" }
   | { kind: "identity"; identity: any }
   | { kind: "status" }
   | { kind: "pathways" }
@@ -356,10 +356,10 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                 ...(h.ihd ? [{ key: "ihd", text: h.ihd.label, title: h.ihd.events.map((e: any) => e.text).join("\n"), click: () => setOpen({ kind: "dx-manage" }) }] : []),
                 ...(h.structural?.items ?? []).map((t: string, i: number) => ({ key: `st${i}`, text: t, title: undefined, click: () => setOpen({ kind: "dx-manage" }) })),
                 ...headDx.filter((d: any) => !LEAD_FAMILIES.includes(d.family)).map((d: any) => ({ key: d.id, text: d.label.replace(" · EF", " EF"), title: undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) })),
-              ].map((x, i) => (
+              ].map((x, i, all) => (
                 <span key={x.key}>
-                  {i > 0 && <span className="line-dot"> · </span>}
                   <button className="line-text" title={x.title} onClick={x.click}>{x.text}</button>
+                  {i < all.length - 1 && <span className="line-dot"> · </span>}
                 </span>
               ))}
               {!headDx.length && !h.ihd && !h.structural && <span className="muted">Add diagnosis</span>}

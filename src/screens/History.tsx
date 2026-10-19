@@ -1,11 +1,13 @@
-import { ClipboardList, IdCard, Pencil } from "lucide-react";
+// History tab (rebuilt 19 Oct 2026, Ahmed: "the whole section of history and risk factors need to be built
+// properly"). What is present comes first with its detail and year; the cardiac past is one dated timeline
+// (MI, PCI/POBA, CABG, valve interventions, LAA closure, devices, ablations); what was answered No and what
+// is not recorded yet are one line each, never a long list of blanks.
+import { ClipboardList, IdCard, Pencil, Plus } from "lucide-react";
 import { useData } from "../api";
 import { fmtDay } from "../../shared/clinical";
 import type { Open } from "./Patient";
 
-const STATUS_LABEL: Record<string, string> = {
-  present: "Yes", absent: "No", unknown: "Unknown", "not-assessed": "Not assessed", na: "Not applicable", "not-recorded": "Not recorded",
-};
+const year = (c: any) => (c.onsetYear ? String(c.onsetYear) : c.onset ? fmtDay(c.onset, { year: true }).replace(/^\d+ /, "") : null);
 
 export function HistoryTab({ id, version, open }: { id: string; version: number; open(o: Open): void }) {
   const { data } = useData<any>(`/patients/${id}/history`, [version]);
@@ -13,41 +15,109 @@ export function HistoryTab({ id, version, open }: { id: string; version: number;
   const risk = data.items.filter((i: any) => i.section === "risk");
   const cardiac = data.items.filter((i: any) => i.section === "cardiac");
   const idn = data.identity;
+  const timeline = (data.timeline ?? []) as any[];
+  // the timeline carries coronary events, valve interventions and devices with their own dates
+  const inTimeline = new Set(["coronary", ...(timeline.some((e) => e.kind === "valve") ? ["valve"] : []), ...(timeline.some((e) => e.kind === "device") ? ["device"] : [])]);
+  const cardiacPresent = cardiac.filter((i: any) => i.status === "present" && (i.key === "coronary" || !inTimeline.has(i.key)));
   return (
-    <main className="page">
+    <main className="page hx-page">
       <div className="page-head">
         <div>
           <h1 style={{ fontSize: 22 }}>History</h1>
-          <p>Risk factors and past cardiac history, each with its date and source. A blank is shown as not recorded, never as no.</p>
+          <p>Past cardiac events by year, risk factors and other conditions. A blank is shown as not recorded, never as no.</p>
         </div>
         <button className="btn primary" onClick={() => open({ kind: "history" })}>
           <ClipboardList size={18} /> Update history
         </button>
       </div>
-      {data.missing.length > 0 && (
-        <div className="hx-missing" role="note">
-          <b>Not recorded yet:</b> {data.missing.join(" · ")}
-          <button className="btn ghost small" onClick={() => open({ kind: "history" })}>Record now</button>
-        </div>
-      )}
       <div className="grid-main">
         <div className="stack">
-          <section className="card pad">
+          <section className="card pad" aria-label="Cardiac history">
+            <div className="card-head">
+              <h2>Cardiac history</h2>
+              <span className="row" style={{ gap: 6 }}>
+                <button className="btn ghost small" onClick={() => open({ kind: "history", focus: "past" })}><Plus size={14} /> MI or procedure</button>
+                <button className="btn ghost small" onClick={() => open({ kind: "history", focus: "cardiac" })}><Pencil size={14} /> Edit</button>
+              </span>
+            </div>
+            {cardiacPresent.length > 0 && (
+              <div className="hx-present">
+                {cardiacPresent.map((i: any) => (
+                  <div key={i.key} className="hx-pres">
+                    <b>{i.key === "coronary" && data.ihd ? "Ischaemic heart disease" : i.label}</b>
+                    {!inTimeline.has(i.key) && (
+                      <span className="small">
+                        {i.conditions.map((c: any) => `${c.label}${year(c) ? ` (${year(c)})` : ""}`).join(" · ")}
+                      </span>
+                    )}
+                    {i.key === "coronary" && data.ihd && <span className="small">{data.ihd.label.replace(/^IHD · ?/, "") || "No events recorded"}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {timeline.length > 0 ? (
+              <ol className="hx-timeline" aria-label="Past cardiac events">
+                {timeline.map((e, n) => (
+                  <li key={`${e.ref.id}-${n}`} className={`k-${e.kind}`}>
+                    <time>{e.when ?? "Year?"}</time>
+                    <div>
+                      <b>{e.title}</b>
+                      {e.detail && <span className="small">{e.detail}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="empty">No past MI, intervention or device recorded. <button className="btn ghost small" onClick={() => open({ kind: "history", focus: "past" })}>Add</button></div>
+            )}
+            <StatusLines items={cardiac} onRecord={() => open({ kind: "history", focus: "cardiac" })} />
+          </section>
+          <section className="card pad" aria-label="Risk factors">
             <div className="card-head">
               <h2>Risk factors</h2>
               <button className="btn ghost small" onClick={() => open({ kind: "history", focus: "risk" })}><Pencil size={14} /> Edit</button>
             </div>
-            <HxList items={risk} bmi={data.bmi} />
-          </section>
-          <section className="card pad">
-            <div className="card-head">
-              <h2>Past cardiac history</h2>
-              <button className="btn ghost small" onClick={() => open({ kind: "history", focus: "cardiac" })}><Pencil size={14} /> Edit</button>
+            <div className="hx-present">
+              {risk.filter((i: any) => i.status === "present").map((i: any) => (
+                <div key={i.key} className={`hx-pres${i.major ? " major" : ""}`}>
+                  <b>{i.label}</b>
+                  <span className="small">
+                    {i.conditions.length
+                      ? i.conditions.map((c: any) => (c.label === i.label ? (year(c) ? `since ${year(c)}` : "") : `${c.label}${year(c) ? ` (since ${year(c)})` : ""}`)).filter(Boolean).join(" · ")
+                      : i.text}
+                    {i.key === "obesity" && data.bmi && !i.conditions.length ? ` · BMI ${data.bmi.value.toFixed(1)}` : ""}
+                  </span>
+                  {i.conflict && <span className="small hx-conflict">{i.conflict}</span>}
+                </div>
+              ))}
+              {!risk.some((i: any) => i.status === "present") && <div className="empty">No risk factor recorded as present.</div>}
             </div>
-            <HxList items={cardiac} />
+            <StatusLines items={risk} onRecord={() => open({ kind: "history", focus: "risk" })} />
+            {data.bmi && <p className="small muted" style={{ marginTop: 8 }}>BMI {data.bmi.value.toFixed(1)} · {fmtDay(data.bmi.at, { year: true })}</p>}
           </section>
         </div>
         <div className="stack">
+          <section className="card pad" aria-label="Other conditions">
+            <div className="card-head">
+              <h2>Other conditions</h2>
+              <button className="btn ghost small" onClick={() => open({ kind: "dx" })}>+ Add</button>
+            </div>
+            {data.comorbidities.length === 0 ? (
+              <div className="empty">None on the diagnosis list.</div>
+            ) : (
+              <div className="hx-present">
+                {data.comorbidities.map((c: any) => {
+                  const brief = (data.others ?? []).find((o: any) => o.id === c.id)?.brief;
+                  return (
+                    <div key={c.id} className="hx-pres">
+                      <b>{c.label}</b>
+                      {(brief || year(c)) && <span className="small">{brief || `since ${year(c)}`}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
           <section className="card pad">
             <div className="card-head">
               <h2>Registration</h2>
@@ -64,65 +134,29 @@ export function HistoryTab({ id, version, open }: { id: string; version: number;
               <button className="btn ghost small" onClick={() => open({ kind: "status" })}>Record status</button>
             </div>
           </section>
-          <section className="card pad">
-            <div className="card-head">
-              <h2>Other comorbidities</h2>
-              <button className="btn ghost small" onClick={() => open({ kind: "dx" })}>+ Add</button>
-            </div>
-            {data.comorbidities.length === 0 ? (
-              <div className="empty">None on the diagnosis list.</div>
-            ) : (
-              <div className="row wrap" style={{ gap: 8 }}>
-                {data.comorbidities.map((c: any) => (
-                  <span key={c.id} className="chip dx">
-                    {c.label}
-                    {c.onset ? ` · ${fmtDay(c.onset, { year: true })}` : c.onsetYear ? ` · ${c.onsetYear}` : ""}
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
         </div>
       </div>
     </main>
   );
 }
 
-// the line under the label only when it adds something (not "Hypertension · Hypertension" or "No · No")
-const showDetail = (i: any) =>
-  i.status === "present"
-    ? !(i.conditions.length === 1 && i.conditions[0].label === i.label && !i.conditions[0].onset && !i.conditions[0].onsetYear)
-    : i.source === "history" && i.text !== STATUS_LABEL[i.status];
-
-function HxList({ items, bmi }: { items: any[]; bmi?: any }) {
+// "No: Diabetes · Smoking (never)" and "Not recorded: …" as one line each
+function StatusLines({ items, onRecord }: { items: any[]; onRecord(): void }) {
+  const no = items.filter((i) => ["absent", "unknown", "not-assessed", "na"].includes(i.status));
+  const blank = items.filter((i) => i.status === "not-recorded");
+  const word = (i: any) =>
+    i.status !== "absent" ? `${i.short ?? i.label} (${i.status === "unknown" ? "unknown" : i.status === "na" ? "n/a" : "not assessed"})`
+      : i.key === "smoking" ? String(i.text).split(" · ")[0]
+      : i.text && i.text !== "No" ? `${i.short ?? i.label}: ${String(i.text).toLowerCase()}` : i.short ?? i.label;
   return (
-    <div className="hx-list">
-      {items.map((i) => (
-        <div key={i.key} className="hx-item">
-          <span className={`hx-tag st-${i.status}${i.major && i.status === "present" ? " major" : ""}`}>{STATUS_LABEL[i.status]}</span>
-          <div className="col" style={{ gap: 2, minWidth: 0 }}>
-            <b>{i.label}</b>
-            {showDetail(i) ? (
-              <span className="small">
-                {i.conditions.length
-                  ? i.conditions.map((c: any, n: number) => (
-                      <span key={c.id}>
-                        {n > 0 && " · "}
-                        {c.label}
-                        {c.onset ? ` (${fmtDay(c.onset, { year: true })})` : c.onsetYear ? ` (${c.onsetYear})` : ""}
-                      </span>
-                    ))
-                  : i.text}
-              </span>
-            ) : null}
-            {i.key === "obesity" && bmi && i.status !== "present" && <span className="small muted">BMI {bmi.value.toFixed(1)} · {fmtDay(bmi.at, { year: true })}</span>}
-            {i.conflict && <span className="small hx-conflict">{i.conflict}</span>}
-          </div>
-          <span className="small muted when">
-            {i.at ? fmtDay(i.at, { year: true }) : i.source === "diagnosis" ? "Diagnosis list" : ""}
-          </span>
-        </div>
-      ))}
+    <div className="hx-status">
+      {no.length > 0 && <p><b>No</b> {no.map(word).join(" · ")}</p>}
+      {blank.length > 0 && (
+        <p className="blank">
+          <b>Not recorded</b> {blank.map((i) => i.short ?? i.label).join(" · ")}
+          <button className="btn ghost small" onClick={onRecord}>Record</button>
+        </p>
+      )}
     </div>
   );
 }

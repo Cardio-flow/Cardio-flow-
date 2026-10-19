@@ -123,58 +123,99 @@ const MON = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "sho
 // a procedure's date as precise as it was recorded (past history may give only the year)
 const WHEN = (p: { performed_at: string; attributes?: Record<string, any> }) => (p.attributes?.historical === "year" ? new Date(p.performed_at).toLocaleDateString("en-GB", { year: "numeric", timeZone: "Asia/Kuwait" }) : MON(p.performed_at));
 const CORONARY = new Set(["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi", "acs-ua", "ischaemic-cmp", "inoca"]);
-// "IHD — CCS · NSTEMI Mar 2023 · PCI ×3 (last Dec 2025) · CABG 2019" and the dated events behind it
-export function ihdSummary(s: PatientState) {
-  const conds = s.conditions.filter((c) => c.status === "active" && (CORONARY.has(c.code) || (DIAGNOSIS[c.code]?.family === "Coronary" && c.code !== "cad-suspected")));
-  const pcis = s.procedures.filter((p) => p.kind === "pci").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
-  const cabgs = s.procedures.filter((p) => p.kind === "cabg").sort((a, b) => a.performed_at.localeCompare(b.performed_at));
-  if (!conds.length && !pcis.length && !cabgs.length) return null;
-  const when = (c: any) => (c.onset ? MON(c.onset) : c.onset_year ?? c.attributes?.onsetYear ?? null);
-  const events: { at: string | null; text: string }[] = [];
-  for (const c of conds.filter((c) => ["acs-stemi", "acs-nstemi", "acs-ua", "prior-mi"].includes(c.code)))
-    events.push({ at: c.onset ?? null, text: `${c.code === "prior-mi" ? "MI" : DIAGNOSIS[c.code].display}${when(c) ? ` ${when(c)}` : ""}` });
+// Cardiac history as dated events (19 Oct 2026, Ahmed: "in MI history and PCI, POBA where done it should
+// show, and the diagnosis line should show the year of the MI and PCI"). One list feeds the diagnosis line,
+// the coronary card and the History tab. Each event keeps the precision it was recorded with.
+export type CardiacEvent = { at: string | null; when: string | null; group: "coronary" | "structural"; kind: string; title: string; short: string; detail: string; covers: string[]; ref: { type: "procedure" | "condition"; id: string } };
+const condWhen = (c: { onset: string | null; attributes?: Record<string, any> }) => (c.onset ? MON(c.onset) : c.attributes?.onsetYear ? String(c.attributes.onsetYear) : null);
+const condAt = (c: { onset: string | null; attributes?: Record<string, any> }) => c.onset ?? (c.attributes?.onsetYear ? `${c.attributes.onsetYear}-07-01` : null);
+const YEAR = (when: string | null) => (when ? when.replace(/^[A-Z][a-z]{2} /, "") : null);
+const PCI_DEV: Record<string, string> = { "Drug-eluting stent": "DES", "Drug-coated balloon": "DCB", "Balloon only": "POBA", "Bare-metal stent": "BMS" };
+export function cardiacEvents(s: PatientState): CardiacEvent[] {
+  const out: CardiacEvent[] = [];
+  const conds = s.conditions.filter((c) => c.status === "active");
+  for (const c of conds.filter((c) => ["acs-stemi", "acs-nstemi", "acs-ua", "prior-mi"].includes(c.code))) {
+    const a = (c.attributes ?? {}) as Record<string, any>;
+    const type = c.code === "prior-mi" ? (a.type && !["Unknown"].includes(a.type) ? a.type : "MI") : DIAGNOSIS[c.code].display;
+    const terr = a.territory && a.territory !== "Unknown" ? `${a.territory} ` : "";
+    const title = `${terr}${type}`;
+    out.push({ at: condAt(c), when: condWhen(c), group: "coronary", kind: "mi", title, short: title, detail: (a.features ?? []).join(", "), covers: [], ref: { type: "condition", id: c.logical_id } });
+  }
+  const pcis = s.procedures.filter((p) => p.kind === "pci");
   for (const p of pcis) {
     const a = p.attributes ?? {};
-    const bits = [(a.vessels ?? []).join("/"), a.stents ? (() => { const d = String((a.devices ?? [])[0] ?? "stent").replace("Drug-eluting stent", "DES").replace("Drug-coated balloon", "DCB").replace("Bare-metal stent", "BMS"); return `${a.stents} ${d}${a.stents > 1 && !/^(DES|DCB|BMS)$/.test(d) ? "s" : ""}`; })() : (a.devices ?? []).join(", "), a.setting && a.setting !== "elective" ? String(a.setting).toUpperCase() : "", ...(a.complex ?? []).filter((x: string) => !/stents/.test(x))].filter(Boolean);
-    events.push({ at: p.performed_at, text: `PCI ${WHEN(p)}${bits.length ? ` · ${bits.join(" · ")}` : ""}` });
+    const devs: string[] = (a.devices ?? (a.device ? [a.device] : [])).map((d: string) => PCI_DEV[d] ?? d);
+    const poba = devs.length > 0 && devs.every((d) => d === "POBA");
+    const vessels = (a.vessels ?? []).join("/");
+    const name = poba ? "POBA" : "PCI";
+    const setting = a.setting === "stemi" ? "primary PCI" : a.setting === "nste-acs" ? "NSTE-ACS" : a.setting === "staged" ? "staged" : null;
+    const stents = a.stents ? `${a.stents} ${devs.find((d) => d !== "POBA") ?? "stent"}${a.stents > 1 && !/^(DES|DCB|BMS)$/.test(devs[0] ?? "") ? "s" : ""}` : poba ? null : devs.join(" + ") || null;
+    const detail = [stents, setting, a.reason ? `for ${String(a.reason).toLowerCase()}` : null, ...(a.complex ?? []).filter((x: string) => !/stents/.test(x)), ...(a.complications ?? [])].filter(Boolean).join(" · ");
+    out.push({ at: p.performed_at, when: WHEN(p), group: "coronary", kind: "pci", title: `${name}${vessels ? ` ${vessels}` : ""}`, short: `${name}${vessels ? ` ${vessels}` : ""}`, detail, covers: [], ref: { type: "procedure", id: p.id } });
   }
-  for (const p of cabgs) events.push({ at: p.performed_at, text: `CABG ${WHEN(p)}${p.attributes?.grafts ? ` · ${p.attributes.grafts} grafts` : ""}` });
-  const priorCabg = conds.find((c) => c.code === "prior-cabg");
-  if (priorCabg && !cabgs.length) events.push({ at: priorCabg.onset ?? null, text: `CABG${when(priorCabg) ? ` ${when(priorCabg)}` : ""}` });
   const priorPci = conds.find((c) => c.code === "prior-pci");
-  if (priorPci && !pcis.length) events.push({ at: priorPci.onset ?? null, text: `PCI${when(priorPci) ? ` ${when(priorPci)}` : " (date not recorded)"}` });
-  events.sort((x, y) => (x.at ?? "").localeCompare(y.at ?? ""));
-  const parts = [
-    conds.some((c) => c.code === "cad-ccs") ? "chronic coronary syndrome" : null,
-    conds.some((c) => c.code === "prior-mi" || c.code.startsWith("acs-")) ? "MI" : null,
-    pcis.length ? `post-PCI${pcis.length > 1 ? ` ×${pcis.length}` : ""} (last ${WHEN(pcis[pcis.length - 1])})` : priorPci ? "post-PCI" : null,
-    cabgs.length ? `post-CABG ${WHEN(cabgs[cabgs.length - 1])}` : priorCabg ? "post-CABG" : null,
-  ].filter(Boolean);
-  return { label: `IHD${parts.length ? ` · ${parts.join(" · ")}` : ""}`, events, codes: conds.map((c) => c.code), ids: conds.map((c) => c.logical_id) };
+  if (priorPci && !pcis.length) {
+    const v = ((priorPci.attributes as any)?.vessels ?? []).filter((x: string) => x !== "Unknown").join("/");
+    out.push({ at: condAt(priorPci), when: condWhen(priorPci), group: "coronary", kind: "pci", title: `PCI${v ? ` ${v}` : ""}`, short: `PCI${v ? ` ${v}` : ""}`, detail: "", covers: [], ref: { type: "condition", id: priorPci.logical_id } });
+  }
+  const cabgs = s.procedures.filter((p) => p.kind === "cabg");
+  for (const p of cabgs) out.push({ at: p.performed_at, when: WHEN(p), group: "coronary", kind: "cabg", title: "CABG", short: "CABG", detail: (p.attributes?.grafts ?? []).join(", "), covers: [], ref: { type: "procedure", id: p.id } });
+  const priorCabg = conds.find((c) => c.code === "prior-cabg");
+  if (priorCabg && !cabgs.length) out.push({ at: condAt(priorCabg), when: condWhen(priorCabg), group: "coronary", kind: "cabg", title: "CABG", short: "CABG", detail: ((priorCabg.attributes as any)?.grafts ?? []).join(", "), covers: [], ref: { type: "condition", id: priorCabg.logical_id } });
+  // valve interventions, LAA closure, devices and ablations
+  const procs = s.procedures.filter((p) => ["valve", "laao", "device", "ablation"].includes(p.kind) && p.attributes?.result !== "Aborted / not implanted" && p.attributes?.result !== "Aborted / no implant" && !(p.kind === "device" && ["Extraction", "Lead revision"].includes(p.attributes?.action)));
+  for (const p of procs) {
+    const label = historicalLabel(p.kind, p.attributes ?? {});
+    const a = p.attributes ?? {};
+    const detail = p.kind === "laao" ? (a.device && !/WATCHMAN|Amulet/i.test(label) ? a.device : /FLX/.test(String(a.device)) ? a.device : "") : p.kind === "device" && a.action && a.action !== "New implant" ? a.action : "";
+    out.push({ at: p.performed_at, when: WHEN(p), group: "structural", kind: p.kind, title: label, short: label, detail, covers: p.kind === "valve" ? ["prosthetic-valve"] : p.kind === "device" ? ["cied"] : [], ref: { type: "procedure", id: p.id } });
+  }
+  // listed on the problem list without a recorded procedure
+  if (!procs.some((p) => p.kind === "device")) for (const c of conds.filter((c) => c.code === "cied")) out.push({ at: condAt(c), when: condWhen(c), group: "structural", kind: "device", title: String((c.attributes as any)?.type ?? "Cardiac device"), short: String((c.attributes as any)?.type ?? "Cardiac device"), detail: "", covers: ["cied"], ref: { type: "condition", id: c.logical_id } });
+  for (const c of conds.filter((c) => c.code === "prosthetic-valve" && !procs.some((p) => p.kind === "valve" && p.attributes?.position === (c.attributes as any)?.position)))
+    out.push({ at: condAt(c), when: condWhen(c), group: "structural", kind: "valve", title: conditionLabel(c), short: conditionLabel(c), detail: "", covers: ["prosthetic-valve"], ref: { type: "condition", id: c.logical_id } });
+  return out.sort((x, y) => (x.at ?? "").localeCompare(y.at ?? ""));
 }
 
-// structural interventions and devices as one line: "Mitral TEER (clip) 2021 · Watchman LAA occluder 2019 · ICD 2017"
+// "IHD · inferior STEMI 2017 · PCI LAD 2015 · POBA RCA 2017" and the dated events behind it
+export function ihdSummary(s: PatientState) {
+  const conds = s.conditions.filter((c) => c.status === "active" && (CORONARY.has(c.code) || (DIAGNOSIS[c.code]?.family === "Coronary" && c.code !== "cad-suspected")));
+  const ev = cardiacEvents(s).filter((e) => e.group === "coronary");
+  if (!conds.length && !ev.length) return null;
+  const y = (e: CardiacEvent) => (YEAR(e.when) ? ` ${YEAR(e.when)}` : "");
+  const mis = ev.filter((e) => e.kind === "mi"), pcis = ev.filter((e) => e.kind === "pci"), cabgs = ev.filter((e) => e.kind === "cabg");
+  const lower = (t: string) => t.replace(/^(Anterior|Inferior|Lateral|Posterior) /, (m) => m.toLowerCase());
+  const parts = [
+    conds.some((c) => c.code === "cad-ccs") && !ev.length ? "chronic coronary syndrome" : null,
+    // in date order: MIs, interventions by name and year (more than three PCIs as a count with the span), CABG
+    ...(pcis.length > 3
+      ? [...mis.map((e) => `${lower(e.short)}${y(e)}`), `PCI ×${pcis.length} (${YEAR(pcis[0].when) ?? "?"}–${YEAR(pcis[pcis.length - 1].when) ?? "?"})`, ...cabgs.map((e) => `CABG${y(e)}`)]
+      : ev.map((e) => (e.kind === "mi" ? `${lower(e.short)}${y(e)}` : e.kind === "cabg" ? `CABG${y(e)}` : `${e.short}${y(e)}`))),
+  ].filter(Boolean);
+  return {
+    label: `IHD${parts.length ? ` · ${parts.join(" · ")}` : ""}`,
+    events: ev.map((e) => ({ at: e.at, text: `${e.title}${e.when ? ` ${e.when}` : ""}${e.detail ? ` · ${e.detail}` : ""}` })),
+    codes: conds.map((c) => c.code), ids: conds.map((c) => c.logical_id),
+  };
+}
+
+// structural interventions and devices as one line: "Mitral TEER (MitraClip) 2021 · Watchman LAA occluder 2019 · ICD 2017"
 export function structuralSummary(s: PatientState) {
-  const items: { at: string | null; label: string; covers: string[] }[] = [];
-  const procs = s.procedures.filter((p) => ["valve", "laao", "device", "ablation"].includes(p.kind) && p.attributes?.result !== "Aborted / not implanted" && p.attributes?.result !== "Aborted / no implant" && !(p.kind === "device" && ["Extraction", "Lead revision"].includes(p.attributes?.action)));
-  for (const p of procs) items.push({ at: p.performed_at, label: `${historicalLabel(p.kind, p.attributes ?? {})} ${WHEN(p)}`, covers: p.kind === "valve" ? ["prosthetic-valve"] : p.kind === "device" ? ["cied"] : [] });
-  // listed on the problem list without a recorded procedure
-  if (!procs.some((p) => p.kind === "device")) for (const c of s.conditions.filter((c) => c.status === "active" && c.code === "cied")) items.push({ at: c.onset, label: `${c.attributes?.type ?? "Cardiac device"}${c.onset ? ` ${new Date(c.onset).getFullYear()}` : ""}`, covers: ["cied"] });
-  for (const c of s.conditions.filter((c) => c.status === "active" && c.code === "prosthetic-valve" && !procs.some((p) => p.kind === "valve" && p.attributes?.position === c.attributes?.position)))
-    items.push({ at: c.onset, label: `${conditionLabel(c)}${c.onset ? ` ${new Date(c.onset).getFullYear()}` : ""}`, covers: ["prosthetic-valve"] });
-  items.sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
-  return items.length ? { label: items.map((i) => i.label).join(" · "), items: items.map((i) => i.label), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
+  const items = cardiacEvents(s).filter((e) => e.group === "structural").reverse();
+  return items.length ? { label: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`).join(" · "), items: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
 }
 
 // non-cardiac conditions with a brief history: onset, detail and the treatment for it
-const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazole", "propylthiouracil"], anaemia: ["oral-iron", "iv-iron"], copd: ["inhaler"], aps: ["vka"] };
+const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazole", "propylthiouracil"], anaemia: ["oral-iron", "iv-iron"], copd: ["inhaler"], aps: ["vka"], gout: ["allopurinol", "febuxostat"] };
 function otherConditions(s: PatientState) {
   return s.conditions
     .filter((c) => c.status === "active" && DIAGNOSIS[c.code]?.family === "Comorbidity" && !RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden)
     .map((c) => {
       const label = conditionLabel(c);
-      const since = c.onset ? `since ${MON(c.onset)}` : (c as any).onset_year ? `since ${(c as any).onset_year}` : "";
-      const on = s.meds.filter((m) => m.status === "active" && (TREATS[c.code] ?? []).some((t) => m.code === t || m.tags.includes(t))).map((m) => `on ${m.name.toLowerCase().split(" (")[0]}`);
+      const since = c.onset ? `since ${MON(c.onset)}` : (c.attributes as any)?.onsetYear ? `since ${(c.attributes as any).onsetYear}` : "";
+      // treated for it: a known treatment, or a medicine whose recorded indication names the condition
+      const word = new RegExp(`\\b${DIAGNOSIS[c.code].display.split(/[ /(]/)[0]}`, "i");
+      const on = s.meds.filter((m) => m.status === "active" && ((TREATS[c.code] ?? []).some((t) => m.code === t || m.tags.includes(t)) || word.test(m.indication ?? ""))).map((m) => `on ${m.name.toLowerCase().split(" (")[0]}`);
       return { id: c.logical_id, code: c.code, label, brief: [since, ...on].filter(Boolean).join(", ") };
     });
 }
@@ -264,6 +305,10 @@ export function historyView(s: PatientState) {
     items,
     bmi: b,
     comorbidities,
+    // 19 Oct 2026: past cardiac events by date, the IHD line, and other conditions with a brief history
+    timeline: cardiacEvents(s),
+    ihd: ihdSummary(s),
+    others: otherConditions(s),
     identity: { civilId: s.patient.civil_id, nationality: s.patient.nationality, mobile: s.patient.mobile, allergies: s.patient.allergies, sample: s.patient.synthetic, name: s.patient.name, mrn: s.patient.mrn, sex: s.patient.sex, birthDate: String(s.patient.birth_date).slice(0, 10), birthDateEstimated: s.patient.birth_date_estimated },
     missing: items.filter((i) => i.status === "not-recorded").map((i) => i.label),
   };

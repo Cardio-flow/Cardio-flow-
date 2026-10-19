@@ -1955,6 +1955,7 @@ table.data.meds td.med-compact { display: none; }
 .past-chips button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
 .past-chips button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
 .past-chips.add button { color: var(--blue-ink); border-style: dashed; }
+.past-lab { flex: 0 0 100%; font-size: 11.5px; font-weight: 700; color: var(--ink-4); margin: 2px 0 -2px; }
 .past-row { display: grid; gap: 8px; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f6f8fb); }
 .past-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .past-head b { flex: 1 1 calc(100% - 56px); color: var(--navy); align-self: center; }
@@ -1963,3 +1964,26 @@ table.data.meds td.med-compact { display: none; }
 .past-head .past-month .input { width: 112px; }
 .past-head .icon-btn { order: -1; margin-left: auto; align-self: center; }
 .past-head b { order: -2; }
+
+/* History tab (19 Oct 2026): present items, dated cardiac timeline, one line for No / not recorded */
+.hx-present { display: grid; gap: 2px; }
+.hx-pres { display: grid; gap: 1px; padding: 9px 0; border-top: 1px solid var(--line-2); }
+.hx-pres:first-child { border-top: 0; padding-top: 2px; }
+.hx-pres b { font-size: 14.5px; color: var(--ink); }
+.hx-pres.major b::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--navy); margin-right: 7px; vertical-align: 2px; }
+.hx-pres .small { font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.hx-timeline { list-style: none; margin: 10px 0 0; padding: 0 0 0 4px; position: relative; }
+.hx-timeline::before { content: ""; position: absolute; left: 67px; top: 8px; bottom: 8px; width: 2px; background: var(--line); border-radius: 2px; }
+.hx-timeline li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 32px; padding: 7px 0; position: relative; }
+.hx-timeline li::before { content: ""; position: absolute; left: 57px; top: 13px; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid var(--blue, #1757a8); }
+.hx-timeline li.k-mi::before { border-color: var(--red, #c0362c); background: var(--red, #c0362c); }
+.hx-timeline li.k-device::before, .hx-timeline li.k-laao::before, .hx-timeline li.k-valve::before { border-color: var(--navy); }
+.hx-timeline time { font-size: 13px; font-weight: 800; color: var(--navy); text-align: right; padding-top: 1px; white-space: nowrap; }
+.hx-timeline li > div { display: grid; gap: 1px; min-width: 0; }
+.hx-timeline b { font-size: 14.5px; color: var(--ink); }
+.hx-timeline .small { font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.hx-status { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.hx-status p { margin: 0; font-size: 13px; color: var(--ink-3); line-height: 1.45; }
+.hx-status p b { color: var(--ink-2); margin-right: 6px; }
+.hx-status p.blank { color: var(--ink-4); }
+.hx-status p.blank .btn { margin-left: 6px; padding-block: 0; }

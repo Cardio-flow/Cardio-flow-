@@ -348,7 +348,7 @@ try {
       await go(x.id, "history");
       const section = page.locator("section").filter({
         has: page.getByRole("heading", {
-          name: "Other comorbidities",
+          name: "Other conditions",
           exact: true,
         }),
       });

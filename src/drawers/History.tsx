@@ -3,7 +3,7 @@ import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, Segmented, SingleChoice, navigate, useToast, DateInput } from "../ui";
 import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
-import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MULTIPLE_ALLOWED, fieldShown, siblingsOf, type HistoryItem } from "../../shared/history";
+import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MI_FEATURES, MULTIPLE_ALLOWED, fieldShown, siblingsOf, type HistoryItem } from "../../shared/history";
 import { ageOn, fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
 import { civilIdBirthDate, civilIdCheckDigitOk } from "../../shared/civil-id";
@@ -44,7 +44,7 @@ function initialRow(item: HistoryItem, v: any): Row {
   return { answer: opt, initial: opt, packYears: pack, quitYear: quit, initialDetail: pack + "|" + quit, dx };
 }
 
-export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { patientId: string; focus?: "risk" | "cardiac"; summary?: any; onClose(): void; onDone(m?: string, r?: any): void }) {
+export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { patientId: string; focus?: "risk" | "cardiac" | "past"; summary?: any; onClose(): void; onDone(m?: string, r?: any): void }) {
   const hints = useMemo(() => riskHints(summary), [summary]);
   const { data } = useData<any>(`/patients/${patientId}/history`);
   const [rows, setRows] = useState<Record<string, Row> | null>(null);
@@ -98,7 +98,14 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
       const r = payload.answers.length + payload.add.length + payload.update.length
         ? await api(`/patients/${patientId}/history`, { body: { answers: payload.answers, add: payload.add, update: payload.update, effectiveAt } })
         : null;
-      for (const p of past) await api(`/patients/${patientId}/procedures`, { body: pastBody(p) });
+      // a past MI is the "Previous MI" diagnosis (one per record): completed if listed, added if not
+      const listedMi = data.items.find((x: any) => x.key === "coronary")?.conditions.find((c: any) => c.code === "prior-mi");
+      for (const p of past.filter((x) => x.preset === "mi")) {
+        const b = miBody(p);
+        if (listedMi) await api(`/patients/${patientId}/conditions/${listedMi.id}/update`, { body: { onset: b.onset, onsetYear: b.onsetYear, attributes: { ...listedMi.attributes, ...b.attributes } } });
+        else await api(`/patients/${patientId}/history`, { body: { add: [b], effectiveAt } });
+      }
+      for (const p of past.filter((x) => x.preset !== "mi")) await api(`/patients/${patientId}/procedures`, { body: pastBody(p) });
       onDone(`History saved · ${count} change${count === 1 ? "" : "s"}`, r);
     } catch (e) {
       setError((e as Error).message);
@@ -111,6 +118,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
     { key: "cardiac", title: "Past cardiac history", help: "One tap each. Yes adds the diagnosis; pick the type when there are several. The year is enough; the detail is optional." },
   ];
   const ordered = focus === "cardiac" ? [sections[1], sections[0]] : sections;
+  const pastSection = rows && <PastProcedures rows={past} setRows={setPast} thisYear={Number(String(data.today).slice(0, 4))} recorded={(data.timeline ?? []).map((e: any) => `${e.title}${e.when ? ` ${e.when}` : ""}`)} />;
   return (
     <Drawer
       title="Structured history"
@@ -135,6 +143,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
         {rows && (
           <DateField label="History taken on" value={asOf} onChange={setAsOf} today={data.today} max={data.today} quick={[{ label: "Today", days: 0 }]} />
         )}
+        {focus === "past" && pastSection}
         {rows &&
           ordered.map((sec) => (
             <section key={sec.key} className="hx-section">
@@ -183,7 +192,7 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
               )}
             </section>
           ))}
-        {rows && <PastProcedures rows={past} setRows={setPast} thisYear={Number(String(data.today).slice(0, 4))} recorded={[...(summary?.header?.ihd?.events ?? []).map((e: any) => e.text), ...(summary?.header?.structural?.items ?? [])]} />}
+        {focus !== "past" && pastSection}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>
@@ -671,7 +680,8 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved
 // while the early after-procedure checks do not start.
 export type PastProc = { key: string; preset: string; year: string; month: string; detail: Record<string, any> };
 export const PAST_PRESETS: { id: string; label: string; kind: string; base: Record<string, any> }[] = [
-  { id: "pci", label: "PCI", kind: "pci", base: {} },
+  { id: "mi", label: "MI", kind: "mi", base: {} },
+  { id: "pci", label: "PCI / POBA", kind: "pci", base: {} },
   { id: "cabg", label: "CABG", kind: "cabg", base: {} },
   { id: "teer", label: "Mitral clip (TEER)", kind: "valve", base: { position: "Mitral", procedure: "Transcatheter edge-to-edge repair (TEER)", deviceModel: "MitraClip" } },
   { id: "tavi", label: "TAVI", kind: "valve", base: { position: "Aortic", procedure: "TAVI" } },
@@ -685,12 +695,18 @@ export const PAST_PRESETS: { id: string; label: string; kind: string; base: Reco
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const chips = (opts: string[], value: string | string[] | undefined, multi: boolean, set: (v: any) => void, label: string) => (
   <div className="past-chips" role="group" aria-label={label}>
+    <span className="past-lab" aria-hidden="true">{label}</span>
     {opts.map((o) => {
       const on = multi ? ((value as string[] | undefined) ?? []).includes(o) : value === o;
       return <button key={o} type="button" aria-pressed={on} className={on ? "on" : ""} onClick={() => set(multi ? (on ? ((value as string[]) ?? []).filter((x) => x !== o) : [...((value as string[]) ?? []), o]) : o)}>{o}</button>;
     })}
   </div>
 );
+export function miBody(p: PastProc) {
+  const y = Number(p.year), m = p.month ? MONTHS.indexOf(p.month) + 1 : 0;
+  const attributes = Object.fromEntries(Object.entries(p.detail).filter(([, v]) => v != null && v !== "" && !(Array.isArray(v) && !v.length)));
+  return { code: "prior-mi", attributes, onset: m ? `${y}-${String(m).padStart(2, "0")}-15` : null, onsetYear: m ? null : y };
+}
 export function pastBody(p: PastProc) {
   const pre = PAST_PRESETS.find((x) => x.id === p.preset)!;
   const y = Number(p.year), m = p.month ? MONTHS.indexOf(p.month) + 1 : 0;
@@ -703,8 +719,8 @@ export function PastProcedures({ rows, setRows, recorded, thisYear }: { rows: Pa
   return (
     <section className="hx-section">
       <div className="hx-section-head">
-        <h3>Past procedures & devices</h3>
-        <p>Tap what the patient had, then the year (and month if known). One detail is enough; the record keeps it as past history.</p>
+        <h3>Past MI, procedures & devices</h3>
+        <p>Tap what the patient had, then the year (and month if known). Details are optional; the record keeps each as past history with its year.</p>
       </div>
       {recorded.length > 0 && <p className="small muted">Already in the record: {recorded.join(" · ")}</p>}
       <div className="past-chips add" role="group" aria-label="Add a past procedure">
@@ -722,7 +738,8 @@ export function PastProcedures({ rows, setRows, recorded, thisYear }: { rows: Pa
               <label className="past-month"><span>Month</span><select className="input" value={r.month} onChange={(e) => upd(r.key, { month: e.target.value })} aria-label={`${pre.label} month`}><option value="">—</option>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></label>
               <button type="button" className="icon-btn" aria-label={`Remove ${pre.label}`} onClick={() => setRows(rows.filter((x) => x.key !== r.key))}><X size={16} /></button>
             </div>
-            {r.preset === "pci" && <>{chips(["LAD", "LCx", "RCA", "Left main", "Graft"], d.vessels, true, (v) => det(r, "vessels", v), "Vessels")}{chips(["Primary PCI (STEMI)", "NSTE-ACS", "Elective"], d.settingLabel, false, (v) => upd(r.key, { detail: { ...r.detail, settingLabel: v, setting: v === "Elective" ? "elective" : v === "NSTE-ACS" ? "nste-acs" : "stemi" } }), "Setting")}</>}
+            {r.preset === "mi" && <>{chips(["STEMI", "NSTEMI", "Type 2 MI"], d.type, false, (v) => det(r, "type", v), "MI type")}{chips(["Anterior", "Inferior", "Lateral", "Posterior"], d.territory, false, (v) => det(r, "territory", v), "Territory")}{chips([...MI_FEATURES], d.features, true, (v) => det(r, "features", v), "Course")}</>}
+            {r.preset === "pci" && <>{chips(["LAD", "LCx", "RCA", "Left main", "Graft"], d.vessels, true, (v) => det(r, "vessels", v), "Vessels")}{chips(["Stent (DES)", "Drug-coated balloon", "POBA (balloon only)"], (d.devices ?? []).map((x: string) => (x === "Drug-eluting stent" ? "Stent (DES)" : x === "Balloon only" ? "POBA (balloon only)" : x)), true, (v: string[]) => det(r, "devices", v.map((x) => (x === "Stent (DES)" ? "Drug-eluting stent" : x === "POBA (balloon only)" ? "Balloon only" : x))), "Device")}{chips(["Stent thrombosis", "In-stent restenosis"], d.reason, false, (v) => det(r, "reason", d.reason === v ? null : v), "Done for")}{chips(["Primary PCI (STEMI)", "NSTE-ACS", "Elective"], d.settingLabel, false, (v) => upd(r.key, { detail: { ...r.detail, settingLabel: v, setting: v === "Elective" ? "elective" : v === "NSTE-ACS" ? "nste-acs" : "stemi" } }), "Setting")}</>}
             {r.preset === "teer" && <>{chips(["Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["MitraClip", "PASCAL", "TriClip"], d.deviceModel, false, (v) => det(r, "deviceModel", v), "Device")}</>}
             {r.preset === "valve-surgery" && <>{chips(["Aortic", "Mitral", "Tricuspid"], d.position, false, (v) => det(r, "position", v), "Valve")}{chips(["Mechanical", "Bioprosthetic", "Repair"], d.procedure === "Surgical repair" ? "Repair" : d.prosthesis, false, (v) => upd(r.key, { detail: { ...r.detail, ...(v === "Repair" ? { procedure: "Surgical repair", prosthesis: null } : { procedure: "Surgical replacement", prosthesis: v }) } }), "Type")}</>}
             {r.preset === "laao" && chips(["WATCHMAN (earlier generation)", "WATCHMAN FLX", "WATCHMAN FLX Pro", "Amplatzer Amulet", "Surgical clip"], d.device, false, (v) => det(r, "device", v), "Device")}

@@ -8,7 +8,7 @@ import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
 import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
-import { header } from "../server/kernel/views.js";
+import { header, historyView } from "../server/kernel/views.js";
 import { nowIso, type Actor } from "../server/kernel/base.js";
 import { cleanProcedure } from "../shared/procedures.js";
 import { attributesText, cleanAttributes } from "../shared/history.js";
@@ -52,6 +52,26 @@ test("structural history: one header line, no LAAO/TEER aftercare, no anticoagul
   assert.ok(!r.some((x) => /anticoag/i.test(x.title)), "the Watchman covers the stroke prevention question");
   const dev = r.find((x) => x.rule_id === "rhythm.device-check-due");
   assert.equal(dev?.title, "ICD: no device check recorded");
+});
+
+test("MI, PCI and POBA by year: the IHD line in date order, the course of the MI, the problem list dated by the year", async () => {
+  const pid = await tx(async (q) => {
+    const id = await K.createPatient(q, doc, { name: "Ihd " + Date.now(), mrn: "I" + Date.now(), sex: "Female", birthDate: "1949-07-01", conditions: ["hfref"] });
+    await K.recordHistory(q, doc, id, { effectiveAt: nowIso(), add: [{ code: "prior-mi", onsetYear: 2017, attributes: { type: "STEMI", territory: "Inferior", features: ["VF / cardiac arrest", "Stent thrombosis"] } }] } as any);
+    await K.recordProcedure(q, doc, id, { kind: "pci", date: at(2015), details: { vessels: ["LAD"], devices: ["Drug-eluting stent"], historical: "year" } } as any);
+    await K.recordProcedure(q, doc, id, { kind: "pci", date: at(2017), details: { vessels: ["RCA"], devices: ["Balloon only"], reason: "Stent thrombosis", historical: "year" } } as any);
+    await reassess(q, id, "production");
+    return id;
+  });
+  const s = await loadState(db, pid);
+  const h = header(s) as any;
+  assert.equal(h.ihd.label, "IHD · PCI LAD 2015 · inferior STEMI 2017 · POBA RCA 2017");
+  assert.deepEqual(h.ihd.events.map((e: any) => e.text), ["PCI LAD 2015 · DES", "Inferior STEMI 2017 · VF / cardiac arrest, Stent thrombosis", "POBA RCA 2017 · for stent thrombosis"]);
+  const prior = s.conditions.find((c) => c.code === "prior-pci")!;
+  assert.equal(prior.onset, null, "a year-only PCI does not invent a day");
+  assert.ok([2015, 2017].includes(Number((prior.attributes as any).onsetYear)));
+  const hv = historyView(s) as any;
+  assert.deepEqual(hv.timeline.map((e: any) => e.when), ["2015", "2017", "2017"]);
 });
 
 test("report gaps: gout and ASD as diagnoses, a lead mass on echo offers the endocarditis pathway", async () => {

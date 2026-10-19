@@ -136,9 +136,10 @@ test("coronary disease reads as one IHD line with its PCI history; non-cardiac c
   await med(pid, "levothyroxine", 50, "OD", "Hypothyroidism");
   await med(pid, "metformin", 500, "BID", "diabetes");
   const h = header(await loadState(db, pid)) as any;
-  assert.match(h.ihd.label, /^IHD · chronic coronary syndrome · post-PCI ×3 \(last /);
+  // 19 Oct 2026: each intervention by vessel and year, in date order
+  assert.match(h.ihd.label, /^IHD · PCI RCA \d{4} · PCI RCA\/LAD \d{4} · PCI RCA \d{4}$/);
   assert.equal(h.ihd.events.length, 3);
-  assert.match(h.ihd.events[1].text, /PCI .* · RCA\/LAD · 3 DES · Chronic total occlusion/);
+  assert.match(h.ihd.events[1].text, /^PCI RCA\/LAD [A-Z][a-z]{2} \d{4} · 3 DES · Chronic total occlusion/);
   const thy = h.riskFactors.other.find((o: any) => o.code === "thyroid");
   assert.match(thy.brief, /on levothyroxine/);
   // a complex PCI anywhere in the history counts as high ischaemic risk; without high bleeding risk the

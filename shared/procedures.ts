@@ -14,6 +14,8 @@ export const PCI_SETTINGS = [
 ] as const;
 export const PCI_VESSELS = ["Left main", "LAD", "LCx", "RCA", "Graft"] as const;
 export const PCI_DEVICES = ["Drug-eluting stent", "Drug-coated balloon", "Balloon only"] as const;
+// why a past PCI was done when it was not a first event (19 Oct 2026, from a discharge summary)
+export const PCI_REASONS = ["Stent thrombosis", "In-stent restenosis"] as const;
 // in-lab and early complications, recorded as they happened (descriptive; no threshold attached)
 export const PCI_COMPLICATIONS = ["Coronary dissection", "No-reflow / slow flow", "Coronary perforation", "Side-branch occlusion", "Acute stent thrombosis", "Peri-procedural MI", "VT / VF needing treatment", "Access-site haematoma or bleeding", "Contrast reaction", "Contrast-associated kidney injury"] as const;
 export const COMPLEX_FEATURES = ["≥3 vessels treated", "≥3 stents", "≥3 lesions", "Bifurcation with 2 stents", "Total stent length >60 mm", "Chronic total occlusion"] as const;
@@ -121,7 +123,7 @@ function cleanHistorical(kind: ProcedureKind, a: Record<string, unknown>): Recor
     const devices = someOf(PCI_DEVICES, a.devices, "Devices");
     const stents = a.stents == null || a.stents === "" ? null : Number(a.stents);
     if (stents != null && (!Number.isInteger(stents) || stents < 0 || stents > 12)) throw new Error("Number of stents: 0–12");
-    return { setting: oneOf(PCI_SETTINGS.map((s) => s.value), a.setting, "Setting"), vessels: someOf(PCI_VESSELS, a.vessels, "Vessels"), devices, device: devices[0] ?? null, stents, dcb: null, complex: someOf(COMPLEX_FEATURES, a.complex, "Complex PCI"), complications: someOf(PCI_COMPLICATIONS, a.complications, "Complications"), access: null };
+    return { setting: oneOf(PCI_SETTINGS.map((s) => s.value), a.setting, "Setting"), vessels: someOf(PCI_VESSELS, a.vessels, "Vessels"), devices, device: devices[0] ?? null, stents, dcb: null, complex: someOf(COMPLEX_FEATURES, a.complex, "Complex PCI"), complications: someOf(PCI_COMPLICATIONS, a.complications, "Complications"), access: null, reason: oneOf(PCI_REASONS, a.reason, "Reason") };
   }
   if (kind === "cabg") return { grafts: someOf(CABG_GRAFTS, a.grafts, "Grafts"), count: null, setting: oneOf(["acs", "elective"] as const, a.setting, "Setting") ?? "elective" };
   if (kind === "device") {
