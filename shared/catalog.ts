@@ -181,6 +181,8 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
 export type DiagnosisDef = { code: string; display: string; family: string; tags: string[]; hidden?: boolean };
 
 export const DIAGNOSES: DiagnosisDef[] = [
+  {code:"pregnancy-care",display:"Pregnancy / postpartum care",family:"Pregnancy & heart disease",tags:["pregnancy-care"]},
+  {code:"ppcm",display:"Peripartum cardiomyopathy",family:"Pregnancy & heart disease",tags:["hf","cmp"]},
   {code:"pericarditis",display:"Pericarditis",family:"Pericardial disease",tags:["pericardial"]},
   {code:"pericardial-effusion",display:"Pericardial effusion",family:"Pericardial disease",tags:["pericardial"]},
   {code:"constrictive-pericarditis",display:"Constrictive pericarditis",family:"Pericardial disease",tags:["pericardial"]},
@@ -329,7 +331,7 @@ export const MEDICATIONS: MedicationDef[] = [
   m("ferric-carboxymaltose", "Ferric carboxymaltose (IV)", "IV iron", "Heart failure", ["iv-iron"], ["hf"], "mg", [500, 750, 1000], ["Single infusion"], ["haemoglobin", "ferritin", "tsat"], { routes: ["IV"] }),
   m("ferric-derisomaltose", "Ferric derisomaltose (IV)", "IV iron", "Heart failure", ["iv-iron"], ["hf"], "mg", [500, 1000, 1500, 2000], ["Single infusion"], ["haemoglobin", "ferritin", "tsat"], { routes: ["IV"] }),
   m("vericiguat", "Vericiguat", "sGC stimulator", "Heart failure", [], ["hf"], "mg", [2.5, 5, 10], ["OD"], ["sbp"], { target: 10 }),
-  m("aspirin", "Aspirin", "Antiplatelet", "CAD / secondary prevention", ["antiplatelet", "aspirin"], ["cad", "pad"], "mg", [75, 81, 100, 300, 500], ["OD", "TID"], ["haemoglobin"]),
+  m("aspirin", "Aspirin", "Antiplatelet", "CAD / secondary prevention", ["antiplatelet", "aspirin"], ["cad", "pad"], "mg", [75, 81, 100, 150, 300, 500], ["OD", "TID"], ["haemoglobin"]),
   m("clopidogrel", "Clopidogrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12"], ["cad"], "mg", [75], ["OD"], ["haemoglobin"]),
   m("ticagrelor", "Ticagrelor", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12", "p2y12-potent"], ["cad"], "mg", [60, 90], ["BID"], ["haemoglobin"]),
   m("prasugrel", "Prasugrel", "P2Y12 inhibitor", "CAD / secondary prevention", ["antiplatelet", "p2y12", "p2y12-potent"], ["cad"], "mg", [5, 10], ["OD"], ["haemoglobin"]),

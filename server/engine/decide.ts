@@ -1,3 +1,4 @@
+import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
 // The pathway as the app's hidden decision engine (14 Oct 2026, Ahmed: "make the pathways the hidden brain …
 // collect the data needed for the decision and only give us what is necessary to fill before the decision").
 //
@@ -146,7 +147,7 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
   }
   if(iron) dueDates=ironDates(answers,ctx,dueDates);
-  const blockers = [wizardId === "pericarditis" ? validatePericardial(visibleAnswers(wizardId,answers),ctx,dueDates) : null, wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
+  const blockers = [wizardId === "pregnancy-plan" ? validatePregnancy(visibleAnswers(wizardId,answers),ctx,dueDates) : null, pregnancyOutcomeBlocker(wizardId,buildOutcome(wizardId,answers,ctx,dueDates),ctx,answers), wizardId === "pericarditis" ? validatePericardial(visibleAnswers(wizardId,answers),ctx,dueDates) : null, wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)

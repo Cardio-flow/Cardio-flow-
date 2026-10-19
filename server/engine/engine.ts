@@ -1,3 +1,4 @@
+import { pregnancyFindingAllowed } from "./pregnancy-rules.js";
 import type { Q } from "../db/db.js";
 import { createHash } from "node:crypto";
 import { uuid } from "../kernel/base.js";
@@ -54,7 +55,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
   // (medicine monitoring, guideline targets) re-runs whenever any measurement is recorded or corrected
   const anyResult = !!changed && changed.some((c) => c in MEASURES || c === "observations");
   const shouldRun = (rule: RuleDef) =>
-    s.deceased || !changed || rule.inputs.some((i) => changed.includes(i)) || (anyResult && rule.inputs.includes("observations")) || (changed.includes("contexts") && s.barriers.length > 0);
+    s.deceased || !changed || changed.includes("conditions") || changed.includes("history") || rule.inputs.some((i) => changed.includes(i)) || (anyResult && rule.inputs.includes("observations")) || (changed.includes("contexts") && s.barriers.length > 0);
   // Two reads for the whole patient instead of per rule (the database may be far away).
   const existing = (
     await tx.query<{ id: string; rule_id: string; fingerprint: string; rule_status: string; rule_version: number; rule_content_hash: string; status: string }>(
@@ -79,7 +80,7 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
     }
     if (!shouldRun(rule)) continue;
     const contentHash = ruleContentHash(rule, { ...rule.defaultParams, ...version.params }, version.evidence);
-    const findings = s.deceased ? [] : rule.evaluate(s, { ...rule.defaultParams, ...version.params }).filter((f) => !suppressed(s, f));
+    const findings = s.deceased ? [] : rule.evaluate(s, { ...rule.defaultParams, ...version.params }).filter((f) => !suppressed(s, f) && pregnancyFindingAllowed(s,rule.id,f));
     const seen = new Set<string>();
     for (const f of findings) {
       const fingerprint = `${f.key}|${f.signature}`;

@@ -1,3 +1,5 @@
+import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy.js";
+import { localDay } from "../../shared/clinical.js";
 import type { RuleDef, Finding } from "./rules.js";
 import { labResults } from "./lab-results.js";
 import {
@@ -91,25 +93,22 @@ export const LAB_RULES: RuleDef[] = [
       female_gdl: LAB_LIMITS.hbFemale,
       severe_gdl: LAB_LIMITS.severeHb,
     },
-    evidence: LAB_SOURCES.anaemia,
+    evidence: LAB_SOURCES.anaemia + " WHO 2024 Table 2: pregnancy Hb <11 first/third trimester, <10.5 second; severe <7. Confirmed obstetric dating interpreted at collection time (ACOG trimester boundaries).",
     evaluate(s, p) {
       const l = labResults(s),
         r = l.haemoglobin;
-      if (
-        s.patient.age < 18 ||
-        !r ||
-        r.value >=
-          Number(s.patient.sex === "Female" ? p.female_gdl : p.male_gdl)
-      )
-        return [];
+      const pregnancy=s.conditions.find(c=>c.code === "pregnancy-care")?.attributes;
+      const pregnant=pregnancy?.phase === "Pregnant";
+      const cutoff=pregnant && r ? pregnancyHaemoglobinCutoff(pregnancy.edd,localDay(r.at)) : null;
+      if(s.patient.age<18 || !r || r.value>=(pregnant ? cutoff ?? 11 : Number(s.patient.sex === "Female"?p.female_gdl:p.male_gdl)))return [];
       return [
         finding(
           l,
           ["haemoglobin", "mcv", "ferritin", "tsat", "egfr"],
           "anaemia-result",
-          `Haemoglobin ${r.value} g/dL: anaemia review`,
+          pregnant && cutoff==null ? `Haemoglobin ${r.value} g/dL: confirm pregnancy dating and current blood count` : `Haemoglobin ${r.value} g/dL: anaemia review`,
           "Assess bleeding and cause before choosing iron; urgent assessment for instability or severe anaemia.",
-          r.value < Number(p.severe_gdl) ? "red" : "orange",
+          r.value < (pregnant?7:Number(p.severe_gdl)) ? "red" : "orange",
           LAB_URLS.anaemia,
           Object.values(l)
             .filter((x) =>

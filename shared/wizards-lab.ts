@@ -66,6 +66,8 @@ const plan = (
 });
 const activeStatins = (c: WizardContext) =>
   c.meds.filter((m) => m.tags.includes("statin") && m.status !== "held");
+const severeHbLimit = (c: WizardContext) =>
+  c.pregnancy?.phase === "Pregnant" ? 7 : L.severeHb;
 const canTreat = (a: Answers) => a.scope === "standard" && !red(a);
 export function hfIronReview(c: WizardContext) {
   const l = c.lab ?? {},
@@ -337,8 +339,13 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
             ],
           },
           {
-            id: "ivChecks", label: "Before the first IV iron infusion", help: "Confirm each point (Ferinject SmPC 4.3/4.4)", type: "multi", required: true,
-            showIf: { question: "actions", includes: "iv" }, options: IRON_CHECKS.map((x) => ({ ...x })),
+            id: "ivChecks",
+            label: "Before the first IV iron infusion",
+            help: "Confirm each point (Ferinject SmPC 4.3/4.4)",
+            type: "multi",
+            required: true,
+            showIf: { question: "actions", includes: "iv" },
+            options: IRON_CHECKS.map((x) => ({ ...x })),
           },
           follow("Haemoglobin response review"),
         ],
@@ -346,7 +353,7 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
     ],
     outcome(a, c) {
       const out: OutcomeItem[] = [];
-      if (red(a) || (c.lab?.haemoglobin?.value ?? Infinity) < L.severeHb)
+      if (red(a) || (c.lab?.haemoglobin?.value ?? Infinity) < severeHbLimit(c))
         return [
           plan(
             c,
@@ -385,7 +392,8 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
           label: "Ferrous sulfate 200 mg daily (≈65 mg elemental iron)",
         });
       // HF IV iron: the label dose (Hb and weight), dated infusions and the recheck (shared with the IV iron pathway)
-      if (includes(a, "actions", "iv")) out.push(...ironOutcome({ decision: "give", start: "0" }, c));
+      if (includes(a, "actions", "iv"))
+        out.push(...ironOutcome({ decision: "give", start: "0" }, c));
       if (includes(a, "actions", "cause"))
         out.push(
           plan(
@@ -465,7 +473,8 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
               },
               {
                 value: "amiodarone",
-                label: "Amiodarone: reduce the dose or stop (prescriber decision)",
+                label:
+                  "Amiodarone: reduce the dose or stop (prescriber decision)",
                 requires: ["amiodarone"],
               },
               {
@@ -514,7 +523,13 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
             label: `${m.name}: pause pending liver review`,
           });
       if (includes(a, "actions", "amiodarone"))
-        out.push(plan(c, "Amiodarone and raised transaminases: reduce the dose or stop (SmPC 4.4)", "medication"));
+        out.push(
+          plan(
+            c,
+            "Amiodarone and raised transaminases: reduce the dose or stop (SmPC 4.4)",
+            "medication",
+          ),
+        );
       if (includes(a, "actions", "limits") || !known)
         out.push(
           plan(
@@ -654,7 +669,9 @@ export const LAB_WIZARDS: Record<string, WizardDef> = {
             : null;
         if (event)
           // a held statin can still be stopped for good (CK pathway)
-          for (const m of event === "stop" ? c.meds.filter((x) => x.tags.includes("statin")) : activeStatins(c))
+          for (const m of event === "stop"
+            ? c.meds.filter((x) => x.tags.includes("statin"))
+            : activeStatins(c))
             out.push({
               kind: "medication",
               medicationId: m.id,
@@ -735,7 +752,7 @@ export function labSuggestions(
           : []),
       ];
     if (id === "anaemia-result") {
-      if (red(a) || (c.lab?.haemoglobin?.value ?? Infinity) < L.severeHb)
+      if (red(a) || (c.lab?.haemoglobin?.value ?? Infinity) < severeHbLimit(c))
         return [
           rec(
             "specialist",
@@ -778,8 +795,15 @@ export function labSuggestions(
             : "limits",
           "ESC/EAS: ≥3× ULN stop or reduce; below 3× continue with repeat testing",
         ),
-        ...(known && high && c.meds.some((m) => m.tags.includes("amiodarone") && m.status !== "held")
-          ? [rec("amiodarone", "Amiodarone SmPC 4.4: transaminases >3× ULN — reduce the dose or withdraw amiodarone")]
+        ...(known &&
+        high &&
+        c.meds.some((m) => m.tags.includes("amiodarone") && m.status !== "held")
+          ? [
+              rec(
+                "amiodarone",
+                "Amiodarone SmPC 4.4: transaminases >3× ULN — reduce the dose or withdraw amiodarone",
+              ),
+            ]
           : []),
         rec(
           red(a) ? "specialist" : "cause",
@@ -829,7 +853,7 @@ export function labSuggestions(
               ? "14"
               : "28"
             : id === "anaemia-result"
-              ? (c.lab?.haemoglobin?.value ?? Infinity) < L.severeHb
+              ? (c.lab?.haemoglobin?.value ?? Infinity) < severeHbLimit(c)
                 ? "0"
                 : "28"
               : "28",

@@ -1,3 +1,4 @@
+import { pregnancySuggestions } from "./wizards-pregnancy.js";
 import { pericardialSuggestions } from "./wizards-pericardial.js";
 import { aortaUrgent } from "./wizards-aorta.js";
 import { syncopeConcern } from "./wizards-syncope.js";
@@ -56,6 +57,7 @@ const lowest = (c: WizardContext, tag: string) => {
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
+  "pregnancy-plan":pregnancySuggestions,
   "medication-monitoring": {
     medicationChecks:(_a,c)=>(c.medicationReview?.checks ?? []).map(check=>S(check.id,`${check.medicines.join(", ")}: ${check.sources.join("; ")}`)),
     monitorDate:(_a,c)=>[S(c.today,"Monitoring is already due; choose an actual date or use today")],

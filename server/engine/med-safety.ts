@@ -1,3 +1,4 @@
+import { pregnancyDrugIssue, PREGNANCY_SOURCE } from "../../shared/pregnancy.js";
 import { labResults } from "./lab-results.js";
 import { medicationOverlaps } from "../../shared/medication-identity.js";
 import { ratio, LAB_LIMITS, LAB_URLS } from "../../shared/lab-review.js";
@@ -643,7 +644,10 @@ export function preStartCheck(s: PatientState, code: string, def: { name: string
     .filter(({ hit }) => hit.meds.some((m) => m.code === code))
     .map(({ row, hit }) => ({ severity: hit.severity ?? row.severity, title: row.title(hit), detail: hit.reason ? `${hit.reason}. ${row.detail}`.replace(/\.\. /, ". ") : row.detail, source: row.source }))
     .map(hit => ({...hit, requiresReview: false}));
-  return [...clinicalHits, ...overlapHits].sort((a, b) => order[a.severity] - order[b.severity]);
+  const pregnancy=s.conditions.find(c=>c.code === "pregnancy-care")?.attributes;
+  const pregnancyIssue=pregnancyDrugIssue(pregnancy?.phase??null,pregnancy?.breastfeeding??null,code,def.tags);
+  const pregnancyHits=pregnancyIssue?[{severity:"orange" as const,requiresReview:false,title:`${def.name}: pregnancy / breastfeeding review`,detail:pregnancyIssue.reason,source:PREGNANCY_SOURCE}]:[];
+  return [...clinicalHits, ...overlapHits, ...pregnancyHits].sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
 export function proposedMedicines(s: PatientState, codes: string[]): PatientState {

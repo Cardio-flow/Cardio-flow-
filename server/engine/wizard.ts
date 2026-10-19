@@ -1,3 +1,5 @@
+import { pregnancyProfile } from "./pregnancy-profile.js";
+import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
 import { medicationReviewContext } from "./medication-review.js";
 import { validateMedicationMonitoring } from "../../shared/wizards-medication.js";
 import { pericardialProfile } from "./pericardial-profile.js";
@@ -117,6 +119,8 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
       else base.detected.paAction = [hypertension.pa.result === "Positive" ? "refer" : hypertension.pa.reliable && hypertension.pa.result === "Negative" ? "reviewed" : "repeat"];
     }
   }
+  const pregnancyForScope=pregnancyProfile(s);
+  if(["vitamin-d-result","anaemia-result","liver-result","statin-ck-result"].includes(wizardId) && pregnancyForScope.eligible && (pregnancyForScope.phase === "Pregnant" || pregnancyForScope.phase === "Postpartum" && pregnancyForScope.breastfeeding!=="No"))base.detected.scope=["specialist"];
   const values: NonNullable<WizardContext["values"]> = {};
   for (const code of Object.keys(MEASURES)) {
     const h = series(s, code).filter((o) => o.value_num != null && o.status === "final");
@@ -264,7 +268,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if(syncope.standing)base.facts.push({label:"Standing BP report",value:syncope.standing.result,date:syncope.standing.at});
     for(const concern of syncope.urgent)base.facts.push({label:"Recorded concern",value:concern,tone:"red"});
   }
-  return { ...base, pericardial, medicationReview: wizardId === "medication-monitoring" ? medicationReviewContext(s) : undefined, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, pregnancy:pregnancyProfile(s), pericardial, medicationReview: wizardId === "medication-monitoring" ? medicationReviewContext(s) : undefined, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -304,7 +308,7 @@ export async function completeWizard(
   await liveContext(tx,patientId,input.contextId);
   const def = WIZARDS[wizardId];
   if (!def) throw new ApiError(404, "Unknown wizard");
-  if(wizardId === "pericarditis")input={...input,answers:visibleAnswers(wizardId,input.answers)};
+  if(["pericarditis","pregnancy-plan"].includes(wizardId))input={...input,answers:visibleAnswers(wizardId,input.answers)};
   for (const step of def.steps) {
     const missing = missingRequired(step, input.answers);
     if (missing.length) throw new ApiError(400, `Answer "${missing[0].label}" before confirming`);
@@ -321,6 +325,7 @@ export async function completeWizard(
     const error=validateMedicationMonitoring(input.answers,ctx);
     if(error)throw new ApiError(400,error);
   }
+  if(wizardId === "pregnancy-plan") {const error=validatePregnancy(input.answers,ctx,input.dueDates);if(error)throw new ApiError(400,error);}
   const priority = potassiumFirst(wizardId,ctx);
   if (priority) throw new ApiError(409,priority);
   if(wizardId === "aorta-plan"){
@@ -379,6 +384,7 @@ export async function completeWizard(
     if (!validDate(day) || day < ctx.today) throw new ApiError(400, `${item.title}: choose today or a later date`);
   }
   const outcome = buildOutcome(wizardId, input.answers, ctx, input.dueDates);
+  const pregnancyBlock=pregnancyOutcomeBlocker(wizardId,outcome,ctx,input.answers);if(pregnancyBlock)throw new ApiError(409,pregnancyBlock);
   // the clinician may move a planned date (keyed by the plan item's title); never before today
   for (const item of outcome)
     if (item.kind === "plan" && input.dueDates && Object.hasOwn(input.dueDates, item.title)) {
@@ -399,6 +405,13 @@ export async function completeWizard(
     if (!why || why.length < 3) throw new ApiError(409, `${MEDICATION[item.code].name}: ${reds[0].title}. Record a reason to start it anyway.`);
     startWhy[item.code] = `Started despite: ${reds.map((h) => h.title).join("; ")} — ${why}`.slice(0, 300);
   }
+  // Own confirmed prophylaxis must not reopen the care plan immediately. Use the
+  // expected post-start regimen, without depending on the future medication UUID.
+  const pregnancyAfter={...afterStops,meds:afterStops.meds.map(m=>{
+    const start=outcome.find(o=>o.kind === "start" && o.code === m.code);
+    return start?.kind === "start" && !s.meds.some(old=>old.code===m.code && ["active","held"].includes(old.status))?{...m,doseValue:start.doseValue,frequency:start.frequency}:m;
+  })};
+  const pregnancyDecisionKey=wizardId === "pregnancy-plan"?pregnancyProfile(pregnancyAfter).key:null;
   const decisionId = uuid();
   const at = nowIso();
   // the complication episode: the first completion opens it, later ones are its reviews
@@ -414,7 +427,7 @@ export async function completeWizard(
   }
   await tx.query(
     `INSERT INTO cf.decision(id,patient_id,recommendation_id,wizard,outcome,answers,context_id,decided_by,episode_id) VALUES($1,$2,$3,$4,'acted',$5,$6,$7,$8)`,
-    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "pericarditis" ? {_pericardialKey:ctx.pericardial!.key}:{}), ...(wizardId === "aorta-plan" ? {_aortaKey:ctx.aorta!.key}:{}), ...(wizardId === "syncope" ? {_syncopeKey:ctx.syncope!.key}:{}), _dueDates:input.dueDates ?? {}, ...(["htn-review","htn-resistance","htn-secondary","rdn-plan","after-rdn"].includes(wizardId) ? {_hypertensionKey:ctx.hypertension!.key,...(wizardId === "htn-review" ? {_managementKey:ctx.hypertension!.managementKey} : {}),...(wizardId === "htn-resistance" ? {_resistanceKey:ctx.hypertension!.resistanceKey} : {}),...(wizardId === "after-rdn" ? {_procedureId:ctx.hypertension!.actual!.id} : {})} : {}), ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
+    [decisionId, patientId, input.recommendationId ?? null, wizardId, JSON.stringify({ ...input.answers, ...(wizardId === "pregnancy-plan" ? {_pregnancyKey:pregnancyDecisionKey}:{}), ...(wizardId === "pericarditis" ? {_pericardialKey:ctx.pericardial!.key}:{}), ...(wizardId === "aorta-plan" ? {_aortaKey:ctx.aorta!.key}:{}), ...(wizardId === "syncope" ? {_syncopeKey:ctx.syncope!.key}:{}), _dueDates:input.dueDates ?? {}, ...(["htn-review","htn-resistance","htn-secondary","rdn-plan","after-rdn"].includes(wizardId) ? {_hypertensionKey:ctx.hypertension!.key,...(wizardId === "htn-review" ? {_managementKey:ctx.hypertension!.managementKey} : {}),...(wizardId === "htn-resistance" ? {_resistanceKey:ctx.hypertension!.resistanceKey} : {}),...(wizardId === "after-rdn" ? {_procedureId:ctx.hypertension!.actual!.id} : {})} : {}), ...(["tavi-plan","teer-plan","other-structural-plan"].includes(wizardId) ? {_preparationKey:structuralEvidenceKey(s),_planningId:structuralPlanning(ctx,wizardId === "tavi-plan" ? "TAVI" : wizardId === "teer-plan" ? input.answers.target === "tricuspid" ? "Tricuspid TEER" : "Mitral TEER" : "Valve-in-valve / other transcatheter valve")?.id ?? null} : {}), ...(wizardId === "after-structural" ? {_procedureId:ctx.structural!.actual!.id,_echoId:ctx.structural!.latestEchoId} : {}), ...(wizardId === "after-laao" ? { _procedureId: ctx.afProcedures!.closure!.id, _imagingId: ctx.afProcedures!.imaging?.id ?? null } : wizardId === "after-af-ablation" ? { _procedureId: ctx.afProcedures!.ablation!.id } : {}) }), input.contextId ?? null, actor.id, episodeId],
   );
   const changed: Changed = ["plan", "episodes", "pathways"];
   // medicines started by the pathway come first so dated plan items can link to them

@@ -1,3 +1,5 @@
+import { PREGNANCY_WIZARDS } from "./wizards-pregnancy.js";
+import type { PregnancyContext } from "./pregnancy.js";
 import type { PericardialContext } from "./pericardial.js";
 // Config-driven complication wizards. One engine renders every wizard; a new
 // complication is new content here, not new UI code. `buildOutcome` is shared so
@@ -72,7 +74,7 @@ export type WizardDef = {
   tone: "red" | "orange" | "yellow" | "blue";
   steps: Step[];
   note: string;
-  group?: "Aortic disease" | "Hypertension" | "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
+  group?: "Pregnancy & heart disease" | "Aortic disease" | "Hypertension" | "Heart failure" | "Rhythm & devices" | "Valve disease" | "Cardiomyopathy" | "Pulmonary hypertension" | "Acute & safety" | "Diabetes" | "Procedures & general medicine" | "Inflammatory & infective heart disease" | "Coronary";
   source?: string;
   sourceShort?: string;
   // what the "recheck" answer books (default: renal function and potassium)
@@ -101,6 +103,7 @@ export type WizardMed = {
   startedAt?: string | null;
 };
 export type WizardContext = {
+  pregnancy?: PregnancyContext;
   pericardial?: PericardialContext;
   medicationReview?: MedicationReviewContext;
   aorta?: AortaContext;
@@ -619,6 +622,7 @@ export const WIZARDS: Record<string, WizardDef> = {
   ...CMP_WIZARDS,
   ...PH_WIZARDS,
   ...AORTA_WIZARDS,
+  ...PREGNANCY_WIZARDS,
   ...MEDICATION_WIZARDS, ...SYNCOPE_WIZARDS, ...IRON_WIZARDS,
 };
 
@@ -746,7 +750,7 @@ export type OutcomeItem =
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
-  if(wizardId === "pericarditis")answers=visibleAnswers(wizardId,answers);
+  if(["pericarditis","pregnancy-plan"].includes(wizardId))answers=visibleAnswers(wizardId,answers);
   const out: OutcomeItem[] = [];
   const actions = (answers.actions as string[] | undefined) ?? [];
   const today = ctx.today;
@@ -884,7 +888,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
   const aorta = wizardId === "aorta-plan";
-  const htn = wizardId === "pericarditis" || wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
+  const htn = wizardId === "pregnancy-plan" || wizardId === "pericarditis" || wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];
@@ -896,6 +900,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       if ((aorta || wizardId === "pericarditis") && target.purpose === "Surveillance" && p.dueDate !== date) return false;
       if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
       if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!(aorta || wizardId === "pericarditis") || (p.completesOn.method === target.method && p.completesOn.procedureId === target.procedureId));
+      if(wizardId === "pregnancy-plan" && target.type === "manual")return p.completesOn.purpose === target.purpose && p.dueDate === date;
       if(wizardId === "pericarditis" && target.type === "manual" && target.purpose === "pericardial-review")return p.completesOn.purpose === target.purpose && p.dueDate === date;
       return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
     }) : null;

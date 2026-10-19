@@ -101,6 +101,7 @@ function useNarrow() {
 
 export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   const act = a.action ?? {};
+  if(act.type === "pregnancy-context")return <button className="go" onClick={()=>open({kind:"pregnancy-context"})}>{act.label}</button>;
   // after a PCI, the stop dates are set on the next-steps sheet (timeline) rather than in the pathway
   if (act.type === "wizard" && act.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title))
     return (
@@ -111,7 +112,7 @@ export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
   if (act.type === "wizard")
     return (
       <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: act.standalone ? undefined : a.id })}>
-        {({ "vitamin-d-result":"Review vitamin D", "anaemia-result":"Review anaemia", "iv-iron":"Plan IV iron", "liver-result":"Review liver tests", "statin-ck-result":"Review statin CK", hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
+        {({ "pregnancy-plan":"Review pregnancy care", "vitamin-d-result":"Review vitamin D", "anaemia-result":"Review anaemia", "iv-iron":"Plan IV iron", "liver-result":"Review liver tests", "statin-ck-result":"Review statin CK", hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
           shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
           "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
           "htn-review": "Review hypertension", "htn-resistance": "Verify resistance", "htn-secondary": "Screen secondary causes", "rdn-plan": "Assess RDN", "after-rdn": "Review RDN recovery",

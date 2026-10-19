@@ -4,7 +4,7 @@ Clinical owner request, 18 October 2026:
 
 1. Medication review: finish and verify the integrated medication decisions first.
 2. Pericardial diseases: audit and extend the existing inflammatory/pericarditis paths rather than introducing a parallel module.
-3. Pregnancy and heart disease.
+3. Pregnancy and heart disease (current slice; evidence: docs/pregnancy-evidence.md).
 4. Obesity.
 5. Cardio-oncology.
 6. Peripheral arterial disease (PAD).

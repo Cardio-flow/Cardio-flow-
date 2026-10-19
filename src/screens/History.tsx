@@ -26,9 +26,10 @@ export function HistoryTab({ id, version, open }: { id: string; version: number;
           <h1 style={{ fontSize: 22 }}>History</h1>
           <p>Past cardiac events by year, risk factors and other conditions. A blank is shown as not recorded, never as no.</p>
         </div>
+        <div className="row wrap"><button className="btn secondary small" onClick={()=>open({kind:"pregnancy-context"})}>Pregnancy context</button>
         <button className="btn primary" onClick={() => open({ kind: "history" })}>
           <ClipboardList size={18} /> Update history
-        </button>
+        </button></div>
       </div>
       <div className="grid-main">
         <div className="stack">

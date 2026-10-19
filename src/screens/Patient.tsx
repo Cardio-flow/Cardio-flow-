@@ -1,3 +1,4 @@
+import { PregnancyContextDrawer } from "../drawers/Pregnancy";
 import { lazy, Suspense, useCallback, useState, useEffect } from "react";
 import {
   FlaskConical,
@@ -82,6 +83,7 @@ export type Open =
   | { kind: "visit"; contextId?: string }
   | { kind: "context-edit"; context: any; remove?: boolean }
   | { kind: "dx" }
+  | { kind: "pregnancy-context" }
   | { kind: "dx-manage" }
   | { kind: "procedure-pick" }
   | {
@@ -733,6 +735,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               </div>
             </Drawer>
           )}
+          {open?.kind === "pregnancy-context" && <PregnancyContextDrawer patientId={id} onClose={close} onDone={done}/>}
           {open?.kind === "dx" && (
             <AddDiagnosis
               patientId={id}
@@ -763,7 +766,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
               summary={s}
               onClose={close}
               onPick={(w) =>
-                setOpen({
+                w === "pregnancy-plan" && !(s.pregnancy?.eligible && s.pregnancy?.phase) ? setOpen({kind:"pregnancy-context"}) : setOpen({
                   kind: "wizard",
                   wizard: w,
                   recommendationId: s.attention.find(

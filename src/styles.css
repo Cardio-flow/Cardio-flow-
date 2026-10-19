@@ -508,12 +508,11 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: ver
 
 /* ---- narrow cards (container queries): stack instead of overlapping ---- */
 @container (max-width: 620px) {
-  .plan-row { grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "mark title act" "mark meta act"; row-gap: 6px; }
+  .plan-row { grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "mark title act" "mark date act" "mark status act"; row-gap: 6px; }
   .plan-row > :nth-child(1) { grid-area: mark; align-self: start; margin-top: 2px; }
   .plan-row > :nth-child(2) { grid-area: title; }
-  .plan-row > :nth-child(3), .plan-row > :nth-child(4) { grid-area: meta; }
-  .plan-row > :nth-child(3) { justify-self: start; }
-  .plan-row > :nth-child(4) { justify-self: start; margin-left: 130px; }
+  .plan-row > :nth-child(3) { display: block; grid-area: date; justify-self: start; }
+  .plan-row > :nth-child(4) { display: block; grid-area: status; justify-self: start; }
   .plan-row > :nth-child(5) { grid-area: act; }
   .changes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .alert { flex-wrap: wrap; }
@@ -2022,3 +2021,8 @@ table.data.meds td.med-compact { display: none; }
 .med-review-row > .go {border:0;border-radius:8px;background:#e7f0fc;color:#165caa;font-weight:700;padding:8px 10px;min-height:34px;cursor:pointer;}
 .med-review-row > .go:hover {background:#d5e6fb;}
 .med-review-row > .go:focus-visible {outline:2px solid #165caa;outline-offset:2px;}
+
+/* Pregnancy context uses the existing record drawer and care cards. */
+.pregnancy-fields {background:linear-gradient(145deg,#f3f5ff,#fff 65%);border:1px solid #e1e5f4;border-radius:14px;padding:4px 14px 14px;}
+.pregnancy-extra {border-top:1px solid var(--line);margin-top:14px;padding-top:12px;}
+.pregnancy-extra > summary {font-size:13px;font-weight:700;color:var(--navy);cursor:pointer;}

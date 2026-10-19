@@ -1,3 +1,4 @@
+import { PregnancyFields } from "./Pregnancy";
 // Edit one diagnosis (7 Oct 2026): its details and onset, change it to another diagnosis (it changed over time,
 // or it was the wrong pick), or remove it (resolved / entered in error). History is kept: nothing is overwritten.
 import { useState } from "react";
@@ -77,6 +78,7 @@ export function EditDiagnosis({ patientId, dx, onClose, onDone }: { patientId: s
                 <input className={`input ${yearBad ? "bad" : ""}`} inputMode="numeric" placeholder="YYYY" disabled={!!onset} value={year} onChange={(e) => setYear(e.target.value.replace(/[^\d]/g, "").slice(0, 4))} />
               </label>
             </div>
+            {dx.code === "pregnancy-care" && <PregnancyFields value={attrs} onChange={setAttrs}/>}
             {fields.filter((f) => fieldShown(f, attrs)).map((f) => (
               <div key={f.key} className="q">
                 <div className="label">{f.label}</div>
@@ -93,7 +95,7 @@ export function EditDiagnosis({ patientId, dx, onClose, onDone }: { patientId: s
                 )}
               </div>
             ))}
-            {!fields.length && <div className="help">No further details are recorded for this diagnosis.</div>}
+            {!fields.length && dx.code !== "pregnancy-care" && <div className="help">No further details are recorded for this diagnosis.</div>}
           </section>
         )}
         {what === "change" && (

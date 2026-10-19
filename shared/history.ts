@@ -1,3 +1,4 @@
+import { cleanPregnancy } from "./pregnancy.js";
 // Structured history: risk factors and past cardiac history.
 //
 // Every question separates Yes / No / Unknown / Not assessed (/ Not applicable), so a
@@ -203,6 +204,7 @@ export const siblingsOf = (code: string) => ONE_OF.find((s) => s.includes(code))
 
 // "Aortic · Mechanical", "LAD, RCA", "STEMI"
 export function attributesText(code: string, attributes: Record<string, unknown> | null | undefined) {
+  if(code === "pregnancy-care") return [attributes?.phase, attributes?.mwho && attributes.mwho !== "Not assessed" ? `mWHO ${attributes.mwho}` : null].filter(Boolean).join(" · ");
   const fields = DIAGNOSIS_ATTRIBUTES[code] ?? [];
   return fields
     .map((f) => {
@@ -218,6 +220,7 @@ export function attributesText(code: string, attributes: Record<string, unknown>
 
 // Validates attributes against the catalogue (unknown keys and values are rejected).
 export function cleanAttributes(code: string, attributes: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if(code === "pregnancy-care")return cleanPregnancy(attributes ?? {});
   const out: Record<string, unknown> = {};
   const fields = DIAGNOSIS_ATTRIBUTES[code] ?? [];
   for (const [k, v] of Object.entries(attributes ?? {})) {

@@ -58,6 +58,7 @@ export function MedicationReview({
           </button>
         )}
       </div>
+      {review.renalNote && <p className="med-review-empty">{review.renalNote}</p>}
       {review.renal && (
         <div className="med-review-renal">
           CrCl {review.renal.value} mL/min{" "}

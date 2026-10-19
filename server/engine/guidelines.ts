@@ -794,6 +794,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
 
 // Therapy & targets panel for the Summary
 export function targets(s: PatientState) {
+  const pregnancy=s.conditions.find(c=>c.code === "pregnancy-care")?.attributes;
+  const pregnant=pregnancy?.phase === "Pregnant";
+  const lactation=pregnancy?.phase === "Postpartum" && pregnancy.breastfeeding!=="No";
   const risk = lipidRisk(s);
   const ldl = cur(s, "ldl-c");
   const sbp = bpResult(s, "sbp", 180), dbp = bpResult(s, "dbp", 180);
@@ -802,12 +805,12 @@ export function targets(s: PatientState) {
   const b = patientBmi(s);
   const af = s.tags.has("af") ? cha2ds2va(s) : null;
   return {
-    hf: fmtStatus(s),
+    hf: pregnant || lactation?null:fmtStatus(s),
     ldl: risk
       ? { category: risk.category, why: risk.why, goal: risk.goal, value: ldl?.value_num ?? null, at: ldl?.effective_at ?? null, met: ldl?.value_num != null ? ldl.value_num < risk.goal : null,
           therapy: live(s).filter((m) => m.tags.includes("lipid")).map(medLine) }
       : null,
-    bp: has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") ? { target: individualBp ? "Individualized" : "120–129", diastolicTarget: individualBp ? null : "70–79", sbp: sbp?.value_num ?? null, dbp: pairedBp || !sbp ? dbp?.value_num ?? null : null, at: sbp?.effective_at ?? dbp?.effective_at ?? null, met: !individualBp && pairedBp ? sbp!.value_num! < 130 && dbp!.value_num! < 80 : null } : null,
+    bp: pregnant ? {target:"<140",diastolicTarget:"<90",label:"Pregnancy BP target <140/90 mmHg (ESC 2025)",sbp:sbp?.value_num??null,dbp:pairedBp?dbp?.value_num??null:null,at:sbp?.effective_at??null,met:pairedBp?sbp!.value_num!<140 && dbp!.value_num!<90:null} : has(s, "htn") || s.tags.has("ascvd") || s.tags.has("dm") ? { target: individualBp ? "Individualized" : "120–129", diastolicTarget: individualBp ? null : "70–79", sbp: sbp?.value_num ?? null, dbp: pairedBp || !sbp ? dbp?.value_num ?? null : null, at: sbp?.effective_at ?? dbp?.effective_at ?? null, met: !individualBp && pairedBp ? sbp!.value_num! < 130 && dbp!.value_num! < 80 : null } : null,
     metabolic: s.tags.has("dm") || (b != null && b >= 27)
       ? { bmi: b, hba1c: cur(s, "hba1c")?.value_num ?? null, sglt2: onTag(s, "sglt2").map(medLine), glp1: onTag(s, "glp1").map(medLine) }
       : null,
@@ -816,13 +819,13 @@ export function targets(s: PatientState) {
           const t = glycaemicTarget(s, DIABETES_RULES.find((r) => r.id === "dm.glycaemic-control")!.defaultParams as any);
           const a1c = cur(s, "hba1c");
           return {
-            hba1c: a1c?.value_num ?? null, at: a1c?.effective_at ?? null, target: t.label, source: t.source, reasons: t.reasons,
-            met: a1c?.value_num != null && t.value != null ? a1c.value_num < t.value : null,
+            hba1c: a1c?.value_num ?? null, at: a1c?.effective_at ?? null, target: pregnant?"Pregnancy-specific obstetric / diabetes target":t.label, source: pregnant?"Individualized pregnancy diabetes care":t.source, reasons: t.reasons,
+            met: !pregnant && a1c?.value_num != null && t.value != null ? a1c.value_num < t.value : null,
             therapy: live(s).filter((m) => ["metformin", "sglt2", "glp1", "dpp4", "sulfonylurea", "tzd", "insulin"].some((x) => m.tags.includes(x))).map(medLine),
           };
         })()
       : null,
-    af: af ? { score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), inrTarget: s.tags.has("mechanical-valve") ? (mechanicalInrTarget(s) ?? "unset") : null, inr: recent(s, "inr", 30)?.value_num ?? null, onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
+    af: af ? { assessmentLabel:pregnant || pregnancy?.phase === "Postpartum"?"Pregnancy Heart Team risk review":null, score: af.score, items: af.items.map((i) => i.label), oac: onTag(s, "oac").map(medLine), vkaOnly: s.tags.has("mechanical-valve") || s.tags.has("ms-significant"), inrTarget: s.tags.has("mechanical-valve") ? (mechanicalInrTarget(s) ?? "unset") : null, inr: recent(s, "inr", 30)?.value_num ?? null, onVka: onTag(s, "oac").some((m) => m.code === "warfarin") } : null,
     kidney: (() => {
       const t = creatinineTrend(s);
       return {

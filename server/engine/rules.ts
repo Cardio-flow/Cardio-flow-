@@ -1,3 +1,4 @@
+import { PREGNANCY_RULES } from "./pregnancy-rules.js";
 import { AORTA_RULES } from "./aorta-rules.js";
 import { SYNCOPE_RULES } from "./syncope-rules.js";
 import { renalReview, RENAL_REVIEW_PARAMS } from "./renal-review.js";
@@ -49,7 +50,8 @@ export type Finding = {
     | { type: "med-correct"; medicationId: string; label: string }
     | { type: "med-action"; medicationId: string; action?: "stop" | "hold" | "decrease" | "resume"; label: string }
     | { type: "history"; focus: "risk" | "cardiac"; label: string }
-    | { type: "edit-dx"; code: string; label: string };
+    | { type: "edit-dx"; code: string; label: string }
+    | { type: "pregnancy-context"; label:string };
   // guideline provenance shown in "Why?"
   source?: string;
 };
@@ -73,6 +75,7 @@ const day = (iso: string) => fmtDay(iso);
 
 import { RENAL_DEFAULTS, creatinineTrend } from "./renal-trend.js";
 export const RULES: RuleDef[] = [
+  ...PREGNANCY_RULES,
   ...AORTA_RULES, ...SYNCOPE_RULES,
   {
     id: "hf.hyperkalaemia-review",
@@ -270,7 +273,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-19.history-medication-pericardial1";
+export const RULESET = "2026-10-19.pregnancy1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

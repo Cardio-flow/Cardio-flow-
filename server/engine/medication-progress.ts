@@ -34,6 +34,7 @@ export function hfDoseProgress(
     "code" | "doseValue" | "doseUnit" | "frequency" | "route" | "status"
   >,
 ) {
+  if(s.conditions.some(c=>c.code === "pregnancy-care" && (c.attributes.phase === "Pregnant" || c.attributes.phase === "Postpartum" && c.attributes.breastfeeding!=="No")))return null;
   if (!hfPhenotype(s) || !TARGET_FREQUENCY[m.code]) return null;
   const def = MEDICATION[m.code];
   if (!def?.target) return null;
