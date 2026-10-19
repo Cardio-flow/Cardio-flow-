@@ -519,6 +519,15 @@ export const PREGNANCY_WIZARDS: Record<string, WizardDef> = {
             { type: "manual", purpose: "pregnancy-medication" },
           ),
         );
+      if (p.phase === "Pregnant" && p.hypertensive && !p.severeBp)
+        out.push(
+          plan(
+            "Pregnancy: BP and antihypertensive treatment review",
+            date,
+            "follow_up",
+            { type: "manual", purpose: "pregnancy-bp-review" },
+          ),
+        );
       if (a.anticoag === "team")
         out.push(
           plan(
@@ -634,6 +643,11 @@ export const PREGNANCY_WIZARDS: Record<string, WizardDef> = {
         out.push({
           kind: "note",
           label: `Postpartum medicines: review lactation (${p.breastfeeding ?? "not recorded"}), maternal recovery and infant monitoring; do not discontinue HF therapy solely because EF recovered.`,
+        });
+      if (p.phase === "Pregnant" && p.hypertensive && !p.severeBp)
+        out.push({
+          kind: "note",
+          label: "BP above pregnancy target <140/90: confirm paired readings and review pregnancy-compatible antihypertensive treatment with obstetrics. Severe BP ≥160 systolic or ≥110 diastolic requires urgent assessment.",
         });
       if (p.hasHeartFailure)
         out.push({

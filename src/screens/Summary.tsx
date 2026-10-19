@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { MedicationReviewLink } from "./MedicationReview";
-import { Pulse } from "./Pulse";
+import { Pulse, toneOf } from "./Pulse";
 import { BookOpen, Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
@@ -49,7 +49,8 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   );
   const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
   const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
-  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", s.results?.length ?? 0], ["plan", "Plan", planned]];
+  const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
+  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
   if (narrow)
     return (
       <main className="page overview-page">
@@ -535,7 +536,9 @@ function MedTag({ m, s }: { m: any; s: any }) {
 
 function Results({ s, open }: { s: any; open(o: Open): void }) {
   const [all, setAll] = useState(false);
+  const results = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr"));
   const tone = (r: any): Sev => {
+    if (s.pregnancy?.phase === "Pregnant" && r.code === "haemoglobin") return toneOf(r, s);
     const v = r.latest?.value ?? r.current.value;
     if (r.ref?.high != null && v > r.ref.high) return r.code === "potassium" || r.code === "creatinine" ? (r.code === "potassium" ? "red" : "orange") : "orange";
     if (r.ref?.low != null && v < r.ref.low) return "orange";
@@ -547,8 +550,8 @@ function Results({ s, open }: { s: any; open(o: Open): void }) {
         <h2><FlaskConical size={19} aria-hidden="true" /> Latest results</h2>
         <button className="btn ghost small" onClick={() => open({ kind: "labs" })}>+ Add</button>
       </div>
-      {s.results.length === 0 && <div className="empty">No results yet.</div>}
-      {(all ? s.results : s.results.slice(0, 8)).map((r: any) => {
+      {results.length === 0 && <div className="empty">No results yet.</div>}
+      {(all ? results : results.slice(0, 8)).map((r: any) => {
         const t = tone(r);
         const latest = r.latest ?? r.current;
         const trend = r.trend;
@@ -571,7 +574,7 @@ function Results({ s, open }: { s: any; open(o: Open): void }) {
           </details>
         );
       })}
-      {s.results.length > 8 && <button className="btn ghost small snapshot-more" aria-expanded={all} onClick={() => setAll(!all)}>{all ? "Key results" : `All results (${s.results.length})`}</button>}
+      {results.length > 8 && <button className="btn ghost small snapshot-more" aria-expanded={all} onClick={() => setAll(!all)}>{all ? "Key results" : `All results (${results.length})`}</button>}
       {s.lvef && (
         <div className="res" style={{ borderTop: "1px solid var(--line-2)", paddingTop: 12, marginTop: 4 }}>
           <span className="l">LVEF</span>
@@ -632,7 +635,7 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
   const t = s.targets;
   if (!t) return null;
   const blocks = [t.ldl, t.bp, t.metabolic, t.diabetes, t.af].filter(Boolean);
-  if (!blocks.length && t.kidney.egfr == null) return null;
+  if (!blocks.length && t.kidney.egfr == null && t.kidney.creatinineCurrent == null) return null;
   const num = (v: number | null, d = 0) => (v == null ? "—" : formatNumber(v, d));
   return (
     <section className="card pad targets" aria-labelledby="tgt">
@@ -706,13 +709,19 @@ function Targets({ s, open }: { s: any; open(o: Open): void }) {
             <Goal label="AF stroke risk" value={`CHA₂DS₂-VA ${t.af.score}`} goal={t.af.score >= 2 ? "OAC recommended" : t.af.score === 1 ? "Consider OAC" : "No OAC indicated"} met={t.af.score === 0 || t.af.oac.length > 0} sub={t.af.oac.length ? t.af.oac.join(" · ") : t.af.items.join(" · ")} />
           )
         )}
-        <Goal
+        {s.pregnancy?.phase === "Pregnant" ? <Goal
+          label="Pregnancy renal assessment"
+          value={[t.kidney.creatinineCurrent != null ? `Creatinine ${num(t.kidney.creatinineCurrent)} µmol/L` : null, t.kidney.uacr != null ? `UACR ${num(t.kidney.uacr, 1)} mg/mmol` : null].filter(Boolean).join(" · ") || "Serum creatinine not recorded"}
+          goal="Assess serum creatinine and urine protein with obstetrics; eGFR is not valid in pregnancy"
+          met={null}
+          sub={t.kidney.creatinineAt ? fmtDay(t.kidney.creatinineAt) : ""}
+        /> : <Goal
           label="Kidney"
           value={[t.kidney.egfr != null ? `eGFR ${num(t.kidney.egfr)}` : null, t.kidney.uacr != null ? `UACR ${num(t.kidney.uacr, 1)}` : null].filter(Boolean).join(" · ") || "No eGFR"}
           goal={t.kidney.uacr == null ? "UACR not measured" : t.kidney.uacr >= 3 ? "Albuminuria" : "No albuminuria"}
           met={t.kidney.uacr == null ? null : t.kidney.uacr < 3 && (t.kidney.egfr ?? 90) >= 60}
           sub={t.kidney.egfrAt ? fmtDay(t.kidney.egfrAt) : ""}
-        />
+        />}
       </div>
     </section>
   );

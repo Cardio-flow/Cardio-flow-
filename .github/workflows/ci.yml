@@ -45,6 +45,7 @@ jobs:
           node scripts/medication-review-check.mjs screenshots/medication-review
           CARDIO_TEST_URL=http://127.0.0.1:4310 node scripts/cardiorenal-reconciliation-check.mjs screenshots/cardiorenal-reconciliation
           node scripts/pregnancy-check.mjs screenshots/pregnancy
+          node scripts/audit-fixes-check.mjs screenshots/audit-fixes
       - uses: actions/upload-artifact@v4
         if: always()
         with:

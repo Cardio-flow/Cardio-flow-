@@ -515,13 +515,22 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "cardiorenal.screening",
     kind: "clinical",
     title: "Kidney screening in cardiovascular disease",
-    inputs: ["egfr", "uacr", "conditions"],
+    inputs: ["egfr", "creatinine", "uacr", "conditions"],
     defaultParams: { days: 365 },
-    evidence: "2026 ESC/ERA CVD and CKD guidelines: test every patient with CVD for CKD with eGFR and urine albumin:creatinine ratio (class I).",
+    evidence: "2026 ESC/ERA CVD and CKD guidelines: test every patient with CVD for CKD with eGFR and urine albumin:creatinine ratio (class I). Renal Association pregnancy CKD guideline 2019, 4.1.1: use serum creatinine because eGFR is not valid in pregnancy; assess urine albumin/protein with obstetrics.",
     evaluate(s, p) {
       if (!(s.tags.has("ascvd") || isHF(s) || s.tags.has("af") || has(s, "htn") || s.tags.has("dm"))) return [];
       // kidney screening has no meaning on dialysis (kidney failure is established)
       if (s.tags.has("dialysis")) return [];
+      const pregnant = s.conditions.some((c) => c.code === "pregnancy-care" && c.attributes.phase === "Pregnant");
+      if (pregnant) {
+        const missing = [!recent(s, "creatinine", Number(p.days)) && "serum creatinine", !recent(s, "uacr", Number(p.days)) && "urine albumin/protein review"].filter(Boolean) as string[];
+        if (!missing.length) return [];
+        return [{ key: "pregnancy-renal-screen", signature: missing.join(","), severity: "yellow", title: `Pregnancy renal assessment: ${missing.join(" and ")}`,
+          detail: "Use serum creatinine and obstetric urine protein assessment; calculated eGFR is not valid for kidney staging or drug decisions in pregnancy.",
+          facts: facts(fact(s, "creatinine"), fact(s, "uacr"), src("Renal Association pregnancy CKD guideline 2019 · 4.1.1; ESC pregnancy 2025")), missing: [],
+          action: { type: "add-labs", codes: [missing.includes("serum creatinine") && "creatinine", missing.includes("urine albumin/protein review") && "uacr"].filter(Boolean) as string[], label: "Add renal labs" } }];
+      }
       const missing = [!recent(s, "egfr", Number(p.days)) && "eGFR", !recent(s, "uacr", Number(p.days)) && "UACR"].filter(Boolean) as string[];
       if (!missing.length) return [];
       return [{ key: "ckd-screen", signature: missing.join(","), severity: "yellow", title: `Kidney screening due: ${missing.join(" and ")}`,
@@ -800,7 +809,7 @@ export function targets(s: PatientState) {
   const risk = lipidRisk(s);
   const ldl = cur(s, "ldl-c");
   const sbp = bpResult(s, "sbp", 180), dbp = bpResult(s, "dbp", 180);
-  const pairedBp = !!sbp && !!dbp && sbp.effective_at === dbp.effective_at;
+  const pairedBp = !!sbp && !!dbp && sbp.effective_at === dbp.effective_at && sbp.source === dbp.source && sbp.context_id === dbp.context_id;
   const individualBp = individualBpTarget(s,hypertensionProfile(s));
   const b = patientBmi(s);
   const af = s.tags.has("af") ? cha2ds2va(s) : null;
@@ -829,7 +838,9 @@ export function targets(s: PatientState) {
     kidney: (() => {
       const t = creatinineTrend(s);
       return {
-        egfr: cur(s, "egfr")?.value_num ?? null, egfrAt: cur(s, "egfr")?.effective_at ?? null, uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null,
+        egfr: pregnant ? null : cur(s, "egfr")?.value_num ?? null, egfrAt: pregnant ? null : cur(s, "egfr")?.effective_at ?? null,
+        creatinineCurrent: cur(s, "creatinine")?.value_num ?? null, creatinineAt: cur(s, "creatinine")?.effective_at ?? null,
+        uacr: cur(s, "uacr")?.value_num ?? null, uacrAt: cur(s, "uacr")?.effective_at ?? null,
         k: cur(s, "potassium")?.value_num ?? null, kAt: cur(s, "potassium")?.effective_at ?? null,
         // creatinine against its RAAS/MRA baseline (renal-trend.ts), when there is an earlier result
         creatinine: t ? { baseline: t.baseline.value_num, current: t.cur.value_num, rise: Math.round(t.rel * 100), review: t.review, at: t.cur.effective_at } : null,
