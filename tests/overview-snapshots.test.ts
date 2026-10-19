@@ -1,5 +1,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Pulse } from "../src/screens/Pulse.js";
+import { trendPercent } from "../src/lab-trend.js";
 import { resolveCurrent, addDays } from "../shared/clinical.js";
 import { results, summary } from "../server/kernel/views.js";
 import { hfDoseProgress } from "../server/engine/medication-progress.js";
@@ -75,6 +79,14 @@ test("latest lab trend uses earlier verified comparable measurements, with raw p
   )[0]!;
   assert.equal(falling.trend.percent, -20);
   assert.equal(falling.trend.direction, "down");
+});
+test("compact patient pulse exposes prior lab value and percentage instead of dropping the comparison", () => {
+  const r = results(state([obs("a", 4, "2026-10-01"), obs("b", 5, "2026-10-03")]), ["potassium"])[0]!;
+  const html = renderToStaticMarkup(createElement(Pulse, { s: { results: [r], vitals: [], medications: { groups: [] } }, open: () => {}, go: () => {} }));
+  assert.match(html, /\+25\.0%/);
+  assert.match(html, /Previous 4/);
+  assert.equal(trendPercent(0.03), "+<0.1%");
+  assert.equal(trendPercent(null), null);
 });
 test("newer preliminary and preferred older results are explicit and do not corrupt the clinical resolver", () => {
   const history = [

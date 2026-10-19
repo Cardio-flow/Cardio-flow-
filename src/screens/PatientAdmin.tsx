@@ -1,24 +1,51 @@
 import { useState } from "react";
-import { PencilLine, Trash2 } from "lucide-react";
-import { useData, useSampleMode, withSample } from "../api";
+import { LockKeyhole, PencilLine, Trash2 } from "lucide-react";
+import { api, setAdminUnlock, useData } from "../api";
 import { IdentityDrawer } from "../drawers/History";
+import { NewPatient } from "../drawers/NewPatient";
 import { Link, useToast } from "../ui";
 
 export function PatientAdmin() {
-  const sample = useSampleMode();
+  const { data: pinStatus, error: pinStatusError, reload: reloadPinStatus } = useData<{ configured: boolean }>("/admin/pin/status");
+  const [unlocked, setUnlocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [group, setGroup] = useState<"all" | "real" | "sample">("all");
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState<{
     patient: any;
     remove: boolean;
   } | null>(null);
-  const { data, error, reload } = useData<{ rows: any[]; hasMore: boolean }>(
-    withSample(
-      `/admin/patients?q=${encodeURIComponent(q)}&offset=${offset}`,
-      sample,
-    ),
-  );
+  const [addingSample, setAddingSample] = useState(false);
+  const { data, error, reload } = useData<{ rows: any[]; hasMore: boolean }>(unlocked
+    ? `/admin/patients?q=${encodeURIComponent(q)}&offset=${offset}&group=${group}`
+    : null);
   const toast = useToast();
+  const lock = () => { setAdminUnlock(""); setUnlocked(false); setEditing(null); setAddingSample(false); setPin(""); };
+  async function submitPin() {
+    if (busy) return;
+    setBusy(true);
+    setPinError("");
+    try {
+      if (!pinStatus?.configured) {
+        if (pin !== confirm) throw new Error("PINs do not match");
+        await api("/admin/pin/set", { body: { pin } });
+        reloadPinStatus();
+        setConfirm("");
+        setPin("");
+        toast({ text: "Administration PIN set. Enter it to unlock." });
+      } else {
+        const result = await api<{ token: string }>("/admin/pin/unlock", { body: { pin } });
+        setAdminUnlock(result.token);
+        setUnlocked(true);
+        setPin("");
+      }
+    } catch (e) { setPinError((e as Error).message); }
+    finally { setBusy(false); }
+  }
   const done = () => {
     setEditing(null);
     setOffset(0);
@@ -29,14 +56,26 @@ export function PatientAdmin() {
       <div className="page-head">
         <div>
           <h1>Patient administration</h1>
-          <p>
-            {sample ? "Sample records" : "Real patient records"} · registration
-            changes and audited removal
-          </p>
+          <p>Real and synthetic patients · audited changes and removal</p>
         </div>
-        <Link className="btn secondary" to="/patients">
-          Back to patients
-        </Link>
+        <span className="row wrap" style={{ gap: 8 }}>
+          {unlocked && <button className="btn secondary" onClick={lock}><LockKeyhole size={16} /> Lock</button>}
+          <Link className="btn secondary" to="/patients">Back to patients</Link>
+        </span>
+      </div>
+      {pinStatusError && <div className="error-box" role="alert">{pinStatusError}</div>}
+      {!unlocked && pinStatus && <form className="card pad admin-pin" onSubmit={(e) => { e.preventDefault(); void submitPin(); }}>
+        <h2><LockKeyhole size={19} /> {pinStatus.configured ? "Unlock administration" : "Set administration PIN"}</h2>
+        <p className="muted small">{pinStatus.configured ? "Enter your PIN to manage patient records." : "Choose a 6–12 digit PIN for this site. Only administrators can set it."}</p>
+        <label className="field"><span>PIN</span><input className="input" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6,12}" minLength={6} maxLength={12} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required /></label>
+        {!pinStatus.configured && <label className="field"><span>Confirm PIN</span><input className="input" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6,12}" minLength={6} maxLength={12} value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} required /></label>}
+        {pinError && <div className="error-box" role="alert">{pinError}</div>}
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? "Checking…" : pinStatus.configured ? "Unlock" : "Set PIN"}</button>
+      </form>}
+      {unlocked && <>
+      <div className="row wrap" role="group" aria-label="Patient group" style={{ gap: 8, marginBottom: 12 }}>
+        {([ ["all", "All patients"], ["real", "Real"], ["sample", "Synthetic"] ] as const).map(([value, label]) => <button key={value} className={`btn small ${group === value ? "primary" : "secondary"}`} aria-pressed={group === value} onClick={() => { setGroup(value); setOffset(0); }}>{label}</button>)}
+        <button className="btn small secondary" onClick={() => setAddingSample(true)}>+ New synthetic patient</button>
       </div>
       <input
         className="input"
@@ -68,7 +107,7 @@ export function PatientAdmin() {
             >
               <b>{patient.name}</b>
               <span className="small muted">
-                MRN {patient.mrn} · {patient.sex}
+                MRN {patient.mrn} · {patient.sex} · {patient.sample ? "Synthetic" : "Real"}
               </span>
             </Link>
             <span className="row" style={{ gap: 6 }}>
@@ -114,12 +153,14 @@ export function PatientAdmin() {
           Next
         </button>
       </div>
+      </>}
       {editing && (
         <IdentityDrawer
           key={editing.patient.id}
           patientId={editing.patient.id}
           identity={editing.patient}
           initialRemove={editing.remove}
+          admin
           onClose={() => setEditing(null)}
           onDone={(m) => {
             if (m) toast({ text: m });
@@ -128,6 +169,7 @@ export function PatientAdmin() {
           onRemoved={done}
         />
       )}
+      {addingSample && <NewPatient sample allowSampleToggle={false} onClose={() => setAddingSample(false)} onCreated={() => { setAddingSample(false); setGroup("sample"); setOffset(0); reload(); toast({ text: "Synthetic patient created" }); }} />}
     </main>
   );
 }

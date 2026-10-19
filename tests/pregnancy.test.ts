@@ -237,7 +237,7 @@ test("a newer preliminary severe BP remains an urgent verification signal", asyn
   await obs(
     id,
     [{ code: "sbp", value: 120 }],
-    new Date(T + "T00:00:00Z").toISOString(),
+    new Date(T + "T00:00:00+03:00").toISOString(),
   );
   await obs(id, [{ code: "sbp", value: 165 }], nowIso(), "preliminary");
   assert.ok((await profile(id)).urgent.some((s) => /preliminary/.test(s)));

@@ -105,7 +105,7 @@ export function DiagnosisPicker({ value, onChange, risk = false, existing = [] }
   );
 }
 
-export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): void; onCreated(id: string): void; sample?: boolean }) {
+export function NewPatient({ onClose, onCreated, sample = false, allowSampleToggle = true }: { onClose(): void; onCreated(id: string): void; sample?: boolean; allowSampleToggle?: boolean }) {
   const [test, setTest] = useState(sample);
   const [f, setF] = useState({ name: "", mrn: "", sex: "", birthDate: "", birthDateEstimated: false, allergies: "", civilId: "", nationality: "", mobile: "" });
   const [dx, setDx] = useState<string[]>([]);
@@ -204,13 +204,13 @@ export function NewPatient({ onClose, onCreated, sample = false }: { onClose(): 
           <DiagnosisPicker value={rf} onChange={setRf} risk />
           {rf.includes("htn") && <div className="q"><div className="label">Hypertension status</div><Segmented label="Hypertension status" options={HTN_DIAGNOSIS_STATUS.map(value => ({value,label:value}))} value={hypertensionStatus} onChange={v => setHypertensionStatus(v as HypertensionDiagnosisStatus)} /></div>}
         </details>
-        <label className="check-line">
+        {allowSampleToggle && <label className="check-line">
           <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />
           <span>
             <b>Sample patient for practice</b>
             <span className="muted small"> — synthetic data; the file number gets the SYN- prefix and the patient stays out of real lists and registries</span>
           </span>
-        </label>
+        </label>}
         {error && <div className="error-box">{error}</div>}
       </div>
     </Drawer>

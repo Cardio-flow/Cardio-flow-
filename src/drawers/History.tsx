@@ -555,7 +555,7 @@ const REMOVAL_REASONS = ["Registered in error", "Duplicate record", "Test or pra
 
 // Patient details: name, file number, sex, date of birth, identifiers, contact and allergies — all audited.
 // Also: move a mistaken test patient to the sample patients, or remove a record registered in error.
-export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved, initialRemove = false }: { patientId: string; identity: any; onClose(): void; onDone(m?: string, r?: any): void; onRemoved?(): void; initialRemove?: boolean }) {
+export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved, initialRemove = false, admin = false }: { patientId: string; identity: any; onClose(): void; onDone(m?: string, r?: any): void; onRemoved?(): void; initialRemove?: boolean; admin?: boolean }) {
   const sample = !!identity.sample;
   const shownMrn = (identity.mrn ?? "").replace(sample ? /^SYN-/ : /^$/, "");
   const [f, setF] = useState({
@@ -573,7 +573,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved
   async function toSample() {
     setBusy(true);
     try {
-      await api(`/patients/${patientId}/move-to-sample`, { body: {} });
+      await api(`${admin ? "/admin" : ""}/patients/${patientId}/move-to-sample`, { body: {} });
       onDone("Moved to the sample patients", { changed: ["patient"] });
     } catch (e) {
       setError((e as Error).message);
@@ -583,7 +583,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved
   async function remove() {
     setBusy(true);
     try {
-      await api(`/patients/${patientId}/remove`, { body: { reason } });
+      await api(`${admin ? "/admin" : ""}/patients/${patientId}/remove`, { body: { reason } });
       toast({ text: `${identity.name ?? "Patient"} removed (${reason.toLowerCase()})` });
       if (onRemoved) onRemoved(); else navigate("/");
     } catch (e) {
@@ -594,7 +594,7 @@ export function IdentityDrawer({ patientId, identity, onClose, onDone, onRemoved
   async function save() {
     setBusy(true);
     try {
-      const r = await api(`/patients/${patientId}/identity`, { body: f });
+      const r = await api(`${admin ? "/admin" : ""}/patients/${patientId}/identity`, { body: f });
       onDone("Patient details saved", r);
     } catch (e) {
       setError((e as Error).message);
