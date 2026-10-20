@@ -57,7 +57,7 @@ try {
   ] });
   await page.goto(`${base}/patients/${pregnancyId}`);
   await expect(page.getByRole("region", { name: "Blood pressure" })).toContainText("Above pregnancy target");
-  await expect(page.getByRole("region", { name: "Anaemia & iron" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Blood count & iron" })).toHaveCount(0);
   const care = page.getByRole("region", { name: "Pregnancy & heart disease" });
   await expect(care.getByRole("button", { name: "Review pregnancy care" })).toHaveCount(1);
   const screening = (await api(`/patients/${pregnancyId}/summary`)).attention.find((a) => a.rule_id === "cardiorenal.screening");
@@ -71,13 +71,10 @@ try {
   ] });
   await page.goto(`${base}/patients/${pregnancyId}`);
   const kidney = page.getByRole("region", { name: "Kidney & potassium" });
-  await expect(kidney).toContainText("Serum creatinine");
+  // since 20 Oct 2026 each result lives once, in its problem card (normal ones as one line); never eGFR in pregnancy
+  await expect(kidney).toContainText("Cr 65");
   await expect(kidney).not.toContainText("eGFR");
   await expect(page.getByRole("region", { name: "Patient pulse" })).not.toContainText("eGFR");
-  // the Results tab became "Abnormal" (20 Oct 2026 overview story); eGFR is never shown in pregnancy
-  await page.getByRole("tab", { name: /^Abnormal/ }).click();
-  await expect(page.getByRole("region", { name: "Abnormal results" })).not.toContainText("eGFR");
-  await page.getByRole("tab", { name: /^Decide/ }).click();
   await kidney.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${output}/pregnancy-kidney-phone.png`, animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -1,4 +1,5 @@
 import { pericardialProfile } from "./pericardial-profile.js";
+import { isValveProsthesis } from "../../shared/history.js";
 // Event-triggered pathways (Ahmed, 2 Oct 2026): a complication recorded anywhere in the record —
 // an admission or visit reason, a medicine started for it, a thyroid result on amiodarone, a
 // pre-operative visit — offers its pathway under Needs attention. The pathway never opens by
@@ -23,7 +24,8 @@ export function prosthesisEchoProblem(s: PatientState) {
   const e = latestStudy(s, "echo");
   if (!e) return null;
   const items = e.findings.filter((f) => PROSTHESIS_FINDINGS.includes(f));
-  for (const c of s.conditions.filter((x) => x.code === "prosthetic-valve")) {
+  // grades after a repair (clip, ring) are residual regurgitation, not prosthesis dysfunction
+  for (const c of s.conditions.filter(isValveProsthesis)) {
     const pos = String(c.attributes?.position ?? "");
     const proc = s.procedures.filter((p) => p.kind === "valve" && p.attributes.position === pos).map((p) => p.performed_at).sort().pop();
     const since = proc ?? c.onset;
@@ -241,7 +243,7 @@ export const EPISODE_RULES: RuleDef[] = [
     defaultParams: {},
     evidence: "2025 ESC/EACTS VHD: TOE and/or 4D-CT to confirm suspected valve thrombosis (I C); Heart Team for acute HF from obstructive mechanical valve thrombosis — repeat replacement or low-dose slow-infusion fibrinolysis (I B); VKA for bioprosthetic valve thrombosis before reintervention (I B); reoperation / reintervention for symptomatic dysfunction not due to thrombosis (I C); valve-in-valve at intermediate or high risk (IIa B); Heart Team for paravalvular leak closure (I C). Triggered by the echocardiographer's finding or grade on a treated position, or an admission or visit for a prosthetic valve problem.",
     evaluate(s) {
-      if (!s.conditions.some((c) => c.code === "prosthetic-valve")) return [];
+      if (!s.conditions.some(isValveProsthesis)) return [];
       const found: Trigger[] = [];
       const pe = prosthesisEchoProblem(s);
       if (pe && !handled(s, "prosthetic-valve", pe.e.performed_at))

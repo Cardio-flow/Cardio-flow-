@@ -205,6 +205,12 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   ],
   "coronary-ectasia": [{ key: "vessels", label: "Vessels", options: ["Left main", "LAD", "LCx", "RCA"], multi: true }],
 };
+// A valve repair (ring, edge-to-edge clip) is not a prosthetic valve (20 Oct 2026, Ahmed: a MitraClip was
+// called a "prosthetic mitral valve"). It keeps the position treated and counts as repair material for
+// endocarditis risk (ESC 2023), but the prosthetic-valve rules (thrombosis, dysfunction, INR) are for valves.
+export const VALVE_REPAIR_TYPES = ["Repair / ring", "Edge-to-edge repair (clip)"];
+export const isValveProsthesis = (c: { code: string; attributes?: Record<string, unknown> | null }) =>
+  c.code === "prosthetic-valve" && !VALVE_REPAIR_TYPES.includes(String(c.attributes?.type ?? ""));
 // Diagnoses that can be recorded more than once (e.g. aortic and mitral prostheses, repeat PCI).
 export const MULTIPLE_ALLOWED = new Set(["prosthetic-valve", "prior-pci", "prior-mi"]);
 // mutually exclusive diagnoses: a patient has one HF phenotype, one diabetes type, one CKD stage

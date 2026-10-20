@@ -9,7 +9,7 @@ import { formatNumber, MEASURES, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
 import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
-import { HeldMedicines } from "./Story";
+import { HeldMedicines, ResultRows } from "./Story";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
@@ -49,9 +49,21 @@ const PROBLEM_OF = (ruleId: string): string => {
   if (ruleId.startsWith("ph.")) return "ph";
   return "other";
 };
+// every result belongs to one problem card; abnormal ones are listed there once, with their trend, and the
+// rest of a card's results as one "normal" line (20 Oct 2026: one home for every fact)
+const RESULT_PROBLEM: Record<string, string> = {
+  creatinine: "kidney", urea: "kidney", potassium: "kidney", sodium: "kidney", magnesium: "kidney", uacr: "kidney", bicarbonate: "kidney", chloride: "kidney", phosphate: "kidney", "calcium-total": "kidney", calcium: "kidney", urate: "kidney",
+  alt: "lipids", ast: "lipids", ck: "lipids", alp: "lipids", ggt: "lipids", bilirubin: "lipids",
+  haemoglobin: "anaemia", ferritin: "anaemia", tsat: "anaemia", iron: "anaemia", transferrin: "anaemia", mcv: "anaemia", b12: "anaemia", folate: "anaemia", platelets: "anaemia", wbc: "anaemia",
+  "nt-probnp": "hf", bnp: "hf",
+  "ldl-c": "lipids", "total-cholesterol": "lipids", "hdl-c": "lipids", triglycerides: "lipids", lpa: "lipids",
+  hba1c: "diabetes", glucose: "diabetes", ketones: "diabetes",
+  inr: "af",
+};
+const resultHome = (code: string, keys: Set<string>) => { const k = RESULT_PROBLEM[code]; return k && keys.has(k) ? k : "results"; };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
 type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[]; assessment?: "met" | "above" | "incomplete" | "review" };
-const TITLES: Record<string, string> = { pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Anaemia & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const TITLES: Record<string, string> = { results: "Other results", pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Blood count & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
 
@@ -74,15 +86,28 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   // problem's name, so nothing on the list is ever left out of the overview
   for (const key of new Set(attention.map((a) => PROBLEM_OF(a.rule_id))))
     if (!problems.some((p) => p.key === key)) problems.splice(problems.length - 1, 0, { key, label: TITLES[key] ?? TITLES.other, stats: [], need: [] } as Problem);
+  // an abnormal result whose problem has no card yet gets that card (kidney, anaemia…); the rest go to
+  // "Other results" — nothing abnormal is ever left off the overview
+  for (const r of (s.abnormal?.items ?? []) as any[]) {
+    const k = RESULT_PROBLEM[r.code];
+    if (k && ["kidney", "anaemia"].includes(k) && !problems.some((p) => p.key === k)) problems.splice(problems.length - 1, 0, { key: k, label: TITLES[k], stats: [], need: [] } as Problem);
+  }
+  const keys = new Set(problems.map((p) => p.key));
+  const resultsOf = (key: string) => ((s.abnormal?.items ?? []) as any[]).filter((r) => resultHome(r.code, keys) === key);
+  const normalOf = (key: string) => ((s.abnormal?.normal ?? []) as any[]).filter((r) => resultHome(r.code, keys) === key).map((r) => r.text);
+  if (resultsOf("results").length) problems.splice(problems.length - 1, 0, { key: "results", label: TITLES.results, stats: [], need: [] } as Problem);
+  row.resultsOf = resultsOf;
+  row.normalOf = normalOf;
   const items = (key: string) => attention.filter((a) => PROBLEM_OF(a.rule_id) === key && !later(a)).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
   const laterOf = (key: string) => deferred.filter((a) => PROBLEM_OF(a.rule_id) === key);
   // a card left with nothing for today during an admission goes into the folded clinic section
   // (only lipids, diabetes and BP: kidney, HF and the rest keep their results in view during the admission)
   const clinicCard = (p: Problem) => admitted && !items(p.key).length && CLINIC_CARDS.includes(p.key);
-  const all = problems.filter((p) => p.key !== "other" || items("other").length || laterOf("other").length);
+  const all = problems.filter((p) => (p.key !== "other" || items("other").length || laterOf("other").length));
   const shown = all.filter((p) => !clinicCard(p));
   const clinic = all.filter(clinicCard);
-  const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : 9; };
+  // a card with only results ranks after cards with alerts; "Other results" stays last of them
+  const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : resultsOf(p.key).length ? (p.key === "results" ? 8 : 7) : 9; };
   shown.sort((x, y) => rank(x) - rank(y));
   // one decision per pathway: the first alert (in display order) that opens it carries the plan
   const panels = new Set<string>(), seenWiz = new Set<string>();
@@ -158,7 +183,7 @@ function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; 
       <div className="problem-head">
         <b>{p.label}</b>
         {p.sub && <span className="problem-sub">{p.sub}</span>}
-        {!top && !p.need.length && !later.length && p.assessment === "met" && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {!top && !p.need.length && !later.length && p.assessment === "met" && !(row.resultsOf?.(p.key).length) && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
         {!top && p.assessment === "above" && <span className="problem-sub">{p.key === "bp" && row.s.pregnancy?.phase === "Pregnant" ? "Above pregnancy target" : "Above target"}</span>}
         {!top && p.assessment === "incomplete" && <span className="problem-sub">Incomplete reading</span>}
       </div>
@@ -169,6 +194,8 @@ function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; 
         </div>
       )}
       {(p.goal || p.therapy) && <div className="problem-goal">{[p.goal, p.therapy].filter(Boolean).join(" · ")}</div>}
+      {row.resultsOf && <ResultRows items={row.resultsOf(p.key)} />}
+      {row.normalOf && row.normalOf(p.key).length > 0 && <div className="problem-normal">Normal: {row.normalOf(p.key).join(", ")}</div>}
       {p.need.length > 0 && (
         <div className="problem-need">
           <span>Needed for the decision: <b>{[...new Set(p.need.map((n) => n.label))].join(", ")}</b></span>
@@ -215,30 +242,21 @@ function buildProblems(s: any): Problem[] {
   if (t.hf) {
     const on = t.hf.pillars.filter((x: any) => x.state === "on" || x.state === "target").length;
     out.push({
-      key: "hf", label: `${TITLES.hf} · ${t.hf.improved ? "improved EF" : t.hf.phenotype}${t.hf.lvef != null ? ` · LVEF ${n(t.hf.lvef)}%` : ""}`,
+      key: "hf", label: `${TITLES.hf} · ${t.hf.improved ? "improved EF" : t.hf.phenotype}`,
       sub: s.hf?.admissions?.last12m ? `${s.hf.admissions.last12m} HF admission${s.hf.admissions.last12m === 1 ? "" : "s"} in 12 months` : undefined,
-      stats: [
-        ...t.hf.pillars.map((x: any) => ({ label: x.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI/ACEi/ARB"), value: x.state === "target" ? "At target" : x.state === "on" ? `${x.percentOfTarget ?? "?"}% of target` : x.state === "held" ? "Held" : x.state === "blocked" ? "Not now" : "Not started", tone: x.state === "target" ? "ok" : x.state === "on" ? undefined : "warn" })),
-        ...(R["nt-probnp"]?.value != null ? [{ label: "NT-proBNP", value: val("nt-probnp") }] : []),
-      ],
-      goal: `${on} of ${t.hf.pillars.length} foundational medicines · goal: all at target or maximum tolerated dose`,
+      // the pillars are listed once, in the HF medicines table of the card
+      stats: [],
+      goal: `${on} of ${t.hf.pillars.length} foundational medicines on · goal: all at target or maximum tolerated dose`,
       therapy: line(["loop", "thiazide"]) ? `Diuretic: ${line(["loop", "thiazide"])}` : undefined,
       need: need(["sbp", "hr", "weight"], 60),
     });
   }
   const k = t.kidney;
-  if (k && (k.egfr != null || k.creatinineCurrent != null || k.k != null || has("ckd"))) {
-    const stats: Stat[] = [];
-    if (k.egfr != null) stats.push({ label: "eGFR", value: `${n(k.egfr)}${k.egfrAt ? ` · ${fmtDay(k.egfrAt)}` : ""}`, tone: k.egfr < 30 ? "bad" : k.egfr < 60 ? "warn" : "ok" });
-    if (pregnant && k.creatinineCurrent != null) stats.push({ label: "Serum creatinine", value: `${n(k.creatinineCurrent)} µmol/L${k.creatinineAt ? ` · ${fmtDay(k.creatinineAt)}` : ""}` });
-    if (k.creatinine) stats.push({ label: "Creatinine vs baseline", value: `${n(k.creatinine.baseline)} → ${n(k.creatinine.current)} (${k.creatinine.rise >= 0 ? "+" : ""}${k.creatinine.rise}%)`, tone: k.creatinine.review ? "bad" : undefined });
-    if (k.k != null) stats.push({ label: "Potassium", value: `${n(k.k, 1)}${k.kAt ? ` · ${fmtDay(k.kAt)}` : ""}`, tone: k.k > 5.5 || k.k < 3.5 ? "bad" : k.k > 5.0 ? "warn" : "ok" });
-    if (R.sodium?.value != null) stats.push({ label: "Sodium", value: val("sodium"), tone: R.sodium.value < 135 ? "warn" : "ok" });
-    if (k.uacr != null) stats.push({ label: "UACR", value: `${n(k.uacr, 1)} mg/mmol`, tone: k.uacr >= 3 ? "warn" : "ok" });
-    out.push({ key: "kidney", label: TITLES.kidney, stats, therapy: line(["raas", "mra", "sglt2", "k-binder"]) || undefined, need: has("ckd") || t.hf ? need(["creatinine", "potassium"], 90) : [] });
-  }
+  // kidney and anaemia: the values are the card's result rows; the card adds therapy and what is missing
+  if (k && (k.egfr != null || k.creatinineCurrent != null || k.k != null || has("ckd")))
+    out.push({ key: "kidney", label: TITLES.kidney, stats: [], therapy: line(["raas", "mra", "sglt2", "k-binder"]) || undefined, need: has("ckd") || t.hf ? need(["creatinine", "potassium"], 90) : [] });
   if (has("anaemia") || lowHb || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "anaemia"))
-    out.push({ key: "anaemia", label: TITLES.anaemia, stats: [{ label: "Hb", value: val("haemoglobin", 1), tone: lowHb ? "warn" : undefined }, { label: "Ferritin", value: val("ferritin") }, { label: "TSAT", value: R.tsat?.value != null ? `${n(R.tsat.value)}%` : "Not recorded" }], therapy: line(["oac", "antiplatelet"]) ? `Antithrombotic: ${line(["oac", "antiplatelet"])}` : undefined, need: lowHb || has("anaemia") ? need(["ferritin", "tsat"], 365) : [] });
+    out.push({ key: "anaemia", label: TITLES.anaemia, stats: [], therapy: line(["oac", "antiplatelet"]) ? `Antithrombotic: ${line(["oac", "antiplatelet"])}` : undefined, need: lowHb || has("anaemia") ? need(["ferritin", "tsat"], 365) : [] });
   if (t.af) {
     const hr = R.hr?.value;
     out.push({
@@ -247,7 +265,6 @@ function buildProblems(s: any): Problem[] {
         { label: t.af.assessmentLabel?"Stroke prevention":"CHA₂DS₂-VA", value: t.af.assessmentLabel??String(t.af.score) },
         { label: "Anticoagulant", value: t.af.oac.length ? t.af.oac.join(" · ") : "None", tone: t.af.assessmentLabel?undefined:t.af.oac.length ? "ok" : t.af.score >= 2 ? "bad" : undefined },
         { label: "Heart rate", value: val("hr"), tone: hr == null ? undefined : hr >= 110 ? "warn" : "ok" },
-        ...(t.af.inr != null ? [{ label: "INR", value: n(t.af.inr, 1) }] : []),
       ],
       therapy: line(["bb", "bb-other", "ndhp-ccb", "digoxin", "rate-slowing"]) ? `Rate control: ${line(["bb", "bb-other", "ndhp-ccb", "digoxin"])}` : undefined,
       need: need(["hr"], 60).concat(t.af.oac.length ? need(["weight", "creatinine"], 365) : []),
@@ -255,15 +272,15 @@ function buildProblems(s: any): Problem[] {
   }
   if (has("cad", "ascvd") || (s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === "cad"))
     out.push({ key: "cad", label: TITLES.cad, sub: s.header?.ihd?.label?.replace(/^IHD · /, ""), history: (s.header?.ihd?.events ?? []).map((e: any) => e.text), stats: [{ label: "Antithrombotic", value: line(["antiplatelet", "oac"]) || "None" }, ...(line(["nitrate", "nitrate-sl", "ranolazine", "ivabradine"]) ? [{ label: "Anti-anginal", value: line(["nitrate", "ranolazine", "ivabradine"]) }] : [])], need: [] });
-  if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: [{ label: "LDL-C", value: t.ldl.value != null ? `${n(t.ldl.value, 2)} mmol/L${t.ldl.at ? ` · ${fmtDay(t.ldl.at)}` : ""}` : "Not measured", tone: t.ldl.met === true ? "ok" : t.ldl.met === false ? "warn" : undefined }], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365), assessment: t.ldl.met === true ? "met" : t.ldl.met === false ? "above" : "review" });
+  if (t.ldl) out.push({ key: "lipids", label: TITLES.lipids, stats: t.ldl.value == null ? [{ label: "LDL-C", value: "Not measured" }] : [], goal: `Goal <${t.ldl.goal} mmol/L · ${t.ldl.category} risk`, therapy: t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy", need: need(["ldl-c"], 365), assessment: t.ldl.met === true ? "met" : t.ldl.met === false ? "above" : "review" });
   if (t.bp) out.push({ key: "bp", label: TITLES.bp, stats: [{ label: "Latest", value: t.bp.sbp != null ? `${n(t.bp.sbp)}${t.bp.dbp != null ? "/" + n(t.bp.dbp) : ""} mmHg${t.bp.at ? ` · ${fmtDay(t.bp.at)}` : ""}` : t.bp.dbp != null ? `DBP ${n(t.bp.dbp)} mmHg` : "Not measured", tone: t.bp.met === true ? "ok" : t.bp.met === false ? "warn" : undefined }], goal: t.bp.label ?? (t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated (ESC 2024)`), need: t.bp.sbp == null || t.bp.dbp == null || !recent("sbp", 90) || !recent("dbp", 90) ? [{code:"sbp",label:"BP"},{code:"dbp",label:"BP"}] : [], assessment: t.bp.met === true ? "met" : t.bp.met === false ? "above" : t.bp.sbp == null || t.bp.dbp == null ? "incomplete" : "review" });
-  if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: [{ label: "HbA1c", value: t.diabetes.hba1c != null ? `${n(t.diabetes.hba1c, 1)}%${t.diabetes.at ? ` · ${fmtDay(t.diabetes.at)}` : ""}` : "Not measured", tone: t.diabetes.met === true ? "ok" : t.diabetes.met === false ? "warn" : undefined }], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180), assessment: t.diabetes.met === true ? "met" : t.diabetes.met === false ? "above" : "review" });
+  if (t.diabetes) out.push({ key: "diabetes", label: TITLES.diabetes, stats: t.diabetes.hba1c == null ? [{ label: "HbA1c", value: "Not measured" }] : [], goal: `Target ${t.diabetes.target}`, therapy: t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy", need: need(["hba1c"], 180), assessment: t.diabetes.met === true ? "met" : t.diabetes.met === false ? "above" : "review" });
   for (const key of ["valve", "cmp", "ph"]) if ((s.attention as any[]).some((a) => PROBLEM_OF(a.rule_id) === key)) out.push({ key, label: TITLES[key], stats: [], need: [] });
   out.push({ key: "other", label: TITLES.other, stats: [], need: [] });
   return out;
 }
 
-type RowProps = { selected:string|null; setSelected(id:string|null):void; panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
+type RowProps = { resultsOf?(key: string): any[]; normalOf?(key: string): string[]; selected:string|null; setSelected(id:string|null):void; panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
 
 
 // an alert that opens a pathway shows the pathway's decision on the card (the after-PCI plan opens its own
@@ -307,7 +324,6 @@ function Brief({ o }: { o: any }) {
   if (!o) return null;
   const parts: [string, string][] = [
     ["Why here", o.why.text + (o.why.sub ? ` · ${o.why.sub}` : "")],
-    ["Changed", o.changed.since ? `${o.changed.count} since ${o.changed.label?.toLowerCase().replace(/^since /, "") ?? "last review"}` : "No earlier review"],
     ["Unfinished", o.unfinished.overdue + o.unfinished.due + (o.unfinished.review ?? 0) === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`, o.unfinished.review && `${o.unfinished.review} to review`].filter(Boolean).join(", ")],
     ["Next", o.next[0] ? `${o.next[0].title} · ${fmtDay(o.next[0].dueDate, { weekday: true })}` : "Nothing booked"],
   ];

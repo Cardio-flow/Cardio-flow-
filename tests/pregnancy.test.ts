@@ -790,10 +790,12 @@ test("pregnancy Hb and kidney display follow pregnancy interpretation", async ()
   assert.equal(s.targets.kidney.creatinineCurrent, 65);
   assert.equal(toneOf(s.results.find((r: any) => r.code === "haemoglobin"), s), "blue");
   const html = renderToStaticMarkup(createElement(TodayBoard, { s, open: () => {}, done: () => {} }));
-  assert.doesNotMatch(html, /aria-label="Anaemia &amp; iron"/);
+  assert.doesNotMatch(html, /aria-label="Blood count &amp; iron"/);
   const pulse = renderToStaticMarkup(createElement(Pulse, { s, open: () => {}, go: () => {} }));
   assert.doesNotMatch(pulse, /eGFR/);
-  assert.match(html, /Serum creatinine/);
+  // since 20 Oct 2026 the kidney card lists its results once ("Normal: Cr 65 …"); never eGFR in pregnancy
+  assert.match(html, /Normal: Cr 65/);
+  assert.doesNotMatch(html, /eGFR/);
   const other = await patient(["htn"]);
   await context(other, { phase: "Pregnant", edd: addDays(T, 196), mwho: "I" });
   const missing = await active(other);

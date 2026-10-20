@@ -256,7 +256,7 @@ export function conditionLabel(c: { code: string; display: string; attributes?: 
   if (c.code === "prosthetic-valve") {
     const pos = c.attributes?.position ? String(c.attributes.position) : "";
     const type = String(c.attributes?.type ?? "");
-    const what = type === "Mechanical" ? "mechanical valve" : type.startsWith("Bioprosthetic") ? "bioprosthetic valve" : type === "TAVI" ? "TAVI" : type === "Repair / ring" ? "valve repair" : "prosthetic valve";
+    const what = type === "Mechanical" ? "mechanical valve" : type.startsWith("Bioprosthetic") ? "bioprosthetic valve" : type === "TAVI" ? "TAVI" : type === "Repair / ring" ? "valve repair (ring)" : type === "Edge-to-edge repair (clip)" ? "TEER (clip)" : type === "Transcatheter valve" ? "transcatheter valve" : "valve prosthesis or repair";
     return `${pos} ${what}`.trim().replace(/^./, (x) => x.toUpperCase());
   }
   return extra ? `${c.display} · ${extra}` : c.display;
@@ -580,8 +580,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   return {
     header: head,
     // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
-    story: storyView(s, head as any, goals.hf?.pillars ?? null),
-    standing: standingView(s, goals.hf?.pillars ?? null),
+    story: storyView(s),
+    standing: standingView(s),
     timeline: timelineView(s),
     abnormal: abnormalView(s, res, { ldl: goals.ldl ? { goal: goals.ldl.goal, met: goals.ldl.met } : null, hba1c: goals.diabetes ? { target: goals.diabetes.target, met: goals.diabetes.met } : null }),
     today: s.today,

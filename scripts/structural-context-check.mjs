@@ -375,6 +375,11 @@ try {
     ),
   );
   await page.getByRole("link", { name: "Overview", exact: true }).click();
+  // module panels sit in the folded "More detail" section since 20 Oct 2026
+  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  await page.locator("details.module-detail").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
+  const valveFold = page.getByRole("button", { name: /^Valve/ }).first();
+  if (!(await page.getByRole("button", { name: "+ Valve intervention", exact: true }).isVisible()) && (await valveFold.count())) await valveFold.click();
   await page
     .getByRole("button", { name: "+ Valve intervention", exact: true })
     .click();

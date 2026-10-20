@@ -27,7 +27,7 @@ export const toneOf = (r: any, s?: any): Sev => {
   return "blue";
 };
 
-export function Pulse({ s, open, go, labs = true }: { s: any; open(o: Open): void; go(pane: string, code?: string): void; labs?: boolean }) {
+export function Pulse({ s, open, go, labs = true, meds: showMeds = true }: { s: any; open(o: Open): void; go(pane: string, code?: string): void; labs?: boolean; meds?: boolean }) {
   const results = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr"));
   const byCode = new Map<string, any>(results.map((r: any) => [r.code, r]));
   const trends = [...KEY.filter((c) => byCode.has(c)).map((c) => byCode.get(c)), ...results.filter((r: any) => !KEY.includes(r.code))].slice(0, 10);
@@ -41,7 +41,8 @@ export function Pulse({ s, open, go, labs = true }: { s: any; open(o: Open): voi
   }
   if (v.hr) vitals.push(["HR", formatNumber(v.hr.value, 0), v.hr.at]);
   if (v.weight) vitals.push(["Wt", `${formatNumber(v.weight.value, 1)} kg`, v.weight.at]);
-  if (s.lvef) vitals.push(["LVEF", `${formatRange(s.lvef.value, s.lvef.valueHigh, 0)}%`, s.lvef.at]);
+  // LVEF is in the header's diagnosis line and the story's course (20 Oct 2026: shown once)
+  if (s.lvef && labs) vitals.push(["LVEF", `${formatRange(s.lvef.value, s.lvef.valueHigh, 0)}%`, s.lvef.at]);
   const groups = (s.medications?.groups ?? []) as any[];
   groups.forEach((g, i) => (PURPOSE_HUE[g.purpose] ??= HUES[i % HUES.length]));
   const meds = groups.flatMap((g) => g.meds.map((m: any) => ({ ...m, purpose: g.purpose })));
@@ -77,7 +78,7 @@ export function Pulse({ s, open, go, labs = true }: { s: any; open(o: Open): voi
           <button className="ptile more" onClick={() => go("results")}>All {results.length}<small>results</small></button>
         </div>
       )}
-      <div className="pulse-meds" aria-label="Current medicines">
+      {showMeds && <div className="pulse-meds" aria-label="Current medicines">
         {meds.length === 0 && <span className="muted small">No current medicines</span>}
         {shown.map((m: any) => (
           <button key={m.id} className={`pm${m.status === "held" ? " held" : ""}${m.doseValue == null ? " nodose" : ""}`} style={{ ["--hue" as any]: PURPOSE_HUE[m.purpose] }}
@@ -88,7 +89,7 @@ export function Pulse({ s, open, go, labs = true }: { s: any; open(o: Open): voi
         ))}
         {meds.length > shown.length ? <button className="pm more" onClick={() => go("meds")}>+{meds.length - shown.length} more</button>
           : meds.length > 0 && <button className="pm more" onClick={() => go("meds")}>Details</button>}
-      </div>
+      </div>}
     </section>
   );
 }

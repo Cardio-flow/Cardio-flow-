@@ -86,6 +86,12 @@ try {
     name: "+ Rhythm procedure / LAA closure",
     exact: true,
   });
+  // module panels sit in the folded "More detail" section since 20 Oct 2026
+  await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
+  await p.locator("details.module-detail").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
+  // open the rhythm panel itself (remembered on this device) so its aftercare box shows later
+  const rhythmFold = p.locator(".fold").filter({ has: p.getByRole("button", { name: /Rhythm & devices/ }) }).first();
+  if (!/\bopen\b/.test((await rhythmFold.getAttribute("class")) ?? "")) await p.getByRole("button", { name: /Rhythm & devices/ }).first().click();
   if (!(await procedureButton.isVisible()))
     await p
       .getByRole("button", { name: /Rhythm & devices/ })

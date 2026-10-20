@@ -11,6 +11,7 @@ import type { PatientState, MedState } from "./state.js";
 import { MEASURES, formatNumber, formatRange } from "../../shared/catalog.js";
 import { daysBetween, flagFor, fmtDay } from "../../shared/clinical.js";
 import { creatinineTrend } from "../engine/renal-trend.js";
+import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy.js";
 
 type Tone = "good" | "bad" | "warn" | "neutral";
 const MON = (at: string) => fmtDay(at, { year: true }).replace(/^\d+ /, "");
@@ -31,20 +32,20 @@ function changedIn(s: PatientState, from: string, to: string) {
   return s.meds.flatMap((m) => m.events.filter((e) => ["stop", "hold"].includes(e.kind) && e.effective_at >= from && e.effective_at <= end).map((e) => `${m.name} ${e.kind === "stop" ? "stopped" : "held"}`));
 }
 
-export function story(s: PatientState, head: { diagnoses: { code: string; label: string; family: string; riskFactor: boolean }[]; ihd?: { label: string } | null }, pillars: { label: string; state: string }[] | null) {
+// One home for every fact (20 Oct 2026, Ahmed: "a perfect overview without repeated info"): the story tells
+// what happened and in which direction; the numbers live once, in the problem they belong to. So the story
+// carries no diagnosis list (the header has it), no values (the problem cards have them) and no medicine
+// list (the medicine strip has it).
+export function story(s: PatientState) {
   const lines: { key: string; label: string; text: string; tone?: Tone }[] = [];
-  // the heart: HF label, LVEF trajectory, coronary history
+  // the course of the heart: the LVEF trajectory, when there is one
   const ef = finals(s, "lvef");
   const traj: string[] = [];
   for (const o of ef.slice(-4)) {
     const t = `${valueText("lvef", o.value_num!, o.value_high)}% (${MON(o.effective_at)})`;
     if (traj[traj.length - 1]?.split(" (")[0] !== t.split(" (")[0]) traj.push(t);
   }
-  const hf = head.diagnoses.find((d) => d.family === "Heart failure");
-  const heart = [hf ? hf.label.replace(/ · EF [\d–]+%$/, "").replace(/ \(LVEF [^)]*\)$/, "").replace(/ [\d–]+%$/, "") : null, traj.length ? `LVEF ${traj.join(" → ")}` : null, head.ihd?.label ?? null].filter(Boolean);
-  if (heart.length) lines.push({ key: "heart", label: "Heart", text: heart.join(" · ") });
-  const other = head.diagnoses.filter((d) => d.family !== "Heart failure" && d.family !== "Coronary").map((d) => d.label.split(" · ")[0]);
-  if (other.length) lines.push({ key: "background", label: "Also", text: [...new Set(other)].slice(0, 8).join(", ") });
+  if (traj.length >= 2) lines.push({ key: "heart", label: "LVEF", text: traj.join(" → ") });
   // the turning point: the latest admission in the last 12 months
   const adm = lastAdmission(s);
   if (adm) {
@@ -57,61 +58,55 @@ export function story(s: PatientState, head: { diagnoses: { code: string; label:
       text: [`${fmtDay(adm.started_at)}${end ? `–${fmtDay(end, { year: true })}` : ""}${los ? ` (${los} day${los === 1 ? "" : "s"})` : ""}: ${adm.reasons.join(", ")}`, events.length ? `in hospital: ${events.join(", ").toLowerCase()}` : null, changed.length ? changed.join(", ") : null].filter(Boolean).join(" · "),
     });
   }
-  // since: the latest admission's end, else the last closed visit, else 6 months back
+  // since: the direction of what moved (the values are in the problem cards)
   const lastVisit = [...s.contexts].filter((c) => c.kind === "clinic_visit" && c.status === "closed" && c.ended_at).sort((a, b) => b.ended_at!.localeCompare(a.ended_at!))[0];
   const anchor = adm?.ended_at ?? lastVisit?.ended_at ?? new Date(Date.parse(s.today) - 182 * 864e5).toISOString();
-  const moved: string[] = [];
-  for (const code of ["creatinine", "potassium", "sodium", "haemoglobin", "nt-probnp", "magnesium"]) {
+  const up: string[] = [], down: string[] = [];
+  const NAME: Record<string, string> = { creatinine: "creatinine", potassium: "potassium", sodium: "sodium", haemoglobin: "Hb", "nt-probnp": "NT-proBNP", magnesium: "magnesium", "ldl-c": "LDL-C", hba1c: "HbA1c" };
+  for (const code of Object.keys(NAME)) {
     const all = finals(s, code);
     const now = all[all.length - 1];
     if (!now || now.effective_at <= anchor) continue;
-    const before = [...all].reverse().find((o) => o.effective_at <= anchor) ?? all.find((o) => o !== now && o.effective_at < now.effective_at);
+    const before = [...all].reverse().find((o) => o.effective_at <= anchor);
+    if (!before) continue;
+    const p = pct(before.value_num!, now.value_num!);
     const flag = flagFor(now.value_num!, refOf(s, code));
-    const label = MEASURES[code]?.short ?? code;
-    if (before && before !== now) {
-      const p = pct(before.value_num!, now.value_num!);
-      if (flag || (p != null && Math.abs(p) >= 20)) moved.push(`${label} ${valueText(code, before.value_num!)} → ${valueText(code, now.value_num!)}${p != null && code !== "potassium" && code !== "sodium" ? ` (${p > 0 ? "+" : ""}${p}%)` : ""}`);
-    } else if (flag) moved.push(`${label} ${valueText(code, now.value_num!)}`);
+    if (p == null || p === 0 || (!flag && Math.abs(p) < 20)) continue;
+    (p > 0 ? up : down).push(NAME[code]);
   }
-  if (moved.length) lines.push({ key: "since", label: adm ? "Since discharge" : lastVisit ? "Since last visit" : "Recently", text: moved.join(" · "), tone: "warn" });
-  // treatment now
-  const live = s.meds.filter((m) => m.status === "active");
-  const off = s.meds.filter((m) => m.status === "held" || m.status === "not_taking");
-  const pill = pillars?.length ? `HF medicines ${pillars.filter((p) => p.state === "on" || p.state === "target").length} of ${pillars.length}` : null;
-  if (live.length || off.length)
-    lines.push({ key: "now", label: "On", text: [pill, live.slice(0, 8).map((m) => m.name).join(", ") || "no active medicine", off.length ? `${off.map((m) => m.name).join(", ")} ${off.length === 1 ? "is" : "are"} held` : null].filter(Boolean).join(" · ") });
+  const list = (x: string[]) => (x.length > 1 ? `${x.slice(0, -1).join(", ")} and ${x[x.length - 1]}` : x[0]);
+  if (up.length || down.length)
+    lines.push({ key: "since", label: adm ? "Since discharge" : lastVisit ? "Since the last visit" : "Recently", tone: "warn",
+      text: [up.length ? `${list(up)} rose` : null, down.length ? `${list(down)} fell` : null].filter(Boolean).join("; ") });
   return lines;
 }
 
-export function standing(s: PatientState, pillars: { state: string }[] | null) {
+// one verdict per domain, in words; the numbers are in the problem cards
+export function standing(s: PatientState) {
   const out: { key: string; label: string; value: string; tone: Tone }[] = [];
   const ef = finals(s, "lvef");
   if (ef.length >= 2) {
     const a = ef[ef.length - 2].value_num!, b = ef[ef.length - 1].value_num!;
     // ESC HF 2021/2026: a ≥10-point LVEF change defines improvement or decline
-    out.push({ key: "heart", label: "Heart function", value: b - a >= 10 ? `Improved (${formatNumber(b, 0)}%)` : a - b >= 10 ? `Worse (${formatNumber(b, 0)}%)` : `Stable (${formatNumber(b, 0)}%)`, tone: b - a >= 10 ? "good" : a - b >= 10 ? "bad" : "neutral" });
-  } else if (ef.length) out.push({ key: "heart", label: "Heart function", value: `LVEF ${valueText("lvef", ef[0].value_num!, ef[0].value_high)}%`, tone: "neutral" });
+    out.push({ key: "heart", label: "Heart function", value: b - a >= 10 ? "Improved" : a - b >= 10 ? "Worse" : "Stable", tone: b - a >= 10 ? "good" : a - b >= 10 ? "bad" : "neutral" });
+  }
   const t = creatinineTrend(s);
   if (t) {
-    // the renal rule's review limit decides "worse"; otherwise the change is shown as it is
+    // the renal rule's review limit decides "worse"
     const above = flagFor(t.cur.value_num!, MEASURES.creatinine?.ref) === "high";
     const r = Math.round(t.rel * 100);
-    out.push({ key: "kidney", label: "Kidney", value: t.review ? `Worse: creatinine +${r}%` : Math.abs(r) >= 10 ? `Creatinine ${r > 0 ? "+" : ""}${r}% vs baseline` : "Stable", tone: t.review ? "bad" : r > 0 && above ? "warn" : r <= -10 ? "good" : "neutral" });
+    out.push({ key: "kidney", label: "Kidney", value: t.review ? "Worse" : r >= 10 ? "Creatinine rising" : r <= -10 ? "Improving" : "Stable", tone: t.review ? "bad" : r >= 10 && above ? "warn" : r <= -10 ? "good" : "neutral" });
   }
   const bnp = finals(s, "nt-probnp");
   if (bnp.length >= 2) {
     const p = pct(bnp[bnp.length - 2].value_num!, bnp[bnp.length - 1].value_num!)!;
-    out.push({ key: "bnp", label: "NT-proBNP", value: p > 0 ? `Rising (+${p}%)` : p < 0 ? `Falling (${p}%)` : "Unchanged", tone: p > 0 ? "warn" : p < 0 ? "good" : "neutral" });
-  }
-  if (pillars?.length) {
-    const on = pillars.filter((p) => p.state === "on" || p.state === "target").length;
-    out.push({ key: "hf-meds", label: "HF medicines", value: `${on} of ${pillars.length}`, tone: on === pillars.length ? "good" : on <= 1 ? "bad" : "warn" });
+    out.push({ key: "bnp", label: "NT-proBNP", value: p > 0 ? "Rising" : p < 0 ? "Falling" : "Unchanged", tone: p > 0 ? "warn" : p < 0 ? "good" : "neutral" });
   }
   const at = s.meds.filter((m) => m.status === "active" && m.tags.some((x) => ["antiplatelet", "oac"].includes(x)));
   const hb = finals(s, "haemoglobin");
   if (at.length >= 2) {
     const falling = hb.length >= 2 && hb[hb.length - 1].value_num! < hb[hb.length - 2].value_num!;
-    out.push({ key: "bleeding", label: "Bleeding risk", value: `${at.length} antithrombotics${falling ? " + falling Hb" : ""}`, tone: falling ? "bad" : "warn" });
+    out.push({ key: "bleeding", label: "Bleeding risk", value: `${at.length} antithrombotics${falling ? " with falling Hb" : ""}`, tone: falling ? "bad" : "warn" });
   }
   return out;
 }
@@ -157,28 +152,36 @@ export function timeline(s: PatientState) {
       points: all.map((o) => ({ id: o.id, at: o.effective_at, value: o.value_num!, high: o.value_high ?? null, text: valueText(code, o.value_num!, o.value_high), source: o.source,
         flag: code === "lvef" ? (o.value_num! < 50 ? "low" : null) : flagFor(o.value_num!, refOf(s, code)) })),
     };
-  }).filter((l) => l.points.length);
+  }).filter((l) => l.points.length >= 2);
+  if (!lanes.length) return null;
   const admissions = s.contexts.filter((c) => c.kind === "admission" && (c.ended_at ?? to) >= from)
     .map((c) => ({ id: c.id, from: c.started_at < from ? from : c.started_at, to: c.ended_at ?? to, label: c.reasons.join(", "), open: !c.ended_at, changed: changedIn(s, c.started_at, c.ended_at ?? to) }));
   const cardiac = (m: MedState) => m.tags.some((x) => ["raas", "arni", "acei", "arb", "bb", "mra", "sglt2", "loop", "thiazide", "antiplatelet", "oac", "statin", "lipid", "nitrate", "ivabradine", "digoxin", "glp1", "bp-raising"].includes(x));
-  const meds = s.meds.filter(cardiac).map((m) => ({ id: m.id, name: m.name, status: m.status, periods: periods(m, from, to) })).filter((m) => m.periods.length).slice(0, 8);
+  // a bar only for a medicine that started, stopped or was held in the period; the rest are one line
+  const changedHere = (m: MedState) => m.events.some((e) => e.effective_at >= from && !e.preexisting && !(e.kind === "continue" && e === m.events[0]));
+  const all = s.meds.filter(cardiac).map((m) => ({ id: m.id, name: m.name, status: m.status, periods: periods(m, from, to), changed: changedHere(m) })).filter((m) => m.periods.length);
+  const meds = all.filter((m) => m.changed).slice(0, 8);
+  const steady = all.filter((m) => !m.changed && m.status !== "stopped").map((m) => m.name);
   const events = [
     ...s.studies.filter((x) => x.kind === "echo" && x.performed_at >= from).map((x) => ({ at: x.performed_at, kind: "echo", label: "Echo" })),
     ...s.procedures.filter((p) => p.performed_at >= from).map((p) => ({ at: p.performed_at, kind: p.kind, label: p.summary || p.kind.toUpperCase() })),
   ];
   const before = s.procedures.filter((p) => p.performed_at < from).map((p) => `${(p.summary || p.kind.toUpperCase()).replace(/ \(past history\)$/, "")} ${new Date(p.performed_at).getFullYear()}`);
-  return { from, to, lanes, admissions, meds, events, before };
+  return { from, to, lanes, admissions, meds, steady, events, before };
 }
 
 // every abnormal latest result once, with its trend; normal ones as one line
 export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal: number; met: boolean | null } | null; hba1c?: { target: string; met: boolean | null } | null }) {
   const isHf = s.tags.has("hf");
-  const flagged: any[] = [], normal: string[] = [];
+  const flagged: any[] = [], normal: { code: string; text: string }[] = [];
   const byCode = Object.fromEntries(results.map((r) => [r.code, r]));
   for (const r of results) {
     if (r.code === "egfr" || r.current?.value == null) continue;
     const v = r.current.value as number;
-    let flag: "high" | "low" | null = flagFor(v, refOf(s, r.code));
+    // in pregnancy Hb is read against the trimester cut-off (WHO 2024, as the anaemia rule), eGFR never
+    const preg = s.conditions.find((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
+    const hbCut = preg && r.code === "haemoglobin" ? pregnancyHaemoglobinCutoff((preg.attributes as any)?.edd, String(r.current.at).slice(0, 10)) : null;
+    let flag: "high" | "low" | null = preg && r.code === "haemoglobin" ? (hbCut != null && v < hbCut ? "low" : null) : flagFor(v, refOf(s, r.code));
     let note: string | null = null;
     const uln = r.current.referenceHigh as number | null;
     if (!flag && uln && v > uln) { flag = "high"; note = `${formatNumber(v / uln, 1)}× ULN`; }
@@ -193,7 +196,7 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
     const pregnant = s.conditions.some((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
     if (r.code === "creatinine" && !pregnant && byCode.egfr?.current?.value != null) note = [note, `eGFR ${formatNumber(byCode.egfr.current.value, 0)}`].filter(Boolean).join(" · ");
     const text = `${formatRange(v, r.current.valueHigh, r.decimals)}`;
-    if (!flag) { normal.push(`${r.label} ${text}`); continue; }
+    if (!flag) { normal.push({ code: r.code, text: `${r.label} ${text}` }); continue; }
     flagged.push({
       code: r.code, label: r.label, display: r.display, value: v, text, unit: r.unit, at: r.current.at, flag, note,
       previous: r.trend?.previous ? { value: r.trend.previous.value, text: formatNumber(r.trend.previous.value, r.decimals), at: r.trend.previous.at } : null,

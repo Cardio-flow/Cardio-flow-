@@ -9,7 +9,7 @@ import { fmtDay, fmtTime } from "../../shared/clinical";
 import { BARRIER_CATEGORIES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog";
 import type { Open } from "./Patient";
 import { Fold, TodayBoard, useTriage } from "./Today";
-import { AbnormalNow, StoryCard } from "./Story";
+import { StoryCard } from "./Story";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const { hot } = useTriage(s);
@@ -26,6 +26,8 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   }, [narrow]);
   const [pane, setPane] = useState("decide");
   const [allResults, setAllResults] = useState(false);
+  // "More detail" remembers being opened on this device, like the panels inside it
+  const moreOpen = (() => { try { return localStorage.getItem("cf.fold.more") === "1"; } catch { return false; } })();
   const [nav, setNav] = useState<{ n: number; code: string | null }>({ n: 0, code: null });
   const go = (p: string, code?: string) => { setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
   // after a tap (never on first load): bring the chosen section, or the chosen result, into view
@@ -40,19 +42,36 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       <Episodes s={s} open={open} done={done} />
       <TodayBoard s={s} open={open} done={done} />
       {/* "What changed" now lives in the story and the timeline (20 Oct 2026) */}
-      {/* module detail (timelines, procedures, devices): folded; the problem cards above carry the decisions */}
-      {F("hf", <HfPanel hf={s.hf} open={open} />, false)}
-      {F("cad", <CadPanel cad={s.cad} open={open} />, false)}
-      {F("rhythm", <RhythmPanel r={s.rhythm} open={open} />, false)}
-      {F("valve", <ValvePanel v={s.valve} open={open} />, false)}
-      {F("cmp", <CmpPanel c={s.cmp} open={open} />, false)}
-      {F("ph", <PhPanel p={s.ph} open={open} />, false)}
+      {/* module detail (classification, procedures, devices, surveillance): one folded section at the end; the
+          problem cards above carry the decisions and the values (20 Oct 2026: nothing shown twice by default) */}
+      {(() => {
+        // a panel holding something to act on or decide (e.g. aftercare of a recent LAA closure) stays in view;
+        // the rest fold into one "More detail" section
+        const panels: [string, any, React.ReactNode, string][] = [
+          ["hf", s.hf, <HfPanel hf={s.hf} open={open} />, "heart failure"], ["cad", s.cad, <CadPanel cad={s.cad} open={open} />, "coronary"],
+          ["rhythm", s.rhythm, <RhythmPanel r={s.rhythm} open={open} />, "rhythm"], ["valve", s.valve, <ValvePanel v={s.valve} open={open} />, "valves"],
+          ["cmp", s.cmp, <CmpPanel c={s.cmp} open={open} />, "cardiomyopathy"], ["ph", s.ph, <PhPanel p={s.ph} open={open} />, "pulmonary hypertension"],
+        ];
+        const present = panels.filter(([, d]) => d);
+        const live = present.filter(([k]) => hot.has(k)), quiet = present.filter(([k]) => !hot.has(k));
+        return (
+          <>
+            {live.map(([k, , node]) => <div key={k}>{F(k, node, true)}</div>)}
+            {quiet.length > 0 && (
+              <details className="module-detail" open={moreOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; try { localStorage.setItem("cf.fold.more", o ? "1" : "0"); } catch {} }}>
+                <summary>More detail · {quiet.map(([, , , name]) => name).join(", ")}</summary>
+                <div className="stack">{quiet.map(([k, , node]) => <div key={k}>{F(k, node, false)}</div>)}</div>
+              </details>
+            )}
+          </>
+        );
+      })()}
     </>
   );
   const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
   const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
   const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
-  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["results", "Abnormal", s.abnormal?.items?.length ?? resultCount], ["meds", "Medicines", nMeds], ["plan", "Plan", planned]];
+  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
   if (narrow)
     return (
       <main className="page overview-page">
@@ -67,7 +86,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="stack ov-pane">
           {pane === "decide" && decide}
           {pane === "meds" && <Meds s={s} open={open} done={done} />}
-          {pane === "results" && <><AbnormalNow s={s} onAll={() => setAllResults(!allResults)} />{allResults && <Results s={s} open={open} />}</>}
+          {pane === "results" && <Results s={s} open={open} />}
           {pane === "plan" && <><ActivePlan s={s} open={open} /><Upcoming s={s} open={open} /></>}
         </div>
       </main>
@@ -75,7 +94,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   return (
     <main className="page overview-page">
       {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
-        <Pulse s={s} open={open} go={go} labs={false} />
+        <Pulse s={s} open={open} go={go} labs={false} meds={false} />
         <StoryCard s={s} narrow={false} />
       <div className="grid-main">
         <div className="stack">
@@ -83,9 +102,12 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <ActivePlan s={s} open={open} />
         </div>
         <div className="stack">
-          <AbnormalNow s={s} onAll={() => setAllResults(!allResults)} />
-          {allResults && <Results s={s} open={open} />}
           <Meds s={s} open={open} done={done} />
+          <section className="card pad results-entry" aria-label="All results">
+            <div className="card-head"><h2>Results</h2><button className="btn ghost small" aria-expanded={allResults} onClick={() => setAllResults(!allResults)}>{allResults ? "Hide" : `All results (${resultCount})`}</button></div>
+            <p className="small muted" style={{ margin: 0 }}>Abnormal results are in their problem card on the left, each once, with its trend.</p>
+          </section>
+          {allResults && <Results s={s} open={open} />}
           <Upcoming s={s} open={open} />
         </div>
       </div>

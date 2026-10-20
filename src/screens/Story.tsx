@@ -61,7 +61,7 @@ export function Timeline({ t, narrow }: { t: any; narrow: boolean }) {
     ...(t.admissions as any[]).map((a) => ({ key: `adm-${a.id}`, label: `Admission ${fmtDay(a.from)}`, detail: `${fmtDay(a.from)}${a.open ? " – now" : ` – ${fmtDay(a.to, { year: true })}`} · ${a.label}${a.changed.length ? ` · ${a.changed.join(", ")}` : ""}` })),
     ...(t.lanes as any[]).map((l) => {
       const p = l.points[l.points.length - 1];
-      return { key: l.code, label: `${l.label.replace(" %", "")} ${p.text}`, detail: `${l.label.replace(" %", "")}: ${l.points.map((q: any) => `${q.text} (${fmtDay(q.at, { year: true })})`).join(" → ")} · latest from ${p.source}` };
+      return { key: l.code, label: `${l.label.replace(" %", "")} history`, detail: `${l.label.replace(" %", "")}: ${l.points.map((q: any) => `${q.text} (${fmtDay(q.at, { year: true })})`).join(" → ")} · latest from ${p.source}` };
     }),
   ];
   const chosen = picks.find((p) => p.key === pick);
@@ -117,7 +117,9 @@ export function Timeline({ t, narrow }: { t: any; narrow: boolean }) {
         })}
         {ticks.map((k) => <text key={k.at} x={x(k.at)} y={H - 6} fontSize={narrow ? 9.5 : 10.5} fill="#667085" textAnchor="middle">{k.label}</text>)}
       </svg>
-      {(t.before as string[]).length > 0 && <p className="tl-before">Before this period: {t.before.join(" · ")}</p>}
+      {((t.before as string[]).length > 0 || (t.steady ?? []).length > 0) && (
+        <p className="tl-before">{[(t.steady ?? []).length ? `Unchanged throughout: ${t.steady.join(", ")}` : null, t.before.length ? `Before this period: ${t.before.join(" · ")}` : null].filter(Boolean).join(" · ")}</p>
+      )}
       <div className="tl-picks" role="group" aria-label="Values on the timeline">
         {picks.map((p) => <button key={p.key} type="button" className={`tl-chip${pick === p.key ? " on" : ""}`} aria-pressed={pick === p.key} onClick={() => setPick(pick === p.key ? null : p.key)}>{p.label}</button>)}
       </div>
@@ -126,43 +128,41 @@ export function Timeline({ t, narrow }: { t: any; narrow: boolean }) {
   );
 }
 
-export function AbnormalNow({ s, onAll }: { s: any; onAll(): void }) {
-  const a = s.abnormal;
-  if (!a) return null;
+// one abnormal result, shown once, in the problem it belongs to (20 Oct 2026)
+export function ResultRows({ items }: { items: any[] }) {
+  if (!items.length) return null;
   return (
-    <section className="card pad abnormal-card" aria-label="Abnormal results">
-      <div className="card-head"><h2>Abnormal now</h2><span className="small muted">trend · change</span></div>
-      {a.items.length === 0 ? <div className="empty">No abnormal latest result.</div> : (
-        <ul className="abn-list">
-          {a.items.map((r: any) => (
-            <li key={r.code} className={`abn-${r.flag}`}>
-              <span className="abn-name"><b>{r.label} {r.text}</b> <small>{r.unit}</small>{r.note && <em>{r.note}</em>}<time>{fmtDay(r.at)}{r.previous ? ` · before ${r.previous.text}` : " · first result"}</time></span>
-              {r.series.length > 1 ? <Sparkline values={r.series} tone={r.flag === "high" ? "red" : "orange"} width={72} height={22} /> : <span />}
-              <span className="abn-pct">{r.percent != null ? `${r.percent > 0 ? "+" : ""}${r.percent}%` : ""}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="small muted abn-normal">{a.normal.length ? <>Normal: {a.normal.slice(0, 8).join(", ")}{a.normal.length > 8 ? "…" : ""} · </> : null}<button type="button" className="linklike" onClick={onAll}>All results</button></p>
-    </section>
+    <ul className="abn-list">
+      {items.map((r: any) => (
+        <li key={r.code} className={`abn-${r.flag}`}>
+          <span className="abn-name"><b>{r.label} {r.text}</b> <small>{r.unit}</small>{r.note && <em>{r.note}</em>}<time>{fmtDay(r.at)}{r.previous ? ` · before ${r.previous.text}` : " · first result"}</time></span>
+          {r.series.length > 1 ? <Sparkline values={r.series} tone={r.flag === "high" ? "red" : "orange"} width={72} height={22} /> : <span />}
+          <span className="abn-pct">{r.percent != null ? `${r.percent > 0 ? "+" : ""}${r.percent}%` : ""}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 // why each HF medicine is not started or not increased, and what would let it back
 export function HeldMedicines({ s }: { s: any }) {
+  // every HF pillar once (20 Oct 2026): what she takes and how far from target, or why it is not given and
+  // what would let it back — replaces the separate pillar pills and "held" list
   const pillars = (s.targets?.hf?.pillars ?? []) as any[];
-  const rows = pillars.filter((p) => p.block || p.increaseBlock || (p.state === "held"));
-  if (!rows.length) return null;
+  if (!pillars.length) return null;
+  const state = (p: any) => p.state === "target" ? "At target" : p.state === "on" ? `${p.med ?? "On"}${p.percentOfTarget != null ? ` · ${p.percentOfTarget}% of target` : ""}` : p.state === "held" ? `${p.med ?? "Held"}` : p.note?.startsWith("Not given") ? p.note : "Not started";
   return (
-    <div className="held-card" aria-label="HF medicines held">
-      <div className="held-h">Held, with the reason · what lets it back</div>
-      {rows.map((p) => (
-        <div key={p.key} className="held-row">
-          <b>{p.label.split(" (")[0]}{p.increaseBlock ? " ↑" : ""}</b>
-          <span className="held-why">{p.block ?? p.increaseBlock ?? (p.med ? `${p.med}` : "held")}</span>
-          <span className="small muted">{p.unlock ?? p.increaseUnlock ?? ""}</span>
-        </div>
-      ))}
+    <div className="held-card" aria-label="Heart failure medicines">
+      {pillars.map((p) => {
+        const why = p.block ?? p.increaseBlock ?? null;
+        return (
+          <div key={p.key} className={`held-row pill-${p.state}`}>
+            <b>{p.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI / ACEi / ARB")}</b>
+            <span className={p.state === "target" ? "st-good" : p.state === "on" ? "" : "held-why"}>{p.block ? `Not now: ${p.block}` : state(p)}{!p.block && p.increaseBlock ? ` · not increased: ${p.increaseBlock}` : ""}</span>
+            <span className="small muted">{why ? p.unlock ?? p.increaseUnlock ?? "" : ""}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

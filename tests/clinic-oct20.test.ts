@@ -152,11 +152,12 @@ test("overview story: turning point, since discharge, where things stand, timeli
   const pid = await tx(async (q) => { const id = await importCase(q, doc, c); await reassess(q, id, "production"); return id; });
   const s = (await db.transaction((q) => summary(q, pid))) as any;
   const line = (k: string) => s.story.find((l: any) => l.key === k)?.text ?? "";
-  assert.match(line("heart"), /LVEF 30–35% \(Dec 2025\) → 55% \(Aug 2026\)/);
+  assert.equal(line("heart"), "30–35% (Dec 2025) → 55% (Aug 2026)");
   assert.match(line("admission"), /20 Jul–28 Jul 2026 \(8 days\): Acute kidney injury, Sepsis \/ urinary infection/);
-  assert.match(line("since"), /Cr 95 → 118 \(\+24%\) · K 4\.4 → 5\.3/);
-  assert.deepEqual(s.standing.find((x: any) => x.key === "heart"), { key: "heart", label: "Heart function", value: "Improved (55%)", tone: "good" });
-  assert.equal(s.standing.find((x: any) => x.key === "bleeding")?.value, "2 antithrombotics + falling Hb");
+  assert.equal(line("since"), "creatinine and potassium rose; Hb fell");
+  assert.ok(!s.story.some((l: any) => ["background", "now"].includes(l.key)), "no diagnosis or medicine list in the story");
+  assert.deepEqual(s.standing.find((x: any) => x.key === "heart"), { key: "heart", label: "Heart function", value: "Improved", tone: "good" });
+  assert.equal(s.standing.find((x: any) => x.key === "bleeding")?.value, "2 antithrombotics with falling Hb");
   assert.deepEqual(s.timeline.lanes.map((l: any) => l.code), ["lvef", "creatinine", "potassium", "haemoglobin"]);
   assert.equal(s.timeline.admissions.length, 1);
   assert.deepEqual(s.abnormal.items.map((x: any) => x.code).sort(), ["creatinine", "haemoglobin", "magnesium", "potassium"]);
@@ -165,4 +166,17 @@ test("overview story: turning point, since discharge, where things stand, timeli
   assert.match(sglt2.unlock, /urinary infections are controlled/);
   assert.equal(s.targets.hf.pillars.find((p: any) => p.key === "bb").increaseBlock, "HR 58 bpm");
   assert.ok(!s.attention.some((a: any) => a.rule_id === "hf.foundational-therapy" && /SGLT2/.test(a.title)));
+});
+
+test("a mitral clip or a ring is a valve repair, never a prosthetic valve; residual MR after a clip does not open the prosthesis pathway", async () => {
+  const { conditionLabel } = await import("../server/kernel/views.js");
+  assert.equal(conditionLabel({ code: "prosthetic-valve", display: "Prosthetic valve / repair", attributes: { position: "Mitral", type: "Edge-to-edge repair (clip)" } }), "Mitral TEER (clip)");
+  assert.equal(conditionLabel({ code: "prosthetic-valve", display: "Prosthetic valve / repair", attributes: { position: "Tricuspid", type: "Repair / ring" } }), "Tricuspid valve repair (ring)");
+  const pid = await patient(["hfref"]);
+  await tx(async (q) => {
+    await K.recordProcedure(q, doc, pid, { kind: "valve", date: new Date("2021-07-01T09:00:00+03:00").toISOString(), details: { position: "Mitral", procedure: "Transcatheter edge-to-edge repair (TEER)", deviceModel: "MitraClip", historical: "year" } } as any);
+    await K.recordEcho(q, doc, pid, { date: nowIso(), quality: "formal", lvef: 35, findings: [], valves: { mr: "Moderate" } });
+    await reassess(q, pid, "production");
+  });
+  assert.ok(!(await active(pid)).some((r) => r.rule_id === "event.prosthetic-valve"));
 });

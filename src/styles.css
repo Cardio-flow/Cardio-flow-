@@ -2194,3 +2194,7 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .boot-state { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; box-sizing: border-box; }
 .boot-state h1 { margin: 0; font-size: 20px; color: var(--navy); }
 .boot-state p { margin: 0; max-width: 420px; line-height: 1.5; }
+.problem-normal { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
+.problem .abn-list { margin: 6px 0 2px; }
+.module-detail > summary { cursor: pointer; font-weight: 700; color: var(--ink-3); padding: 12px 4px; font-size: 14px; }
+.module-detail > .stack { margin-top: 8px; }

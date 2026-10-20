@@ -138,13 +138,12 @@ try {
     dispatchEvent(new PopStateEvent("popstate"));
   }, id);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  // phones: the overview shows one section at a time (Decide / Abnormal / Medicines / Plan); since 20 Oct 2026
-  // abnormal results are listed once with their trend, and the full list opens from "All results"
+  // phones: one section at a time (Decide / Medicines / Results / Plan). Since 20 Oct 2026 an abnormal result
+  // is shown once, with its trend, in its problem card (creatinine in "Kidney & potassium")
   const section = async (name) => { const t = page.getByRole("tab", { name: new RegExp(`^${name}`) }); if (await t.count()) await t.click(); };
   const labs = page.getByRole("region", { name: "Latest lab results" });
-  const allResults = async () => { await section("Abnormal"); if (!(await labs.count())) await page.getByRole("region", { name: "Abnormal results" }).getByRole("button", { name: "All results" }).click(); };
-  await section("Abnormal");
-  const abnCr = page.getByRole("region", { name: "Abnormal results" }).locator("li").filter({ hasText: "Cr " });
+  const allResults = async () => { await section("Results"); if (!(await labs.count())) await page.getByRole("region", { name: "All results" }).getByRole("button", { name: /All results/ }).click(); };
+  const abnCr = page.getByRole("region", { name: "Kidney & potassium" }).locator("li").filter({ hasText: "Cr " });
   await expect(abnCr).toContainText("+25%");
   await expect(abnCr).toContainText("before 100");
   await allResults();
