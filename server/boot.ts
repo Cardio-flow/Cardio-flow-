@@ -4,7 +4,6 @@ import { migrate } from "./db/db.js";
 import { reassess, seedRules } from "./engine/engine.js";
 import { RULESET } from "./engine/rules.js";
 import { enrichSynthetic, seedSynthetic } from "./seed.js";
-import { grantRequestedOwnerAdmin } from "./admin-bootstrap.js";
 
 export const SITE_ID = process.env.CARDIO_SITE_ID || "sacc";
 
@@ -36,10 +35,6 @@ export async function boot(db: DB, opts: { seed: boolean }) {
     ])
       if (process.env.CARDIO_DEMO_USERS !== "0")
         await tx.query(`INSERT INTO cf.member(email,site_id,display_name,role) VALUES($1,$2,$3,$4) ON CONFLICT (email) DO NOTHING`, [email, SITE_ID, name, role]);
-    if (process.env.VERCEL_ENV === "production") {
-      const grant = await grantRequestedOwnerAdmin(tx, SITE_ID);
-      if (grant !== "already-applied") console.info(`Owner admin grant: ${grant}`);
-    }
   });
   if (opts.seed) {
     const mode = (await db.query(`SELECT mode FROM cf.site WHERE id=$1`, [SITE_ID])).rows[0]?.mode;
