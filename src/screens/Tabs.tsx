@@ -19,6 +19,7 @@ import {
   PURPOSE_ORDER,
   doseLabel,
   formatNumber,
+  formatRange,
 } from "../../shared/catalog";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
@@ -26,6 +27,9 @@ import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
 import { MedicationReview } from "./MedicationReview";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
+
+// a report that gave only the month shows the month (20 Oct 2026)
+const studyDay = (st: any) => (st.attributes?.datePrecision === "month" ? fmtDay(st.performed_at, { year: true }).replace(/^\d+ /, "") : fmtDay(st.performed_at, { year: true }));
 
 const PROC_LABEL: Record<string, string> = {
   pericardiocentesis:"Pericardial drainage",
@@ -49,7 +53,7 @@ export function MedicationsTab({
   version: number;
   open(o: Open): void;
 }) {
-  const { data } = useData<any>(`/patients/${id}/record`, [version]);
+  const { data, reload } = useData<any>(`/patients/${id}/record`, [version]);
   if (!data) return <main className="page" />;
   const live = data.meds.filter((m: any) => m.status !== "stopped");
   const stopped = data.meds.filter((m: any) => m.status === "stopped");
@@ -178,6 +182,7 @@ export function MedicationsTab({
           </section>
         );
       })}
+      <OtherMedicines id={id} items={data.otherMeds ?? []} onChange={reload} />
       <div className="card pad medication-snapshot snapshot-card">
         <MedicationHistory entries={data.medicationHistory} preview={6} />
       </div>
@@ -203,6 +208,65 @@ export function MedicationsTab({
         </section>
       )}
     </main>
+  );
+}
+
+// Medicines outside the CardioFlow list (lactulose, cetirizine, B complex…): free text so the list is complete.
+// No rule reads them, and the card says so (20 Oct 2026, real clinic list).
+function OtherMedicines({ id, items, onChange }: { id: string; items: any[]; onChange(): void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<{ name: string; dose: string; frequency: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    if (!form) return;
+    setBusy(true);
+    try {
+      await api(`/patients/${id}/other-medicines`, { body: form });
+      setForm(null);
+      onChange();
+    } catch (e) {
+      toast({ text: (e as Error).message, err: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const stop = async (o: any) => {
+    try {
+      await api(`/patients/${id}/other-medicines/${o.logical_id}/stop`, { body: {} });
+      onChange();
+    } catch (e) {
+      toast({ text: (e as Error).message, err: true });
+    }
+  };
+  return (
+    <section className="card pad other-meds" aria-label="Other medicines">
+      <div className="card-head">
+        <h2>Other medicines</h2>
+        {!form && <button className="btn ghost small" onClick={() => setForm({ name: "", dose: "", frequency: "" })}><Plus size={14} /> Add other medicine</button>}
+      </div>
+      <p className="small muted">Not in the CardioFlow list. Recorded as written; not checked for doses or interactions.</p>
+      {items.length > 0 && (
+        <ul className="other-med-list">
+          {items.map((o) => (
+            <li key={o.logical_id}>
+              <span><b>{o.name}</b>{[o.dose, o.frequency].filter(Boolean).length ? ` · ${[o.dose, o.frequency].filter(Boolean).join(" ")}` : ""}</span>
+              <button className="btn ghost small" onClick={() => stop(o)} aria-label={`Stop ${o.name}`}>Stop</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {form && (
+        <div className="other-med-form">
+          <label>Medicine<input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Lactulose" /></label>
+          <label>Dose<input value={form.dose} onChange={(e) => setForm({ ...form, dose: e.target.value })} placeholder="e.g. 15 mL" /></label>
+          <label>How often<input value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })} placeholder="e.g. once daily" /></label>
+          <span className="row" style={{ gap: 6 }}>
+            <button className="btn primary small" disabled={busy || form.name.trim().length < 2} onClick={add}>Save</button>
+            <button className="btn ghost small" onClick={() => setForm(null)}>Cancel</button>
+          </span>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -276,7 +340,7 @@ export function InvestigationsTab({
           <span className="meta">
             Current LVEF:{" "}
             {lvef
-              ? `${formatNumber(lvef.current.value, 0)}% · ${lvef.reason}`
+              ? `${formatRange(lvef.current.value, lvef.current.valueHigh, 0)}% · ${lvef.reason}`
               : "none"}
           </span>
         </div>
@@ -305,7 +369,7 @@ export function InvestigationsTab({
                 return (
                   <tr key={s.id}>
                     <td data-label="Date">
-                      {fmtDay(s.performed_at, { year: true })}
+                      {studyDay(s)}
                     </td>
                     <td data-label="Quality">
                       <Tag sev={s.quality === "formal" ? "blue" : "gray"}>
@@ -314,7 +378,7 @@ export function InvestigationsTab({
                     </td>
                     <td data-label="LVEF">
                       <b>
-                        {s.lvef != null ? `${formatNumber(s.lvef, 0)}%` : "—"}
+                        {s.lvef != null ? `${formatRange(s.lvef, s.lvefHigh, 0)}%` : "—"}
                       </b>
                     </td>
                     <td data-label="Findings" className="small">
@@ -353,7 +417,7 @@ export function InvestigationsTab({
                         onClick={() =>
                           open({
                             kind: "void",
-                            what: `Echo of ${fmtDay(s.performed_at, { year: true })}`,
+                            what: `Echo of ${studyDay(s)}`,
                             path: `studies/${s.id}/void`,
                           })
                         }
@@ -390,7 +454,7 @@ export function InvestigationsTab({
               {others.map((st: any) => (
                 <tr key={st.id}>
                   <td data-label="Date">
-                    {fmtDay(st.performed_at, { year: true })}
+                    {studyDay(st)}
                   </td>
                   <td data-label="Study">
                     <Tag sev="blue">{STUDY_LABEL[st.kind] ?? st.kind}</Tag>
@@ -409,7 +473,7 @@ export function InvestigationsTab({
                       onClick={() =>
                         open({
                           kind: "void",
-                          what: `${STUDY_LABEL[st.kind] ?? st.kind} of ${fmtDay(st.performed_at, { year: true })}`,
+                          what: `${STUDY_LABEL[st.kind] ?? st.kind} of ${studyDay(st)}`,
                           path: `studies/${st.id}/void`,
                         })
                       }

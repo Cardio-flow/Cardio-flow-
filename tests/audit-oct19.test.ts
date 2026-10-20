@@ -102,6 +102,6 @@ test("case import brings past admissions and the dated plan; unknown admission r
   assert.equal(s.contexts.filter((x) => x.kind === "admission").length, 1);
   assert.ok(s.plan.some((p) => p.title === "Cardiology clinic review" && p.due_date === addDays(today(), 1)));
   assert.equal(s.resolved("haemoglobin").current?.value_num, 10.2);
-  const bad = caseSchema.parse({ ...c, patient: { ...c.patient, mrn: "X" + Date.now() }, admissions: [{ startedOn: "2026-08-01", endedOn: "2026-08-05", reasons: ["AKI"] }], plan: [] });
-  assert.match(checkCase(bad).join(" "), /unknown reason "AKI"/);
+  const bad = caseSchema.parse({ ...c, patient: { ...c.patient, mrn: "X" + Date.now() }, admissions: [{ startedOn: "2026-08-01", endedOn: "2026-08-05", reasons: ["Kidney trouble"] }], plan: [] });
+  assert.match(checkCase(bad).join(" "), /unknown reason "Kidney trouble"/);
 });

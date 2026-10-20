@@ -29,7 +29,10 @@ export const CAD_TEST_RULES: RuleDef[] = [
       const since = c.onset ? String(c.onset).slice(0, 10) : localDay(c.recorded_at);
       const t = latestCcsTest(s);
       const cath = [...s.studies].reverse().find((x) => x.kind === "cath" && localDay(x.performed_at) >= since);
-      const tested = (t && t.at >= since) || !!cath;
+      // a working diagnosis brought in from history has no onset: a test from the last 12 months already counts
+      // (20 Oct 2026, real case imported with last year's stress test)
+      const recentBefore = !!t && !c.onset && (Date.parse(s.today) - Date.parse(t.at)) / 864e5 <= 365;
+      const tested = (t && t.at >= since) || recentBefore || !!cath;
       if (tested) {
         const decided = s.pathwaysDone["ccs-test-result"] && localDay(s.pathwaysDone["ccs-test-result"]) >= (t?.at ?? since);
         // a coronary angiogram without obstructive disease, or a negative imaging test: ask to rule it out

@@ -2,7 +2,10 @@
 
 export const ADMISSION_REASONS = [
   "Acute decompensated HF", "STEMI", "NSTE-ACS", "Chest pain (ACS to exclude)", "AF / flutter", "VT / VF", "ICD shock", "Bradycardia / AV block",
-  "Syncope", "Presyncope", "Unexplained fall", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Myocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding", "Elective procedure", "Other",
+  "Syncope", "Presyncope", "Unexplained fall", "Valve disease", "Prosthetic valve problem", "Endocarditis", "Myocarditis", "Pericarditis / effusion", "Pulmonary embolism", "Hypertensive emergency", "Chest infection / pneumonia", "Bleeding",
+  // non-cardiac reasons seen in real discharge summaries (20 Oct 2026)
+  "Acute kidney injury", "Hypotension / shock", "Sepsis / urinary infection", "Vomiting / diarrhoea / GI illness", "Anaemia / transfusion", "Pancreatitis",
+  "Elective procedure", "Other",
 ];
 // reasons that make an admission HF-related unless the clinician says otherwise
 export const HF_REASONS = ["Acute decompensated HF"];

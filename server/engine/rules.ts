@@ -7,7 +7,7 @@ import { exposureChange } from "../../shared/medication-exposure.js";
 // wording are versioned parameters in cf.rule_version with a governance status.
 // Production sites run PUBLISHED versions only. Sandbox sites may run versions that
 // are still in review, and every output carries that status so it is labelled.
-import { MEASURES, MEDICATION, formatNumber } from "../../shared/catalog.js";
+import { MEASURES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog.js";
 import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { latestDischarge, medsWithTag, series, type PatientState } from "../kernel/state.js";
 import { LAB_RULES } from "./lab-rules.js";
@@ -156,7 +156,7 @@ export const RULES: RuleDef[] = [
           key: "ef",
           signature: now.id,
           severity: "blue",
-          title: `LVEF ${formatNumber(before.value_num!, 0)}% → ${formatNumber(now.value_num!, 0)}%: review HF classification and plan`,
+          title: `LVEF ${formatRange(before.value_num!, before.value_high, 0)}% → ${formatRange(now.value_num!, now.value_high, 0)}%: review HF classification and plan`,
           detail: `Now ${cat(now.value_num!)}. Recheck device plans; keep foundational therapy (withdrawal risks relapse).`,
           facts: [
             { label: "Previous LVEF", value: `${formatNumber(before.value_num!, 0)}%`, date: before.effective_at },
@@ -273,7 +273,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-20.clinic2";
+export const RULESET = "2026-10-20.clinic3";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

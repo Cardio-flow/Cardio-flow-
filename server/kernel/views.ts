@@ -13,7 +13,7 @@ import { cmpProfile } from "../engine/cmp-profile.js";
 import { phProfile } from "../engine/ph-profile.js";
 // Read models: Summary, What changed, Journey, Worklist. All are projections of the kernel.
 import type { Q } from "../db/db.js";
-import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber, formatRange } from "../../shared/catalog.js";
 import { hfDoseProgress } from "../engine/medication-progress.js";
 import { ageOn, bmi, daysBetween, fmtDay, localDay, planStatusView } from "../../shared/clinical.js";
 import { historicalLabel } from "../../shared/procedures.js";
@@ -102,7 +102,7 @@ export function header(s: PatientState) {
     diagnoses: [...s.conditions].sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code]?.family ?? "") - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code]?.family ?? "")).map((c) => ({
       id: c.logical_id,
       code: c.code,
-      label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display} · EF ${formatNumber(ef.value_num, 0)}%` : conditionLabel(c),
+      label: DIAGNOSIS[c.code]?.tags.includes("hf") && ef?.value_num != null ? `${c.display}${/\sEF$/.test(c.display) ? "" : " · EF"} ${formatRange(ef.value_num, ef.value_high, 0)}%` : conditionLabel(c),
       family: DIAGNOSIS[c.code]?.family ?? "Other",
       onset: c.onset,
       attributes: c.attributes ?? {},
@@ -179,9 +179,11 @@ export function cardiacEvents(s: PatientState): CardiacEvent[] {
   return out.sort((x, y) => (x.at ?? "").localeCompare(y.at ?? ""));
 }
 
+// coronary diagnoses that are not ischaemic heart disease: listed on their own (ectasia added 20 Oct 2026)
+const NOT_IHD = new Set(["cad-suspected", "coronary-ectasia"]);
 // "IHD · inferior STEMI 2017 · PCI LAD 2015 · POBA RCA 2017" and the dated events behind it
 export function ihdSummary(s: PatientState) {
-  const conds = s.conditions.filter((c) => c.status === "active" && (CORONARY.has(c.code) || (DIAGNOSIS[c.code]?.family === "Coronary" && c.code !== "cad-suspected")));
+  const conds = s.conditions.filter((c) => c.status === "active" && (CORONARY.has(c.code) || (DIAGNOSIS[c.code]?.family === "Coronary" && !NOT_IHD.has(c.code))));
   const ev = cardiacEvents(s).filter((e) => e.group === "coronary");
   if (!conds.length && !ev.length) return null;
   const y = (e: CardiacEvent) => (YEAR(e.when) ? ` ${YEAR(e.when)}` : "");
@@ -217,7 +219,7 @@ export function diagnosisLines(s: PatientState) {
   const cardiac = s.conditions
     .filter((c) => DIAGNOSIS[c.code] && DIAGNOSIS[c.code].family !== "Comorbidity" && !covered.has(c.code))
     .sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code].family) - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code].family))
-    .map((c) => ({ family: DIAGNOSIS[c.code].family, text: DIAGNOSIS[c.code].tags.includes("hf") && ef?.value_num != null ? `${c.display} (LVEF ${formatNumber(ef.value_num, 0)}%)` : conditionLabel(c) }));
+    .map((c) => ({ family: DIAGNOSIS[c.code].family, text: DIAGNOSIS[c.code].tags.includes("hf") && ef?.value_num != null ? `${c.display} (LVEF ${formatRange(ef.value_num, ef.value_high, 0)}%)` : conditionLabel(c) }));
   const lead = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
   const diagnoses = [
     ...cardiac.filter((c) => lead.includes(c.family)).map((c) => c.text),
@@ -445,15 +447,15 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
         unit: def?.unit ?? "",
         decimals: def?.decimals ?? 0,
         ref: def?.ref ?? null,
-        current: { id: r.current.id, value: r.current.value_num, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
+        current: { id: r.current.id, value: r.current.value_num, valueHigh: r.current.value_high ?? null, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
         reason: r.reason,
         latestId: r.latest?.id,
-        latest: { id: latest.id, value: latest.value_num, referenceHigh:latest.reference_high ?? null, at: latest.effective_at, status: latest.status, source: latest.source },
+        latest: { id: latest.id, value: latest.value_num, valueHigh: latest.value_high ?? null, referenceHigh:latest.reference_high ?? null, at: latest.effective_at, status: latest.status, source: latest.source },
         trend: { previous: previous ? { id: previous.id, value: previous.value_num, at: previous.effective_at } : null, delta, percent,
           direction: delta == null ? null : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
           note: latest.status === "preliminary" ? "Awaiting verification" : !previous ? "First comparable result" : percent == null ? "Previous result was zero" : null },
         displaySeries: latest.status === "final" ? comparable.slice(0, 6).reverse().map((o) => ({ value: o.value_num, at: o.effective_at })) : [],
-        series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, referenceHigh:o.reference_high ?? null, at: o.effective_at, status: o.status, quality: o.quality })),
+        series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, valueHigh: o.value_high ?? null, referenceHigh:o.reference_high ?? null, at: o.effective_at, status: o.status, quality: o.quality })),
       };
     })
     .filter(Boolean);
@@ -533,7 +535,7 @@ export function planView(s: PatientState) {
     evidence: (p.completion_refs ?? []).map((id) => {
       const original = s.observations.find((o) => o.id === id || o.logical_id === id);
       const o = original && s.observations.find((o) => o.logical_id === original.logical_id);
-      if (o) return { id: o.id, label: MEASURES[o.code]?.display ?? o.code, value: o.value_num, unit: o.unit, at: o.effective_at };
+      if (o) return { id: o.id, label: MEASURES[o.code]?.display ?? o.code, value: o.value_num, valueHigh: o.value_high ?? null, unit: o.unit, at: o.effective_at };
       const procedure = s.procedures.find(pr => pr.id === id);
       if (procedure) return { id, label: procedure.summary, value: null, unit: null, at: procedure.performed_at };
       const study = s.studies.find((st) => st.id === id);
@@ -601,7 +603,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     })(),
     lvef: (() => {
       const r = s.resolved("lvef");
-      return r.current ? { value: r.current.value_num, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, reason: r.reason, latestQuality: r.latest?.quality, latestAt: r.latest?.effective_at, latestValue: r.latest?.value_num } : null;
+      return r.current ? { value: r.current.value_num, valueHigh: r.current.value_high ?? null, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, reason: r.reason, latestQuality: r.latest?.quality, latestAt: r.latest?.effective_at, latestValue: r.latest?.value_num } : null;
     })(),
     vitals: ["sbp", "dbp", "hr", "weight"].map((c) => {
       const cur = s.resolved(c).current;
@@ -764,7 +766,7 @@ export async function worklist(q: Q, siteId: string, sample = false) {
     // as the header reads (19 Oct audit): coronary codes as one "IHD", HF first, then valve, congenital, rhythm
     const order = ["Heart failure", "Cardiomyopathy", "Coronary", "Valve", "Congenital", "Arrhythmia"];
     const main = [...new Set(conds.filter((d) => order.includes(d.family)).sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family))
-      .map((d) => (d.family === "Coronary" && d.code !== "cad-suspected" ? "IHD" : d.code === "prosthetic-valve" ? "Valve intervention" : d.display)))];
+      .map((d) => (d.family === "Coronary" && !NOT_IHD.has(d.code) ? "IHD" : d.code === "prosthetic-valve" ? "Valve intervention" : d.display)))];
     const ckd = conds.find((d) => d.code.startsWith("ckd"));
     let where = "Outpatient";
     if (r.open_kind === "admission") where = `Inpatient${r.open_location ? ` · ${r.open_location}` : ""}`;

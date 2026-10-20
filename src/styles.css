@@ -2104,6 +2104,9 @@ a.tb-count { text-decoration: none; }
   table.data.labs-table td[data-label="Previous"]::before { content: "Before: " !important; display: inline !important; text-transform: none; letter-spacing: 0; font-size: 12px; margin: 0; }
   table.data.labs-table td[data-label="Trend"] { grid-column: 3; grid-row: 2 / span 2; justify-self: end; }
   table.data.labs-table td[data-label="Trend"] svg { width: 64px; height: 22px; }
+  /* the trend note under the sparkline (main, 20 Oct) stays inside the 64 px column */
+  table.data.labs-table td[data-label="Trend"] { min-width: 0; max-width: 64px; }
+  table.data.labs-table td[data-label="Trend"] .lab-trend-change { font-size: 10.5px; line-height: 1.2; text-align: right; white-space: normal; overflow-wrap: anywhere; }
   table.data.labs-table td[data-cell="action"] { grid-column: 2; grid-row: 2; justify-self: end; }
   table.data.labs-table td[data-cell="action"] .btn { min-height: 26px; padding: 2px 6px; font-size: 12px; }
 }
@@ -2134,3 +2137,13 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 }
 .same-last { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; background: var(--blue-soft, #eef4fd); margin: 4px 0 2px; }
 .same-last .small { font-weight: 600; color: var(--ink-2); }
+
+/* other medicines (20 Oct 2026) */
+.other-meds .other-med-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.other-meds .other-med-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-2); }
+.other-med-form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; margin-top: 10px; }
+.other-med-form label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+@media (max-width: 640px) { .other-med-form { grid-template-columns: 1fr; } }
+
+.ef-input .ef-to { color: var(--ink-3); padding: 0 2px; }
+.ef-input input.ef-high { width: 2.4ch; font-size: 30px; }

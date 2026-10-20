@@ -11,7 +11,7 @@
 // and baseline labs are the first values of the admission; nadir and peak are taken over the stay.
 import { formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, fmtDay, localDay } from "../../shared/clinical.js";
-import { obstructiveCad } from "../../shared/studies.js";
+import { SIGNIFICANT_STENOSIS, obstructiveCad } from "../../shared/studies.js";
 import { PCI_SETTINGS } from "../../shared/procedures.js";
 import type { ContextRow, MedState, Obs, PatientState, ProcedureRow, StudyRow } from "../kernel/state.js";
 
@@ -304,9 +304,9 @@ export const CAD_REGISTRY: Section[] = [
       { key: "Procedure_Urgency", label: "Procedure urgency", get: (x) => { const st = x.pci?.attributes.setting; return st ? { value: st === "stemi" ? "Emergent / salvage" : st === "nste-acs" ? "Urgent" : "Elective" } : null; } },
       ...(["Left_Main:lm:Left main", "LAD:lad:LAD", "LCX:lcx:LCx", "RCA:rca:RCA"].map((v) => {
         const [k, f, label] = v.split(":");
-        return { key: `${k}_Disease`, label: `${label} disease`, get: (x: Ctx) => { const s = x.cath?.attributes?.[f] as string | undefined; return s ? yn(f === "lm" ? ["50–69%", "70–99%", "Occluded"].includes(s) : ["70–99%", "Occluded"].includes(s)) : null; } } as Field;
+        return { key: `${k}_Disease`, label: `${label} disease`, get: (x: Ctx) => { const s = x.cath?.attributes?.[f] as string | undefined; return s ? yn(f === "lm" ? ["50–69%", ...SIGNIFICANT_STENOSIS].includes(s) : SIGNIFICANT_STENOSIS.includes(s)) : null; } } as Field;
       })),
-      { key: "Number_Diseased_Vessels", label: "Number of diseased vessels", get: (x) => { if (!x.cath) return null; const o = obstructiveCad("cath", x.cath.attributes ?? {}); const n = ["lad", "lcx", "rca"].filter((f) => ["70–99%", "Occluded"].includes(x.cath!.attributes?.[f])).length; return { value: String(n), note: o ?? "no obstructive disease" }; } },
+      { key: "Number_Diseased_Vessels", label: "Number of diseased vessels", get: (x) => { if (!x.cath) return null; const o = obstructiveCad("cath", x.cath.attributes ?? {}); const n = ["lad", "lcx", "rca"].filter((f) => SIGNIFICANT_STENOSIS.includes(x.cath!.attributes?.[f])).length; return { value: String(n), note: o ?? "no obstructive disease" }; } },
       { key: "Door_to_Balloon_Min", label: "Door-to-balloon (min)" },
       { key: "Management_Decision", label: "Result of angiography", get: (x) => {
         if (x.pci) return { value: "PCI" };

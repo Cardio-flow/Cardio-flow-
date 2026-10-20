@@ -12,7 +12,10 @@ import { ADMISSION_REASONS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, IN_HOSPI
 import { ADMISSION_HISTORY_SOURCES } from "../../shared/admission-history.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
-const at = (d: string) => (d.length === 10 ? new Date(`${d}T09:00:00+03:00`).toISOString() : new Date(d).toISOString());
+// a report that gives only the month ("echo 5/2026"): YYYY-MM, kept as the 15th and marked as month-only
+const dayOrMonth = z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/, "Use YYYY-MM-DD, or YYYY-MM when only the month is known");
+const at = (d: string) => (d.length === 7 ? new Date(`${d}-15T09:00:00+03:00`).toISOString() : d.length === 10 ? new Date(`${d}T09:00:00+03:00`).toISOString() : new Date(d).toISOString());
+const monthOnly = (d: string) => d.length === 7;
 
 export const caseSchema = z.object({
   format: z.literal("cardioflow-case/1"),
@@ -27,10 +30,11 @@ export const caseSchema = z.object({
     allergies: z.string().max(300).optional(),
   }),
   conditions: z.array(z.object({ code: z.string(), onset: day.optional(), onsetYear: z.number().int().min(1900).max(2100).optional(), attributes: z.record(z.string(), z.any()).optional() })).max(40).default([]),
-  results: z.array(z.object({ date: day, items: z.array(z.object({ code: z.string(), value: z.number().optional(), text: z.string().max(40).optional(), unit: z.string().max(20).optional(), referenceHigh: z.number().positive().optional() })).min(1).max(40) })).max(40).default([]),
-  echoes: z.array(z.object({ date: day, lvef: z.number().min(5).max(90), findings: z.array(z.string()).default([]), valves: z.record(z.string(), z.string()).optional(), conclusion: z.string().max(600).optional(),
+  // valueHigh: the upper number of a reported range ("EF 35–40%"); value is the lower and the one rules use
+  results: z.array(z.object({ date: dayOrMonth, items: z.array(z.object({ code: z.string(), value: z.number().optional(), valueHigh: z.number().optional(), text: z.string().max(40).optional(), unit: z.string().max(20).optional(), referenceHigh: z.number().positive().optional() })).min(1).max(40) })).max(40).default([]),
+  echoes: z.array(z.object({ date: dayOrMonth, lvef: z.number().min(5).max(90), lvefHigh: z.number().min(5).max(90).optional(), findings: z.array(z.string()).default([]), valves: z.record(z.string(), z.string()).optional(), conclusion: z.string().max(600).optional(),
     chambers: z.object({ la: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), ra: z.enum(["Normal", "Mild", "Moderate", "Severe"]).optional(), diastolic: z.enum(["Normal", "Grade I", "Grade II", "Grade III", "Indeterminate"]).optional() }).optional() })).max(10).default([]),
-  studies: z.array(z.object({ kind: z.string(), date: day, findings: z.record(z.string(), z.any()), conclusion: z.string().max(600).optional() })).max(20).default([]),
+  studies: z.array(z.object({ kind: z.string(), date: dayOrMonth, findings: z.record(z.string(), z.any()), conclusion: z.string().max(600).optional() })).max(20).default([]),
   procedures: z.array(z.object({ kind: z.string(), date: day, details: z.record(z.string(), z.any()) })).max(20).default([]),
   medications: z.array(z.object({ code: z.string(), doseValue: z.number().positive().nullable(), frequency: z.string().max(60), route: z.string().max(20).optional(), indication: z.string().max(80).optional(), since: day.nullable().optional() })).max(40).default([]),
   // 20 Oct 2026 (real clinic list): past admissions from discharge summaries and the dated plan
@@ -40,6 +44,8 @@ export const caseSchema = z.object({
     source: z.string().default("Discharge summary"), narrative: z.string().max(4000).default(""), events: z.array(z.string()).max(20).default([]),
     dischargeStatus: z.string().default(""), destination: z.string().default(""), reportedLabs: z.string().max(4000).default(""), reportedMedications: z.string().max(4000).default(""),
   })).max(15).default([]),
+  // medicines outside the catalogue, as written (lactulose, cetirizine…)
+  otherMedications: z.array(z.object({ name: z.string().trim().min(2).max(120), dose: z.string().max(60).default(""), frequency: z.string().max(60).default(""), note: z.string().max(300).default("") })).max(30).default([]),
   plan: z.array(z.object({
     category: z.enum(["medication", "investigation", "monitoring", "follow_up", "referral", "procedure", "education", "other"]),
     title: z.string().trim().min(2).max(160), dueDate: day.nullable(), reason: z.string().max(300).optional(),
@@ -94,11 +100,11 @@ export async function importCase(tx: Q, actor: Actor, c: CaseFile) {
     await step("Diagnoses", () => K.recordHistory(tx, actor, id, { effectiveAt: nowIso(), add: detailed.map((x) => ({ code: x.code, onset: x.onset ?? null, onsetYear: x.onsetYear ?? null, attributes: x.attributes ?? {} })) as any }));
   // oldest first, so trends and baselines read in order
   for (const r of [...c.results].sort((a, b) => a.date.localeCompare(b.date)))
-    await step(`Results ${r.date}`, () => K.recordObservations(tx, actor, id, { effectiveAt: at(r.date), items: r.items as any, source: "case import" }));
+    await step(`Results ${r.date}`, () => K.recordObservations(tx, actor, id, { effectiveAt: at(r.date), items: r.items as any, source: monthOnly(r.date) ? "case import · month only" : "case import" }));
   for (const e of c.echoes)
-    await step(`Echo ${e.date}`, () => K.recordEcho(tx, actor, id, { date: at(e.date), quality: "formal", lvef: e.lvef, findings: e.findings, valves: e.valves, conclusion: e.conclusion, chambers: e.chambers }));
+    await step(`Echo ${e.date}`, () => K.recordEcho(tx, actor, id, { date: at(e.date), datePrecision: monthOnly(e.date) ? "month" : undefined, quality: "formal", lvef: e.lvef, lvefHigh: e.lvefHigh ?? null, findings: e.findings, valves: e.valves, conclusion: e.conclusion, chambers: e.chambers }));
   for (const s of c.studies)
-    await step(`${STUDY[s.kind].short} ${s.date}`, () => K.recordStudy(tx, actor, id, { kind: s.kind, date: at(s.date), findings: s.findings, conclusion: s.conclusion }));
+    await step(`${STUDY[s.kind].short} ${s.date}`, () => K.recordStudy(tx, actor, id, { kind: s.kind, date: at(s.date), datePrecision: monthOnly(s.date) ? "month" : undefined, findings: s.findings, conclusion: s.conclusion }));
   for (const pr of c.procedures)
     await step(`Procedure ${pr.date}`, () => K.recordProcedure(tx, actor, id, { kind: pr.kind as any, date: at(pr.date), details: pr.details }));
   for (const m of c.medications) {
@@ -113,6 +119,8 @@ export async function importCase(tx: Q, actor: Actor, c: CaseFile) {
       const { recordPastAdmission } = await import("./context-management.js");
       await recordPastAdmission(tx, actor, id, { ...a, note: "", draftVersion: 0 } as any);
     });
+  for (const o of c.otherMedications)
+    await step(`Other medicine ${o.name}`, () => K.recordOtherMedicine(tx, actor, id, o));
   for (const item of c.plan)
     await step(`Plan: ${item.title}`, () => K.addPlanAction(tx, actor, id, { category: item.category, title: item.title, dueDate: item.dueDate, reason: item.reason } as any));
   if (c.note?.trim())

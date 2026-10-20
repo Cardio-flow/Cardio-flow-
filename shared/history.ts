@@ -195,6 +195,15 @@ export const DIAGNOSIS_ATTRIBUTES: Record<string, AttrField[]> = {
   af: [{ key: "pattern", label: "Pattern", options: ["First diagnosed", "Paroxysmal", "Persistent", "Permanent", "Unknown"] }],
   "av-block": [{ key: "degree", label: "Degree", options: ["First-degree", "Mobitz I", "Mobitz II", "Complete"] }],
   "stroke-tia": [{ key: "type", label: "Type", options: ["Ischaemic stroke", "Haemorrhagic stroke", "TIA", "Unknown"] }],
+  cancer: [
+    { key: "site", label: "Site", options: ["Breast", "Lung", "Prostate", "Kidney", "Bladder", "Colorectal", "Other GI", "Thyroid", "Head and neck", "Gynaecological", "Skin", "Other", "Not specified"], text: (v) => (v === "Not specified" ? null : v) },
+    { key: "status", label: "Status", options: ["Active treatment", "Past / in remission", "Not specified"], text: (v) => (v === "Not specified" ? null : v.toLowerCase()) },
+  ],
+  "haem-malignancy": [
+    { key: "type", label: "Type", options: ["Myelodysplastic syndrome", "Acute leukaemia", "Chronic leukaemia", "Lymphoma", "Myeloma", "Myeloproliferative neoplasm", "Other"] },
+    { key: "status", label: "Status", options: ["Active treatment", "Under follow-up", "Past / in remission", "Not specified"], text: (v) => (v === "Not specified" ? null : v.toLowerCase()) },
+  ],
+  "coronary-ectasia": [{ key: "vessels", label: "Vessels", options: ["Left main", "LAD", "LCx", "RCA"], multi: true }],
 };
 // Diagnoses that can be recorded more than once (e.g. aortic and mitral prostheses, repeat PCI).
 export const MULTIPLE_ALLOWED = new Set(["prosthetic-valve", "prior-pci", "prior-mi"]);

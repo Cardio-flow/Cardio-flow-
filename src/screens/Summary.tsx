@@ -6,7 +6,7 @@ import { MedicationHistory, DoseProgress } from "./MedicationHistory";
 import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
 import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
-import { BARRIER_CATEGORIES, MEDICATION, formatNumber } from "../../shared/catalog";
+import { BARRIER_CATEGORIES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog";
 import type { Open } from "./Patient";
 import { Fold, TodayBoard, useTriage } from "./Today";
 
@@ -580,7 +580,7 @@ function Results({ s, open }: { s: any; open(o: Open): void }) {
           <span className="l">LVEF</span>
           <span style={{ gridColumn: "span 2" }}>
             <span className="v">
-              {formatNumber(s.lvef.value, 0)}%<small>Echo {fmtDay(s.lvef.at)} · {s.lvef.quality}</small>
+              {formatRange(s.lvef.value, s.lvef.valueHigh, 0)}%<small>Echo {fmtDay(s.lvef.at)} · {s.lvef.quality}</small>
             </span>
             {s.lvef.reason === "higher-quality study preferred" && (
               <span className="when" style={{ display: "block", color: "var(--blue-ink)", fontWeight: 700 }}>
@@ -796,7 +796,7 @@ function CadPanel({ cad, open }: { cad: any; open(o: Open): void }) {
           cad.lipids.atGoal === false,
         )}
         {tile("Lipid therapy", cad.lipids.therapy.length ? cad.lipids.therapy.map((t: any) => `${t.name} ${t.dose}`).join(" + ") : null, cad.lipids.therapy.find((t: any) => t.intensity) ? `${cad.lipids.therapy.find((t: any) => t.intensity).intensity}-intensity statin` : "", !cad.lipids.therapy.length)}
-        {tile("LVEF", cad.lvef ? `${formatNumber(cad.lvef.value, 0)}%` : null, cad.lvef ? fmtDay(cad.lvef.at, { year: true }) : "")}
+        {tile("LVEF", cad.lvef ? `${formatRange(cad.lvef.value, cad.lvef.valueHigh, 0)}%` : null, cad.lvef ? fmtDay(cad.lvef.at, { year: true }) : "")}
         {tile("Systolic BP", cad.sbp ? `${formatNumber(cad.sbp.value, 0)} mmHg` : null, cad.sbp ? fmtDay(cad.sbp.at) : "")}
         {tile("Cardiac rehab", cad.rehab ? (cad.rehab.status === "completed" ? "Done" : cad.rehab.status === "planned" ? "Referral planned" : cad.rehab.status) : null, cad.rehab?.due ? fmtDay(cad.rehab.due, { year: true }) : cad.rehab ? "" : "No referral recorded")}
         {cad.smoker && tile("Smoking", "Current smoker", "Cessation support", true)}
@@ -1169,7 +1169,7 @@ function HfPanel({ hf, open }: { hf: any; open(o: Open): void }) {
       <div className="hf-tiles">
         {tile(
           "LVEF",
-          hf.lvef.length ? `${n(hf.lvef[hf.lvef.length - 1].value)}%` : null,
+          hf.lvef.length ? `${formatRange(hf.lvef[hf.lvef.length - 1].value, hf.lvef[hf.lvef.length - 1].valueHigh, 0)}%` : null,
           hf.lvef.length ? `${fmtDay(hf.lvef[hf.lvef.length - 1].at)}${hf.lowestLvef && hf.lvefCount > 1 ? ` · lowest ${n(hf.lowestLvef.value)}% (${fmtDay(hf.lowestLvef.at, { year: true })})` : ""}` : "",
           hf.lvef.length > 1 ? <Sparkline values={hf.lvef.map((x: any) => x.value)} tone="blue" /> : null,
         )}

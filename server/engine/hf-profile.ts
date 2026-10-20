@@ -83,7 +83,7 @@ export function hfProfile(s: PatientState) {
   // LVEF history, oldest first, with the HF type each value implies
   const lvef = finals(s, "lvef")
     .filter((o) => o.value_num != null)
-    .map((o) => ({ value: o.value_num!, at: o.effective_at, quality: o.quality, source: o.source, type: o.value_num! < 50 ? "reduced" : "preserved" }))
+    .map((o) => ({ value: o.value_num!, valueHigh: o.value_high ?? null, at: o.effective_at, quality: o.quality, source: o.source, type: o.value_num! < 50 ? "reduced" : "preserved" }))
     .reverse();
   const current = lvef[lvef.length - 1] ?? null;
   // the current type holds since the first value of the latest unbroken run in the same category
@@ -134,7 +134,7 @@ export function hfProfile(s: PatientState) {
     aetiology,
     lvef: lvef.slice(-6),
     lvefCount: lvef.length,
-    lowestLvef: lowest ? { value: lowest.value, at: lowest.at } : null,
+    lowestLvef: lowest ? { value: lowest.value, valueHigh: lowest.valueHigh, at: lowest.at } : null,
     nyha: { now: txt(finals(s, "nyha")[0]), before: txt(finals(s, "nyha")[1]) },
     congestion: txt(finals(s, "congestion")[0]),
     weight: { ...weight, dry, aboveDry: weight.now && dry ? Math.round((weight.now.value - dry.value) * 10) / 10 : null },

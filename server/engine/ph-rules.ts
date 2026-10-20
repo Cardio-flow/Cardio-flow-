@@ -13,7 +13,8 @@ import { PVR_SEVERE } from "../../shared/wizards-ph.js";
 const active = (s: PatientState, code: string) => s.conditions.find((c) => c.code === code && c.status === "active");
 const IIP_TYPES = ["IPF", "Other idiopathic interstitial pneumonia"];
 const PAH_DRUG_TAGS = ["pde5", "era", "sgc", "prostacyclin"];
-const onMeds = (s: PatientState, tags: string[]) => s.meds.filter((m) => m.status === "active" && m.tags.some((t) => tags.includes(t)));
+// tadalafil for erectile dysfunction / BPH is not PAH therapy
+const onMeds = (s: PatientState, tags: string[]) => s.meds.filter((m) => m.status === "active" && !m.tags.includes("pde5-ed") && m.tags.some((t) => tags.includes(t)));
 const symptomaticNyha = (v: string | null | undefined) => v === "II" || v === "III" || v === "IV";
 
 const SRC = "ESC/ERS pulmonary hypertension 2022";

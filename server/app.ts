@@ -332,7 +332,8 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         const medicationView = medicationGroups(s);
         const progress = new Map(medicationView.groups.flatMap((g) => g.meds.map((m) => [m.id, m.targetProgress] as const)));
         const meds = s.meds.map((m) => ({ ...m, events: m.events, targetProgress: progress.get(m.id) ?? null }));
-        const studies = s.studies.map((st) => ({ ...st, lvef: s.observations.find((o) => o.code === "lvef" && (o as any).study_id === st.id)?.value_num ?? null }));
+        const otherMeds = s.otherMeds;
+        const studies = s.studies.map((st) => { const o = s.observations.find((x) => x.code === "lvef" && (x as any).study_id === st.id); return { ...st, lvef: o?.value_num ?? null, lvefHigh: o?.value_high ?? null }; });
         return {
           today: s.today,
           labCollections: (() => {
@@ -347,6 +348,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
             return [...groups.values()].slice(0, 20);
           })(),
           meds,
+          otherMeds,
           medicationHistory: medicationView.history,
           medicationWarnings: medicationView.warnings,
           medicationReview: medicationReview(s, await recommendations(tx,id)),
@@ -447,6 +449,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         date: isoDateTime,
         quality: z.enum(["formal", "limited", "bedside"]),
         lvef: z.number().min(5).max(85),
+        lvefHigh: z.number().min(5).max(90).nullish(),
         findings: z.array(z.string().max(80)).max(20).default([]),
         valves: z.partialRecord(z.enum(["as", "ar", "mr", "ms", "tr"]), z.enum(["None", "Mild", "Moderate", "Severe"])).optional(),
         mrType: z.enum(["Primary", "Secondary"]).nullish(),
@@ -516,7 +519,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
-        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging", "pericardial_imaging", "pericardial_fluid"]),
+        kind: z.enum(["ecg", "holter", "stress", "nuclear", "abpm", "ccta", "cmr", "cath", "laa_imaging", "structural_imaging", "home_bp", "hypertension_workup", "orthostatic_bp", "aortic_imaging", "pericardial_imaging", "pericardial_fluid", "culture"]),
         date: isoDateTime,
         findings: z.record(z.string(), z.union([z.string().max(60), z.number().finite(), z.array(z.string().max(60)).max(10), z.null()])),
         conclusion: z.string().max(2000).optional(),
@@ -678,6 +681,16 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     const id = uuidS.parse(req.params.id);
     const input = medStartS.parse(req.body);
     await write(res, id, async (tx, a) => ({ ...(await startOne(tx, a, id, input)), changed: ["meds", "plan"] }));
+  }));
+  // medicines outside the catalogue, free text (20 Oct 2026)
+  app.post("/api/patients/:id/other-medicines", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    const input = z.object({ name: z.string().trim().min(2).max(120), dose: z.string().max(60).default(""), frequency: z.string().max(60).default(""), note: z.string().max(300).default("") }).parse(req.body);
+    await write(res, id, async (tx, a) => ({ changed: await K.recordOtherMedicine(tx, a, id, input) }));
+  }));
+  app.post("/api/patients/:id/other-medicines/:oid/stop", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    await write(res, id, async (tx, a) => ({ changed: await K.stopOtherMedicine(tx, a, id, uuidS.parse(req.params.oid)) }));
   }));
   // several medicines at once (clinic visit, 7 Oct 2026): one transaction — all start, or none
   app.post("/api/patients/:id/medications/batch", clinician, route(async (req, res) => {

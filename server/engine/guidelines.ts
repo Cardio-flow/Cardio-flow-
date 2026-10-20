@@ -18,7 +18,7 @@ import { urgentBp } from "./hypertension-rules.js";
 //  - 2024 ESC AF guidelines (CHA2DS2-VA; DOAC dosing)
 //  - 2024 ESC hypertension guidelines (SBP target 120–129 mmHg if tolerated)
 //  - 2023 ESC ACS guidelines (DAPT 12 months by default)
-import { BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, doseLabel, drugClassOf, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_LABEL, DIAGNOSIS, MEASURES, MEDICATION, doseLabel, drugClassOf, formatNumber, formatRange } from "../../shared/catalog.js";
 import { apixabanAfDose, bmi, cockcroftGault, daysBetween, fmtDay } from "../../shared/clinical.js";
 import { activeBarrier, type MedState, type PatientState } from "../kernel/state.js";
 import type { Fact, Finding, RuleDef } from "./rules.js";
@@ -186,6 +186,10 @@ const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood p
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; missing: string[] } {
   const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
   const missing: string[] = [];
+  // symptomatic hypotension on the problem list, or on midodrine (20 Oct 2026, real case): no start or
+  // increase is suggested — the clinician re-introduces therapy step by step and records it
+  if (has(s, "hypotension") || onTag(s, "bp-raising").length)
+    return { block: has(s, "hypotension") ? "symptomatic hypotension recorded" : `on ${onTag(s, "bp-raising").map((m) => m.name).join(", ")}`, missing };
   // creatinine rising beyond the acceptable 50% (ESC HF practical guidance, as in hf.worsening-renal-function): no RAAS/MRA start or increase
   // same baseline and limits as the renal alert (renal-trend.ts), so a suggestion never contradicts it
   if (key === "raas" || key === "mra") {
@@ -292,8 +296,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           severity: "orange",
           // LVEF recovered from <50%: named as such, not as HFpEF (20 Oct 2026, real case)
           title: `${hfImprovedEf(s) ? "HF with improved LVEF" : phen}: ${p.label} not started`,
-          detail: `Foundational therapy${ef ? ` · LVEF ${formatNumber(ef.value_num!, 0)}%` : ""} · suggested start: ${def.name} ${doseLabel(def, p.start.dose)}`,
-          facts: facts(ef && { label: "LVEF", value: `${formatNumber(ef.value_num!, 0)}% (${ef.quality})`, date: ef.effective_at }, fact(s, "potassium", 60), fact(s, "egfr", 60), fact(s, "sbp", 60), fact(s, "hr", 60),
+          detail: `Foundational therapy${ef ? ` · LVEF ${formatRange(ef.value_num!, ef.value_high, 0)}%` : ""} · suggested start: ${def.name} ${doseLabel(def, p.start.dose)}`,
+          facts: facts(ef && { label: "LVEF", value: `${formatRange(ef.value_num!, ef.value_high, 0)}% (${ef.quality})`, date: ef.effective_at }, fact(s, "potassium", 60), fact(s, "egfr", 60), fact(s, "sbp", 60), fact(s, "hr", 60),
             src(phen === "HFrEF" ? "ESC HF 2026 · foundational medical therapy for HFrEF (LVEF <50%) · Class I" : "ESC HF 2026 · SGLT2i and MRA in HFpEF · Class I")),
           missing: gate.missing,
           // the values that make the start safe come first: record them, then the suggestion offers the start

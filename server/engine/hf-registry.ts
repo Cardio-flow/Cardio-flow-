@@ -110,7 +110,7 @@ export const HF_REGISTRY: Section[] = [
   {
     title: "Investigations",
     fields: [
-      { key: "ECG_LBBB", label: "LBBB", get: (s) => { const e = ecg(s); return e?.attributes.qrsMorphology ? { ...yn(e.attributes.qrsMorphology === "LBBB")!, at: e.performed_at } : null; } },
+      { key: "ECG_LBBB", label: "LBBB", get: (s) => { const e = ecg(s); return e?.attributes.qrsMorphology && e.attributes.qrsMorphology !== "Not reported" ? { ...yn(e.attributes.qrsMorphology === "LBBB")!, at: e.performed_at } : null; } },
       { key: "ECG_QRS", label: "QRS duration (ms)", get: (s) => { const e = ecg(s); return e?.attributes.qrs != null ? { value: String(e.attributes.qrs), at: e.performed_at } : null; } },
       { key: "ECG_Arrhythmia", label: "Arrhythmia", get: (s) => { const e = ecg(s); const r = e?.attributes.rhythm; return r ? { value: /sinus/i.test(r) ? "None (sinus rhythm)" : r, at: e!.performed_at } : null; } },
       { key: "ECG_Pacing", label: "Pacing rhythm", get: (s) => { const e = ecg(s); return e ? { value: e.attributes.qrsMorphology === "Paced" || /paced/i.test(e.attributes.rhythm ?? "") ? "Paced" : "No", at: e.performed_at } : null; } },

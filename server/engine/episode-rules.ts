@@ -129,9 +129,13 @@ export const EPISODE_RULES: RuleDef[] = [
       const t = found.sort((x, y) => y.at.localeCompare(x.at))[0];
       if (!t) return [];
       const lead = t.ref === e?.id && mass.includes("Mass on device lead");
-      return [offer("endocarditis", t, lead
+      // blood cultures already reported from 30 days before the trigger: named, so the prompt reads them (20 Oct 2026)
+      const from = new Date(Date.parse(t.at) - 30 * 86400000).toISOString();
+      const bc = s.studies.filter((x) => x.kind === "culture" && x.attributes?.specimen === "Blood cultures" && x.performed_at >= from);
+      const bcText = bc.length ? ` Recorded: blood cultures ${bc.map((x) => `${fmtDay(x.performed_at)} ${String(x.attributes.result).toLowerCase()}${x.attributes.organism ? ` (${x.attributes.organism})` : ""}`).join("; ")}.` : "";
+      return [offer("endocarditis", t, (lead
         ? "Mass on a device lead: exclude CIED-related endocarditis — three sets of blood cultures and TOE (ESC 2023); Duke-ISCVID and the Endocarditis Team decide."
-        : "Blood cultures, imaging, Duke-ISCVID, Endocarditis Team and surgical indications, antibiotic monitoring.")];
+        : "Blood cultures, imaging, Duke-ISCVID, Endocarditis Team and surgical indications, antibiotic monitoring.") + bcText)];
     },
   },
   {

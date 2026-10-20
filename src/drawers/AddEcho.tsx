@@ -16,6 +16,8 @@ const COMMON = ["Dilated LV", "LV hypertrophy", "RV dysfunction", "Pericardial e
 const MORE = [
   "LV size normalised", "Calcified aortic valve", "Bicuspid aortic valve", "Asymmetric septal hypertrophy", "Systolic anterior motion (SAM)", "LV apical aneurysm", "Rheumatic mitral valve",
   "Prosthetic valve dysfunction", "Prosthetic valve thrombus", "Paravalvular leak", "Dilated aortic root / ascending aorta", "Raised PASP", "Dilated IVC", "ASD / interatrial shunt", "Mass on device lead", "Valve vegetation / mass", "Thinned scarred segments", "Limited windows",
+  // 20 Oct 2026, from real reports
+  "Mitral annular calcification", "Paradoxical septal motion", "Dilated RV",
 ];
 const NUM = (code: string) => ECHO_NUMBERS.find((n) => n.code === code)!;
 const RANK: Record<string, number> = { None: 0, Mild: 1, Moderate: 2, Severe: 3 };
@@ -34,6 +36,8 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
   const [date, setDate] = useState(today);
   const [quality, setQuality] = useState("formal");
   const [lvef, setLvef] = useState("");
+  // a reported range ("35–40%"): both numbers kept, the lower one is the LVEF the rules use (20 Oct 2026)
+  const [lvefHigh, setLvefHigh] = useState("");
   const [findings, setFindings] = useState<string[]>([]);
   const [conclusion, setConclusion] = useState("");
   const [valves, setValves] = useState<Record<string, string>>({});
@@ -56,7 +60,8 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
   const prob = trvNum != null || phSigns.length ? phEchoProbability(trvNum, phSigns) : null;
   const badNum = ECHO_NUMBERS.filter((n) => nums[n.code] && !(Number(nums[n.code]) >= n.min && Number(nums[n.code]) <= n.max));
   const ef = Number(lvef);
-  const efOk = lvef !== "" && ef >= 5 && ef <= 85;
+  const efHigh = lvefHigh === "" ? null : Number(lvefHigh);
+  const efOk = lvef !== "" && ef >= 5 && ef <= 85 && (efHigh == null || (efHigh > ef && efHigh <= 90));
   const valid = efOk && !badNum.length && (wm !== "regional" || Object.keys(rwma).length > 0);
   const g = (k: string) => RANK[valves[k] ?? ""] ?? -1;
   // which folded sections open by themselves
@@ -71,8 +76,8 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
   const sex = summary?.header?.sex as "Male" | "Female" | undefined;
   const mwtHint = nums.mwt ? wallThicknessHint(Number(nums.mwt), sex) : null;
   const preview = useMemo(
-    () => [efOk ? `LVEF ${ef}%` : null, wmFinding, ...(hasRwma ? rwmaFindings(rwma) : []), hasLvh ? lvhFinding(lvh) : null, ...chamberFindings(chambers), ...valveFindings(valves, mrType)].filter(Boolean).join(" · "),
-    [efOk, ef, valves, mrType, rwma, lvh, hasRwma, hasLvh, chambers, wmFinding],
+    () => [efOk ? `LVEF ${ef}${efHigh != null ? `–${efHigh}` : ""}%` : null, wmFinding, ...(hasRwma ? rwmaFindings(rwma) : []), hasLvh ? lvhFinding(lvh) : null, ...chamberFindings(chambers), ...valveFindings(valves, mrType)].filter(Boolean).join(" · "),
+    [efOk, ef, efHigh, valves, mrType, rwma, lvh, hasRwma, hasLvh, chambers, wmFinding],
   );
   const setWall = (k: string, motion?: string, level?: string) =>
     setRwma((x) => {
@@ -97,7 +102,7 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
     try {
       const at = date === today ? new Date().toISOString() : new Date(`${date}T10:00:00+03:00`).toISOString();
       const r = await api(`/patients/${patientId}/echo`, { body: {
-        date: at, quality, lvef: ef, findings: [...findings, ...(wmFinding ? [wmFinding] : [])], conclusion, contextId: contextId ?? null,
+        date: at, quality, lvef: ef, lvefHigh: efHigh, findings: [...findings, ...(wmFinding ? [wmFinding] : [])], conclusion, contextId: contextId ?? null,
         valves, mrType: valves.mr && valves.mr !== "None" ? mrType ?? null : null,
         measures: Object.fromEntries(Object.entries(nums).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
         phSigns,
@@ -136,8 +141,12 @@ export function AddEcho({ patientId, contextId, summary, onClose, onDone }: { pa
               <small>LVEF <em>required</em></small>
               <span className="ef-input">
                 <input inputMode="numeric" autoFocus value={lvef} onChange={(e) => setLvef(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} aria-label="LVEF percent" placeholder="—" />
+                <span className="ef-to" aria-hidden="true">–</span>
+                <input className="ef-high" inputMode="numeric" value={lvefHigh} onChange={(e) => setLvefHigh(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} aria-label="LVEF upper value, if reported as a range" placeholder="to" />
                 <b>%</b>
               </span>
+              {efHigh != null && lvef !== "" && !(efHigh > ef) && <small className="err">The upper number must be above {ef}</small>}
+              {efHigh != null && efHigh > ef && <small className="muted">Range kept; {ef}% is used for decisions</small>}
             </label>
             <div className="ef-gauge" aria-hidden="true">
               <span className="ef-band low" style={{ width: `${((50 - 5) / 80) * 100}%` }}>Reduced &lt;50</span>

@@ -107,6 +107,8 @@ export type PatientState = {
   deceased: boolean;
   // why a drug class is not given (newest per class, cleared ones removed)
   barriers: BarrierRow[];
+  // medicines outside the catalogue, free text, never read by a rule (20 Oct 2026)
+  otherMeds: { id: string; logical_id: string; name: string; dose: string; frequency: string; note: string; effective_at: string }[];
   episodes: EpisodeRow[];
   // the latest completed run of each pathway (wizard id → ISO time), for rules that ask "done since the event?"
   pathwaysDone: Record<string, string>;
@@ -124,7 +126,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
       `SELECT
         (SELECT row_to_json(pt) FROM (SELECT id,name,mrn,sex,birth_date,allergies,civil_id,nationality,mobile,synthetic,birth_date_estimated FROM cf.patient WHERE id=$1) pt) AS patient,
         (SELECT coalesce(json_agg(c ORDER BY c.logical_id), '[]') FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c) AS conds,
-        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_text,unit,reference_high,effective_at,status,quality,source,study_id,context_id,derived_from,method,recorded_at
+        (SELECT coalesce(json_agg(o), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,version,code,value_num,value_high,value_text,unit,reference_high,effective_at,status,quality,source,study_id,context_id,derived_from,method,recorded_at
             FROM cf.observation WHERE patient_id=$1 ORDER BY logical_id, version DESC) o) AS obs,
         (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]') FROM cf.medication m WHERE patient_id=$1
             AND NOT EXISTS (SELECT 1 FROM cf.correction k WHERE k.entity='medication' AND k.entity_id=m.id)) AS meds,
@@ -138,6 +140,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
         (SELECT coalesce(json_agg(vp), '[]') FROM (SELECT code, observation_id FROM cf.value_preference WHERE patient_id=$1 AND active) vp) AS prefs,
         (SELECT coalesce(json_agg(se), '[]') FROM (SELECT DISTINCT ON (kind) id,kind,status,effective_on,place,cause_group,detail FROM cf.status_event WHERE patient_id=$1 ORDER BY kind, effective_on DESC, recorded_at DESC) se) AS status,
         (SELECT coalesce(json_agg(tb), '[]') FROM (SELECT DISTINCT ON (drug_class) id,drug_class,category,detail,drug,cleared,recommendation_id,effective_at,recorded_by FROM cf.treatment_barrier WHERE patient_id=$1 ORDER BY drug_class, effective_at DESC, recorded_at DESC) tb) AS barriers,
+        (SELECT coalesce(json_agg(om ORDER BY om.name), '[]') FROM (SELECT DISTINCT ON (logical_id) id,logical_id,name,dose,frequency,note,stopped,effective_at FROM cf.other_medicine WHERE patient_id=$1 ORDER BY logical_id, effective_at DESC, recorded_at DESC) om) AS other_meds,
         (SELECT coalesce(json_agg(ep ORDER BY ep.started_at), '[]') FROM (SELECT e.id,e.wizard,e.status,e.started_at,e.resolved_at,e.outcome,e.note,e.context_id,
             (SELECT coalesce(json_agg(json_build_object('id', d.id, 'decided_at', d.decided_at) ORDER BY d.decided_at), '[]') FROM cf.decision d WHERE d.episode_id = e.id) AS decisions
             FROM cf.episode e WHERE e.patient_id=$1) ep) AS episodes,
@@ -259,6 +262,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     status: { vital, followUp: statusRows.find((r) => r.kind === "follow_up") ?? null },
     deceased: vital?.status === "died",
     barriers: barrierRows,
+    otherMeds: (j(bundle.other_meds).rows as any[]).filter((o) => !o.stopped).map((o) => ({ id: o.id, logical_id: o.logical_id, name: o.name, dose: o.dose, frequency: o.frequency, note: o.note, effective_at: new Date(o.effective_at).toISOString() })),
     procedures: (j(bundle.procedures).rows as any[]).map((p) => ({ ...p, performed_at: new Date(p.performed_at).toISOString(), attributes: (typeof p.attributes === "string" ? JSON.parse(p.attributes) : p.attributes) ?? {} })),
     episodes: (j(bundle.episodes).rows as any[]).map((e) => ({
       ...e,

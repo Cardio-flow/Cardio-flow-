@@ -13,7 +13,7 @@
 //
 // Ahmed (2 Oct 2026): shown under Needs attention (orange), not as a quiet card.
 import { renalReview } from "./renal-review.js";
-import { MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { MEDICATION, classLabel, doseLabel, formatNumber, formatRange } from "../../shared/catalog.js";
 import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical.js";
 import { isHfAdmission } from "../../shared/encounters.js";
 import { activeBarrier, latestStudy, type PatientState } from "../kernel/state.js";
@@ -47,7 +47,7 @@ export function advancedHfMarkers(s: PatientState, p: { lvef_max: number; sbp_be
   // E — very low ejection fraction
   const ef = s.resolved("lvef").current;
   if (ef?.value_num != null && ef.value_num <= p.lvef_max)
-    out.push({ key: "ef", letter: "E", label: "LVEF", short: `LVEF ${formatNumber(ef.value_num, 0)}%`, value: `${formatNumber(ef.value_num, 0)}% (≤${p.lvef_max}%)`, date: ef.effective_at });
+    out.push({ key: "ef", letter: "E", label: "LVEF", short: `LVEF ${formatRange(ef.value_num, ef.value_high, 0)}%`, value: `${formatRange(ef.value_num, ef.value_high, 0)}% (≤${p.lvef_max}%)`, date: ef.effective_at });
 
   // E — end-organ dysfunction: acute kidney injury recorded during an admission
   const aki = evt(/kidney injury/i);
@@ -196,11 +196,12 @@ HF_RULES.push(
       if (!ef || ef.value_num == null || ef.value_num > Number(p.lvef_threshold)) return [];
       if (s.tags.has("icd") && s.tags.has("crt")) return [];
       if (s.plan.some((a) => a.status === "planned" && /\b(ICD|CRT)\b|device implant/i.test(a.title) && !/reassessment/i.test(a.title))) return [];
-      const efTxt = `LVEF ${formatNumber(ef.value_num, 0)}%`;
+      const efTxt = `LVEF ${formatRange(ef.value_num, ef.value_high, 0)}%`;
       const dev = ["icd", "crt", "pacemaker"].filter((t) => s.tags.has(t)).join("+") || "none";
       const ecg = latestStudy(s, "ecg", Number(p.ecg_days));
       const qrs = ecg?.attributes.qrs != null ? Number(ecg.attributes.qrs) : null;
-      const morph = ecg?.attributes.qrsMorphology as string | undefined;
+      // "Not reported" (20 Oct 2026) is no morphology: CRT class needs both width and morphology
+      const morph = ecg?.attributes.qrsMorphology && ecg.attributes.qrsMorphology !== "Not reported" ? (ecg.attributes.qrsMorphology as string) : undefined;
       const inAf = /fibrillation|flutter/i.test(ecg?.attributes.rhythm ?? "");
       const crt = qrs != null && morph ? crtClass(qrs, morph, { qrs_long: Number(p.qrs_long), qrs_min: Number(p.qrs_min) }) : null;
       // an ICD is in place: only CRT is left to decide, and only with QRS criteria
@@ -311,7 +312,7 @@ HF_RULES.push(
       const crtPending = !s.tags.has("crt") && (() => {
         const ecg = latestStudy(s, "ecg", 365);
         const q = ecg?.attributes.qrs != null ? Number(ecg.attributes.qrs) : null;
-        return q != null && ecg?.attributes.qrsMorphology ? !["none", "upgrade"].includes(crtClass(q, ecg.attributes.qrsMorphology, { qrs_long: 150, qrs_min: 130 }).cls) : false;
+        return q != null && ecg?.attributes.qrsMorphology && ecg.attributes.qrsMorphology !== "Not reported" ? !["none", "upgrade"].includes(crtClass(q, ecg.attributes.qrsMorphology, { qrs_long: 150, qrs_min: 130 }).cls) : false;
       })();
       const facts: Fact[] = [
         { label: "Secondary MR", value: "Severe" },

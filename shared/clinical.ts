@@ -86,6 +86,8 @@ export function planStatusView(status: string, due: string | null, today: string
 // ---------- current value resolution ----------
 export type ObservationLike = {
   reference_high?: number | null;
+  /** upper number of a reported range ("EF 35–40%"); value_num is the lower and is the one rules use */
+  value_high?: number | null;
   id: string;
   code: string;
   value_num: number | null;

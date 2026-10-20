@@ -4,7 +4,7 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { Sparkline, type Sev } from "../ui";
 import { fmtDay } from "../../shared/clinical";
-import { MEASURES, formatNumber } from "../../shared/catalog";
+import { MEASURES, formatNumber, formatRange } from "../../shared/catalog";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import { trendPercent } from "../lab-trend";
 import type { Open } from "./Patient";
@@ -41,7 +41,7 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
   }
   if (v.hr) vitals.push(["HR", formatNumber(v.hr.value, 0), v.hr.at]);
   if (v.weight) vitals.push(["Wt", `${formatNumber(v.weight.value, 1)} kg`, v.weight.at]);
-  if (s.lvef) vitals.push(["LVEF", `${formatNumber(s.lvef.value, 0)}%`, s.lvef.at]);
+  if (s.lvef) vitals.push(["LVEF", `${formatRange(s.lvef.value, s.lvef.valueHigh, 0)}%`, s.lvef.at]);
   const groups = (s.medications?.groups ?? []) as any[];
   groups.forEach((g, i) => (PURPOSE_HUE[g.purpose] ??= HUES[i % HUES.length]));
   const meds = groups.flatMap((g) => g.meds.map((m: any) => ({ ...m, purpose: g.purpose })));

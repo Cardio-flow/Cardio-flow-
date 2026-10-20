@@ -35,7 +35,7 @@ after(async () => db.close());
 
 test("migration 002 is applied once, recorded, and the status history is append-only", async () => {
   const names = (await db.query(`SELECT name FROM cf.migration ORDER BY name`)).rows.map((r: any) => r.name);
-  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes", "v2-005-procedures", "v2-006-sample-patients", "v2-007-patient-removal", "v2-008-corrections", "v2-009-birth-date-estimated", "v2-010-plan-evidence", "v2-011-laa-imaging", "v2-012-context-management", "v2-013-structural-imaging", "v2-014-hypertension-studies", "v2-015-lab-reference", "v2-016-flow-integrity", "v2-017-preexisting-medicines", "v2-018-orthostatic-study", "v2-019-aortic-imaging", "v2-020-pericardial-studies"]);
+  assert.deepEqual(names, ["v2-001-kernel", "v2-002-general-core", "v2-003-medication-exceptions", "v2-004-episodes", "v2-005-procedures", "v2-006-sample-patients", "v2-007-patient-removal", "v2-008-corrections", "v2-009-birth-date-estimated", "v2-010-plan-evidence", "v2-011-laa-imaging", "v2-012-context-management", "v2-013-structural-imaging", "v2-014-hypertension-studies", "v2-015-lab-reference", "v2-016-flow-integrity", "v2-017-preexisting-medicines", "v2-018-orthostatic-study", "v2-019-aortic-imaging", "v2-020-pericardial-studies", "v2-021-value-range", "v2-022-other-medicines", "v2-023-culture-study"]);
   const pid = await newPatient();
   const id = uuid();
   await db.query(`INSERT INTO cf.status_event(id,patient_id,kind,status,effective_on,recorded_by) VALUES($1,$2,'vital','alive',$3,'t')`, [id, pid, T]);

@@ -39,7 +39,9 @@ before(async () => {
 after(async () => db.close());
 
 test("templates: required fields, list-only values, conditional fields dropped, one-line summary", () => {
-  assert.throws(() => cleanStudy("ecg", { rhythm: "Sinus rhythm", qrsMorphology: "Normal" }), /QRS duration is required/);
+  // QRS duration optional since 20 Oct 2026 (reports often give LBBB without the width); morphology stays required
+  assert.deepEqual(cleanStudy("ecg", { rhythm: "Sinus rhythm", qrsMorphology: "LBBB" }), { rhythm: "Sinus rhythm", qrsMorphology: "LBBB" });
+  assert.throws(() => cleanStudy("ecg", { rhythm: "Sinus rhythm" }), /QRS morphology is required/);
   assert.throws(() => cleanStudy("ecg", { rhythm: "Sinus-ish", qrs: 100, qrsMorphology: "Normal" }), /choose from the list/);
   assert.throws(() => cleanStudy("ecg", { rhythm: "Sinus rhythm", qrs: 1000, qrsMorphology: "Normal" }), /40–300/);
   assert.throws(() => cleanStudy("ecg", { rhythm: "Sinus rhythm", qrs: 100, qrsMorphology: "Normal", mood: "happy" }), /Unknown field/);

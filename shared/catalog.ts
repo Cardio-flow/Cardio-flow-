@@ -30,6 +30,9 @@ export const LABS: LabDef[] = [
   { code: "platelets", display: "Platelets", short: "Plt", unit: "10⁹/L", category: "Haematology", ref: { low: 150, high: 400 }, decimals: 0 },
   { code: "ferritin", display: "Ferritin", short: "Ferritin", unit: "µg/L", category: "Iron", decimals: 0 },
   { code: "tsat", display: "Transferrin saturation", short: "TSAT", unit: "%", category: "Iron", decimals: 0 },
+  // 20 Oct 2026 (real reports give iron and transferrin, not TSAT): recorded as reported; TSAT is not derived
+  { code: "iron", display: "Serum iron", short: "Fe", unit: "µmol/L", category: "Iron", convert: { "µg/dL": 0.179 }, decimals: 1 },
+  { code: "transferrin", display: "Transferrin", short: "Transferrin", unit: "g/L", category: "Iron", convert: { "mg/dL": 0.01 }, decimals: 2 },
   { code: "bnp", display: "BNP", short: "BNP", unit: "pg/mL", category: "Cardiac", decimals: 0 },
   { code: "nt-probnp", display: "NT-proBNP", short: "NT-proBNP", unit: "pg/mL", category: "Cardiac", decimals: 0 },
   // assay-specific reference (99th percentile): no default range
@@ -56,6 +59,8 @@ export const LABS: LabDef[] = [
   { code: "mcv", display: "Mean cell volume", short: "MCV", unit: "fL", category: "Haematology", decimals: 0 },
   { code: "b12", display: "Vitamin B12", short: "B12", unit: "pmol/L", category: "Haematology", convert: { "pg/mL": 0.738 }, decimals: 0 },
   { code: "folate", display: "Folate", short: "Folate", unit: "nmol/L", category: "Haematology", decimals: 1 },
+  { code: "psa", display: "PSA (total)", short: "PSA", unit: "µg/L", category: "Other", convert: { "ng/mL": 1 }, decimals: 2 },
+  { code: "cortisol", display: "Cortisol", short: "Cortisol", unit: "nmol/L", category: "Other", convert: { "µg/dL": 27.59 }, decimals: 0 },
   { code: "inr", display: "INR", short: "INR", unit: "ratio", category: "Coagulation", decimals: 1 },
   { code: "tsh", display: "TSH", short: "TSH", unit: "mIU/L", category: "Thyroid", ref: { low: 0.4, high: 4.0 }, decimals: 2 },
   { code: "ft4", display: "Free T4 (FT4)", short: "FT4", unit: "pmol/L", category: "Thyroid", decimals: 1, reportLimit: true },
@@ -164,7 +169,7 @@ export const LAB_PRESETS: { id: string; label: string; codes: string[] }[] = [
   { id: "lipids", label: "Lipids", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides", "apob", "lpa"] },
   { id: "metabolic", label: "Diabetes & kidney", codes: ["hba1c", "glucose", "creatinine", "uacr"] },
   { id: "liver", label: "Liver", codes: ["alt", "ast", "alp", "ggt", "bilirubin", "albumin", "ldh"] },
-  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat", "mcv", "b12", "folate"] },
+  { id: "iron", label: "Iron / anaemia", codes: ["haemoglobin", "ferritin", "tsat", "iron", "transferrin", "mcv", "b12", "folate"] },
   { id: "coag", label: "Coagulation", codes: ["inr", "aptt", "fibrinogen", "d-dimer", "platelets"] },
   { id: "tft", label: "TFT", codes: ["tsh", "ft4", "ft3"] },
   { id: "bone", label: "Vitamin D / calcium", codes: ["vitamin-d", "calcium", "creatinine"] },
@@ -191,6 +196,8 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "hfpef", display: "HFpEF", family: "Heart failure", tags: ["hf"] },
   { code: "hfimpef", display: "HF with improved EF", family: "Heart failure", tags: ["hf"] },
   { code: "cad-ccs", display: "Chronic coronary syndrome", family: "Coronary", tags: ["cad", "ascvd"] },
+  // dilated coronary segments on CT or angiography: described, not counted as obstructive CAD (20 Oct 2026)
+  { code: "coronary-ectasia", display: "Coronary artery ectasia", family: "Coronary", tags: [] },
   // a working diagnosis, not established CAD: no secondary-prevention rules; the work-up rule and the CCS
   // test pathway decide; confirmed → change to "Chronic coronary syndrome", excluded → resolve it (7 Oct 2026)
   { code: "cad-suspected", display: "Suspected IHD (to rule out)", family: "Coronary", tags: ["cad-suspected"] },
@@ -259,6 +266,13 @@ export const DIAGNOSES: DiagnosisDef[] = [
   { code: "gout", display: "Gout", family: "Comorbidity", tags: [] },
   { code: "liver-disease", display: "Chronic liver disease", family: "Comorbidity", tags: [] },
   { code: "cancer", display: "Cancer (active or past)", family: "Comorbidity", tags: [] },
+  // added 20 Oct 2026 from the real clinic list
+  { code: "haem-malignancy", display: "Haematological malignancy (incl. MDS)", family: "Comorbidity", tags: [] },
+  { code: "hypotension", display: "Symptomatic / chronic hypotension", family: "Comorbidity", tags: ["hypotension"] },
+  { code: "gerd", display: "Gastro-oesophageal reflux disease", family: "Comorbidity", tags: [] },
+  { code: "bph", display: "Benign prostatic hyperplasia", family: "Comorbidity", tags: [] },
+  { code: "depression", display: "Depression", family: "Comorbidity", tags: [] },
+  { code: "recurrent-uti", display: "Recurrent urinary tract infection", family: "Comorbidity", tags: [] },
   { code: "smoker", display: "Current smoker", family: "Comorbidity", tags: [], hidden: true },
 ];
 export const DIAGNOSIS: Record<string, DiagnosisDef> = Object.fromEntries(DIAGNOSES.map((d) => [d.code, d]));
@@ -398,6 +412,8 @@ export const MEDICATIONS: MedicationDef[] = [
   m("clonidine", "Clonidine", "Central alpha-2 agonist", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [0.1, 0.2, 0.3], ["BID", "TID"], ["sbp", "hr"]),
   m("moxonidine", "Moxonidine", "Imidazoline-receptor agonist", "Blood pressure", ["bp-lowering"], ["htn"], "mg", [0.2, 0.4], ["OD", "BID"], ["sbp"]),
   m("amlodipine-valsartan", "Amlodipine/valsartan", "CCB + ARB combination", "Blood pressure", ["raas", "arb", "vasodilator", "bp-lowering"], ["htn"], "mg", [5, 10], ["OD"], RENAL_K, { doseLabels: ["5/160 mg", "10/160 mg"] }),
+  // Exforge HCT (20 Oct 2026, real clinic list): the dose is the amlodipine component; the label carries all three
+  m("amlodipine-valsartan-hctz", "Amlodipine/valsartan/hydrochlorothiazide", "CCB + ARB + thiazide combination", "Blood pressure", ["raas", "arb", "vasodilator", "thiazide", "bp-lowering"], ["htn"], "mg", [5, 10], ["OD"], [...RENAL_K, "sodium"], { doseLabels: ["5/160/12.5 mg", "10/160/12.5 mg"] }),
   m("valsartan-hctz", "Valsartan/hydrochlorothiazide", "ARB + thiazide combination", "Blood pressure", ["raas", "arb", "thiazide", "bp-lowering"], ["htn"], "mg", [80, 160], ["OD"], RENAL_K, { doseLabels: ["80/12.5 mg", "160/12.5 mg"] }),
   m("losartan-hctz", "Losartan/hydrochlorothiazide", "ARB + thiazide combination", "Blood pressure", ["raas", "arb", "thiazide", "bp-lowering"], ["htn"], "mg", [50, 100], ["OD"], RENAL_K, { doseLabels: ["50/12.5 mg", "100/25 mg"] }),
   m("telmisartan-amlodipine", "Telmisartan/amlodipine", "ARB + CCB combination", "Blood pressure", ["raas", "arb", "vasodilator", "bp-lowering"], ["htn"], "mg", [40, 80], ["OD"], RENAL_K, { doseLabels: ["40/5 mg", "80/10 mg"] }),
@@ -474,8 +490,13 @@ export const MEDICATIONS: MedicationDef[] = [
   m("cefazolin", "Cefazolin", "Cephalosporin", "Infection", ["antibiotic"], [], "g", [1, 2], ["TID", "Once"], [], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
   m("daptomycin", "Daptomycin", "Lipopeptide", "Infection", ["antibiotic"], [], "mg", [350, 500, 700, 1000], ["OD"], ["creatinine"], { routes: ["IV"], indicationChoices: INFECTION_INDICATIONS }),
   m("rifampicin", "Rifampicin", "Rifamycin", "Infection", ["antibiotic", "strong-inducer"], [], "mg", [300, 450, 600], ["OD", "BID"], ["alt"], { routes: ["PO", "IV"], indicationChoices: INFECTION_INDICATIONS }),
+  // Added 20 Oct 2026 from the real clinic list — label strengths, for pharmacist review
+  m("midodrine", "Midodrine", "Alpha-1 agonist", "General medicine", ["bp-raising"], [], "mg", [2.5, 5, 10], ["TID", "BID", "OD"], ["sbp"], { indicationChoices: ["Symptomatic hypotension", "Orthostatic hypotension", "Other"] }),
+  m("dexlansoprazole", "Dexlansoprazole", "Proton-pump inhibitor", "Supportive", ["ppi"], [], "mg", [30, 60], ["OD"], [], { indicationChoices: ["GI protection on antithrombotic therapy", "Dyspepsia / reflux", "Other"] }),
+  // tadalafil for erectile dysfunction / LUTS: its own entry so it is not counted as PAH therapy; still a PDE-5 inhibitor for the nitrate check
+  m("tadalafil-ed", "Tadalafil (erectile dysfunction / BPH)", "PDE-5 inhibitor", "General medicine", ["pde5", "pde5-ed"], [], "mg", [2.5, 5, 10, 20], ["OD", "PRN"], ["sbp"], { indicationChoices: ["Erectile dysfunction", "BPH / lower urinary tract symptoms", "Other"] }),
   m("allopurinol", "Allopurinol", "Xanthine oxidase inhibitor", "General medicine", [], [], "mg", [100, 200, 300], ["OD"], ["creatinine"], { indicationChoices: ["Gout", "Other"] }),
-  m("colecalciferol", "Colecalciferol (vitamin D3)", "Vitamin D", "General medicine", ["vitamin-d"], [], "IU", [800, 1000, 2000], ["OD"], ["calcium"], { indicationChoices: ["Vitamin D deficiency maintenance", "Other"] }),
+  m("colecalciferol", "Colecalciferol (vitamin D3)", "Vitamin D", "General medicine", ["vitamin-d"], [], "IU", [800, 1000, 2000, 50000], ["OD", "Weekly"], ["calcium"], { indicationChoices: ["Vitamin D deficiency maintenance", "Vitamin D deficiency treatment", "Other"] }),
   // Caltrate 600+D3 (Ahmed, 13 Oct 2026): dose as elemental calcium; the D3 content differs between products
   m("calcium-d3", "Calcium carbonate + vitamin D3", "Calcium and vitamin D", "General medicine", ["calcium", "vitamin-d"], [], "mg", [600, 1200], ["OD", "BID"], ["calcium", "vitamin-d"], { doseLabels: ["600 mg calcium (1 tablet)", "1200 mg calcium (2 tablets)"], indicationChoices: ["Osteoporosis / bone health", "Vitamin D deficiency maintenance", "Calcium supplementation", "Other"] }),
   m("ferrous-sulfate", "Ferrous sulfate (200 mg ≈ 65 mg elemental iron)", "Oral iron", "General medicine", ["oral-iron"], [], "mg", [200], ["OD", "Alternate days"], ["haemoglobin"], { indicationChoices: ["Confirmed iron deficiency anaemia", "Other"] }),
@@ -530,6 +551,7 @@ const BRANDS: Record<string, string[]> = {
   tadalafil: ["Adcirca"], bosentan: ["Tracleer"], ambrisentan: ["Volibris"], macitentan: ["Opsumit"], riociguat: ["Adempas"], selexipag: ["Uptravi"],
   tafamidis: ["Vyndamax", "Vyndaqel"], mavacamten: ["Camzyos"], cilostazol: ["Pletal"], fondaparinux: ["Arixtra"],
   benzylpenicillin: ["Crystapen"], ampicillin: ["Penbritin"], cefazolin: ["Kefzol"], daptomycin: ["Cubicin"], rifampicin: ["Rifadin"],
+  midodrine: ["Gutron"], dexlansoprazole: ["Dexilant"], "tadalafil-ed": ["Cialis"], "amlodipine-valsartan-hctz": ["Exforge HCT"],
   allopurinol: ["Zyloric"], febuxostat: ["Adenuric"], levothyroxine: ["Eltroxin", "Euthyrox"], carbimazole: ["Neo-Mercazole"], paracetamol: ["Panadol", "Adol"],
   salbutamol: ["Ventolin"], tiotropium: ["Spiriva"], varenicline: ["Champix"], "nicotine-patch": ["Nicorette", "NiQuitin"],
   metformin: ["Glucophage", "Glucophage XR"], liraglutide: ["Victoza", "Saxenda"], dulaglutide: ["Trulicity"],
@@ -578,6 +600,11 @@ export function doseLabel(def: MedicationDef | undefined, value: number | null |
     if (i >= 0) return def.doseLabels[i];
   }
   return `${formatNumber(value)} ${unit ?? def?.unit ?? ""}`.trim();
+}
+
+/** "35" or "35–40" when a range was reported (20 Oct 2026: both numbers kept, the lower one decides) */
+export function formatRange(value: number, high: number | null | undefined, decimals?: number) {
+  return high != null && high > value ? `${formatNumber(value, decimals)}–${formatNumber(high, decimals)}` : formatNumber(value, decimals);
 }
 
 export function formatNumber(value: number, decimals?: number) {

@@ -3,7 +3,7 @@
 import { reuseBooking } from "./plan-bookings.js";
 import { needsExplicitReview } from "../../shared/plan-evidence.js";
 import type { Q } from "../db/db.js";
-import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, MEDICATION, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
+import { BARRIER_CATEGORIES, BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, MEDICATION, MEDICATIONS, classLabel, doseLabel, formatNumber } from "../../shared/catalog.js";
 import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay } from "../../shared/clinical.js";
 import { ApiError, audit, journeyEvent, liveContext, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
@@ -318,7 +318,7 @@ export async function recordHistory(
 }
 
 // ---------- observations ----------
-export type ObsInput = { referenceHigh?: number | null; code: string; value?: number | null; unit?: string | null; text?: string | null };
+export type ObsInput = { referenceHigh?: number | null; valueHigh?: number | null; code: string; value?: number | null; unit?: string | null; text?: string | null };
 
 // Data-entry plausibility (stored units): values outside these cannot be real and usually mean a wrong unit or a
 // typo (creatinine 1.2 typed as µmol/L, Hb 130 typed as g/dL). Not clinical thresholds: nothing is decided on them.
@@ -386,12 +386,16 @@ export async function recordObservations(
     let value = item.value ?? null;
     let unit = def?.unit ?? null;
     let referenceHigh = item.referenceHigh ?? null;
+    // a reported range: the lower number is the value; the upper is kept for display (20 Oct 2026)
+    let valueHigh = item.valueHigh ?? null;
+    if (valueHigh != null && !(Number.isFinite(valueHigh) && item.value != null && valueHigh > item.value)) throw new ApiError(400, `${def?.display ?? item.code}: the upper number of a range must be above the lower`);
     if (referenceHigh != null && !(Number.isFinite(referenceHigh) && referenceHigh > 0 && referenceHigh < 1e6)) throw new ApiError(400, "Reference upper limit must be a positive number");
     if (value != null && def && item.unit && item.unit !== def.unit) {
       const factor = def.convert?.[item.unit];
       if (!factor) throw new ApiError(400, `${def.display} cannot be entered in ${item.unit}`);
       // rounded to 6 significant digits: 102 g/L × 0.1 must store 10.2, not 10.200000000000001 (20 Oct 2026)
       value = Number((value * factor).toPrecision(6));
+      if (valueHigh != null) valueHigh = Number((valueHigh * factor).toPrecision(6));
       if (referenceHigh != null) referenceHigh = Number((referenceHigh * factor).toPrecision(6));
     }
     if (value != null && !(Number.isFinite(value) && value >= 0 && value < 1e6)) throw new ApiError(400, `${def?.display ?? item.code}: value out of range`);
@@ -401,11 +405,11 @@ export async function recordObservations(
       throw new ApiError(400, `${def!.display} ${item.value} ${item.unit ?? def!.unit} is not a possible value${value < plaus[0] && plaus[2] ? ` — ${plaus[2]}` : value > plaus[1] && plaus[3] ? ` — ${plaus[3]}` : ""}. Check the number and the unit.`);
     const id = uuid();
     await tx.query(
-      `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by,reference_high)
-       VALUES($1,$1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      `INSERT INTO cf.observation(id,logical_id,version,patient_id,code,value_num,value_text,unit,original_value,original_unit,effective_at,status,quality,source,study_id,context_id,recorded_by,reference_high,value_high)
+       VALUES($1,$1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [
         id, patientId, item.code, value, item.text ?? null, unit, item.value ?? null, item.unit ?? def?.unit ?? null, input.effectiveAt,
-        input.status ?? "final", input.quality ?? "standard", input.source ?? "clinician entry", input.studyId ?? null, input.contextId ?? null, actor.id, referenceHigh,
+        input.status ?? "final", input.quality ?? "standard", input.source ?? "clinician entry", input.studyId ?? null, input.contextId ?? null, actor.id, referenceHigh, valueHigh,
       ],
     );
     ids.push(id);
@@ -519,7 +523,7 @@ export async function recordEcho(
   actor: Actor,
   patientId: string,
   input: {
-    date: string; quality: "formal" | "limited" | "bedside"; lvef: number; findings: string[]; conclusion?: string; contextId?: string | null;
+    date: string; datePrecision?: "month"; quality: "formal" | "limited" | "bedside"; lvef: number; lvefHigh?: number | null; findings: string[]; conclusion?: string; contextId?: string | null;
     // valve module: grades per valve, MR mechanism, and measured values (observations linked to the study)
     valves?: Partial<Record<string, string>>; mrType?: string | null; measures?: Partial<Record<string, number>>;
     // PH module: the additional echo signs of PH (ESC/ERS 2022 categories A–C)
@@ -554,6 +558,7 @@ export async function recordEcho(
   const attributes = {
     ...(Object.keys(valves).length ? { valves, ...(mrType ? { mrType } : {}) } : {}), ...(phSigns.length ? { phSigns } : {}),
     ...(Object.keys(rwma).length ? { rwma } : {}), ...(lvh ? { lvh } : {}), ...(Object.keys(chambers).length ? { chambers } : {}),
+    ...(input.datePrecision === "month" ? { datePrecision: "month" } : {}), ...(input.lvefHigh != null ? { lvefHigh: input.lvefHigh } : {}),
   };
   await tx.query(
     `INSERT INTO cf.study(id,patient_id,kind,performed_at,quality,findings,conclusion,context_id,recorded_by,attributes) VALUES($1,$2,'echo',$3,$4,$5,$6,$7,$8,$9)`,
@@ -561,7 +566,7 @@ export async function recordEcho(
   );
   await recordObservations(tx, actor, patientId, {
     effectiveAt: input.date,
-    items: [{ code: "lvef", value: input.lvef }, ...numbers],
+    items: [{ code: "lvef", value: input.lvef, ...(input.lvefHigh != null ? { valueHigh: input.lvefHigh } : {}) }, ...numbers],
     quality: input.quality,
     studyId: id,
     contextId: input.contextId,
@@ -573,7 +578,7 @@ export async function recordEcho(
     occurredAt: input.date,
     kind: "echo",
     category: "investigation",
-    title: `Echo · LVEF ${Math.round(input.lvef)}%`,
+    title: `Echo · LVEF ${Math.round(input.lvef)}${input.lvefHigh != null ? `–${Math.round(input.lvefHigh)}` : ""}%`,
     detail: [input.quality === "formal" ? "Formal TTE" : input.quality === "limited" ? "Limited study" : "Bedside study", ...findings].join(" · "),
     refType: "study",
     refId: id,
@@ -589,7 +594,7 @@ export async function recordStudy(
   tx: Q,
   actor: Actor,
   patientId: string,
-  input: { kind: string; date: string; findings: Record<string, unknown>; conclusion?: string; procedureId?:string; contextId?: string | null },
+  input: { kind: string; date: string; datePrecision?: "month"; findings: Record<string, unknown>; conclusion?: string; procedureId?:string; contextId?: string | null },
 ) {
   await patientInSite(tx, actor, patientId);
   const def = STUDY[input.kind];
@@ -602,6 +607,7 @@ export async function recordStudy(
     throw new ApiError(400, `${def.short}: ${(e as Error).message}`);
   }
   if (!Object.keys(attributes).length) throw new ApiError(400, `${def.short}: record at least one finding`);
+  if (input.datePrecision === "month") attributes.datePrecision = "month";
   if(input.kind === "pericardial_fluid") {
     const s=await loadState(tx,patientId);
     const p=s.procedures.find(p=>p.id===input.procedureId && p.kind === "pericardiocentesis" && p.attributes.result === "Drainage performed");
@@ -874,6 +880,40 @@ export async function medicationEvent(
       return ["meds", "plan"] as Changed;
     }
   }
+  return ["meds"] as Changed;
+}
+
+// ---------- other medicines: free text outside the catalogue (20 Oct 2026) ----------
+// Listed so the medicine list is complete; no rule reads them, and the screen says so.
+export async function recordOtherMedicine(
+  tx: Q, actor: Actor, patientId: string,
+  input: { name: string; dose?: string; frequency?: string; note?: string; effectiveAt?: string; logicalId?: string },
+) {
+  await patientInSite(tx, actor, patientId);
+  const name = input.name.trim();
+  if (name.length < 2) throw new ApiError(400, "Name the medicine");
+  const match = MEDICATIONS.find((d) => d.name.toLowerCase() === name.toLowerCase() || (d.brands ?? []).some((b) => b.toLowerCase() === name.toLowerCase()));
+  if (match && !input.logicalId) throw new ApiError(400, `${match.name} is in the CardioFlow list: add it as a medicine so it is checked`);
+  const at = input.effectiveAt ?? nowIso();
+  const id = uuid();
+  await tx.query(
+    `INSERT INTO cf.other_medicine(id,logical_id,patient_id,name,dose,frequency,note,effective_at,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [id, input.logicalId ?? id, patientId, name, input.dose?.trim() ?? "", input.frequency?.trim() ?? "", input.note?.trim() ?? "", at, actor.id],
+  );
+  await journeyEvent(tx, actor, { patientId, occurredAt: at, kind: "medication-other", category: "medication", title: `${name} (other medicine) recorded`, detail: [input.dose, input.frequency].filter((x) => x?.trim()).join(" ") });
+  await audit(tx, actor, "other-medicine", "other_medicine", id, patientId, {});
+  return ["meds"] as Changed;
+}
+
+export async function stopOtherMedicine(tx: Q, actor: Actor, patientId: string, logicalId: string) {
+  await patientInSite(tx, actor, patientId);
+  const cur = (await tx.query(`SELECT * FROM cf.other_medicine WHERE patient_id=$1 AND logical_id=$2 ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`, [patientId, logicalId])).rows[0];
+  if (!cur || cur.stopped) throw new ApiError(404, "Not on the list");
+  await tx.query(
+    `INSERT INTO cf.other_medicine(id,logical_id,patient_id,name,dose,frequency,note,stopped,effective_at,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8,$9)`,
+    [uuid(), logicalId, patientId, cur.name, cur.dose, cur.frequency, cur.note, nowIso(), actor.id],
+  );
+  await journeyEvent(tx, actor, { patientId, occurredAt: nowIso(), kind: "medication-other", category: "medication", title: `${cur.name} (other medicine) stopped`, detail: "" });
   return ["meds"] as Changed;
 }
 

@@ -17,7 +17,9 @@ import { AORTA_FIELDS } from "./aorta.js";
 export type StudyDef = { kind: string; label: string; short: string; help: string; fields: StudyField[] };
 
 const AV = ["None", "First-degree", "Mobitz I", "Mobitz II", "Complete"];
-const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Occluded", "Not assessed"];
+// "Patent stent" and "Severe (not quantified)" (20 Oct 2026, real reports that give no percentage):
+// a severe lesion reads as obstructive, a patent stent does not
+const STENOSIS = ["None", "<50%", "50–69%", "70–99%", "Severe (not quantified)", "Occluded", "Patent stent", "Not assessed"];
 
 export const STUDIES: StudyDef[] = [
   {kind:"pericardial_imaging",label:"Pericardial imaging",short:"Pericardial imaging",help:"Report size, haemodynamics, inflammation and constrictive physiology. Missing findings remain unknown.",fields:PERICARDIAL_FIELDS},
@@ -87,12 +89,25 @@ export const STUDIES: StudyDef[] = [
       { key: "rhythm", label: "Rhythm", type: "choice", required: true, options: ["Sinus rhythm", "Atrial fibrillation", "Atrial flutter", "Paced", "Junctional", "Other"] },
       { key: "rate", label: "Ventricular rate", type: "number", unit: "bpm", min: 20, max: 250, obs: "hr" },
       { key: "pr", label: "PR", type: "number", unit: "ms", min: 40, max: 600, obs: "pr", when: { field: "rhythm", in: ["Sinus rhythm"] } },
-      { key: "qrs", label: "QRS duration", type: "number", unit: "ms", min: 40, max: 300, obs: "qrs", required: true },
+      // optional since 20 Oct 2026: many reports give the morphology (LBBB) without the duration
+      { key: "qrs", label: "QRS duration", type: "number", unit: "ms", min: 40, max: 300, obs: "qrs" },
       { key: "qtc", label: "QTc", type: "number", unit: "ms", min: 250, max: 750, obs: "qtc" },
-      { key: "qrsMorphology", label: "QRS morphology", type: "choice", required: true, options: ["Normal", "LBBB", "RBBB", "Non-specific IVCD", "Paced"] },
+      { key: "qrsMorphology", label: "QRS morphology", type: "choice", required: true, options: ["Normal", "LBBB", "RBBB", "Non-specific IVCD", "Paced", "Not reported"] },
       { key: "avBlock", label: "AV block", type: "choice", options: AV, when: { field: "rhythm", notIn: ["Atrial fibrillation"] } },
       { key: "st", label: "Ischaemic changes", type: "multi", options: ["None", "ST elevation", "ST depression", "T-wave inversion", "Pathological Q waves"] },
       { key: "lvh", label: "LVH voltage", type: "choice", options: ["No", "Yes"] },
+    ],
+  },
+  {
+    // 20 Oct 2026 (real cases: negative blood cultures, ESBL E. coli urine): the report as given — no
+    // antibiotic is chosen or dosed here
+    kind: "culture", label: "Culture (blood, urine, other)", short: "Culture", help: "Specimen, growth and organism as reported, with resistance.",
+    fields: [
+      { key: "specimen", label: "Specimen", type: "choice", required: true, options: ["Blood cultures", "Urine", "Sputum", "Wound / swab", "Device / line tip", "Pericardial fluid", "Other"] },
+      { key: "sets", label: "Blood culture sets", type: "number", unit: "sets", min: 1, max: 6, when: { field: "specimen", in: ["Blood cultures"] } },
+      { key: "result", label: "Result", type: "choice", required: true, options: ["No growth", "Growth", "Probable contaminant", "Pending"] },
+      { key: "organism", label: "Organism", type: "choice", options: ["Staphylococcus aureus", "Coagulase-negative staphylococcus", "Viridans group streptococci", "Streptococcus gallolyticus", "Other streptococcus", "Enterococcus", "HACEK group", "Escherichia coli", "Klebsiella", "Pseudomonas", "Proteus", "Candida", "Other"], when: { field: "result", in: ["Growth", "Probable contaminant"] } },
+      { key: "resistance", label: "Resistance", type: "multi", options: ["MRSA", "ESBL", "Carbapenem-resistant", "VRE", "None reported"], when: { field: "result", in: ["Growth"] } },
     ],
   },
   {
@@ -113,7 +128,7 @@ export const STUDIES: StudyDef[] = [
     kind: "stress", label: "Stress test", short: "Stress", help: "Functional test for ischaemia; the modality decides which fields apply.",
     fields: [
       // SPECT has its own template (Stress MIBI) since 7 Oct 2026; older SPECT records keep their modality
-      { key: "modality", label: "Modality", type: "choice", required: true, options: ["Exercise ECG", "Stress echo", "PET", "Stress CMR"] },
+      { key: "modality", label: "Modality", type: "choice", required: true, options: ["Exercise ECG", "Stress echo", "PET", "Stress CMR", "Not stated"] },
       { key: "result", label: "Result", type: "choice", required: true, options: ["Negative", "Positive for ischaemia", "Equivocal", "Non-diagnostic"] },
       { key: "extent", label: "Ischaemia extent", type: "choice", options: ["None", "Small", "Moderate", "Large"], when: { field: "modality", notIn: ["Exercise ECG"] } },
       { key: "territory", label: "Territory", type: "multi", options: ["LAD", "LCx", "RCA"], when: { field: "result", in: ["Positive for ischaemia", "Equivocal"] } },
@@ -193,7 +208,7 @@ export const STUDIES: StudyDef[] = [
       { key: "lcx", label: "LCx", type: "choice", required: true, options: STENOSIS },
       { key: "rca", label: "RCA", type: "choice", required: true, options: STENOSIS },
       { key: "grafts", label: "Bypass grafts", type: "choice", options: ["No grafts", "All patent", "Diseased", "Occluded"] },
-      { key: "outcome", label: "Outcome", type: "choice", required: true, options: ["Medical therapy", "PCI performed", "Referred for CABG", "Heart team discussion"] },
+      { key: "outcome", label: "Outcome", type: "choice", required: true, options: ["Medical therapy", "PCI performed", "Referred for CABG", "Heart team discussion", "Not stated"] },
     ],
   },
   {
@@ -267,7 +282,8 @@ export function cleanStudy(kind: string, values: Record<string, unknown>) {
 
 // Anatomy words, not treatment thresholds: ≥50% left main or ≥70% elsewhere at cath,
 // ≥50% (CAD-RADS 3 or more) on CT.
-const SIG = ["70–99%", "Occluded"];
+export const SIGNIFICANT_STENOSIS = ["70–99%", "Severe (not quantified)", "Occluded"];
+const SIG = SIGNIFICANT_STENOSIS;
 export function obstructiveCad(kind: string, a: Record<string, any>): string | null {
   if (kind === "cath") {
     const vessels = [
@@ -292,8 +308,11 @@ export function studySummary(kind: string, a: Record<string, any>): string {
     case "pericardial_fluid": return [`Culture: ${a.microbiology}`,`Cytology: ${a.cytology}`,a.tb?`TB: ${a.tb}`:null,a.appearance].filter(Boolean).join(" · ");
     case "aortic_imaging": return [a.modality, a.aorticMorphology, a.sinusDiameter != null ? `Sinus ${a.sinusDiameter} mm` : null, a.ascendingDiameter != null ? `Ascending ${a.ascendingDiameter} mm` : null, a.archDiameter != null ? `Arch ${a.archDiameter} mm` : null, a.descendingDiameter != null ? `Descending ${a.descendingDiameter} mm` : null, a.interpretation].filter(Boolean).join(" · ");
     case "laa_imaging": return [a.purpose, a.modality, `LAA thrombus: ${a.laaThrombus}`, a.deviceThrombus ? `Device thrombus: ${a.deviceThrombus}` : null, a.leak ? `Leak: ${a.leak}${a.leakMm != null ? ` (${a.leakMm} mm)` : ""}` : null].filter(Boolean).join(" · ");
+    case "culture":
+      return [a.specimen + (a.sets != null ? ` (${a.sets} sets)` : ""), a.result === "Growth" || a.result === "Probable contaminant" ? [a.organism, (a.resistance ?? []).filter((x: string) => x !== "None reported").join(", ") || null, a.result === "Probable contaminant" ? "probable contaminant" : null].filter(Boolean).join(" · ") || "growth" : a.result?.toLowerCase()]
+        .filter(Boolean).join(": ");
     case "ecg":
-      return [a.rhythm, u(a.rate, " bpm"), a.qrs != null ? `QRS ${a.qrs} ms${a.qrsMorphology && a.qrsMorphology !== "Normal" ? " " + a.qrsMorphology : ""}` : a.qrsMorphology, u(a.qtc, " ms QTc"), a.avBlock && a.avBlock !== "None" ? `${a.avBlock} AV block` : null, (a.st ?? []).filter((x: string) => x !== "None").join(", ") || null]
+      return [a.rhythm, u(a.rate, " bpm"), a.qrs != null ? `QRS ${a.qrs} ms${a.qrsMorphology && !["Normal", "Not reported"].includes(a.qrsMorphology) ? " " + a.qrsMorphology : ""}` : a.qrsMorphology === "Not reported" ? null : a.qrsMorphology, u(a.qtc, " ms QTc"), a.avBlock && a.avBlock !== "None" ? `${a.avBlock} AV block` : null, (a.st ?? []).filter((x: string) => x !== "None").join(", ") || null]
         .filter(Boolean).join(" · ");
     case "holter":
       return [a.duration, a.rhythm, a.longestPause != null ? `longest pause ${a.longestPause} s` : null, a.veBurden != null ? `VE ${a.veBurden}%` : null, a.nsvt === "Yes" ? "NSVT" : null, a.avBlock && a.avBlock !== "None" ? `${a.avBlock} AV block` : null]

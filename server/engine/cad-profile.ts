@@ -116,7 +116,7 @@ export function cadProfile(s: PatientState) {
         intensity: m.tags.includes("statin") ? statinIntensity(m) : null,
       })),
     },
-    lvef: lvef?.value_num != null ? { value: lvef.value_num, at: lvef.effective_at } : null,
+    lvef: lvef?.value_num != null ? { value: lvef.value_num, valueHigh: lvef.value_high ?? null, at: lvef.effective_at } : null,
     sbp: sbp?.value_num != null ? { value: sbp.value_num, at: sbp.effective_at } : null,
     smoker: s.conditions.some((c) => c.code === "smoker"),
     rehab: rehab ? { status: rehab.status, due: rehab.due_date, title: rehab.title } : null,
