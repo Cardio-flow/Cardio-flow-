@@ -2203,3 +2203,21 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .item-links { list-style: none; margin: 4px 0 0; padding: 0 0 0 10px; border-left: 2px solid #cfd8e3; display: flex; flex-direction: column; gap: 2px; }
 .item-links li { font-size: 12.5px; line-height: 1.45; color: var(--ink-2, #344054); }
 .item-children { margin: 4px 0 2px 22px; padding-left: 10px; border-left: 2px dashed #cfd8e3; }
+
+/* problem solving (20 Oct 2026) */
+.reasoning { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; margin: 8px 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, #f6f8fb); font-size: 12.5px; line-height: 1.45; }
+.reasoning ul, .followup ul, .ask-today ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.rs-h { font-size: 11.5px; font-weight: 700; color: var(--ink-3); }
+.rs-yes span { color: var(--red-ink); font-weight: 700; } .rs-no span { color: #667085; font-weight: 700; } .rs-ask span { color: var(--action); font-weight: 700; }
+@media (max-width: 760px) { .reasoning { grid-template-columns: 1fr; } }
+.followup, .ask-today { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--line-2); font-size: 13px; }
+.followup li b { display: inline-block; min-width: 72px; font-size: 11.5px; }
+.fu-missed b { color: var(--red-ink); } .fu-late b { color: var(--orange-ink); } .fu-done b { color: #05603a; } .fu-pending b { color: var(--ink-3); }
+.ask-today li label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; padding: 3px 0; }
+.ask-today input { width: 18px; height: 18px; margin-top: 1px; flex: 0 0 18px; }
+.ask-today small { color: var(--ink-3); margin-left: 4px; }
+.ask-today .btn { margin-top: 8px; }
+.problem.folded { padding: 0; }
+.problem-fold { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.problem-fold b { color: var(--navy); }
+.problem-fold .problem-sub { flex: 1; }

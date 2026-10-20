@@ -23,6 +23,7 @@ import { WIZARDS } from "../../shared/wizards.js";
 import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
 import { linkAttention } from "../engine/links.js";
+import { askToday, problemReasoning, sinceLastVisit } from "../engine/reasoning.js";
 import { abnormal as abnormalView, standing as standingView, story as storyView, timeline as timelineView } from "./story.js";
 
 const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Congenital", "Arrhythmia", "Device", "Comorbidity"];
@@ -585,6 +586,10 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     story: storyView(s),
     standing: standingView(s),
     timeline: timelineView(s),
+    // problem solving (20 Oct 2026, stage 2): reasoning per card, follow-through, what to ask and examine today
+    reasoning: problemReasoning(s),
+    followUp: sinceLastVisit(s),
+    ask: askToday(s, attention),
     abnormal: abnormalView(s, res, { ldl: goals.ldl ? { goal: goals.ldl.goal, met: goals.ldl.met } : null, hba1c: goals.diabetes ? { target: goals.diabetes.target, met: goals.diabetes.met } : null }),
     today: s.today,
     overview: overview(s, attention, plan, changes),

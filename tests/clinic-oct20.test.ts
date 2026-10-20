@@ -206,3 +206,27 @@ test("linked decisions: anaemia names the antiplatelets, falling Hb and other lo
   assert.ok(!s.attention.some((a: any) => a.rule_id === "cad.ppi-combined-antithrombotic"), "the PPI question is not a separate alert");
   assert.ok(!s.attention.some((a: any) => a.rule_id === "metabolic.diabetes-cv-protection" && /SGLT2/.test(a.title)), "no SGLT2i for diabetes after urosepsis");
 });
+
+test("problem solving: causes checked, what it changes and next step; what was planned at the last visit; what to ask today", async () => {
+  const { problemReasoning, sinceLastVisit, askToday } = await import("../server/engine/reasoning.js");
+  const pid = await patient(["hfref", "t2dm", "recurrent-uti"]);
+  const day = (n: number) => new Date(Date.now() + n * 864e5).toISOString();
+  await tx(async (q) => {
+    await K.recordObservations(q, doc, pid, { effectiveAt: day(-60), items: [{ code: "creatinine", value: 90 }, { code: "potassium", value: 4.4 }] });
+    await K.recordObservations(q, doc, pid, { effectiveAt: day(-30), items: [{ code: "creatinine", value: 125 }, { code: "potassium", value: 5.6 }, { code: "haemoglobin", value: 10.2 }] });
+    await K.startMedication(q, doc, pid, { code: "metformin", doseValue: 1000, frequency: "BID", route: "PO", indication: "diabetes", effectiveAt: day(-90), alreadyTaking: true });
+    await K.startMedication(q, doc, pid, { code: "aspirin", doseValue: 100, frequency: "OD", route: "PO", indication: "cad", effectiveAt: day(-90), alreadyTaking: true });
+  });
+  const s = await loadState(db, pid);
+  const r = problemReasoning(s);
+  assert.ok(r.kidney && r.anaemia, JSON.stringify(Object.keys(r)));
+  assert.ok(r.kidney.checked.some((c) => c.mark === "no" && /No ACEi, ARB, ARNI or MRA/.test(c.text)));
+  assert.ok(r.kidney.checked.some((c) => c.mark === "ask" && /NSAIDs/.test(c.text)));
+  assert.ok(r.kidney.changes.some((c) => /Holds starting or increasing/.test(c)));
+  assert.ok(r.kidney.next.some((c) => /Repeat creatinine, potassium/.test(c)));
+  assert.ok(r.anaemia.checked.some((c) => c.mark === "ask" && /Melaena or other bleeding on Aspirin/.test(c.text)));
+  assert.ok(r.anaemia.next.includes("Ferritin and TSAT"));
+  const ask = askToday(s, []);
+  assert.deepEqual(ask.map((x) => x.key).sort(), ["bleeding", "congestion", "nsaid", "urine"]);
+  assert.equal(sinceLastVisit(s), null);
+});

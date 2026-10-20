@@ -150,8 +150,11 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="lane-head"><span className="lane-title">Results to review</span><span className="lane-hint">Recorded evidence, awaiting your decision</span></div>
         <div className="lane-rows">{s.plan.filter((p: any) => p.awaitingReview).map((p: any) => <div className="review-row" key={p.id}><div><b>{p.title}</b><span className="small muted">{p.owner ? `Owner: ${p.owner} · ` : ""}{p.completedAt ? fmtDay(p.completedAt) : "Result recorded"}</span></div><button className="btn secondary small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Review result</button></div>)}</div>
       </div>}
+      <FollowUp f={s.followUp} />
+      <AskToday items={s.ask ?? []} open={open} admitted={admitted} />
       <div className="problems" aria-label="Problems at a glance">
-        {shown.map((p) => <ProblemCard key={p.key} p={p} items={items(p.key)} later={laterOf(p.key)} row={row} />)}
+        {/* the top three problems open; the rest fold to one line each (20 Oct 2026) */}
+        {shown.map((p, i) => <ProblemCard key={p.key} p={p} items={items(p.key)} later={laterOf(p.key)} row={row} folded={i >= 3} />)}
       </div>
       {admitted && (clinic.length > 0 || deferred.length > 0) && (
         <details className="clinic-later" id="clinic-later">
@@ -171,9 +174,23 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   );
 }
 
-function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; later?: any[]; row: RowProps }) {
+function ProblemCard({ p, items, later = [], row, folded = false }: { p: Problem; items: any[]; later?: any[]; row: RowProps; folded?: boolean }) {
   const [more, setMore] = useState(false);
   const [moreLater, setMoreLater] = useState(false);
+  const [expanded, setExpanded] = useState(!folded);
+  const nResults = row.resultsOf?.(p.key).length ?? 0;
+  if (!expanded) {
+    const top0 = items[0];
+    return (
+      <section className={`problem folded ${top0 ? `p-${top0.severity}` : p.assessment === "met" ? "ok" : ""}`} aria-label={p.label}>
+        <button type="button" className="problem-fold" aria-expanded={false} onClick={() => setExpanded(true)}>
+          <b>{p.label}</b>
+          <span className="problem-sub">{[items.length && `${items.length} to review`, nResults && `${nResults} abnormal result${nResults === 1 ? "" : "s"}`, !items.length && !nResults && p.assessment === "met" && "on track"].filter(Boolean).join(" · ") || "open"}</span>
+          <ChevronDown size={16} />
+        </button>
+      </section>
+    );
+  }
   const top = items[0];
   // low-priority suggestions fold under "to consider" so the card leads with what matters
   const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
@@ -196,6 +213,7 @@ function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; 
       {(p.goal || p.therapy) && <div className="problem-goal">{[p.goal, p.therapy].filter(Boolean).join(" · ")}</div>}
       {row.resultsOf && <ResultRows items={row.resultsOf(p.key)} />}
       {row.normalOf && row.normalOf(p.key).length > 0 && <div className="problem-normal">Normal: {row.normalOf(p.key).join(", ")}</div>}
+      <Reasoning r={row.s?.reasoning?.[p.key]} />
       {p.need.length > 0 && (
         <div className="problem-need">
           <span>Needed for the decision: <b>{[...new Set(p.need.map((n) => n.label))].join(", ")}</b></span>
@@ -322,6 +340,43 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   );
 }
 
+
+// causes checked in the record → what it changes → next step (20 Oct 2026)
+function Reasoning({ r }: { r?: { checked: { mark: string; text: string }[]; changes: string[]; next: string[] } }) {
+  if (!r || (!r.checked.length && !r.changes.length && !r.next.length)) return null;
+  const MARK: Record<string, string> = { yes: "✓", no: "✗", ask: "?" };
+  return (
+    <div className="reasoning" aria-label="Reasoning">
+      {r.checked.length > 0 && <div><span className="rs-h">Causes checked</span><ul>{r.checked.map((c, i) => <li key={i} className={`rs-${c.mark}`}><span aria-hidden="true">{MARK[c.mark]}</span> {c.text}</li>)}</ul></div>}
+      {r.changes.length > 0 && <div><span className="rs-h">What it changes</span><ul>{r.changes.map((c, i) => <li key={i}>{c}</li>)}</ul></div>}
+      {r.next.length > 0 && <div><span className="rs-h">Next</span><ul>{r.next.map((c, i) => <li key={i}>{c}</li>)}</ul></div>}
+    </div>
+  );
+}
+
+// what was planned at the last visit or discharge, and whether it happened (20 Oct 2026)
+function FollowUp({ f }: { f: any }) {
+  if (!f?.items?.length) return null;
+  const LABEL: Record<string, string> = { missed: "Not done", late: "Done late", pending: "Planned", done: "Done" };
+  return (
+    <section className="followup" aria-label="Since the last visit">
+      <span className="rs-h">{f.label}</span>
+      <ul>{f.items.slice(0, 6).map((x: any) => <li key={x.id} className={`fu-${x.state}`}><b>{LABEL[x.state]}</b> {x.title} <span className="small muted">· {x.note}</span></li>)}</ul>
+    </section>
+  );
+}
+
+// the questions and examination this visit needs, each with its reason (ticks are a checklist for the visit)
+function AskToday({ items, open, admitted }: { items: any[]; open(o: Open): void; admitted: boolean }) {
+  if (!items.length || admitted) return null;
+  return (
+    <section className="ask-today" aria-label="Ask and examine today">
+      <span className="rs-h">Ask and examine today</span>
+      <ul>{items.map((x) => <li key={x.key}><label><input type="checkbox" /> <span><b>{x.ask}</b> <small>{x.why}</small></span></label></li>)}</ul>
+      <button type="button" className="btn secondary small" onClick={() => open({ kind: "visit" } as any)}>Record in the visit</button>
+    </section>
+  );
+}
 
 function Brief({ o }: { o: any }) {
   if (!o) return null;

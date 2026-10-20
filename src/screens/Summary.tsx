@@ -45,22 +45,23 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       {/* module detail (classification, procedures, devices, surveillance): one folded section at the end; the
           problem cards above carry the decisions and the values (20 Oct 2026: nothing shown twice by default) */}
       {(() => {
-        // a panel holding something to act on or decide (e.g. aftercare of a recent LAA closure) stays in view;
-        // the rest fold into one "More detail" section
+        // module panels (classification, procedure history, aftercare boxes) fold into one "More detail" section,
+        // remembered open per device
         const panels: [string, any, React.ReactNode, string][] = [
           ["hf", s.hf, <HfPanel hf={s.hf} open={open} />, "heart failure"], ["cad", s.cad, <CadPanel cad={s.cad} open={open} />, "coronary"],
           ["rhythm", s.rhythm, <RhythmPanel r={s.rhythm} open={open} />, "rhythm"], ["valve", s.valve, <ValvePanel v={s.valve} open={open} />, "valves"],
           ["cmp", s.cmp, <CmpPanel c={s.cmp} open={open} />, "cardiomyopathy"], ["ph", s.ph, <PhPanel p={s.ph} open={open} />, "pulmonary hypertension"],
         ];
         const present = panels.filter(([, d]) => d);
-        const live = present.filter(([k]) => hot.has(k)), quiet = present.filter(([k]) => !hot.has(k));
+        // every panel folds into "More detail": its decisions and values are already in the problem cards
+        const live: typeof present = [], quiet = present;
         return (
           <>
             {live.map(([k, , node]) => <div key={k}>{F(k, node, true)}</div>)}
             {quiet.length > 0 && (
               <details className="module-detail" open={moreOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; try { localStorage.setItem("cf.fold.more", o ? "1" : "0"); } catch {} }}>
                 <summary>More detail · {quiet.map(([, , , name]) => name).join(", ")}</summary>
-                <div className="stack">{quiet.map(([k, , node]) => <div key={k}>{F(k, node, false)}</div>)}</div>
+                <div className="stack">{quiet.map(([k, , node]) => <div key={k}>{F(k, node, hot.has(k))}</div>)}</div>
               </details>
             )}
           </>
