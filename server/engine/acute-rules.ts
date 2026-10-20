@@ -22,7 +22,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "acute.shock",
     kind: "clinical",
     title: "Possible shock",
-    inputs: ["sbp", "lactate"],
+    inputs: ["sbp", "lactate", "hr"],
     defaultParams: { sbp_below: 90, lactate_min: 2, lactate_alone: 4, days: 2 },
     evidence: "SCAI SHOCK 2022; Surviving Sepsis 2021: hypotension with raised lactate, or lactate ≥4 mmol/L, indicates hypoperfusion.",
     evaluate(s, p) {
@@ -103,7 +103,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "dm.hypoglycaemia",
     kind: "clinical",
     title: "Hypoglycaemia",
-    inputs: ["glucose", "meds"],
+    inputs: ["glucose", "egfr", "meds"],
     defaultParams: { level1: 3.9, level2: 3.0, days: 7 },
     evidence: "ADA Standards of Care 2026: level 1 glucose <3.9 mmol/L, level 2 <3.0 mmol/L.",
     evaluate(s, p) {
@@ -122,7 +122,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "safety.bleeding",
     kind: "clinical",
     title: "Haemoglobin fall on antithrombotic therapy",
-    inputs: ["haemoglobin", "meds"],
+    inputs: ["haemoglobin", "platelets", "inr", "meds"],
     defaultParams: { drop_g_dl: 2, days: 30 },
     evidence: "A haemoglobin fall ≥2 g/dL is a major-bleeding criterion (ISTH/BARC); on antithrombotics it prompts a bleeding assessment (EHRA NOAC guide 2021).",
     evaluate(s, p) {
@@ -146,7 +146,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "safety.low-potassium",
     kind: "clinical",
     title: "Low potassium / magnesium",
-    inputs: ["potassium", "magnesium"],
+    inputs: ["potassium", "magnesium", "meds"],
     defaultParams: { k_below: 3.5, k_severe: 3.0, mg_below: 0.7, days: 14 },
     evidence: "ESC HF practical guidance: low K and Mg increase arrhythmic risk, particularly with diuretics and digoxin; replace and address the cause.",
     evaluate(s, p) {
@@ -167,7 +167,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "safety.hyponatraemia",
     kind: "clinical",
     title: "Low sodium",
-    inputs: ["sodium"],
+    inputs: ["sodium", "creatinine", "meds"],
     defaultParams: { na_below: 130, na_severe: 125, days: 14 },
     evidence: "ESC HF 2021/2026: hyponatraemia in HF is common and prognostic; assess volume, stop thiazides, restrict fluid in hypervolaemia. Severity bands (moderate 125–129, profound <125 mmol/L) from the European hyponatraemia guideline (ESE/ESICM/ERA-EDTA 2014).",
     evaluate(s, p) {
@@ -186,7 +186,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "safety.inr",
     kind: "clinical",
     title: "INR out of range on warfarin",
-    inputs: ["inr", "meds", "conditions", "lvef"],
+    inputs: ["inr", "haemoglobin", "meds", "conditions", "lvef"],
     defaultParams: { low: 2.0, high: 3.0, very_high: 9, days: 14 },
     evidence: "ESC 2024 AF / EHRA: VKA target INR 2.0–3.0. ESC/EACTS 2025 VHD (Class I): mechanical-valve INR target set by valve type and position and patient risk factors (Table 10): lower-thrombogenicity aortic valve 2.5 (2.0–3.0), 3.0 (2.5–3.5) with a risk factor; higher-thrombogenicity design or mitral/tricuspid position 3.0 (2.5–3.5), 3.5 (3.0–4.0) with a risk factor. The clinician's recorded target wins. INR >9 without bleeding needs same-day action (ACCP/CHEST).",
     evaluate(s, p) {
@@ -266,7 +266,7 @@ export const ACUTE_RULES: RuleDef[] = [
     id: "htn.severe",
     kind: "clinical",
     title: "Severe hypertension",
-    inputs: ["sbp", "dbp"],
+    inputs: ["sbp", "dbp", "creatinine"],
     defaultParams: { sbp_min: 180, dbp_min: 110, days: 2 },
     evidence: "ESC 2024 hypertension: severe BP (≥180/110) requires assessment for acute organ damage; emergency if present.",
     evaluate(s, p) {

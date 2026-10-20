@@ -1,6 +1,7 @@
 import { previewDecision } from "./engine/decide.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
+import { pinStatus, requireAdminUnlock, setAdminPin, unlockAdmin } from "./admin-pin.js";
 import { z, ZodError } from "zod";
 import type { DB, Q } from "./db/db.js";
 import { ApiError, nowIso, today, patientInSite, type Actor } from "./kernel/base.js";
@@ -30,6 +31,8 @@ import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.
 import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
+import { advanceRulesetRefresh } from "./boot.js";
+import { RULESET } from "./engine/rules.js";
 import { caseSchema, importCase } from "./kernel/case-import.js";
 import { completeWizard, declineRecommendation, restoreRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
@@ -83,9 +86,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/health", async (_req, res) => {
     const t = Date.now();
     await db.query("SELECT 1");
+    const dbRoundTripMs = Date.now() - t;
+    const refresh = hosted ? await advanceRulesetRefresh(db) : { pending: false, advanced: 0 };
     // region only (from the host name) so the server can be placed next to the database
     const host = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname; } catch { return ""; } })();
-    res.json({ status: "ok", today: today(), dbRoundTripMs: Date.now() - t, dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
+    res.json({ status: "ok", today: today(), dbRoundTripMs, rulesRefresh: refresh.pending ? "pending" : "complete", dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
   });
 
   // Nightly re-run of every patient's rules (Vercel Cron, 02:00 Kuwait). Time-driven findings
@@ -133,6 +138,34 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     }
   });
 
+  // Hosted synthetic records belong to PIN-unlocked administration, including direct patient URLs.
+  // The local sandbox keeps its training cases available to demo clinicians.
+  app.use("/api", async (req, res, next) => {
+    if (!hosted) return next();
+    try {
+      const path = req.originalUrl.split("?", 1)[0];
+      const rawPatientId = path.match(/^\/api\/patients\/([^/]+)(?:\/|$)/)?.[1];
+      let decodedId = "";
+      if (rawPatientId) {
+        try { decodedId = decodeURIComponent(rawPatientId); }
+        catch { throw new ApiError(400, "Invalid patient ID"); }
+      }
+      const patientId = uuidS.safeParse(decodedId).success ? decodedId : null;
+      let sample = req.query.sample === "1" ||
+        ((path === "/api/patients" || path === "/api/patients/import") && req.method === "POST" && req.body?.sample === true) ||
+        (patientId != null && path.endsWith("/move-to-sample"));
+      if (patientId && !sample) {
+        const row = (await db.query<{ synthetic: boolean }>(
+          `SELECT synthetic FROM cf.patient WHERE id=$1 AND site_id=$2 AND removed_at IS NULL`,
+          [patientId, res.locals.session.siteId],
+        )).rows[0];
+        sample = !!row?.synthetic;
+      }
+      if (sample) await requireAdminUnlock(db, res.locals.session, req.get("x-admin-unlock"));
+      next();
+    } catch (e) { next(e); }
+  });
+
   const actor = (res: Response): Actor => res.locals.session;
   const siteMode = async (q: Q, siteId: string) =>
     ((await q.query(`SELECT mode FROM cf.site WHERE id=$1`, [siteId])).rows[0]?.mode ?? "production") as "sandbox" | "production";
@@ -173,11 +206,22 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   // ---------- worklist & patients ----------
   // real patients by default; ?sample=1 shows the synthetic sample patients instead
   const sampleQ = (req: express.Request) => req.query.sample === "1";
+  const adminUnlock = (req: Request, res: Response) => requireAdminUnlock(db, res.locals.session, req.get("x-admin-unlock"));
+  app.get("/api/admin/pin/status", route(async (_req, res) => res.json(await pinStatus(db, res.locals.session))));
+  app.post("/api/admin/pin/set", route(async (req, res) => {
+    const { pin } = z.object({ pin: z.string() }).parse(req.body);
+    res.json(await setAdminPin(db, res.locals.session, pin, req.get("x-admin-unlock")));
+  }));
+  app.post("/api/admin/pin/unlock", route(async (req, res) => {
+    const { pin } = z.object({ pin: z.string() }).parse(req.body);
+    res.json(await unlockAdmin(db, res.locals.session, pin));
+  }));
   app.get("/api/admin/patients", route(async (req, res) => {
-    if (actor(res).role !== "admin") throw new ApiError(403, "Administrator access required");
+    await adminUnlock(req, res);
     const q = z.string().max(80).parse(req.query.q ?? "");
     const offset = z.coerce.number().int().min(0).max(1000000).parse(req.query.offset ?? 0);
-    const rows = (await db.query(`SELECT id,name,mrn,sex,birth_date,synthetic AS sample,civil_id AS "civilId",nationality,mobile,allergies,birth_date::text AS "birthDate",birth_date_estimated AS "birthDateEstimated" FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL AND synthetic=$3 AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY name,id LIMIT 31 OFFSET $4`, [actor(res).siteId, `%${q}%`, sampleQ(req), offset])).rows;
+    const group = z.enum(["real", "sample", "all"]).parse(req.query.group ?? "all");
+    const rows = (await db.query(`SELECT id,name,mrn,sex,birth_date,synthetic AS sample,civil_id AS "civilId",nationality,mobile,allergies,birth_date::text AS "birthDate",birth_date_estimated AS "birthDateEstimated" FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL AND ($3='all' OR synthetic=($3='sample')) AND (name ILIKE $2 OR mrn ILIKE $2 OR civil_id LIKE $2) ORDER BY synthetic,name,id LIMIT 31 OFFSET $4`, [actor(res).siteId, `%${q}%`, group, offset])).rows;
     res.json({ rows: rows.slice(0,30), hasMore: rows.length > 30 });
   }));
   app.get("/api/attention-count", route(async (req, res) => res.json({ count: await attentionCount(db, actor(res).siteId, sampleQ(req)) })));
@@ -238,9 +282,19 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     // the rule set depends on sample/real: every rule runs again
     await write(res, id, async (tx, a) => (await K.moveToSample(tx, a, id), {}));
   }));
+  app.post("/api/admin/patients/:id/move-to-sample", route(async (req, res) => {
+    await adminUnlock(req, res);
+    const id = uuidS.parse(req.params.id);
+    await write(res, id, async (tx, a) => (await K.moveToSample(tx, a, id), {}));
+  }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json((await patientInSite(db, actor(res), id), await summary(db, id, await siteMode(db, actor(res).siteId))));
+    const site = actor(res).siteId;
+    await patientInSite(db, actor(res), id);
+    const settings = (await db.query<{ settings: any }>("SELECT settings FROM cf.site WHERE id=$1", [site])).rows[0]?.settings;
+    if (hosted && (typeof settings === "string" ? JSON.parse(settings) : settings ?? {}).ruleset !== RULESET)
+      await db.transaction(async (tx) => reassess(tx, id, await siteMode(tx, site)));
+    res.json(await summary(db, id, await siteMode(db, site)));
   }));
   app.get("/api/patients/:id/entry-draft/:scope", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
@@ -474,7 +528,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
 
   // ---------- registration details & structured history ----------
-  app.post("/api/patients/:id/identity", clinician, route(async (req, res) => {
+  const saveIdentity = async (req: Request, res: Response) => {
     const id = uuidS.parse(req.params.id);
     const input = z
       .object({
@@ -489,12 +543,22 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       .parse(req.body);
     // sex or date of birth changed → null → every rule runs again
     await write(res, id, async (tx, a) => ({ changed: (await K.updateIdentity(tx, a, id, input)) ?? undefined }));
-  }));
-  app.post("/api/patients/:id/remove", clinician, route(async (req, res) => {
+  };
+  const removePatient = async (req: Request, res: Response) => {
     const id = uuidS.parse(req.params.id);
     const { reason } = z.object({ reason: z.enum(K.REMOVAL_REASONS) }).parse(req.body);
     await db.transaction((tx) => K.removePatient(tx, actor(res), id, reason));
     res.json({ ok: true });
+  };
+  app.post("/api/patients/:id/identity", clinician, route(saveIdentity));
+  app.post("/api/patients/:id/remove", clinician, route(removePatient));
+  app.post("/api/admin/patients/:id/identity", route(async (req, res) => {
+    await adminUnlock(req, res);
+    await saveIdentity(req, res);
+  }));
+  app.post("/api/admin/patients/:id/remove", route(async (req, res) => {
+    await adminUnlock(req, res);
+    await removePatient(req, res);
   }));
   app.get("/api/patients/:id/history", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

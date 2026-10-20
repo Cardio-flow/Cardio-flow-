@@ -6,7 +6,7 @@ import { fmtDay } from "../../shared/clinical";
 import { NewPatient } from "../drawers/NewPatient";
 import { ImportCase } from "../drawers/ImportCase";
 
-export function Patients() {
+export function Patients({ hosted = false }: { hosted?: boolean }) {
   const session = useContext(SessionCtx);
   const [q, setQ] = useState("");
   const sample = useSampleMode();
@@ -40,7 +40,7 @@ export function Patients() {
         {data && !data.length && <div className="empty" style={{ margin: 20 }}>{q ? "No patients match." : "No patients registered yet."}</div>}
       </div>
       {importing && <ImportCase onClose={() => setImporting(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
-      {adding && <NewPatient sample={sample} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
+      {adding && <NewPatient sample={hosted ? false : sample} allowSampleToggle={!hosted} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
     </main>
   );
 }

@@ -105,7 +105,7 @@ export const CAD_RULES: RuleDef[] = [
     id: "cad.antithrombotic-plan",
     kind: "clinical",
     title: "Antithrombotic plan after ACS / PCI",
-    inputs: ["procedures", "conditions", "contexts", "meds", "plan"],
+    inputs: ["procedures", "conditions", "contexts", "meds", "plan", "egfr", "haemoglobin", "platelets"],
     defaultParams: {},
     evidence: "2023 ESC ACS and 2024 ESC CCS: the duration of DAPT, and of triple and dual therapy with an anticoagulant, is decided at the index event (ACS 12 months by default; elective PCI 6 months; triple therapy up to 1 week).",
     evaluate(s) {

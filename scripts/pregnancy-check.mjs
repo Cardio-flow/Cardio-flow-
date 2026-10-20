@@ -105,7 +105,7 @@ try {
   await p.goto(base + `/patients/${id}`);
   let card = p.locator('.problem[aria-label="Pregnancy & heart disease"]');
   await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: "Review plan", exact: true }).click();
+  await card.getByRole("button", { name: "Review pregnancy care", exact: true }).click();
   panel = p.locator(
     '[aria-label="Decision: Pregnancy & heart disease: care plan"]',
   );
@@ -300,7 +300,7 @@ try {
   await p.goto(base + `/patients/${urgent}`);
   card = p.locator('.problem[aria-label="Pregnancy & heart disease"]');
   await expect(card).toContainText("urgent assessment");
-  await card.getByRole("button", { name: "Review plan", exact: true }).click();
+  await card.getByRole("button", { name: "Review pregnancy care", exact: true }).click();
   panel = p.locator(
     '[aria-label="Decision: Pregnancy & heart disease: care plan"]',
   );

@@ -118,10 +118,10 @@ export async function reassess(tx: Q, patientId: string, siteMode: "sandbox" | "
 const event = (tx: Q, ruleId: string, version: number, from: string | null, to: string, actor: string, note: string) =>
   tx.query(`INSERT INTO cf.rule_event(id,rule_id,version,from_status,to_status,actor,note) VALUES($1,$2,$3,$4,$5,$6,$7)`, [uuid(), ruleId, version, from, to, actor, note]);
 
-export async function seedRules(tx: Q) {
+export async function seedRules(tx: Q, rules: RuleDef[] = RULES) {
   await tx.query("SELECT pg_advisory_xact_lock(431002)");
   let added = 0;
-  for (const rule of RULES) {
+  for (const rule of rules) {
     const exists = (await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id=$1 LIMIT 1`, [rule.id])).rows[0];
     if (exists) {
       // A rule reclassified as clinical must not stay auto-published by the build: send it back to review.

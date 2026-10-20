@@ -15,7 +15,7 @@ const FILTERS = [
   ["all", "All"], ["attention", "Needs attention"], ["review", "Results to review"], ["inpatients", "Inpatients"], ["opd", "OPD"], ["today", "Due today"], ["overdue", "Overdue"], ["post", "Post-discharge"],
 ] as const;
 
-export function Worklist() {
+export function Worklist({ hosted = false }: { hosted?: boolean }) {
   const sample = useSampleMode();
   const { data, error } = useData<{ today: string; rows: Row[]; counts?: { real: number; sample: number } }>(withSample("/worklist", sample));
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>("all");
@@ -46,7 +46,7 @@ export function Worklist() {
       </div>
       {error && <div className="error-box">{error}</div>}
       {data && !sample && data.counts?.real === 0 ? (
-        <FirstPatient samples={data.counts?.sample ?? 0} onAdd={() => setAdding(true)} />
+        <FirstPatient samples={hosted ? 0 : data.counts?.sample ?? 0} onAdd={() => setAdding(true)} />
       ) : (
       <>
       <div className="stats">
@@ -116,7 +116,7 @@ export function Worklist() {
       </div>
       </>
       )}
-      {adding && <NewPatient sample={sample} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
+      {adding && <NewPatient sample={hosted ? false : sample} allowSampleToggle={!hosted} onClose={() => setAdding(false)} onCreated={(id) => navigate(`/patients/${id}`)} />}
     </main>
   );
 }

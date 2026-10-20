@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { STUDY_LABEL } from "../../shared/studies";
 import { api, useData } from "../api";
+import { trendPercent } from "../lab-trend";
 import { Sparkline, Tag, useToast } from "../ui";
 import {
   MEASURES,
@@ -499,10 +500,11 @@ export function InvestigationsTab({
             <tbody>
               {data.results.map((r: any) => {
                 const def = MEASURES[r.code];
-                const flag = flagFor(
-                  r.current.value,
-                  r.current.referenceHigh != null
-                    ? { high: r.current.referenceHigh }
+                const latest = r.latest ?? r.current;
+                const flag = latest.value == null ? null : flagFor(
+                  latest.value,
+                  latest.referenceHigh != null
+                    ? { high: latest.referenceHigh }
                     : def?.ref,
                 );
                 return (
@@ -529,7 +531,7 @@ export function InvestigationsTab({
                                 : undefined,
                         }}
                       >
-                        {formatNumber(r.current.value, r.decimals)}
+                        {latest.value == null ? "—" : formatNumber(latest.value, r.decimals)}
                       </b>{" "}
                       <span className="muted small">{r.unit}</span>{" "}
                       {flag && (
@@ -537,26 +539,21 @@ export function InvestigationsTab({
                           {flag.toUpperCase()}
                         </Tag>
                       )}
+                      {latest.status === "preliminary" && <Tag sev="orange">Preliminary</Tag>}
+                      {r.current.id !== latest.id && <div className="small muted">Clinical value: {r.current.value == null ? "—" : formatNumber(r.current.value, r.decimals)} {r.unit}</div>}
                     </td>
                     <td data-label="Date">
-                      {fmtDay(r.current.at, { year: true })}
+                      {fmtDay(latest.at, { year: true })}
                     </td>
                     <td data-label="Trend">
                       <Sparkline
-                        values={r.series.map((p: any) => p.value)}
+                        values={(r.displaySeries ?? r.series).map((p: any) => p.value)}
                         tone={flag ? "orange" : "gray"}
                       />
+                      <div className="lab-trend-change">{trendPercent(r.trend?.percent) ?? r.trend?.note ?? "No comparable result"}</div>
                     </td>
                     <td data-label="Previous" className="small muted lab-prev">
-                      {r.series
-                        .slice(0, -1)
-                        .reverse()
-                        .slice(0, 3)
-                        .map(
-                          (p: any) =>
-                            `${formatNumber(p.value, r.decimals)} (${fmtDay(p.at)})`,
-                        )
-                        .join(" · ") || "—"}
+                      {r.trend?.previous ? `${formatNumber(r.trend.previous.value, r.decimals)} ${r.unit} (${fmtDay(r.trend.previous.at, { year: true })})` : "—"}
                     </td>
                     <td data-cell="action" style={{ textAlign: "right" }}>
                       {!def?.derived && (

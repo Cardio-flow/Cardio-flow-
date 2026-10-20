@@ -7,6 +7,10 @@ import { loadState } from "../server/kernel/state.js";
 import { nowIso, today, type Actor } from "../server/kernel/base.js";
 import { reassess } from "../server/engine/engine.js";
 import { pregnancyProfile } from "../server/engine/pregnancy-profile.js";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { TodayBoard } from "../src/screens/Today.js";
+import { Pulse, toneOf } from "../src/screens/Pulse.js";
 import { PREGNANCY_RULES } from "../server/engine/pregnancy-rules.js";
 import {
   completeWizard,
@@ -233,7 +237,7 @@ test("a newer preliminary severe BP remains an urgent verification signal", asyn
   await obs(
     id,
     [{ code: "sbp", value: 120 }],
-    new Date(T + "T00:00:00Z").toISOString(),
+    new Date(T + "T00:00:00+03:00").toISOString(),
   );
   await obs(id, [{ code: "sbp", value: 165 }], nowIso(), "preliminary");
   assert.ok((await profile(id)).urgent.some((s) => /preliminary/.test(s)));
@@ -736,6 +740,69 @@ test("explicit pregnancy concerns from existing hypertension/aorta pathways requ
       "pregnancy-context",
     );
   }
+});
+
+test("single systolic reading leaves a paired BP gap and cannot show On track", async () => {
+  const id = await patient(["htn"]);
+  await obs(id, [{ code: "sbp", value: 125 }]);
+  await active(id);
+  const s = await tx((q) => summary(q, id));
+  assert.equal(s.targets.bp?.met, null);
+  const html = renderToStaticMarkup(createElement(TodayBoard, { s, open: () => {}, done: () => {} }));
+  const bp = html.match(/<section class="problem[^>]*aria-label="Blood pressure"[\s\S]*?<\/section>/)?.[0] ?? "";
+  assert.match(bp, /Incomplete reading/);
+  assert.match(bp, /Record Blood pressure: BP/);
+  assert.doesNotMatch(bp, /On track/);
+  assert.match(bp, /<button[^>]*Record[\s\S]*?<\/button>/);
+});
+
+test("pregnancy BP 148\/94 gets a dated routine review, not a green or urgent card", async () => {
+  const id = await patient(["htn"]);
+  await context(id, { phase: "Pregnant", edd: addDays(T, 196), mwho: "I" });
+  await obs(id, [{ code: "sbp", value: 148 }, { code: "dbp", value: 94 }]);
+  const rows = await active(id);
+  const p = rows.find((r) => r.rule_id === "pregnancy.care");
+  assert.equal(p.severity, "orange");
+  assert.match(JSON.stringify(p.facts), /Above pregnancy target/);
+  const s = await tx((q) => summary(q, id));
+  assert.equal(s.targets.bp?.met, false);
+  const html = renderToStaticMarkup(createElement(TodayBoard, { s, open: () => {}, done: () => {} }));
+  assert.match(html, /Above pregnancy target/);
+  assert.equal((html.match(/>Review pregnancy care<\/button>/g) ?? []).length, 1);
+  const out = buildOutcome("pregnancy-plan", base(), await ctx(id));
+  assert.ok(out.some((x) => x.kind === "plan" && x.title === "Pregnancy: BP and antihypertensive treatment review" && x.dueDate === T));
+  assert.ok(!out.some((x) => x.kind === "start"));
+  await confirm(id);
+  assert.equal((await state(id)).plan.filter((x) => x.title === "Pregnancy: BP and antihypertensive treatment review").length, 1);
+  await obs(id, [{ code: "sbp", value: 150 }, { code: "dbp", value: 94 }]);
+  await confirm(id);
+  assert.equal((await state(id)).plan.filter((x) => x.title === "Pregnancy: BP and antihypertensive treatment review").length, 1);
+});
+
+test("pregnancy Hb and kidney display follow pregnancy interpretation", async () => {
+  const id = await patient(["htn"]);
+  await context(id, { phase: "Pregnant", edd: addDays(T, 196), mwho: "I" });
+  await obs(id, [{ code: "haemoglobin", value: 11.5 }, { code: "creatinine", value: 65 }, { code: "uacr", value: 1 }]);
+  const rows = await active(id);
+  assert.ok(!rows.some((r) => r.rule_id === "lab.anaemia" || r.rule_id === "cardiorenal.screening"));
+  const s = await tx((q) => summary(q, id));
+  assert.equal(s.targets.kidney.egfr, null);
+  assert.equal(s.targets.kidney.creatinineCurrent, 65);
+  assert.equal(toneOf(s.results.find((r: any) => r.code === "haemoglobin"), s), "blue");
+  const html = renderToStaticMarkup(createElement(TodayBoard, { s, open: () => {}, done: () => {} }));
+  assert.doesNotMatch(html, /aria-label="Anaemia &amp; iron"/);
+  const pulse = renderToStaticMarkup(createElement(Pulse, { s, open: () => {}, go: () => {} }));
+  assert.doesNotMatch(pulse, /eGFR/);
+  assert.match(html, /Serum creatinine/);
+  const other = await patient(["htn"]);
+  await context(other, { phase: "Pregnant", edd: addDays(T, 196), mwho: "I" });
+  const missing = await active(other);
+  const renal = missing.find((r) => r.rule_id === "cardiorenal.screening");
+  assert.match(renal.title, /serum creatinine/);
+  assert.doesNotMatch(renal.detail, /finerenone|classify CKD/);
+  await obs(other, [{ code: "creatinine", value: 65 }]);
+  const remaining = (await active(other)).find((r) => r.rule_id === "cardiorenal.screening");
+  assert.deepEqual(remaining.action.codes, ["uacr"]);
 });
 
 test("pregnancy blood panels require actual complete evidence and leave clinical review outstanding", async () => {

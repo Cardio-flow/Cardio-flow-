@@ -184,7 +184,7 @@ export const CMP_RULES: RuleDef[] = [
     id: "cmp.hcm-lvoto",
     kind: "clinical",
     title: "Symptomatic obstructive HCM (gradient ≥50 mmHg)",
-    inputs: ["conditions", "lvot-rest", "lvot-provoked", "nyha", "pathways", "studies"],
+    inputs: ["conditions", "lvot-rest", "lvot-provoked", "nyha", "pathways", "studies", "meds"],
     defaultParams: {},
     evidence: "2023 ESC cardiomyopathies: LVOTO therapy — non-vasodilating beta-blocker titrated to the maximum tolerated dose first line (I B); verapamil or diltiazem if a beta-blocker cannot be taken (I B); disopyramide added (I B); mavacamten (IIa A); septal reduction for a resting or maximal provoked gradient ≥50 mmHg with NYHA III–IV despite maximum tolerated therapy (I B). 50 mmHg is the guideline's threshold. Offered once per echo while symptoms (NYHA ≥II) are recorded.",
     evaluate(s) {

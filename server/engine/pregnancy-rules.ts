@@ -82,6 +82,9 @@ export const PREGNANCY_RULES: RuleDef[] = [
               value,
               tone: "red" as const,
             })),
+            ...(p.phase === "Pregnant" && p.hypertensive && !p.severeBp
+              ? [{ label: "BP review", value: "Above pregnancy target <140/90: confirm measurement and arrange dated treatment review" }]
+              : []),
             ...p.risks.map((value) => ({ label: "Risk review", value })),
             ...p.medicationFlags.map((m) => ({
               label: m.name,
@@ -114,7 +117,7 @@ export function pregnancyFindingAllowed(
     return false;
   if (
     a?.phase === "Pregnant" &&
-    ["cardiorenal.ckd-stage", "dm.glycaemic-control"].includes(ruleId)
+    ["cardiorenal.ckd-stage", "cardiorenal.stage-review", "dm.glycaemic-control"].includes(ruleId)
   )
     return false;
   if (

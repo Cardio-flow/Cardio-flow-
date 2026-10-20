@@ -228,7 +228,7 @@ export const LAB_RULES: RuleDef[] = [
     id: "lab.iron-deficiency",
     kind: "clinical",
     title: "Iron deficiency without anaemia",
-    inputs: ["ferritin", "haemoglobin", "conditions"],
+    inputs: ["ferritin", "haemoglobin", "tsat", "meds", "conditions"],
     defaultParams: { ferritin_low: 15 },
     evidence: "WHO 2020 guideline on ferritin: serum ferritin <15 µg/L indicates iron deficiency in adults. Iron deficiency needs a cause (blood loss — GI evaluation as indicated, menstrual, malabsorption) and replacement. Heart failure has its own definition (hf.iron-deficiency). Persisting deficiency on oral iron: re-look for blood loss or malabsorption; IV iron when oral iron is ineffective or not tolerated (BSG 2021 iron deficiency anaemia guideline).",
     evaluate(s, p) {
