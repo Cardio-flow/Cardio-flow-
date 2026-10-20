@@ -2189,3 +2189,8 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .held-h { font-size: 11.5px; font-weight: 700; color: var(--ink-3); padding-bottom: 2px; }
 .held-card .held-row { grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1.3fr); padding: 6px 0; font-size: 12.5px; }
 .held-card .held-row:first-of-type { border-top: 0; }
+
+/* first load: waiting, or the server did not answer (20 Oct 2026) */
+.boot-state { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; box-sizing: border-box; }
+.boot-state h1 { margin: 0; font-size: 20px; color: var(--navy); }
+.boot-state p { margin: 0; max-width: 420px; line-height: 1.5; }

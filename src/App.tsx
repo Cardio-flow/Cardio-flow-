@@ -17,17 +17,39 @@ export function App() {
   const [config, setConfig] = useState<{ hosted: boolean } | null>(null);
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [site, setSite] = useState<Site | null>(null);
+  // the first two calls decide what to show: never a blank page while waiting or after a failure (20 Oct 2026)
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [slow, setSlow] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    api("/config").then(setConfig);
+    setBootError(null);
+    setSlow(false);
+    const timer = setTimeout(() => setSlow(true), 4000);
+    api("/config").then(setConfig).catch((e) => setBootError((e as Error).message || "The server did not answer"));
     api<Session>("/session")
       .then((s) => (setCsrf(s.csrf), setSession(s)))
-      .catch(() => setSession(null));
-  }, []);
+      .catch((e) => ((e as any)?.status === 401 || (e as any)?.status === 403 ? setSession(null) : setBootError((e as Error).message || "The server did not answer")));
+    return () => clearTimeout(timer);
+  }, [attempt]);
   const refreshSite = () => api("/site").then(setSite).catch(() => {});
   useEffect(() => {
     if (session) refreshSite();
   }, [session]);
-  if (!config || session === undefined) return null;
+  if (bootError || !config || session === undefined)
+    return (
+      <main className="boot-state" aria-busy={!bootError}>
+        <Logo />
+        {bootError ? (
+          <>
+            <h1>CardioFlow cannot reach its server</h1>
+            <p>{bootError}</p>
+            <button className="btn primary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          </>
+        ) : (
+          <p className="muted">{slow ? "Starting the server… this can take up to a minute after an update." : "Loading…"}</p>
+        )}
+      </main>
+    );
   if (!session)
     return (
       <SignIn
