@@ -81,7 +81,7 @@ export const RULES: RuleDef[] = [
     id: "hf.hyperkalaemia-review",
     kind: "clinical",
     title: "Hyperkalaemia review",
-    inputs: ["potassium", "creatinine", "meds"],
+    inputs: ["potassium", "creatinine", "egfr", "meds"],
     defaultParams: { review_threshold_mmol: 5.5 },
     evidence: "ESC HF 2021 practical guidance on MRA and RAAS inhibitors (retained 2023/2026): potassium >5.5 mmol/L needs dose reduction and review; >6.0 stop. ESC/ERA CVD–CKD 2026: manage hyperkalaemia to keep cardiorenal therapy.",
     evaluate(s, p) {
@@ -273,7 +273,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-19.audit1";
+export const RULESET = "2026-10-20.integration1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

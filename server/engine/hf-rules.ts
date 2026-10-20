@@ -107,7 +107,7 @@ export const HF_RULES: RuleDef[] = [
     id: "hf.advanced-hf",
     kind: "clinical",
     title: "Advanced HF markers: advanced HF centre consultation",
-    inputs: ["contexts", "nyha", "lvef", "sbp", "congestion", "meds", "conditions", "plan", "creatinine", "egfr"],
+    inputs: ["contexts", "nyha", "lvef", "sbp", "congestion", "meds", "conditions", "plan", "creatinine", "egfr", "nt-probnp"],
     defaultParams: { lvef_max: 25, sbp_below: 90, hf_admissions: 2, lookback_days: 365 },
     evidence:
       "2026 ESC HF, Rec. Table 11 (Class I, A): early consultation with an advanced HF centre for patients with advanced HF or at risk of it, who are motivated and have no absolute contraindication to transplant or durable MCS. Markers: I-NEED-HELP (HFA-ESC 2018 position statement; HELP-HF registry, ≥1 marker): inotropes, NYHA III–IV, LVEF ≤25%, end-organ dysfunction, defibrillator shocks / ventricular arrhythmia, >1 HF hospitalisation in 12 months, oedema despite escalating diuretics, SBP <90 mmHg, prognostic medication reduced or not tolerated.",
