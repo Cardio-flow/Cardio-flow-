@@ -11,16 +11,25 @@ before(async () => {
 });
 after(async () => db.close());
 
-test("hosted startup defers a site-wide refresh and short batches finish it durably", async () => {
+test("hosted startup defers rule seeding and site refresh in durable batches", async () => {
   await db.query("UPDATE cf.site SET settings=settings || $2::jsonb WHERE id=$1", [SITE_ID, JSON.stringify({ ruleset: "previous-build" })]);
   await boot(db, { seed: false, deferReassessment: true });
-  const settings = async () => (await db.query<{ settings: { ruleset: string; rulesetProgress?: { cursor: string } } }>(
+  const settings = async () => (await db.query<{ settings: { ruleset: string; ruleSeedVersion?: string; ruleSeedProgress?: { offset: number }; rulesetProgress?: { cursor: string } } }>(
     "SELECT settings FROM cf.site WHERE id=$1", [SITE_ID],
   )).rows[0].settings;
   assert.equal((await settings()).ruleset, "previous-build");
   const first = await advanceRulesetRefresh(db, 1);
-  assert.deepEqual(first, { pending: true, advanced: 1 });
-  assert.ok((await settings()).rulesetProgress?.cursor);
+  assert.equal(first.pending, true);
+  assert.ok((await settings()).ruleSeedProgress?.offset);
+  let seedCalls = 0;
+  while ((await settings()).ruleSeedVersion !== RULESET && seedCalls < 100) {
+    await advanceRulesetRefresh(db, 1);
+    seedCalls++;
+  }
+  assert.ok(seedCalls > 1);
+  assert.equal((await settings()).ruleSeedVersion, RULESET);
+  assert.equal((await settings()).ruleSeedProgress, undefined);
+  assert.equal((await settings()).ruleset, undefined);
   let calls = 1;
   while ((await settings()).ruleset !== RULESET && calls < 40) {
     await advanceRulesetRefresh(db, 3);
