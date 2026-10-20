@@ -22,7 +22,7 @@ export const COMPLICATION_RULES: RuleDef[] = [
     id: "hf.congestion",
     kind: "clinical",
     title: "Congestion / worsening heart failure",
-    inputs: ["weight", "congestion", "creatinine", "meds"],
+    inputs: ["weight", "congestion", "creatinine", "meds", "contexts"],
     defaultParams: { weight_gain_kg: 2, weight_days: 3, exam_days: 14 },
     evidence: "ESC HF self-care: unexpected weight gain >2 kg in 3 days; clinical congestion prompts diuretic adjustment, precipitant search and early review (ESC HF 2021 practical guidance).",
     evaluate(s, p) {

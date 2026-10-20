@@ -40,6 +40,22 @@ test("a new congestion finding withdraws an HF uptitration suggestion, then clea
   assert.ok((await active(id, "hf.titration")).length > 0);
 });
 
+test("HF congestion advice resolves during admission and returns after discharge while weight gain persists", async () => {
+  const id = await sample("Hamad Al-Shammari");
+  assert.equal((await active(id, "hf.congestion")).length, 1);
+  const admission = await db.transaction(async (tx) => {
+    const result = await K.startAdmission(tx, actor, id, { startedAt: nowIso(), reasons: ["Acute decompensated HF"], hfRelated: true });
+    await reassess(tx, id, "production", result.changed);
+    return result.id;
+  });
+  assert.equal((await active(id, "hf.congestion")).length, 0);
+  await db.transaction(async (tx) => {
+    const changed = await K.discharge(tx, actor, id, admission, { endedAt: nowIso(), status: "Home", destination: "Home", plan: [] });
+    await reassess(tx, id, "production", changed);
+  });
+  assert.equal((await active(id, "hf.congestion")).length, 1);
+});
+
 test("a new low haemoglobin updates bleeding risk in the PCI antithrombotic plan", async () => {
   const id = await sample("Noura Al-Kandari");
   assert.equal((await active(id, "cad.antithrombotic-plan")).length, 1);
