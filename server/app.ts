@@ -31,6 +31,8 @@ import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.
 import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
+import { advanceRulesetRefresh } from "./boot.js";
+import { RULESET } from "./engine/rules.js";
 import { caseSchema, importCase } from "./kernel/case-import.js";
 import { completeWizard, declineRecommendation, restoreRecommendation, getWizard, resolveEpisode, saveDraft, wizardStartCheck } from "./engine/wizard.js";
 import { draftRule, listRules, transitionRule } from "./engine/governance.js";
@@ -84,9 +86,11 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   app.get("/api/health", async (_req, res) => {
     const t = Date.now();
     await db.query("SELECT 1");
+    const dbRoundTripMs = Date.now() - t;
+    const refresh = hosted ? await advanceRulesetRefresh(db) : { pending: false, advanced: 0 };
     // region only (from the host name) so the server can be placed next to the database
     const host = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname; } catch { return ""; } })();
-    res.json({ status: "ok", today: today(), dbRoundTripMs: Date.now() - t, dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
+    res.json({ status: "ok", today: today(), dbRoundTripMs, rulesRefresh: refresh.pending ? "pending" : "complete", dbRegion: host.match(/\.([a-z]{2}-[a-z]+-\d)\./)?.[1] ?? (host ? "unknown" : "local"), serverRegion: process.env.VERCEL_REGION ?? "local" });
   });
 
   // Nightly re-run of every patient's rules (Vercel Cron, 02:00 Kuwait). Time-driven findings
@@ -285,7 +289,12 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.get("/api/patients/:id/summary", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json((await patientInSite(db, actor(res), id), await summary(db, id, await siteMode(db, actor(res).siteId))));
+    const site = actor(res).siteId;
+    await patientInSite(db, actor(res), id);
+    const settings = (await db.query<{ settings: any }>("SELECT settings FROM cf.site WHERE id=$1", [site])).rows[0]?.settings;
+    if (hosted && (typeof settings === "string" ? JSON.parse(settings) : settings ?? {}).ruleset !== RULESET)
+      await db.transaction(async (tx) => reassess(tx, id, await siteMode(tx, site)));
+    res.json(await summary(db, id, await siteMode(db, site)));
   }));
   app.get("/api/patients/:id/entry-draft/:scope", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);

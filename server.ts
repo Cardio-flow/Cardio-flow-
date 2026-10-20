@@ -22,7 +22,7 @@ if (!DATABASE_URL || !NEON_AUTH_BASE_URL || !NEON_AUTH_COOKIE_SECRET || !origin)
   throw new Error("Hosted database, identity and origin configuration are required");
 const db = connectPostgres(DATABASE_URL);
 // no top-level await: the first request waits for migration/boot instead
-const ready = boot(db, { seed: process.env.CARDIO_SEED !== "0" });
+const ready = boot(db, { seed: process.env.CARDIO_SEED !== "0", deferReassessment: true });
 const app: express.Express = createApp(db, hostedAuth(db, origin, NEON_AUTH_BASE_URL, NEON_AUTH_COOKIE_SECRET), ready);
 mountFrontend(app, path.resolve("public"));
 export default app;
