@@ -106,7 +106,7 @@ export const LAB_RULES: RuleDef[] = [
           l,
           ["haemoglobin", "mcv", "ferritin", "tsat", "egfr"],
           "anaemia-result",
-          pregnant && cutoff==null ? `Haemoglobin ${r.value} g/dL: confirm pregnancy dating and current blood count` : `Haemoglobin ${r.value} g/dL: anaemia review`,
+          pregnant && cutoff==null ? `Haemoglobin ${formatNumber(r.value, 1)} g/dL: confirm pregnancy dating and current blood count` : `Haemoglobin ${formatNumber(r.value, 1)} g/dL: anaemia review`,
           "Assess bleeding and cause before choosing iron; urgent assessment for instability or severe anaemia.",
           r.value < (pregnant?7:Number(p.severe_gdl)) ? "red" : "orange",
           LAB_URLS.anaemia,

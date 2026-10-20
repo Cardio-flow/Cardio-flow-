@@ -85,3 +85,23 @@ test("summary carries the last NYHA and congestion; the worklist gives the last 
   assert.equal(row.next, null);
   assert.ok("lastSeen" in row);
 });
+
+test("case import brings past admissions and the dated plan; unknown admission reasons are refused; converted values are rounded", async () => {
+  const { importCase, caseSchema, checkCase } = await import("../server/kernel/case-import.js");
+  const c = caseSchema.parse({
+    format: "cardioflow-case/1", sample: true,
+    patient: { name: "Import Plan " + Date.now(), mrn: "IP" + Date.now(), sex: "Female", age: 70 },
+    conditions: [{ code: "hfref", attributes: { aetiology: ["Ischaemic"] } }],
+    results: [{ date: "2026-09-01", items: [{ code: "haemoglobin", value: 102, unit: "g/L" }] }],
+    admissions: [{ startedOn: "2026-08-01", endedOn: "2026-08-05", reasons: ["Acute decompensated HF"], events: ["IV diuretics"], dischargeStatus: "Improved", destination: "Home" }],
+    plan: [{ category: "follow_up", title: "Cardiology clinic review", dueDate: addDays(today(), 1) }],
+  });
+  assert.deepEqual(checkCase(c), []);
+  const pid = await tx((q) => importCase(q, doc, c));
+  const s = await loadState(db, pid);
+  assert.equal(s.contexts.filter((x) => x.kind === "admission").length, 1);
+  assert.ok(s.plan.some((p) => p.title === "Cardiology clinic review" && p.due_date === addDays(today(), 1)));
+  assert.equal(s.resolved("haemoglobin").current?.value_num, 10.2);
+  const bad = caseSchema.parse({ ...c, patient: { ...c.patient, mrn: "X" + Date.now() }, admissions: [{ startedOn: "2026-08-01", endedOn: "2026-08-05", reasons: ["AKI"] }], plan: [] });
+  assert.match(checkCase(bad).join(" "), /unknown reason "AKI"/);
+});

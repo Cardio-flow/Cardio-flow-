@@ -8,6 +8,8 @@ import { ApiError, journeyEvent, nowIso, today, type Actor } from "./base.js";
 import * as K from "./clinical.js";
 import { DIAGNOSIS, MEASURES, MEDICATION } from "../../shared/catalog.js";
 import { STUDY } from "../../shared/studies.js";
+import { ADMISSION_REASONS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS } from "../../shared/encounters.js";
+import { ADMISSION_HISTORY_SOURCES } from "../../shared/admission-history.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 const at = (d: string) => (d.length === 10 ? new Date(`${d}T09:00:00+03:00`).toISOString() : new Date(d).toISOString());
@@ -31,6 +33,17 @@ export const caseSchema = z.object({
   studies: z.array(z.object({ kind: z.string(), date: day, findings: z.record(z.string(), z.any()), conclusion: z.string().max(600).optional() })).max(20).default([]),
   procedures: z.array(z.object({ kind: z.string(), date: day, details: z.record(z.string(), z.any()) })).max(20).default([]),
   medications: z.array(z.object({ code: z.string(), doseValue: z.number().positive().nullable(), frequency: z.string().max(60), route: z.string().max(20).optional(), indication: z.string().max(80).optional(), since: day.nullable().optional() })).max(40).default([]),
+  // 20 Oct 2026 (real clinic list): past admissions from discharge summaries and the dated plan
+  // (e.g. tomorrow's clinic review, a pending test) come in with the case
+  admissions: z.array(z.object({
+    startedOn: day, endedOn: day, location: z.string().max(80).default(""), reasons: z.array(z.string()).min(1).max(6),
+    source: z.string().default("Discharge summary"), narrative: z.string().max(4000).default(""), events: z.array(z.string()).max(20).default([]),
+    dischargeStatus: z.string().default(""), destination: z.string().default(""), reportedLabs: z.string().max(4000).default(""), reportedMedications: z.string().max(4000).default(""),
+  })).max(15).default([]),
+  plan: z.array(z.object({
+    category: z.enum(["medication", "investigation", "monitoring", "follow_up", "referral", "procedure", "education", "other"]),
+    title: z.string().trim().min(2).max(160), dueDate: day.nullable(), reason: z.string().max(300).optional(),
+  })).max(20).default([]),
   note: z.string().max(4000).optional(),
 });
 export type CaseFile = z.infer<typeof caseSchema>;
@@ -44,6 +57,15 @@ export function checkCase(c: CaseFile) {
   for (const s of c.studies) if (!STUDY[s.kind]) problems.push(`Unknown study: ${s.kind}`);
   for (const m of c.medications) if (!MEDICATION[m.code]) problems.push(`Unknown medicine: ${m.code}`);
   if (!c.patient.birthDate && !c.patient.age && !c.patient.civilId) problems.push("Give the date of birth, the age or the civil ID");
+  for (const a of c.admissions) {
+    for (const r of a.reasons) if (!ADMISSION_REASONS.includes(r)) problems.push(`Admission ${a.startedOn}: unknown reason "${r}"`);
+    for (const e of a.events) if (!IN_HOSPITAL_EVENTS.includes(e)) problems.push(`Admission ${a.startedOn}: unknown event "${e}"`);
+    if (a.dischargeStatus && !DISCHARGE_CONDITION.includes(a.dischargeStatus)) problems.push(`Admission ${a.startedOn}: unknown condition at discharge`);
+    if (a.destination && !DISCHARGE_DESTINATION.includes(a.destination)) problems.push(`Admission ${a.startedOn}: unknown destination`);
+    if (!(ADMISSION_HISTORY_SOURCES as readonly string[]).includes(a.source)) problems.push(`Admission ${a.startedOn}: unknown source`);
+    if (a.endedOn < a.startedOn) problems.push(`Admission ${a.startedOn}: discharge before admission`);
+  }
+  for (const p of c.plan) if (p.dueDate && p.dueDate < today()) problems.push(`Plan "${p.title}": choose today or a later date`);
   return problems;
 }
 
@@ -86,6 +108,13 @@ export async function importCase(tx: Q, actor: Actor, c: CaseFile) {
       effectiveAt: m.since ? at(m.since) : nowIso(), preexisting: !m.since,
     } as any));
   }
+  for (const a of [...c.admissions].sort((x, y) => x.startedOn.localeCompare(y.startedOn)))
+    await step(`Admission ${a.startedOn}`, async () => {
+      const { recordPastAdmission } = await import("./context-management.js");
+      await recordPastAdmission(tx, actor, id, { ...a, note: "", draftVersion: 0 } as any);
+    });
+  for (const item of c.plan)
+    await step(`Plan: ${item.title}`, () => K.addPlanAction(tx, actor, id, { category: item.category, title: item.title, dueDate: item.dueDate, reason: item.reason } as any));
   if (c.note?.trim())
     await journeyEvent(tx, actor, { patientId: id, occurredAt: nowIso(), kind: "note", category: "visit", title: "History brought into CardioFlow", detail: c.note.trim().slice(0, 4000) });
   return id;

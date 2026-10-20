@@ -390,8 +390,9 @@ export async function recordObservations(
     if (value != null && def && item.unit && item.unit !== def.unit) {
       const factor = def.convert?.[item.unit];
       if (!factor) throw new ApiError(400, `${def.display} cannot be entered in ${item.unit}`);
-      value = value * factor;
-      if (referenceHigh != null) referenceHigh *= factor;
+      // rounded to 6 significant digits: 102 g/L × 0.1 must store 10.2, not 10.200000000000001 (20 Oct 2026)
+      value = Number((value * factor).toPrecision(6));
+      if (referenceHigh != null) referenceHigh = Number((referenceHigh * factor).toPrecision(6));
     }
     if (value != null && !(Number.isFinite(value) && value >= 0 && value < 1e6)) throw new ApiError(400, `${def?.display ?? item.code}: value out of range`);
     if (value != null && def?.max != null && value > def.max) throw new ApiError(400, `${def.display}: ${value} is above the maximum ${def.max}`);

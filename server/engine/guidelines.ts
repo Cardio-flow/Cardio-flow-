@@ -290,7 +290,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           key: "fmt-" + p.key,
           signature: `${p.key}:${phen}:${ef?.id ?? "noef"}${gate.missing.length ? ":check" : ""}`,
           severity: "orange",
-          title: `${phen}: ${p.label} not started`,
+          // LVEF recovered from <50%: named as such, not as HFpEF (20 Oct 2026, real case)
+          title: `${hfImprovedEf(s) ? "HF with improved LVEF" : phen}: ${p.label} not started`,
           detail: `Foundational therapy${ef ? ` · LVEF ${formatNumber(ef.value_num!, 0)}%` : ""} · suggested start: ${def.name} ${doseLabel(def, p.start.dose)}`,
           facts: facts(ef && { label: "LVEF", value: `${formatNumber(ef.value_num!, 0)}% (${ef.quality})`, date: ef.effective_at }, fact(s, "potassium", 60), fact(s, "egfr", 60), fact(s, "sbp", 60), fact(s, "hr", 60),
             src(phen === "HFrEF" ? "ESC HF 2026 · foundational medical therapy for HFrEF (LVEF <50%) · Class I" : "ESC HF 2026 · SGLT2i and MRA in HFpEF · Class I")),
