@@ -2198,3 +2198,8 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .problem .abn-list { margin: 6px 0 2px; }
 .module-detail > summary { cursor: pointer; font-weight: 700; color: var(--ink-3); padding: 12px 4px; font-size: 14px; }
 .module-detail > .stack { margin-top: 8px; }
+
+/* linked decisions (20 Oct 2026) */
+.item-links { list-style: none; margin: 4px 0 0; padding: 0 0 0 10px; border-left: 2px solid #cfd8e3; display: flex; flex-direction: column; gap: 2px; }
+.item-links li { font-size: 12.5px; line-height: 1.45; color: var(--ink-2, #344054); }
+.item-children { margin: 4px 0 2px 22px; padding-left: 10px; border-left: 2px dashed #cfd8e3; }

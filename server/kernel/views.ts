@@ -22,6 +22,7 @@ import { activeBarrier, loadState, latestDischarge, openContext, series, type Pa
 import { WIZARDS } from "../../shared/wizards.js";
 import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
+import { linkAttention } from "../engine/links.js";
 import { abnormal as abnormalView, standing as standingView, story as storyView, timeline as timelineView } from "./story.js";
 
 const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Congenital", "Arrhythmia", "Device", "Comorbidity"];
@@ -568,7 +569,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   // the active plan: what came out of the most recent plan-making context plus anything still open
   const lastSource = [...s.contexts].reverse().find((c) => s.plan.some((p) => p.source_context_id === c.id));
   const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || p.awaitingReview || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
-  const attention = await recommendations(tx, patientId);
+  // linked decisions: facts from elsewhere in the record, and dependent alerts folded under their decision
+  const attention: any[] = linkAttention(s, await recommendations(tx, patientId));
   const changes = whatChanged(s);
   // the echo-surveillance intervals are shown only where their rule runs (sandbox, or once approved)
   const surveillanceLive = (siteMode === "sandbox" && s.patient.synthetic) || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);

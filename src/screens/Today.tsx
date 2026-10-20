@@ -301,6 +301,8 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
             <Info size={13} className="t-why" aria-label="Why?" />
           </button>
           {!compact && p.why === a.id && a.detail && <span className="d">{a.detail}</span>}
+          {/* linked decisions: what elsewhere in the record bears on this one (20 Oct 2026) */}
+          {a.links?.length > 0 && <ul className="item-links" aria-label="Linked facts">{a.links.map((l: string, i: number) => <li key={i}>{l}</li>)}</ul>}
         </div>
         <div className="item-acts">
           <button className="dismiss wide-only" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Not needed — dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /></button>
@@ -314,6 +316,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.why === a.id && <WhyPanel a={a} patientId={p.patientId} done={p.done} />}
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
+      {a.children?.length > 0 && <div className="item-children">{a.children.map((c: any) => <Item key={c.id} a={c} compact {...p} />)}</div>}
       {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
     </div>
   );

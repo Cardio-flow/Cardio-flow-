@@ -180,3 +180,29 @@ test("a mitral clip or a ring is a valve repair, never a prosthetic valve; resid
   });
   assert.ok(!(await active(pid)).some((r) => r.rule_id === "event.prosthetic-valve"));
 });
+
+test("linked decisions: anaemia names the antiplatelets, falling Hb and other low cell lines; the PPI question folds under the DAPT decision; diabetes SGLT2i follows the urosepsis hold", async () => {
+  const { importCase, caseSchema } = await import("../server/kernel/case-import.js");
+  const { summary } = await import("../server/kernel/views.js");
+  const c = caseSchema.parse({
+    format: "cardioflow-case/1", sample: true,
+    patient: { name: "Links " + Date.now(), mrn: "LK" + Date.now(), sex: "Female", age: 66 },
+    conditions: [{ code: "cad-ccs" }, { code: "t2dm" }],
+    procedures: [{ kind: "pci", date: "2021-03-15", details: { vessels: ["LAD"], devices: ["Drug-eluting stent"], historical: "month" } }],
+    results: [
+      { date: "2026-06-01", items: [{ code: "haemoglobin", value: 11.2 }, { code: "creatinine", value: 80 }] },
+      { date: "2026-09-02", items: [{ code: "haemoglobin", value: 10.1 }, { code: "platelets", value: 118 }, { code: "wbc", value: 3.4 }, { code: "creatinine", value: 82 }, { code: "hba1c", value: 6.8 }] }],
+    medications: [{ code: "aspirin", doseValue: 100, frequency: "OD", indication: "cad" }, { code: "clopidogrel", doseValue: 75, frequency: "OD", indication: "cad" }, { code: "metformin", doseValue: 500, frequency: "BID", indication: "diabetes" }],
+    admissions: [{ startedOn: "2026-07-20", endedOn: "2026-07-28", reasons: ["Sepsis / urinary infection"] }],
+  });
+  const pid = await tx(async (q) => { const id = await importCase(q, doc, c); await reassess(q, id, "production"); return id; });
+  const s = (await db.transaction((q) => summary(q, pid))) as any;
+  const anaemia = s.attention.find((a: any) => a.rule_id === "lab.anaemia");
+  assert.ok(anaemia.links.some((l: string) => /On Aspirin, Clopidogrel: consider a GI blood-loss source/.test(l)), JSON.stringify(anaemia.links));
+  assert.ok(anaemia.links.some((l: string) => /WBC and Plt also low/.test(l)));
+  const dapt = s.attention.find((a: any) => a.rule_id === "cad.dapt-beyond-default");
+  assert.ok(dapt.links.some((l: string) => /For stopping one: Hb falling: 11\.2 → 10\.1/.test(l)));
+  assert.equal(dapt.children?.[0]?.rule_id, "cad.ppi-combined-antithrombotic");
+  assert.ok(!s.attention.some((a: any) => a.rule_id === "cad.ppi-combined-antithrombotic"), "the PPI question is not a separate alert");
+  assert.ok(!s.attention.some((a: any) => a.rule_id === "metabolic.diabetes-cv-protection" && /SGLT2/.test(a.title)), "no SGLT2i for diabetes after urosepsis");
+});

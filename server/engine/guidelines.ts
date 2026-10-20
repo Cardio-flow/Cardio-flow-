@@ -183,6 +183,10 @@ const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[]
 import { creatinineTrend } from "./renal-trend.js";
 // Safety gates before suggesting a start or an increase. Returns the blocking reason or missing data.
 const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood pressure/.test(m) ? "sbp" : /^eGFR/.test(m) ? "creatinine" : /^Heart rate/.test(m) ? "hr" : "creatinine");
+// recurrent UTI or a urosepsis admission in the last 12 months: SGLT2i is not suggested (Ahmed 20 Oct 2026;
+// dapagliflozin/empagliflozin SmPC 4.4: interrupt in pyelonephritis or urosepsis) — HF and diabetes alike
+const urosepsis = (s: PatientState) => s.contexts.find((c) => c.kind === "admission" && c.reasons.includes("Sepsis / urinary infection") && daysBetween(c.started_at, s.today) <= 365) ?? null;
+const sglt2UrinaryHold = (s: PatientState) => has(s, "recurrent-uti") || !!urosepsis(s);
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; unlock?: string; missing: string[] } {
   const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
   const missing: string[] = [];
@@ -232,7 +236,7 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
     if (egfr != null && egfr < 20) return { block: `eGFR ${Math.round(egfr)} < 20`, unlock: "when eGFR ≥ 20", missing };
     // recurrent urinary infection or urosepsis (Ahmed, 20 Oct 2026: hold, not caution; dapagliflozin and
     // empagliflozin SmPC 4.4: interrupt in pyelonephritis or urosepsis)
-    const uro = s.contexts.find((c) => c.kind === "admission" && c.reasons.includes("Sepsis / urinary infection") && daysBetween(c.started_at, s.today) <= 365);
+    const uro = urosepsis(s);
     if (has(s, "recurrent-uti") || uro)
       return { block: has(s, "recurrent-uti") ? `recurrent UTI${uro ? `, urosepsis ${fmtDay(uro.started_at, { year: true }).replace(/^\d+ /, "")}` : ""}` : `urosepsis ${fmtDay(uro!.started_at, { year: true }).replace(/^\d+ /, "")}`, unlock: "only once the urinary infections are controlled (SmPC: interrupt in urosepsis)", missing };
     if (has(s, "t1dm")) return { block: "type 1 diabetes", missing };
@@ -587,7 +591,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       const out: Finding[] = [];
       const egfr = val(s, "egfr", 180);
       const needSglt2 = s.tags.has("ascvd") || isHF(s) || s.tags.has("ckd") || (egfr != null && egfr < 60);
-      if (needSglt2 && !onTag(s, "sglt2").length && !(egfr != null && egfr < 20) && !isHF(s))
+      if (needSglt2 && !onTag(s, "sglt2").length && !(egfr != null && egfr < 20) && !isHF(s) && !sglt2UrinaryHold(s))
         out.push({ key: "dm-sglt2", signature: "sglt2", severity: "orange", title: "T2DM with ASCVD/CKD: SGLT2 inhibitor not prescribed",
           detail: "Cardiorenal protection independent of HbA1c", facts: facts(fact(s, "egfr", 180), fact(s, "hba1c", 365), src("ESC diabetes & CVD 2023 · Class I")), missing: egfr == null ? ["eGFR"] : [],
           action: { type: "start-med", code: "empagliflozin", dose: 10, label: "Start empagliflozin 10 mg" } });
