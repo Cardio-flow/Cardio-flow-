@@ -22,6 +22,7 @@ import { activeBarrier, loadState, latestDischarge, openContext, series, type Pa
 import { WIZARDS } from "../../shared/wizards.js";
 import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
+import { abnormal as abnormalView, standing as standingView, story as storyView, timeline as timelineView } from "./story.js";
 
 const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Congenital", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
@@ -574,8 +575,15 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const valve = valveProfile(s);
   if (valve && !surveillanceLive) valve.surveillance = [];
   const head = header(s);
+  const goals = targets(s);
+  const res = results(s);
   return {
     header: head,
+    // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
+    story: storyView(s, head as any, goals.hf?.pillars ?? null),
+    standing: standingView(s, goals.hf?.pillars ?? null),
+    timeline: timelineView(s),
+    abnormal: abnormalView(s, res, { ldl: goals.ldl ? { goal: goals.ldl.goal, met: goals.ldl.met } : null, hba1c: goals.diabetes ? { target: goals.diabetes.target, met: goals.diabetes.met } : null }),
     today: s.today,
     overview: overview(s, attention, plan, changes),
     reviewContext: {
@@ -595,7 +603,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     medications: medicationGroups(s),
     medicationReview: medicationReview(s,attention),
     pregnancy:pregnancyProfile(s),
-    results: results(s),
+    results: res,
     // the last echo's valve grades: the echo form offers "same as last echo"
     lastEcho: (() => {
       const e = latestValveEcho(s);
@@ -613,7 +621,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     lastAssessment: Object.fromEntries((["nyha", "congestion"] as const).map((c) => { const o = s.resolved(c).current; return [c, o?.value_text ? { value: o.value_text, at: o.effective_at } : null]; })),
     upcoming: plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).slice(0, 4),
     // guideline goals: shown on every site (rules justified by current guidelines are published)
-    targets: targets(s),
+    targets: goals,
     // HF profile: type with dates, LVEF history, status, therapy per drug (HF patients only)
     hf: hfProfile(s),
     // coronary profile: events with dates, antithrombotic regimen with planned stops, lipids (CAD patients)

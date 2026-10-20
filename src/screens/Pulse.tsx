@@ -27,7 +27,7 @@ export const toneOf = (r: any, s?: any): Sev => {
   return "blue";
 };
 
-export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: string, code?: string): void }) {
+export function Pulse({ s, open, go, labs = true }: { s: any; open(o: Open): void; go(pane: string, code?: string): void; labs?: boolean }) {
   const results = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr"));
   const byCode = new Map<string, any>(results.map((r: any) => [r.code, r]));
   const trends = [...KEY.filter((c) => byCode.has(c)).map((c) => byCode.get(c)), ...results.filter((r: any) => !KEY.includes(r.code))].slice(0, 10);
@@ -54,7 +54,7 @@ export function Pulse({ s, open, go }: { s: any; open(o: Open): void; go(pane: s
         )) : <span className="pv muted">No vitals recorded</span>}
         <button className="pv add" onClick={() => open({ kind: "labs", codes: ["sbp", "dbp", "hr", "weight"] })}>+ Vitals</button>
       </div>
-      {trends.length > 0 && (
+      {labs && trends.length > 0 && (
         <div className="pulse-strip" role="list" aria-label="Key result trends">
           {trends.map((r: any) => {
             const t = toneOf(r, s), latest = r.latest ?? r.current, tr = r.trend;

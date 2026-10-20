@@ -74,7 +74,10 @@ try {
   await expect(kidney).toContainText("Serum creatinine");
   await expect(kidney).not.toContainText("eGFR");
   await expect(page.getByRole("region", { name: "Patient pulse" })).not.toContainText("eGFR");
-  await expect(page.getByRole("tab", { name: "Results 3" })).toBeVisible();
+  // the Results tab became "Abnormal" (20 Oct 2026 overview story); eGFR is never shown in pregnancy
+  await page.getByRole("tab", { name: /^Abnormal/ }).click();
+  await expect(page.getByRole("region", { name: "Abnormal results" })).not.toContainText("eGFR");
+  await page.getByRole("tab", { name: /^Decide/ }).click();
   await kidney.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${output}/pregnancy-kidney-phone.png`, animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 900 });

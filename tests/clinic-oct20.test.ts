@@ -134,3 +134,35 @@ test("the endocarditis prompt names blood cultures already reported; a suspected
   assert.ok(!r.some((x) => x.rule_id === "cad.suspected-workup"), JSON.stringify(r));
   assert.ok(r.some((x) => x.rule_id === "cad.test-result"));
 });
+
+test("overview story: turning point, since discharge, where things stand, timeline, abnormal once; SGLT2i held for urosepsis with what lets it back", async () => {
+  const { importCase, caseSchema } = await import("../server/kernel/case-import.js");
+  const { summary } = await import("../server/kernel/views.js");
+  const c = caseSchema.parse({
+    format: "cardioflow-case/1", sample: true,
+    patient: { name: "Story " + Date.now(), mrn: "ST" + Date.now(), sex: "Female", age: 67 },
+    conditions: [{ code: "hfimpef", attributes: { aetiology: ["Ischaemic"] } }, { code: "recurrent-uti" }],
+    echoes: [{ date: "2025-12", lvef: 30, lvefHigh: 35 }, { date: "2026-08-20", lvef: 55 }],
+    results: [
+      { date: "2026-06-01", items: [{ code: "creatinine", value: 95 }, { code: "potassium", value: 4.4 }, { code: "haemoglobin", value: 11.2 }] },
+      { date: "2026-09-02", items: [{ code: "creatinine", value: 118 }, { code: "potassium", value: 5.3 }, { code: "haemoglobin", value: 10.1 }, { code: "magnesium", value: 0.62 }, { code: "sbp", value: 112 }, { code: "hr", value: 58 }] }],
+    medications: [{ code: "bisoprolol", doseValue: 1.25, frequency: "OD", indication: "hf" }, { code: "aspirin", doseValue: 100, frequency: "OD", indication: "cad" }, { code: "clopidogrel", doseValue: 75, frequency: "OD", indication: "cad" }],
+    admissions: [{ startedOn: "2026-07-20", endedOn: "2026-07-28", reasons: ["Acute kidney injury", "Sepsis / urinary infection"] }],
+  });
+  const pid = await tx(async (q) => { const id = await importCase(q, doc, c); await reassess(q, id, "production"); return id; });
+  const s = (await db.transaction((q) => summary(q, pid))) as any;
+  const line = (k: string) => s.story.find((l: any) => l.key === k)?.text ?? "";
+  assert.match(line("heart"), /LVEF 30–35% \(Dec 2025\) → 55% \(Aug 2026\)/);
+  assert.match(line("admission"), /20 Jul–28 Jul 2026 \(8 days\): Acute kidney injury, Sepsis \/ urinary infection/);
+  assert.match(line("since"), /Cr 95 → 118 \(\+24%\) · K 4\.4 → 5\.3/);
+  assert.deepEqual(s.standing.find((x: any) => x.key === "heart"), { key: "heart", label: "Heart function", value: "Improved (55%)", tone: "good" });
+  assert.equal(s.standing.find((x: any) => x.key === "bleeding")?.value, "2 antithrombotics + falling Hb");
+  assert.deepEqual(s.timeline.lanes.map((l: any) => l.code), ["lvef", "creatinine", "potassium", "haemoglobin"]);
+  assert.equal(s.timeline.admissions.length, 1);
+  assert.deepEqual(s.abnormal.items.map((x: any) => x.code).sort(), ["creatinine", "haemoglobin", "magnesium", "potassium"]);
+  const sglt2 = s.targets.hf.pillars.find((p: any) => p.key === "sglt2");
+  assert.match(sglt2.block, /recurrent UTI, urosepsis Jul 2026/);
+  assert.match(sglt2.unlock, /urinary infections are controlled/);
+  assert.equal(s.targets.hf.pillars.find((p: any) => p.key === "bb").increaseBlock, "HR 58 bpm");
+  assert.ok(!s.attention.some((a: any) => a.rule_id === "hf.foundational-therapy" && /SGLT2/.test(a.title)));
+});

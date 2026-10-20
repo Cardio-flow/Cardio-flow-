@@ -138,12 +138,16 @@ try {
     dispatchEvent(new PopStateEvent("popstate"));
   }, id);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  await expect(page.locator(".ptile").filter({ hasText: "Cr" }).first()).toContainText("+25.0%");
-  await expect(page.locator(".ptile").filter({ hasText: "Cr" }).first()).toContainText("Previous 100");
-  // phones: the overview shows one section at a time (Decide / Medicines / Results / Plan)
+  // phones: the overview shows one section at a time (Decide / Abnormal / Medicines / Plan); since 20 Oct 2026
+  // abnormal results are listed once with their trend, and the full list opens from "All results"
   const section = async (name) => { const t = page.getByRole("tab", { name: new RegExp(`^${name}`) }); if (await t.count()) await t.click(); };
-  await section("Results");
   const labs = page.getByRole("region", { name: "Latest lab results" });
+  const allResults = async () => { await section("Abnormal"); if (!(await labs.count())) await page.getByRole("region", { name: "Abnormal results" }).getByRole("button", { name: "All results" }).click(); };
+  await section("Abnormal");
+  const abnCr = page.getByRole("region", { name: "Abnormal results" }).locator("li").filter({ hasText: "Cr " });
+  await expect(abnCr).toContainText("+25%");
+  await expect(abnCr).toContainText("before 100");
+  await allResults();
   await expect(labs.locator('[data-lab-code="nt-probnp"]')).toContainText(
     "-40.0%",
   );
@@ -210,7 +214,7 @@ try {
       .getByRole("button", { name: /^Dapagliflozin/ }),
   ).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await section("Results");
+  await allResults();
   assert.equal(
     await labs.evaluate((e) => getComputedStyle(e).animationName),
     "none",

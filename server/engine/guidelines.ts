@@ -183,19 +183,19 @@ const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[]
 import { creatinineTrend } from "./renal-trend.js";
 // Safety gates before suggesting a start or an increase. Returns the blocking reason or missing data.
 const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood pressure/.test(m) ? "sbp" : /^eGFR/.test(m) ? "creatinine" : /^Heart rate/.test(m) ? "hr" : "creatinine");
-function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; missing: string[] } {
+function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; unlock?: string; missing: string[] } {
   const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
   const missing: string[] = [];
   // symptomatic hypotension on the problem list, or on midodrine (20 Oct 2026, real case): no start or
   // increase is suggested — the clinician re-introduces therapy step by step and records it
   if (has(s, "hypotension") || onTag(s, "bp-raising").length)
-    return { block: has(s, "hypotension") ? "symptomatic hypotension recorded" : `on ${onTag(s, "bp-raising").map((m) => m.name).join(", ")}`, missing };
+    return { block: has(s, "hypotension") ? "symptomatic hypotension recorded" : `on ${onTag(s, "bp-raising").map((m) => m.name).join(", ")}`, unlock: "when BP is stable without symptoms: re-introduce one medicine at a time", missing };
   // creatinine rising beyond the acceptable 50% (ESC HF practical guidance, as in hf.worsening-renal-function): no RAAS/MRA start or increase
   // same baseline and limits as the renal alert (renal-trend.ts), so a suggestion never contradicts it
   if (key === "raas" || key === "mra") {
     const t = creatinineTrend(s);
     if (t?.review && (t.onTherapy || daysBetween(t.cur.effective_at, s.today) <= 14))
-      return { block: `creatinine up ${Math.round(t.rel * 100)}% from baseline`, missing };
+      return { block: `creatinine up ${Math.round(t.rel * 100)}% from baseline`, unlock: `when creatinine settles toward the baseline (${formatNumber(t.baseline.value_num!, 0)})`, missing };
     // ESC HF: check potassium and renal function 1–2 weeks after each start or dose increase; the next
     // increase waits for that check
     if (mode === "increase") {
@@ -211,25 +211,30 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
   if (key === "raas") {
     if (k == null) missing.push("Potassium (last 60 days)");
     if (sbp == null) missing.push("Blood pressure (last 60 days)");
-    if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, missing };
-    if (sbp != null && sbp < (mode === "start" ? 90 : 100)) return { block: `SBP ${sbp} mmHg`, missing };
+    if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, unlock: "when K ≤ 5.0", missing };
+    if (sbp != null && sbp < (mode === "start" ? 90 : 100)) return { block: `SBP ${sbp} mmHg`, unlock: `when SBP ≥ ${mode === "start" ? 90 : 100} mmHg`, missing };
     // sacubitril/valsartan is not initiated with SBP <100 mmHg (Entresto SmPC 4.2/4.4): an ACE inhibitor or ARB instead
-    if (mode === "start" && sbp != null && sbp < 100 && !onTag(s, "raas").length) return { block: `SBP ${sbp} mmHg: below 100 for sacubitril/valsartan — consider an ACE inhibitor or ARB`, missing };
+    if (mode === "start" && sbp != null && sbp < 100 && !onTag(s, "raas").length) return { block: `SBP ${sbp} mmHg: below 100 for sacubitril/valsartan — consider an ACE inhibitor or ARB`, unlock: "an ACE inhibitor or ARB is possible now; ARNI when SBP ≥ 100", missing };
   }
   if (key === "bb") {
     if (hr == null) missing.push("Heart rate (last 60 days)");
-    if (hr != null && hr < (mode === "start" ? 50 : 60)) return { block: `HR ${hr} bpm`, missing };
-    if (mode === "increase" && sbp != null && sbp < 90) return { block: `SBP ${sbp} mmHg`, missing };
+    if (hr != null && hr < (mode === "start" ? 50 : 60)) return { block: `HR ${hr} bpm`, unlock: `when HR ≥ ${mode === "start" ? 50 : 60} bpm`, missing };
+    if (mode === "increase" && sbp != null && sbp < 90) return { block: `SBP ${sbp} mmHg`, unlock: "when SBP ≥ 90 mmHg", missing };
   }
   if (key === "mra") {
     if (k == null) missing.push("Potassium (last 60 days)");
     if (egfr == null) missing.push("eGFR (last 60 days)");
-    if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, missing };
-    if (egfr != null && egfr < (mode === "start" ? 30 : 30)) return { block: `eGFR ${Math.round(egfr)} < 30`, missing };
+    if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, unlock: "when K ≤ 5.0", missing };
+    if (egfr != null && egfr < (mode === "start" ? 30 : 30)) return { block: `eGFR ${Math.round(egfr)} < 30`, unlock: "when eGFR ≥ 30", missing };
   }
   if (key === "sglt2") {
     if (egfr == null) missing.push("eGFR (last 60 days)");
-    if (egfr != null && egfr < 20) return { block: `eGFR ${Math.round(egfr)} < 20`, missing };
+    if (egfr != null && egfr < 20) return { block: `eGFR ${Math.round(egfr)} < 20`, unlock: "when eGFR ≥ 20", missing };
+    // recurrent urinary infection or urosepsis (Ahmed, 20 Oct 2026: hold, not caution; dapagliflozin and
+    // empagliflozin SmPC 4.4: interrupt in pyelonephritis or urosepsis)
+    const uro = s.contexts.find((c) => c.kind === "admission" && c.reasons.includes("Sepsis / urinary infection") && daysBetween(c.started_at, s.today) <= 365);
+    if (has(s, "recurrent-uti") || uro)
+      return { block: has(s, "recurrent-uti") ? `recurrent UTI${uro ? `, urosepsis ${fmtDay(uro.started_at, { year: true }).replace(/^\d+ /, "")}` : ""}` : `urosepsis ${fmtDay(uro!.started_at, { year: true }).replace(/^\d+ /, "")}`, unlock: "only once the urinary infections are controlled (SmPC: interrupt in urosepsis)", missing };
     if (has(s, "t1dm")) return { block: "type 1 diabetes", missing };
   }
   return { missing };
@@ -264,6 +269,10 @@ export function fmtStatus(s: PatientState) {
         percentOfTarget: pct,
         target: on && def && target ? doseLabel(def, target, on.doseUnit) : null,
         note: !on && barrier ? `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}` : !on && gate.block ? `Not now: ${gate.block}` : null,
+        block: !on && !barrier && gate.block ? gate.block : null,
+        unlock: !on && !barrier && gate.block ? gate.unlock ?? null : null,
+        // on but below target: what stops the next increase (20 Oct 2026, overview "held, with the reason")
+        ...(on && !(pct != null && pct >= 100) ? (() => { const g = pillarGate(s, p.key, "increase"); return { increaseBlock: g.block ?? null, increaseUnlock: g.block ? g.unlock ?? null : null }; })() : {}),
       };
     }),
   };

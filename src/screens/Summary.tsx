@@ -9,6 +9,7 @@ import { fmtDay, fmtTime } from "../../shared/clinical";
 import { BARRIER_CATEGORIES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog";
 import type { Open } from "./Patient";
 import { Fold, TodayBoard, useTriage } from "./Today";
+import { AbnormalNow, StoryCard } from "./Story";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const { hot } = useTriage(s);
@@ -24,6 +25,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
     return () => window.removeEventListener("resize", set);
   }, [narrow]);
   const [pane, setPane] = useState("decide");
+  const [allResults, setAllResults] = useState(false);
   const [nav, setNav] = useState<{ n: number; code: string | null }>({ n: 0, code: null });
   const go = (p: string, code?: string) => { setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
   // after a tap (never on first load): bring the chosen section, or the chosen result, into view
@@ -37,7 +39,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
     <>
       <Episodes s={s} open={open} done={done} />
       <TodayBoard s={s} open={open} done={done} />
-      {F("changes", <Changes changes={s.changes} />, s.changes.items.length > 0)}
+      {/* "What changed" now lives in the story and the timeline (20 Oct 2026) */}
       {/* module detail (timelines, procedures, devices): folded; the problem cards above carry the decisions */}
       {F("hf", <HfPanel hf={s.hf} open={open} />, false)}
       {F("cad", <CadPanel cad={s.cad} open={open} />, false)}
@@ -50,12 +52,13 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
   const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
   const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
-  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
+  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["results", "Abnormal", s.abnormal?.items?.length ?? resultCount], ["meds", "Medicines", nMeds], ["plan", "Plan", planned]];
   if (narrow)
     return (
       <main className="page overview-page">
         {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
-        <Pulse s={s} open={open} go={go} />
+        <Pulse s={s} open={open} go={go} labs={false} />
+        <StoryCard s={s} narrow />
         <nav className="ov-switch" role="tablist" aria-label="Overview sections">
           {tabs.map(([k, label, n]) => (
             <button key={k} role="tab" aria-selected={pane === k} onClick={() => go(k)}>{label}{n ? <span>{n}</span> : null}</button>
@@ -64,7 +67,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         <div className="stack ov-pane">
           {pane === "decide" && decide}
           {pane === "meds" && <Meds s={s} open={open} done={done} />}
-          {pane === "results" && <Results s={s} open={open} />}
+          {pane === "results" && <><AbnormalNow s={s} onAll={() => setAllResults(!allResults)} />{allResults && <Results s={s} open={open} />}</>}
           {pane === "plan" && <><ActivePlan s={s} open={open} /><Upcoming s={s} open={open} /></>}
         </div>
       </main>
@@ -72,14 +75,16 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   return (
     <main className="page overview-page">
       {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
-        <Pulse s={s} open={open} go={go} />
+        <Pulse s={s} open={open} go={go} labs={false} />
+        <StoryCard s={s} narrow={false} />
       <div className="grid-main">
         <div className="stack">
           {decide}
           <ActivePlan s={s} open={open} />
         </div>
         <div className="stack">
-          <Results s={s} open={open} />
+          <AbnormalNow s={s} onAll={() => setAllResults(!allResults)} />
+          {allResults && <Results s={s} open={open} />}
           <Meds s={s} open={open} done={done} />
           <Upcoming s={s} open={open} />
         </div>

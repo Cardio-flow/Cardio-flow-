@@ -9,6 +9,7 @@ import { formatNumber, MEASURES, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
 import { triage, PANEL_OF } from "../../shared/triage";
 import { ActionButton, WhyPanel } from "./Summary";
+import { HeldMedicines } from "./Story";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
@@ -174,6 +175,7 @@ function ProblemCard({ p, items, later = [], row }: { p: Problem; items: any[]; 
           <button className="btn ghost small" aria-label={`Record ${p.label}: ${[...new Set(p.need.map((n) => n.label))].join(", ")}`} onClick={() => row.open({ kind: "labs", codes: [...new Set(p.need.map((n) => n.code))] })}>Record</button>
         </div>
       )}
+      {p.key === "hf" && <HeldMedicines s={row.s} />}
       {main.length > 0 && <div className="problem-items">{main.map((a) => <Item key={a.id} a={a} {...row} />)}</div>}
       {later.length > 0 && items.length > 0 && (
         <div className="problem-consider">
@@ -213,7 +215,7 @@ function buildProblems(s: any): Problem[] {
   if (t.hf) {
     const on = t.hf.pillars.filter((x: any) => x.state === "on" || x.state === "target").length;
     out.push({
-      key: "hf", label: `${TITLES.hf} · ${t.hf.phenotype}${t.hf.lvef != null ? ` · LVEF ${n(t.hf.lvef)}%` : ""}`,
+      key: "hf", label: `${TITLES.hf} · ${t.hf.improved ? "improved EF" : t.hf.phenotype}${t.hf.lvef != null ? ` · LVEF ${n(t.hf.lvef)}%` : ""}`,
       sub: s.hf?.admissions?.last12m ? `${s.hf.admissions.last12m} HF admission${s.hf.admissions.last12m === 1 ? "" : "s"} in 12 months` : undefined,
       stats: [
         ...t.hf.pillars.map((x: any) => ({ label: x.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI/ACEi/ARB"), value: x.state === "target" ? "At target" : x.state === "on" ? `${x.percentOfTarget ?? "?"}% of target` : x.state === "held" ? "Held" : x.state === "blocked" ? "Not now" : "Not started", tone: x.state === "target" ? "ok" : x.state === "on" ? undefined : "warn" })),
