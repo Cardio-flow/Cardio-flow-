@@ -322,7 +322,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "hf.titration",
     kind: "clinical",
     title: "HF therapy uptitration opportunity",
-    inputs: ["meds", "potassium", "egfr", "sbp", "hr", "lvef", "conditions"],
+    inputs: ["meds", "potassium", "egfr", "sbp", "hr", "lvef", "congestion", "conditions"],
     defaultParams: { min_days_since_change: RECENT_CHANGE_DAYS },
     evidence: "2026 ESC HF guidelines: uptitrate foundational therapy at least every 1–2 weeks to target or maximally tolerated doses (class I).",
     evaluate(s, p) {
@@ -366,7 +366,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "hf.iron-deficiency",
     kind: "clinical",
     title: "Iron deficiency in heart failure",
-    inputs: ["ferritin", "tsat", "haemoglobin", "conditions", "meds"],
+    inputs: ["ferritin", "tsat", "haemoglobin", "weight", "conditions", "meds"],
     defaultParams: { ferritin_low: 100, ferritin_mid: 300, tsat_low: 20, screen_days: 365 },
     evidence: "ESC HF (2023 focused update, retained 2026): screen all HF patients for iron deficiency; ID = ferritin <100 ng/mL or 100–299 with TSAT <20%; IV iron in symptomatic HFrEF.",
     evaluate(s, p) {
@@ -565,7 +565,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "metabolic.diabetes-cv-protection",
     kind: "clinical",
     title: "Type 2 diabetes: agents with proven CV benefit",
-    inputs: ["conditions", "meds", "egfr", "uacr", "hba1c"],
+    inputs: ["conditions", "meds", "egfr", "uacr", "hba1c", "weight"],
     defaultParams: {},
     evidence: "2023 ESC diabetes & CVD: in T2DM with ASCVD, SGLT2i and GLP-1 RA with proven CV benefit are recommended independent of HbA1c (class I); in T2DM with CKD (eGFR ≥20) SGLT2i (class I). 2026 ESC-ERA CVD–CKD §5.5.4: GLP-1 RA in T2DM with CKD (FLOW).",
     evaluate(s) {
@@ -633,7 +633,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "af.anticoagulation",
     kind: "clinical",
     title: "AF stroke prevention (CHA2DS2-VA)",
-    inputs: ["conditions", "meds", "lvef", "procedures"],
+    inputs: ["conditions", "meds", "lvef", "procedures", "inr", "creatinine", "haemoglobin", "weight"],
     defaultParams: {},
     evidence: "2024 ESC AF guidelines: OAC recommended with CHA2DS2-VA ≥2 (class I), considered with score 1 (IIa); DOAC preferred over VKA except mechanical valve or moderate–severe mitral stenosis.",
     evaluate(s) {
@@ -651,7 +651,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
         return [{ key: "af-doac", signature: vka.id, severity: "blue", title: "AF on warfarin: a DOAC is preferred",
           detail: "No mitral stenosis or mechanical valve recorded · check eGFR, weight and interactions before switching",
           facts: facts({ label: "Current", value: medLine(vka) }, fact(s, "inr", 90), fact(s, "creatinine", 180), src("ESC AF 2024 · DOAC in preference to VKA · Class I")),
-          missing: [], action: { type: "start-med", code: "apixaban", dose: 5, label: "Plan DOAC switch" } }];
+          missing: [], action: { type: "wizard", wizard: "af-care" } }];
       if (onTag(s, "oac").length) return [];
       // HCM or cardiac amyloidosis: cmp.af-oac carries it (anticoagulation whatever the score)
       if (s.conditions.some((x) => (x.code === "hcm" || x.code === "amyloid") && x.status === "active")) return [];
@@ -665,10 +665,14 @@ export const GUIDELINE_RULES: RuleDef[] = [
         title: `AF with CHA2DS2-VA ${c.score}: ${c.score >= 2 ? "oral anticoagulation recommended" : "consider oral anticoagulation"}`,
         detail: c.items.map((i) => i.label).join(" · "),
         facts: facts({ label: "CHA2DS2-VA", value: String(c.score) }, fact(s, "creatinine", 180), fact(s, "haemoglobin", 180), fact(s, "weight", 365), src(`ESC AF 2024 · ${c.score >= 2 ? "Class I" : "IIa"}`)),
-        missing: s.conditions.some((x) => x.code === "ms" && (!x.attributes?.severity || x.attributes.severity === "Unknown")) ? ["Mitral stenosis severity"] : [],
+        missing: [
+          ...(s.conditions.some((x) => x.code === "ms" && (!x.attributes?.severity || x.attributes.severity === "Unknown")) ? ["Mitral stenosis severity"] : []),
+          ...(!vkaOnly && cr == null ? ["Recent creatinine before a DOAC dose"] : []),
+          ...(!vkaOnly && wt == null ? ["Current weight before a DOAC dose"] : []),
+        ],
         action: vkaOnly ? { type: "start-med", code: "warfarin", label: "Start warfarin (INR-guided)" }
-          : apx && apx.dose == null ? { type: "wizard", wizard: "af-care", label: "Choose the anticoagulant" }
-          : { type: "start-med", code: "apixaban", dose: apx?.dose ?? 5, label: apx ? `Start apixaban ${apx.dose} mg` : "Start a DOAC" },
+          : !apx || apx.dose == null ? { type: "wizard", wizard: "af-care" }
+          : { type: "start-med", code: "apixaban", dose: apx.dose, label: `Start apixaban ${apx.dose} mg` },
         ...(vkaOnly ? { detail: `${c.items.map((i) => i.label).join(" · ")} · ${s.tags.has("mechanical-valve") ? "mechanical valve" : "moderate–severe mitral stenosis"}: VKA, not a DOAC` } : {}) }];
     },
   },
