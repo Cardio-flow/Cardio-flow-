@@ -2,7 +2,7 @@ import { reconcileExistingPlans } from "./kernel/plan-bookings.js";
 import type { DB } from "./db/db.js";
 import { migrate } from "./db/db.js";
 import { reassess, seedRules } from "./engine/engine.js";
-import { RULESET } from "./engine/rules.js";
+import { RULES, RULESET } from "./engine/rules.js";
 import { enrichSynthetic, seedSynthetic } from "./seed.js";
 
 export const SITE_ID = process.env.CARDIO_SITE_ID || "sacc";
@@ -16,7 +16,7 @@ export async function boot(db: DB, opts: { seed: boolean; deferReassessment?: bo
       `INSERT INTO cf.site(id,name,mode,settings) VALUES($1,$2,$3,'{}') ON CONFLICT (id) DO NOTHING`,
       [SITE_ID, process.env.CARDIO_SITE_NAME || "Sabah Al-Ahmad Cardiac Centre", process.env.CARDIO_SITE_MODE === "production" ? "production" : "sandbox"],
     );
-    newRules = await seedRules(tx);
+    if (!opts.deferReassessment) newRules = await seedRules(tx);
     // Carry approved users over from the v1 (Codex) membership table if it exists.
     const legacy = (await tx.query(`SELECT to_regclass('governance.membership') AS t`)).rows[0]?.t;
     if (legacy) {
@@ -63,6 +63,10 @@ export async function boot(db: DB, opts: { seed: boolean; deferReassessment?: bo
 export async function advanceRulesetRefresh(db: DB, limit = 3, maxMs = 10000) {
   const started = Date.now();
   return db.transaction(async (tx) => {
+    // Keep the same lock order as synthetic enrichment, which also takes 431002
+    // before touching the site row.
+    const seedLock = (await tx.query<{ locked: boolean }>("SELECT pg_try_advisory_xact_lock(431002) AS locked")).rows[0]?.locked;
+    if (!seedLock) return { pending: true, advanced: 0 };
     const locked = (await tx.query<{ locked: boolean }>("SELECT pg_try_advisory_xact_lock(431003) AS locked")).rows[0]?.locked;
     if (!locked) return { pending: true, advanced: 0 };
     const site = (await tx.query<{ mode: "sandbox" | "production"; settings: any }>(
@@ -70,6 +74,24 @@ export async function advanceRulesetRefresh(db: DB, limit = 3, maxMs = 10000) {
     )).rows[0];
     if (!site) return { pending: false, advanced: 0 };
     const settings = typeof site.settings === "string" ? JSON.parse(site.settings) : site.settings ?? {};
+    if (settings.ruleSeedVersion !== RULESET) {
+      const progress = settings.ruleSeedProgress?.version === RULESET ? settings.ruleSeedProgress : { version: RULESET, offset: 0, added: 0 };
+      const offset = Number(progress.offset) || 0;
+      const batch = RULES.slice(offset, offset + 8);
+      const added = await seedRules(tx, batch);
+      const totalAdded = Number(progress.added) + added;
+      const done = offset + batch.length >= RULES.length;
+      if (done) {
+        await tx.query(
+          "UPDATE cf.site SET settings=(coalesce(settings,'{}'::jsonb) - 'ruleSeedProgress' - 'ruleset') || $2::jsonb WHERE id=$1",
+          [SITE_ID, JSON.stringify({ ruleSeedVersion: RULESET, ...(totalAdded || settings.ruleset !== RULESET ? {} : { ruleset: RULESET }) })],
+        );
+      } else {
+        await tx.query("UPDATE cf.site SET settings=coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1",
+          [SITE_ID, JSON.stringify({ ruleSeedProgress: { version: RULESET, offset: offset + batch.length, added: totalAdded } })]);
+      }
+      return { pending: true, advanced: batch.length };
+    }
     if (settings.ruleset === RULESET) return { pending: false, advanced: 0 };
     let cursor = settings.rulesetProgress?.version === RULESET ? String(settings.rulesetProgress.cursor ?? "") : "";
     let advanced = 0;
