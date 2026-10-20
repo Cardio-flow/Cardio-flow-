@@ -12,6 +12,8 @@ import { MEASURES, formatNumber, formatRange } from "../../shared/catalog.js";
 import { daysBetween, flagFor, fmtDay } from "../../shared/clinical.js";
 import { creatinineTrend } from "../engine/renal-trend.js";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy.js";
+import { DIAGNOSIS } from "../../shared/catalog.js";
+import { RISK_FACTOR_CODES, attributesText } from "../../shared/history.js";
 
 type Tone = "good" | "bad" | "warn" | "neutral";
 const MON = (at: string) => fmtDay(at, { year: true }).replace(/^\d+ /, "");
@@ -45,19 +47,9 @@ export function story(s: PatientState) {
     const t = `${valueText("lvef", o.value_num!, o.value_high)}% (${MON(o.effective_at)})`;
     if (traj[traj.length - 1]?.split(" (")[0] !== t.split(" (")[0]) traj.push(t);
   }
-  if (traj.length >= 2) lines.push({ key: "heart", label: "LVEF", text: traj.join(" → ") });
-  // the turning point: the latest admission in the last 12 months
+  void traj; // the LVEF course is in the chronology
+  // the turning point is in the chronology; "since" counts from it
   const adm = lastAdmission(s);
-  if (adm) {
-    const end = adm.ended_at;
-    const los = end ? Math.max(1, Math.round((Date.parse(end) - Date.parse(adm.started_at)) / 864e5)) : null;
-    const events = ((adm.summary as any)?.events ?? []).filter((e: string) => e !== "None");
-    const changed = changedIn(s, adm.started_at, end ?? s.today);
-    lines.push({
-      key: "admission", label: end ? `Admitted ${MON(adm.started_at)}` : "Admitted now", tone: "bad",
-      text: [`${fmtDay(adm.started_at)}${end ? `–${fmtDay(end, { year: true })}` : ""}${los ? ` (${los} day${los === 1 ? "" : "s"})` : ""}: ${adm.reasons.join(", ")}`, events.length ? `in hospital: ${events.join(", ").toLowerCase()}` : null, changed.length ? changed.join(", ") : null].filter(Boolean).join(" · "),
-    });
-  }
   // since: the direction of what moved (the values are in the problem cards)
   const lastVisit = [...s.contexts].filter((c) => c.kind === "clinic_visit" && c.status === "closed" && c.ended_at).sort((a, b) => b.ended_at!.localeCompare(a.ended_at!))[0];
   const anchor = adm?.ended_at ?? lastVisit?.ended_at ?? new Date(Date.parse(s.today) - 182 * 864e5).toISOString();
@@ -79,6 +71,54 @@ export function story(s: PatientState) {
     lines.push({ key: "since", label: adm ? "Since discharge" : lastVisit ? "Since the last visit" : "Recently", tone: "warn",
       text: [up.length ? `${list(up)} rose` : null, down.length ? `${list(down)} fell` : null].filter(Boolean).join("; ") });
   return lines;
+}
+
+// The record in date order (20 Oct 2026, Ahmed: "the story or the diagnosis does not come in chronological
+// way"): diagnoses with a known onset, cardiac events and procedures, admissions, LVEF at diagnosis and each
+// ≥10-point change, and cardiac medicines stopped or held — oldest first, each with its date. Undated
+// diagnoses are listed once at the end as "date not recorded".
+type CardiacEv = { at: string | null; when: string | null; title: string; detail: string; covers: string[]; kind: string };
+const MONY = (at: string) => new Date(at).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "Asia/Kuwait" });
+export function chronology(s: PatientState, cardiac: CardiacEv[]) {
+  const items: { at: string; when: string; text: string; tone?: Tone }[] = [];
+  const covered = new Set(cardiac.flatMap((e) => e.covers));
+  // diagnoses with a date (cardiac events come from the cardiac list; risk factors only when dated)
+  const CARDIAC_EVENT_CODES = new Set(["acs-stemi", "acs-nstemi", "acs-ua", "prior-mi", "prior-pci", "prior-cabg", "prosthetic-valve", "cied"]);
+  const undated: string[] = [];
+  for (const c of s.conditions.filter((c) => c.status === "active" && !CARDIAC_EVENT_CODES.has(c.code) && !covered.has(c.code) && !c.code.startsWith("hx.") && c.code !== "smoker")) {
+    const y = (c.attributes as any)?.onsetYear;
+    const at = c.onset ?? (y ? `${y}-07-01` : null);
+    const extra = attributesText(c.code, c.attributes);
+    const text = `${DIAGNOSIS[c.code]?.display ?? c.display}${extra ? ` · ${extra}` : ""}`;
+    if (at) items.push({ at, when: c.onset ? MONY(c.onset) : String(y), text });
+    else if (!RISK_FACTOR_CODES.has(c.code)) undated.push(DIAGNOSIS[c.code]?.display ?? c.display);
+  }
+  for (const e of cardiac) if (e.at) items.push({ at: e.at, when: e.when ?? MONY(e.at), text: `${e.title}${e.detail ? ` · ${e.detail}` : ""}` });
+  for (const e of cardiac) if (!e.at) undated.push(e.title);
+  // LVEF: the first value and each change of ≥10 points (ESC HF definition of improvement)
+  const ef = finals(s, "lvef");
+  ef.forEach((o, i) => {
+    const prev = i ? ef[i - 1] : null;
+    if (!prev || Math.abs(o.value_num! - prev.value_num!) >= 10)
+      items.push({ at: o.effective_at, when: MONY(o.effective_at), text: `LVEF ${valueText("lvef", o.value_num!, o.value_high)}%${prev ? (o.value_num! > prev.value_num! ? " (improved)" : " (fell)") : ""}`, tone: prev ? (o.value_num! > prev.value_num! ? "good" : "bad") : undefined });
+  });
+  // admissions
+  for (const c of s.contexts.filter((c) => c.kind === "admission")) {
+    // events already named in the reasons are not repeated ("Acute kidney injury" as reason and event)
+    const said = c.reasons.join(" ").toLowerCase();
+    const events = ((c.summary as any)?.events ?? []).filter((e: string) => e !== "None" && !said.includes(e.toLowerCase()) && !(e === "Infection" && /infection|sepsis/.test(said)));
+    const changed = changedIn(s, c.started_at, c.ended_at ?? s.today);
+    items.push({ at: c.started_at, when: MONY(c.started_at), tone: "bad", text: `Admitted${c.ended_at ? ` ${Math.max(1, Math.round((Date.parse(c.ended_at) - Date.parse(c.started_at)) / 864e5))} days` : " now"}: ${c.reasons.join(", ")}${events.length ? ` · ${events.join(", ").toLowerCase()}` : ""}${changed.length ? ` · ${changed.join(", ")}` : ""}` });
+  }
+  // cardiac medicines stopped or held outside an admission
+  const inAdm = (at: string) => s.contexts.some((c) => c.kind === "admission" && at >= c.started_at && at <= new Date(Date.parse(c.ended_at ?? s.today) + 3 * 864e5).toISOString());
+  for (const m of s.meds) for (const e of m.events)
+    if (["stop", "hold"].includes(e.kind) && !inAdm(e.effective_at) && m.tags.some((t) => ["raas", "arni", "bb", "mra", "sglt2", "loop", "antiplatelet", "oac", "statin"].includes(t)))
+      items.push({ at: e.effective_at, when: MONY(e.effective_at), text: `${m.name} ${e.kind === "stop" ? "stopped" : "held"}${e.reason ? ` · ${e.reason}` : ""}` });
+  items.sort((a, b) => a.at.localeCompare(b.at));
+  // long histories: the first two, then the latest ten
+  const shown = items.length > 12 ? [...items.slice(0, 2), { at: "", when: "…", text: `${items.length - 12} more in History` }, ...items.slice(-10)] : items;
+  return { items: shown, undated: [...new Set(undated)] };
 }
 
 // one verdict per domain, in words; the numbers are in the problem cards
@@ -176,7 +216,7 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
   const flagged: any[] = [], normal: { code: string; text: string }[] = [];
   const byCode = Object.fromEntries(results.map((r) => [r.code, r]));
   for (const r of results) {
-    if (r.code === "egfr" || r.current?.value == null) continue;
+    if (r.current?.value == null) continue;
     const v = r.current.value as number;
     // in pregnancy Hb is read against the trimester cut-off (WHO 2024, as the anaemia rule), eGFR never
     const preg = s.conditions.find((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
@@ -194,7 +234,9 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
     if (!flag && r.code === "hba1c" && goals.hba1c?.met === false) { flag = "high"; note = `target ${goals.hba1c.target}`; }
     // eGFR is not valid in pregnancy (as on the kidney card): never named then
     const pregnant = s.conditions.some((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
-    if (r.code === "creatinine" && !pregnant && byCode.egfr?.current?.value != null) note = [note, `eGFR ${formatNumber(byCode.egfr.current.value, 0)}`].filter(Boolean).join(" · ");
+    // eGFR is its own row in the kidney card (20 Oct 2026: impaired eGFR was not visible); never in pregnancy
+    if (r.code === "egfr" && pregnant) continue;
+    void byCode;
     const text = `${formatRange(v, r.current.valueHigh, r.decimals)}`;
     if (!flag) { normal.push({ code: r.code, text: `${r.label} ${text}` }); continue; }
     flagged.push({

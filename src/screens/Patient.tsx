@@ -119,7 +119,6 @@ const TABS = [
 const SHORT: Record<string, string> = { summary: "Overview", visits: "Visits", history: "Hx", journey: "Journey", medications: "Meds", investigations: "Tests", plan: "Plan", registries: "Registries" };
 const MORE_TABS = new Set(["journey", "registries"]);
 
-const LEAD_FAMILIES = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const { data: s, error, reload } = useData<any>(`/patients/${id}/summary`);
   const [open, setOpen] = useState<Open | null>(null);
@@ -367,14 +366,17 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           <div className="patient-line diagnosis-line" aria-label="Diagnoses">
             <span className="line-label">Diagnoses</span>
             <div className="line-scroll">
-              {/* heart failure / cardiomyopathy / PH first, then IHD with its history, then valve interventions,
-                  LAA closure and devices, then the remaining cardiac diagnoses (19 Oct 2026) */}
+              {/* in date order, oldest first, each with its year; undated after the dated (20 Oct 2026, Ahmed:
+                  "the diagnosis does not come in chronological way") */}
               {[
-                ...headDx.filter((d: any) => LEAD_FAMILIES.includes(d.family)).map((d: any) => ({ key: d.id, text: d.label.replace(" · EF", " EF"), title: undefined as string | undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) })),
-                ...(h.ihd ? [{ key: "ihd", text: h.ihd.label, title: h.ihd.events.map((e: any) => e.text).join("\n"), click: () => setOpen({ kind: "dx-manage" }) }] : []),
-                ...(h.structural?.items ?? []).map((t: string, i: number) => ({ key: `st${i}`, text: t, title: undefined, click: () => setOpen({ kind: "dx-manage" }) })),
-                ...headDx.filter((d: any) => !LEAD_FAMILIES.includes(d.family)).map((d: any) => ({ key: d.id, text: d.label.replace(" · EF", " EF"), title: undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) })),
-              ].map((x, i, all) => (
+                ...headDx.map((d: any) => {
+                  const at = d.onset ?? (d.attributes?.onsetYear ? `${d.attributes.onsetYear}-07-01` : null);
+                  const text = d.label.replace(" · EF", " EF");
+                  return { key: d.id, at, text: at && !/\b(19|20)\d\d\b/.test(text) ? `${text} (${at.slice(0, 4)})` : text, title: undefined as string | undefined, click: () => setOpen({ kind: "dx-edit", dx: d }) };
+                }),
+                ...(h.ihd ? [{ key: "ihd", at: h.ihd.at ?? null, text: h.ihd.label, title: h.ihd.events.map((e: any) => e.text).join("\n"), click: () => setOpen({ kind: "dx-manage" }) }] : []),
+                ...(h.structural?.items ?? []).map((t: string, i: number) => ({ key: `st${i}`, at: h.structural.at?.[i] ?? null, text: t, title: undefined, click: () => setOpen({ kind: "dx-manage" }) })),
+              ].sort((a, b) => (a.at ?? "9999").localeCompare(b.at ?? "9999")).map((x, i, all) => (
                 <span key={x.key}>
                   <button className="line-text" title={x.title} onClick={x.click}>{x.text}</button>
                   {i < all.length - 1 && <span className="line-dot"> · </span>}

@@ -152,15 +152,21 @@ test("overview story: turning point, since discharge, where things stand, timeli
   const pid = await tx(async (q) => { const id = await importCase(q, doc, c); await reassess(q, id, "production"); return id; });
   const s = (await db.transaction((q) => summary(q, pid))) as any;
   const line = (k: string) => s.story.find((l: any) => l.key === k)?.text ?? "";
-  assert.equal(line("heart"), "30–35% (Dec 2025) → 55% (Aug 2026)");
-  assert.match(line("admission"), /20 Jul–28 Jul 2026 \(8 days\): Acute kidney injury, Sepsis \/ urinary infection/);
+  // the record in date order: LVEF at first and at each ≥10-point change, the admission between them
+  assert.deepEqual(s.chronology.items.map((i: any) => `${i.when}: ${i.text}`), [
+    "Dec 2025: LVEF 30–35%",
+    "Jul 2026: Admitted 8 days: Acute kidney injury, Sepsis / urinary infection",
+    "Aug 2026: LVEF 55% (improved)",
+  ]);
+  assert.deepEqual([...s.chronology.undated].sort(), ["HF with improved EF", "Recurrent urinary tract infection"]);
+  assert.ok(!line("heart") && !line("admission"), "LVEF course and admission are in the chronology, not repeated as lines");
   assert.equal(line("since"), "creatinine and potassium rose; Hb fell");
   assert.ok(!s.story.some((l: any) => ["background", "now"].includes(l.key)), "no diagnosis or medicine list in the story");
   assert.deepEqual(s.standing.find((x: any) => x.key === "heart"), { key: "heart", label: "Heart function", value: "Improved", tone: "good" });
   assert.equal(s.standing.find((x: any) => x.key === "bleeding")?.value, "2 antithrombotics with falling Hb");
   assert.deepEqual(s.timeline.lanes.map((l: any) => l.code), ["lvef", "creatinine", "potassium", "haemoglobin"]);
   assert.equal(s.timeline.admissions.length, 1);
-  assert.deepEqual(s.abnormal.items.map((x: any) => x.code).sort(), ["creatinine", "haemoglobin", "magnesium", "potassium"]);
+  assert.deepEqual(s.abnormal.items.map((x: any) => x.code).sort(), ["creatinine", "egfr", "haemoglobin", "magnesium", "potassium"]);
   const sglt2 = s.targets.hf.pillars.find((p: any) => p.key === "sglt2");
   assert.match(sglt2.block, /recurrent UTI, urosepsis Jul 2026/);
   assert.match(sglt2.unlock, /urinary infections are controlled/);
@@ -229,4 +235,20 @@ test("problem solving: causes checked, what it changes and next step; what was p
   const ask = askToday(s, []);
   assert.deepEqual(ask.map((x) => x.key).sort(), ["bleeding", "congestion", "nsaid", "urine"]);
   assert.equal(sinceLastVisit(s), null);
+});
+
+test("eGFR below 60 shows as its own kidney result even when creatinine is in range; never in pregnancy", async () => {
+  const { importCase, caseSchema } = await import("../server/kernel/case-import.js");
+  const { summary } = await import("../server/kernel/views.js");
+  const c = caseSchema.parse({
+    format: "cardioflow-case/1", sample: true,
+    patient: { name: "Egfr " + Date.now(), mrn: "EG" + Date.now(), sex: "Female", age: 82 },
+    conditions: [{ code: "htn" }],
+    results: [{ date: "2026-09-02", items: [{ code: "creatinine", value: 88 }] }],
+  });
+  const pid = await tx(async (q) => { const id = await importCase(q, doc, c); await reassess(q, id, "production"); return id; });
+  const s = (await db.transaction((q) => summary(q, pid))) as any;
+  const e = s.abnormal.items.find((x: any) => x.code === "egfr");
+  assert.ok(e, JSON.stringify(s.abnormal.items));
+  assert.ok(!s.abnormal.items.find((x: any) => x.code === "creatinine"), "creatinine 88 is in range");
 });

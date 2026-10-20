@@ -24,7 +24,7 @@ import { checklistForPlan } from "../../shared/procedures.js";
 import { today as todayFn } from "./base.js";
 import { linkAttention } from "../engine/links.js";
 import { askToday, problemReasoning, sinceLastVisit } from "../engine/reasoning.js";
-import { abnormal as abnormalView, standing as standingView, story as storyView, timeline as timelineView } from "./story.js";
+import { abnormal as abnormalView, chronology as chronologyView, standing as standingView, story as storyView, timeline as timelineView } from "./story.js";
 
 const FAMILY_ORDER = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension", "Coronary", "Valve", "Congenital", "Arrhythmia", "Device", "Comorbidity"];
 const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
@@ -201,6 +201,7 @@ export function ihdSummary(s: PatientState) {
   ].filter(Boolean);
   return {
     label: `IHD${parts.length ? ` · ${parts.join(" · ")}` : ""}`,
+    at: ev.find((e) => e.at)?.at ?? conds.map((c) => condAt(c)).filter(Boolean).sort()[0] ?? null,
     events: ev.map((e) => ({ at: e.at, text: `${e.title}${e.when ? ` ${e.when}` : ""}${e.detail ? ` · ${e.detail}` : ""}` })),
     codes: conds.map((c) => c.code), ids: conds.map((c) => c.logical_id),
   };
@@ -208,8 +209,9 @@ export function ihdSummary(s: PatientState) {
 
 // structural interventions and devices as one line: "Mitral TEER (MitraClip) 2021 · Watchman LAA occluder 2019 · ICD 2017"
 export function structuralSummary(s: PatientState) {
-  const items = cardiacEvents(s).filter((e) => e.group === "structural").reverse();
-  return items.length ? { label: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`).join(" · "), items: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
+  // oldest first (20 Oct 2026: the diagnoses read in date order)
+  const items = cardiacEvents(s).filter((e) => e.group === "structural");
+  return items.length ? { label: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`).join(" · "), items: items.map((i) => `${i.short}${YEAR(i.when) ? ` ${YEAR(i.when)}` : ""}`), at: items.map((i) => i.at), covers: [...new Set(items.flatMap((i) => i.covers))] } : null;
 }
 
 // The diagnosis list as the header shows it, for notes and summaries (19 Oct audit): heart failure /
@@ -219,19 +221,25 @@ export function diagnosisLines(s: PatientState) {
   const ihd = ihdSummary(s), st = structuralSummary(s);
   const ef = s.resolved("lvef").current;
   const covered = new Set([...(ihd?.codes ?? []), ...(st?.covers ?? [])]);
+  // In date order (20 Oct 2026, Ahmed: "the diagnosis does not come in chronological way"): each cardiac
+  // diagnosis with its year, oldest first; IHD dated by its first coronary event; undated ones after the dated.
   const cardiac = s.conditions
     .filter((c) => DIAGNOSIS[c.code] && DIAGNOSIS[c.code].family !== "Comorbidity" && !covered.has(c.code))
-    .sort((a, b) => FAMILY_ORDER.indexOf(DIAGNOSIS[a.code].family) - FAMILY_ORDER.indexOf(DIAGNOSIS[b.code].family))
-    .map((c) => ({ family: DIAGNOSIS[c.code].family, text: DIAGNOSIS[c.code].tags.includes("hf") && ef?.value_num != null ? `${c.display} (LVEF ${formatRange(ef.value_num, ef.value_high, 0)}%)` : conditionLabel(c) }));
-  const lead = ["Heart failure", "Cardiomyopathy", "Pulmonary hypertension"];
-  const diagnoses = [
-    ...cardiac.filter((c) => lead.includes(c.family)).map((c) => c.text),
-    ...(ihd ? [ihd.label] : []),
-    ...(st?.items ?? []),
-    ...cardiac.filter((c) => !lead.includes(c.family)).map((c) => c.text),
+    .map((c) => {
+      const at = condAt(c);
+      const yr = at ? ` (since ${at.slice(0, 4)})` : "";
+      return { at, text: DIAGNOSIS[c.code].tags.includes("hf") && ef?.value_num != null ? `${c.display} (LVEF ${formatRange(ef.value_num, ef.value_high, 0)}%)${yr}` : `${conditionLabel(c)}${yr}` };
+    });
+  const firstCoronary = ihd ? (cardiacEvents(s).find((e) => e.group === "coronary" && e.at)?.at ?? null) : null;
+  const dated = [
+    ...cardiac,
+    ...(ihd ? [{ at: firstCoronary, text: ihd.label }] : []),
+    ...(st?.items ?? []).map((text, i) => ({ at: st!.at[i], text })),
   ];
+  const diagnoses = [...dated.filter((d) => d.at).sort((a, b) => a.at!.localeCompare(b.at!)), ...dated.filter((d) => !d.at)].map((d) => d.text);
   const yearOf = (c: any) => (c.onset ? ` (since ${new Date(c.onset).getFullYear()})` : c.attributes?.onsetYear ? ` (since ${c.attributes.onsetYear})` : "");
-  const riskFactors = s.conditions.filter((c) => RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden).map((c) => `${conditionLabel(c)}${yearOf(c)}`);
+  const riskFactors = s.conditions.filter((c) => RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden)
+    .sort((a, b) => (condAt(a) ?? "9999").localeCompare(condAt(b) ?? "9999")).map((c) => `${conditionLabel(c)}${yearOf(c)}`);
   const other = otherConditions(s).map((o) => `${o.label}${o.brief ? ` (${o.brief})` : ""}`);
   return { diagnoses, riskFactors, other };
 }
@@ -241,6 +249,7 @@ const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazo
 function otherConditions(s: PatientState) {
   return s.conditions
     .filter((c) => c.status === "active" && DIAGNOSIS[c.code]?.family === "Comorbidity" && !RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden)
+    .sort((a, b) => (condAt(a) ?? "9999").localeCompare(condAt(b) ?? "9999"))
     .map((c) => {
       const label = conditionLabel(c);
       const since = c.onset ? `since ${MON(c.onset)}` : (c.attributes as any)?.onsetYear ? `since ${(c.attributes as any).onsetYear}` : "";
@@ -584,6 +593,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     header: head,
     // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
     story: storyView(s),
+    chronology: chronologyView(s, cardiacEvents(s)),
     standing: standingView(s),
     timeline: timelineView(s),
     // problem solving (20 Oct 2026, stage 2): reasoning per card, follow-through, what to ask and examine today

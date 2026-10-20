@@ -52,7 +52,7 @@ const PROBLEM_OF = (ruleId: string): string => {
 // every result belongs to one problem card; abnormal ones are listed there once, with their trend, and the
 // rest of a card's results as one "normal" line (20 Oct 2026: one home for every fact)
 const RESULT_PROBLEM: Record<string, string> = {
-  creatinine: "kidney", urea: "kidney", potassium: "kidney", sodium: "kidney", magnesium: "kidney", uacr: "kidney", bicarbonate: "kidney", chloride: "kidney", phosphate: "kidney", "calcium-total": "kidney", calcium: "kidney", urate: "kidney",
+  egfr: "kidney", creatinine: "kidney", urea: "kidney", potassium: "kidney", sodium: "kidney", magnesium: "kidney", uacr: "kidney", bicarbonate: "kidney", chloride: "kidney", phosphate: "kidney", "calcium-total": "kidney", calcium: "kidney", urate: "kidney",
   alt: "lipids", ast: "lipids", ck: "lipids", alp: "lipids", ggt: "lipids", bilirubin: "lipids",
   haemoglobin: "anaemia", ferritin: "anaemia", tsat: "anaemia", iron: "anaemia", transferrin: "anaemia", mcv: "anaemia", b12: "anaemia", folate: "anaemia", platelets: "anaemia", wbc: "anaemia",
   "nt-probnp": "hf", bnp: "hf",
@@ -323,7 +323,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
           {a.links?.length > 0 && <ul className="item-links" aria-label="Linked facts">{a.links.map((l: string, i: number) => <li key={i}>{l}</li>)}</ul>}
         </div>
         <div className="item-acts">
-          <button className="dismiss wide-only" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Not needed — dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /></button>
+          <button className="dismiss" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /><span className="dismiss-l">Dismiss</span></button>
           {inline ? (
             <button className="go" aria-expanded={p.line === a.id} onClick={() => p.setLine(p.line === a.id ? null : a.id)}>{a.action.label}</button>
           ) : !(a.action?.wizard === "pregnancy-plan" && p.panels?.has(a.id) && !compact) && (

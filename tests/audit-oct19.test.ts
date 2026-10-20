@@ -34,7 +34,7 @@ test("device models may be unknown; ablation reads without double brackets", () 
   assert.equal(historicalLabel("ablation", { targets: ["Atrial flutter (CTI)"] }), "Atrial flutter (CTI) ablation");
 });
 
-test("notes list diagnoses as the header does: HF, IHD with years, devices, then risk factors and other conditions", async () => {
+test("notes list diagnoses as the header does: in date order (undated last), then risk factors and other conditions", async () => {
   const pid = await patient(["hfref", "htn", "t2dm", "gout"]);
   await tx(async (q) => {
     await K.recordHistory(q, doc, pid, { effectiveAt: nowIso(), add: [{ code: "prior-mi", onsetYear: 2017, attributes: { type: "STEMI", territory: "Inferior" } }] } as any);
@@ -43,7 +43,7 @@ test("notes list diagnoses as the header does: HF, IHD with years, devices, then
     await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "lvef", value: 35 }] });
   });
   const d = diagnosisLines(await loadState(db, pid));
-  assert.deepEqual(d.diagnoses, ["HFrEF (LVEF 35%)", "IHD · PCI LAD 2015 · inferior STEMI 2017", "Watchman LAA occluder 2019"]);
+  assert.deepEqual(d.diagnoses, ["IHD · PCI LAD 2015 · inferior STEMI 2017", "Watchman LAA occluder 2019", "HFrEF (LVEF 35%)"]);
   assert.deepEqual(d.riskFactors.sort(), ["Hypertension", "Type 2 diabetes"]);
   assert.deepEqual(d.other, ["Gout"]);
 });

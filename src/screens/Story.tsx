@@ -10,12 +10,14 @@ const TONE: Record<string, string> = { good: "st-good", bad: "st-bad", warn: "st
 export function StoryCard({ s, narrow }: { s: any; narrow: boolean }) {
   const lines = (s.story ?? []) as any[];
   const standing = (s.standing ?? []) as any[];
-  if (!lines.length && !standing.length && !s.timeline) return null;
+  const chron = s.chronology as { items: { at: string; when: string; text: string; tone?: string }[]; undated: string[] } | undefined;
+  if (!lines.length && !standing.length && !s.timeline && !chron?.items.length) return null;
   return (
     <section className="card pad story-card" aria-label="Story">
       <div className={`story-top${narrow ? " narrow" : ""}`}>
         <div className="story-lines">
           <h2>The story so far</h2>
+          {chron && chron.items.length > 0 && <Chronology c={chron} />}
           {lines.map((l) => (
             <p key={l.key} className={l.tone ? `sl-${l.tone}` : undefined}><b>{l.label}</b> {l.text}</p>
           ))}
@@ -31,6 +33,31 @@ export function StoryCard({ s, narrow }: { s: any; narrow: boolean }) {
       </div>
       {s.timeline && <Timeline t={s.timeline} narrow={narrow} />}
     </section>
+  );
+}
+
+// Dated record, oldest first; the year is printed once per year (20 Oct 2026)
+function Chronology({ c }: { c: { items: { at: string; when: string; text: string; tone?: string }[]; undated: string[] } }) {
+  let lastYear = "";
+  return (
+    <ol className="chron" aria-label="Chronology">
+      {c.items.map((it, i) => {
+        const year = it.at ? it.at.slice(0, 4) : "";
+        const showYear = year && year !== lastYear;
+        if (year) lastYear = year;
+        const month = it.when.replace(/\s*\d{4}$/, "");
+        return (
+          <li key={i} className={`${it.tone ? `ch-${it.tone}` : ""}${it.at ? "" : " ch-gap"}`}>
+            <span className="ch-year">{showYear ? year : ""}</span>
+            <span className="ch-month">{it.at && month !== it.when ? month : ""}</span>
+            <span className="ch-text">{it.text}</span>
+          </li>
+        );
+      })}
+      {c.undated.length > 0 && (
+        <li className="ch-undated"><span className="ch-year" /><span className="ch-month" /><span className="ch-text">Date not recorded: {c.undated.join(", ")}</span></li>
+      )}
+    </ol>
   );
 }
 

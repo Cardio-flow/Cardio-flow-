@@ -45,7 +45,7 @@ test("structural history: one header line, no LAAO/TEER aftercare, no anticoagul
     return id;
   });
   const h = header(await loadState(db, pid)) as any;
-  assert.equal(h.structural.label, "Mitral TEER (MitraClip) 2021 · Watchman LAA occluder 2019 · ICD 2017");
+  assert.equal(h.structural.label, "ICD 2017 · Watchman LAA occluder 2019 · Mitral TEER (MitraClip) 2021");
   const r = await rules(pid);
   assert.ok(!r.some((x) => x.rule_id === "structural.aftercare"), "a TEER in the history has no early aftercare");
   assert.ok(!r.some((x) => /^af\.(laao|closure)/.test(x.rule_id)), JSON.stringify(r));
