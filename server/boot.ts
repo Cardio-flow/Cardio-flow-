@@ -8,7 +8,7 @@ import { enrichSynthetic, seedSynthetic } from "./seed.js";
 export const SITE_ID = process.env.CARDIO_SITE_ID || "sacc";
 
 // Idempotent: safe to run on every cold start.
-export async function boot(db: DB, opts: { seed: boolean }) {
+export async function boot(db: DB, opts: { seed: boolean; deferReassessment?: boolean }) {
   await migrate(db);
   let newRules = 0;
   await db.transaction(async (tx) => {
@@ -51,8 +51,48 @@ export async function boot(db: DB, opts: { seed: boolean }) {
     await db.query(`UPDATE cf.site SET settings=coalesce(settings,'{}'::jsonb)||$2::jsonb WHERE id=$1`, [SITE_ID, JSON.stringify({flowIntegrity:"2026-10-12.1"})]);
   }
   if (newRules || reconcile || settings.ruleset !== RULESET) {
+    // A hosted function must start serving within its request limit. The health endpoint
+    // advances this durable, site-wide refresh in short batches instead.
+    if (opts.deferReassessment) return;
     const ids = (await db.query(`SELECT id FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL`, [SITE_ID])).rows as { id: string }[];
     for (const { id } of ids) await db.transaction((tx) => reassess(tx, id, site?.mode ?? "production"));
     await db.query(`UPDATE cf.site SET settings = coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [SITE_ID, JSON.stringify({ ruleset: RULESET })]);
   }
+}
+
+export async function advanceRulesetRefresh(db: DB, limit = 3, maxMs = 10000) {
+  const started = Date.now();
+  return db.transaction(async (tx) => {
+    const locked = (await tx.query<{ locked: boolean }>("SELECT pg_try_advisory_xact_lock(431003) AS locked")).rows[0]?.locked;
+    if (!locked) return { pending: true, advanced: 0 };
+    const site = (await tx.query<{ mode: "sandbox" | "production"; settings: any }>(
+      "SELECT mode,settings FROM cf.site WHERE id=$1 FOR UPDATE", [SITE_ID],
+    )).rows[0];
+    if (!site) return { pending: false, advanced: 0 };
+    const settings = typeof site.settings === "string" ? JSON.parse(site.settings) : site.settings ?? {};
+    if (settings.ruleset === RULESET) return { pending: false, advanced: 0 };
+    let cursor = settings.rulesetProgress?.version === RULESET ? String(settings.rulesetProgress.cursor ?? "") : "";
+    let advanced = 0;
+    while (advanced < limit && Date.now() - started < maxMs) {
+      const next = (await tx.query<{ id: string }>(
+        "SELECT id FROM cf.patient WHERE site_id=$1 AND removed_at IS NULL AND id::text > $2 ORDER BY id LIMIT 1",
+        [SITE_ID, cursor],
+      )).rows[0];
+      if (!next) {
+        await tx.query(
+          "UPDATE cf.site SET settings=(coalesce(settings,'{}'::jsonb) - 'rulesetProgress') || $2::jsonb WHERE id=$1",
+          [SITE_ID, JSON.stringify({ ruleset: RULESET })],
+        );
+        return { pending: false, advanced };
+      }
+      await reassess(tx, next.id, site.mode ?? "production");
+      cursor = next.id;
+      advanced++;
+    }
+    await tx.query(
+      "UPDATE cf.site SET settings=coalesce(settings,'{}'::jsonb) || $2::jsonb WHERE id=$1",
+      [SITE_ID, JSON.stringify({ rulesetProgress: { version: RULESET, cursor } })],
+    );
+    return { pending: true, advanced };
+  });
 }
