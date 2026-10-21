@@ -2237,3 +2237,15 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .item-acts .dismiss .dismiss-l { font-size: 13px; }
 @media (min-width: 900px) { .item-acts .dismiss .dismiss-l { display: none; } .item-acts .dismiss { padding: 0; width: 34px; } }
 @media (max-width: 899px) { .item-acts { flex-wrap: wrap; } .item-acts .dismiss { min-height: 44px; min-width: 44px; } }
+
+/* Compact follow-through in the owning problem/episode. Urgent actions never fold. */
+.problem-tasks { margin: 10px 0; border-radius: 12px; background: var(--blue-soft, #f0f6ff); }
+.problem-tasks summary { cursor: pointer; padding: 12px; font-weight: 700; min-height: 44px; }
+.task-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-top: 1px solid var(--line, #dce4ef); }
+.task-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.task-row b, .task-row span { display: block; }
+.task-row span { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.task-row button { flex-shrink: 0; min-height: 44px; }
+@media (max-width: 480px) { .task-row { flex-wrap: wrap; } .task-row > div { flex-basis: 70%; } }
+
+.urgent-task { background: var(--red-soft, #fff1ef); border-radius: 12px; }

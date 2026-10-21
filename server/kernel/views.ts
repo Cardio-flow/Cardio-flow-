@@ -1,3 +1,5 @@
+import { planContext } from "../engine/plan-context.js";
+import { overviewCounts } from "../../shared/overview.js";
 import { pregnancyProfile } from "../engine/pregnancy-profile.js";
 import { medicationReview } from "../engine/medication-review.js";
 import { medicationOverlaps } from "../../shared/medication-identity.js";
@@ -534,6 +536,7 @@ export function planView(s: PatientState) {
   const withState = s.plan.map((p) => ({
     id: p.id,
     category: p.category,
+    clinicalContext: planContext(s, p),
     title: p.title,
     reason: p.reason,
     dueDate: p.due_date,
@@ -580,7 +583,10 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const lastSource = [...s.contexts].reverse().find((c) => s.plan.some((p) => p.source_context_id === c.id));
   const active = plan.filter((p) => p.view !== "cancelled" && p.view !== "superseded" && (p.status === "planned" || p.awaitingReview || (lastSource && s.plan.find((x) => x.id === p.id)?.source_context_id === lastSource.id)));
   // linked decisions: facts from elsewhere in the record, and dependent alerts folded under their decision
-  const attention: any[] = linkAttention(s, await recommendations(tx, patientId));
+  const attention: any[] = linkAttention(s, await recommendations(tx, patientId)).map(a => {
+    const task = a.action?.type === "plan" ? plan.find(p => p.id === a.action.planId) : null;
+    return task ? { ...a, clinicalContext: task.clinicalContext } : a;
+  });
   const changes = whatChanged(s);
   // the echo-surveillance intervals are shown only where their rule runs (sandbox, or once approved)
   const surveillanceLive = (siteMode === "sandbox" && s.patient.synthetic) || ((await tx.query(`SELECT 1 FROM cf.rule_version WHERE rule_id='valve.echo-surveillance' AND status='PUBLISHED' LIMIT 1`)).rows.length > 0);
@@ -672,13 +678,16 @@ export function overview(s: PatientState, attention: any[], plan: ReturnType<typ
   else why = { text: lastVisit ? `Last seen ${fmtDay(lastVisit.started_at, { year: true })}` : "No visit recorded yet", sub: lastVisit?.reasons.join(", ") || undefined };
   const sev = (k: string) => attention.filter((a) => a.severity === k).length;
   const unfinished = plan.filter((p) => p.view === "overdue" || p.view === "due");
-  const next = plan.filter((p) => p.status === "planned" && p.dueDate && p.dueDate > s.today).sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
+  const next = plan.filter(p => (p.status === "planned" && (p.dueDate || p.clinicalContext.urgent)) || p.awaitingReview)
+    .sort((a, b) => Number(b.clinicalContext.urgent) - Number(a.clinicalContext.urgent) ||
+      Number(b.awaitingReview) - Number(a.awaitingReview) || (a.dueDate ?? "9").localeCompare(b.dueDate ?? "9"));
   return {
     why,
     changed: { since: changes.since, label: changes.label, count: changes.items.length, top: changes.items.slice(0, 3).map((i: any) => i.after != null ? `${i.label} ${i.before ?? "—"} → ${i.after}` : i.text ?? i.label) },
     attention: { red: sev("red"), orange: sev("orange"), yellow: sev("yellow"), blue: sev("blue"), top: attention[0]?.title ?? null },
     unfinished: { overdue: unfinished.filter((p) => p.view === "overdue").length, due: unfinished.filter((p) => p.view === "due").length, review: plan.filter((p) => p.awaitingReview).length, top: unfinished.slice(0, 2).map((p) => p.title) },
-    next: next.slice(0, 2).map((p) => ({ title: p.title, dueDate: p.dueDate })),
+    counts: overviewCounts(attention, plan),
+    next: next.slice(0, 2).map((p) => ({ id: p.id, title: p.title, dueDate: p.dueDate, view: p.view })),
   };
 }
 

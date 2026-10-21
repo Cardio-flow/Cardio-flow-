@@ -1,3 +1,4 @@
+import { PlanTasks } from "./PlanTasks";
 import { useEffect, useState } from "react";
 import { MedicationReviewLink } from "./MedicationReview";
 import { Pulse, toneOf } from "./Pulse";
@@ -29,13 +30,13 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   // "More detail" remembers being opened on this device, like the panels inside it
   const moreOpen = (() => { try { return localStorage.getItem("cf.fold.more") === "1"; } catch { return false; } })();
   const [nav, setNav] = useState<{ n: number; code: string | null }>({ n: 0, code: null });
-  const go = (p: string, code?: string) => { setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
+  const go = (p: string, code?: string) => { if (p === "results") setAllResults(true); setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
   // after a tap (never on first load): bring the chosen section, or the chosen result, into view
   useEffect(() => {
     if (!nav.n) return;
     const el = nav.code ? document.querySelector<HTMLDetailsElement>(`[data-lab-code="${nav.code}"]`) : document.querySelector(narrow ? ".ov-switch" : ".lab-snapshot");
     if (nav.code && el) (el as HTMLDetailsElement).open = true;
-    el?.scrollIntoView({ block: nav.code ? "center" : "start", behavior: "smooth" });
+    el?.scrollIntoView({ block: nav.code ? "center" : "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   }, [nav]);
   const decide = (
     <>
@@ -76,7 +77,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   if (narrow)
     return (
       <main className="page overview-page">
-        {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
+        {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
         <Pulse s={s} open={open} go={go} labs={false} />
         <StoryCard s={s} narrow />
         <nav className="ov-switch" role="tablist" aria-label="Overview sections">
@@ -94,7 +95,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
     );
   return (
     <main className="page overview-page">
-      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
+      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
         <Pulse s={s} open={open} go={go} labs={false} meds={false} />
         <StoryCard s={s} narrow={false} />
       <div className="grid-main">
@@ -106,7 +107,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
           <Meds s={s} open={open} done={done} />
           <section className="card pad results-entry" aria-label="All results">
             <div className="card-head"><h2>Results</h2><button className="btn ghost small" aria-expanded={allResults} onClick={() => setAllResults(!allResults)}>{allResults ? "Hide" : `All results (${resultCount})`}</button></div>
-            <p className="small muted" style={{ margin: 0 }}>Abnormal results are in their problem card on the left, each once, with its trend.</p>
+
           </section>
           {allResults && <Results s={s} open={open} />}
           <Upcoming s={s} open={open} />
@@ -402,6 +403,7 @@ function EpisodeCard({ e, s, open, done }: { e: any; s: any; open(o: Open): void
         )}
         {e.total > 0 && <span className="muted small">{e.done} of {e.total} plan items done</span>}
       </div>
+      <PlanTasks tasks={(s.plan ?? []).filter((p: any) => p.clinicalContext?.episodeId === e.id && !p.clinicalContext?.urgent && (p.status === "planned" || p.awaitingReview))} open={open} today={s.today} />
       {!closing ? (
         <div className="ep-actions">
           <button className="btn secondary small" onClick={() => open({ kind: "wizard", wizard: e.wizard })}>Review</button>
