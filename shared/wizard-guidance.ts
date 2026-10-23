@@ -114,6 +114,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const ecg = a.ecg === "present", sym = list(a, "symptoms").length > 0;
       const mra = c.meds.find((m) => m.tags.includes("mra")), raas = c.meds.find((m) => m.tags.includes("raas"));
       const keep = ["reduce-mra", "hold-mra", "reduce-raas", "hold-raas"];
+      const onBinder = c.meds.some((m) => m.tags.includes("k-binder"));
       return [
         (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment by the hospital protocol (UK Kidney Association 2023: K ≥6.5 is severe)`),
         k > 6.0 && mra && S("hold-mra", `K ${n1(k)} >6.0: stop ${mra.name} (ESC HF practical guidance)`),
@@ -124,10 +125,14 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         k > 5.5 && k <= 6.0 && !mra && raas && !lowest(c, "raas") && S("reduce-raas", `K ${n1(k)} >5.5: halve ${raas.name} (ESC HF practical guidance)`),
         k > 5.5 && k <= 6.0 && !mra && raas && lowest(c, "raas") && S("hold-raas", `K ${n1(k)} >5.5 on the lowest ${raas.name} dose: hold it (ESC HF practical guidance)`),
         k > 5.0 && k <= 5.5 && (mra || raas) && S("continue", `K ${n1(k)} ≤5.5: keep the current doses — up to 5.5 is acceptable on RAAS inhibitor / MRA therapy (ESC HF practical guidance)`),
-        k > 5.0 && k <= 6.0 && (mra || raas) && !c.meds.some((m) => m.tags.includes("k-binder")) &&
+        // K 5.0–5.5 on HF therapy: a binder by default to protect the RAAS inhibitor / MRA doses (Ahmed, 23 Oct 2026,
+        // local default; ESC HF 2021 IIb); K 5.5–6.0: the dose step stays the default and a binder is the alternative
+        k > 5.0 && k <= 5.5 && (mra || raas) && !onBinder && S("binder", "Protect the RAAS inhibitor / MRA doses with a potassium binder (ESC HF 2021, IIb; MKH default): patiromer 8.4 g once daily (Veltassa SmPC start dose)"),
+        k > 5.0 && k <= 5.5 && (mra || raas) && !onBinder && ALT("no-binder", "Keep the doses and recheck without a binder (K up to 5.5 is acceptable, ESC HF practical guidance)", ["binder", "binder-szc"]),
+        k > 5.5 && k <= 6.0 && (mra || raas) && !onBinder &&
           ALT("binder", "Keep the RAAS inhibitor / MRA dose with a potassium binder instead (ESC HF 2021, IIb): patiromer 8.4 g once daily (Veltassa SmPC start dose)", keep),
-        k > 5.0 && k <= 6.0 && (mra || raas) && !c.meds.some((m) => m.tags.includes("k-binder")) &&
-          ALT("binder-szc", "Or with sodium zirconium cyclosilicate (ESC HF 2021, IIb): 5 g once daily (Lokelma SmPC maintenance); about 400 mg sodium per 5 g — watch for oedema in HF (SmPC)", keep),
+        k > 5.0 && k <= 6.0 && (mra || raas) && !onBinder &&
+          ALT("binder-szc", "Lokelma instead of the default (ESC HF 2021, IIb): 5 g once daily (SmPC maintenance); about 400 mg sodium per 5 g — watch for oedema in HF (SmPC)", [...keep, "binder"]),
         on(c, "nsaid") && S("stop-nsaid", `Stop ${c.meds.filter((m) => m.tags.includes("nsaid")).map((m) => m.name).join(", ")}: NSAIDs raise potassium and worsen HF and renal function (ESC HF 2021: avoid, class III)`),
         (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and potassium-containing salt substitutes"),
         k > 5.0 && S("diet-advice", "Limit high-potassium foods and salt substitutes"),

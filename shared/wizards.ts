@@ -312,6 +312,7 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "diet-advice", label: "Dietary potassium advice" },
               { value: "binder", label: "Start patiromer (Veltassa) to keep RAAS inhibitor / MRA doses" },
               { value: "binder-szc", label: "Start sodium zirconium cyclosilicate (Lokelma) to keep RAAS inhibitor / MRA doses" },
+              { value: "no-binder", label: "Keep the doses without a binder" },
               { value: "urgent", label: "Same-day urgent assessment" },
             ],
           },

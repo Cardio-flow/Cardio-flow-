@@ -55,11 +55,19 @@ test("K 6.2: stop MRA and ARNI, repeat today; the ECG is needed before the decis
   assert.ok(!view.instead.some((x) => x.value === "binder"), "no binder offered above 6.0");
 });
 
-test("K 5.3: keep the doses (≤5.5 acceptable); the recheck interval is the clinician's (no guideline number)", () => {
-  const { out, view, answers } = run(ctx(5.3, [spiro, arni]));
-  assert.ok((answers.actions as string[]).includes("continue"));
-  assert.ok(!out.some((o) => o.kind === "medication"));
-  assert.deepEqual(view.needed.map((q) => q.id), ["recheck"]);
+test("K 5.3: keep the doses and protect them with patiromer by default (MKH default, ESC IIb); no binder or Lokelma are one tap", () => {
+  const c = ctx(5.3, [spiro, arni]);
+  const { out, view, answers } = run(c);
+  assert.ok((answers.actions as string[]).includes("continue") && (answers.actions as string[]).includes("binder"));
+  assert.ok(!out.some((o) => o.kind === "medication"), "doses unchanged");
+  assert.equal((out.find((o) => o.kind === "start") as any)?.code, "patiromer");
+  assert.ok(out.some((o) => o.kind === "plan" && /Fri 30 Oct 2026/.test(o.label)), "recheck after 1 week");
+  assert.deepEqual(view.needed.map((q) => q.id), []);
+  const none = view.instead.find((x) => x.value === "no-binder")!;
+  const a2 = applyInstead(answers, "hyperkalaemia", none.question, none.value, none.replaces);
+  assert.ok(!buildOutcome("hyperkalaemia", a2, c).some((o) => o.kind === "start"), "no binder when chosen");
+  assert.ok(view.instead.some((x) => x.value === "binder-szc"));
+  assert.ok(!run(ctx(5.3, [spiro, arni, med("m9", "patiromer", "Patiromer", 8.4, ["k-binder"], "g")])).out.some((o) => o.kind === "start"), "already on a binder: none started");
 });
 
 test("K 6.6: same-day emergency treatment (not dosed here)", () => {
