@@ -10,7 +10,12 @@ const browser = await chromium.launch(
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 page.setDefaultTimeout(15000);
 // pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
-await page.addLocatorHandler(page.getByRole("button", { name: "Change details", exact: true }), (b) => b.click());
+// pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
+const steps = async () => {
+  const b = page.getByRole("button", { name: "Change details", exact: true });
+  await page.waitForTimeout(150);
+  if (await b.count() && await b.last().isVisible()) await b.last().click();
+};
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("dialog", (d) => d.accept());
@@ -66,11 +71,13 @@ const go = async (x, tab = "") => {
 };
 const shot = (name) =>
   page.screenshot({ path: `${out}/${name}.png`, animations: "disabled" });
-const radio = (label, value) =>
-  page
+const radio = async (label, value) => {
+  await steps();
+  await page
     .getByRole("radiogroup", { name: label, exact: true })
     .getByRole("radio", { name: value, exact: true })
     .click();
+};
 const close = () =>
   page.getByRole("button", { name: "Close", exact: true }).click();
 const startVisit = async (x) => {
@@ -114,6 +121,12 @@ const ckPatient = async (label) => {
   ]);
   return x;
 };
+// red-flag "None" is pre-ticked as assumed since 23 Oct 2026: tick it only if it is not already
+const ensureNone = async (scope) => {
+  await steps();
+  const b = scope.getByRole("button", { name: "None", exact: true });
+  if ((await b.getAttribute("aria-pressed")) !== "true") await b.click();
+};
 try {
   await page.goto(process.env.CARDIO_BASE_URL || "http://127.0.0.1:4310");
   await page.getByText("Dr. Ahmed", { exact: true }).click();
@@ -127,7 +140,7 @@ try {
   await page
     .getByRole("button", { name: "Review statin CK", exact: true })
     .click();
-  await page.getByRole("button", { name: "None", exact: true }).click();
+  await ensureNone(page);
   await radio("Muscle symptoms", "No muscle symptoms");
   await page
     .getByRole("button", {
@@ -158,14 +171,16 @@ try {
   await page
     .getByRole("button", { name: "Review statin CK", exact: true })
     .click();
-  await page.getByRole("button", { name: "None", exact: true }).click();
+  // answer a question (red flags are pre-ticked as assumed since 23 Oct 2026), close at once, reopen: kept
+  await radio("Muscle symptoms", "No muscle symptoms");
   await close();
   await page
     .getByRole("button", { name: "Review statin CK", exact: true })
     .click();
+  await steps();
   await expect(
-    page.getByRole("button", { name: "None", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("radiogroup", { name: "Muscle symptoms", exact: true }).getByRole("radio", { name: "No muscle symptoms", exact: true }),
+  ).toBeChecked();
   await close();
   console.log("PASS immediate wizard close persists latest answer");
   const exclusive = await ckPatient("exclusive choices");
@@ -173,7 +188,7 @@ try {
   await page
     .getByRole("button", { name: "Review statin CK", exact: true })
     .click();
-  await page.getByRole("button", { name: "None", exact: true }).click();
+  await ensureNone(page);
   await radio("Muscle symptoms", "No muscle symptoms");
   await page
     .getByRole("button", {

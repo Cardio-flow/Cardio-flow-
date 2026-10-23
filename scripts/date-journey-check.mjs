@@ -43,6 +43,11 @@ const noOverflow = async () =>
     ),
     false,
   );
+// red-flag "None" is pre-ticked as assumed since 23 Oct 2026: tick it only if it is not already
+const ensureNone = async (scope) => {
+  const b = scope.getByRole("button", { name: "None", exact: true });
+  if ((await b.getAttribute("aria-pressed")) !== "true") await b.click();
+};
 try {
   await page.goto(base);
   await page.getByText("Dr. Ahmed", { exact: true }).click();
@@ -170,7 +175,7 @@ try {
   await page.getByRole("button", { name: /^Severe hypertension/ }).click();
   await page.getByRole("button", { name: "Change details", exact: true }).last().click();
   // Legacy intervals also provide a manual date; verify this independently of new date questions.
-  await page.getByRole("button", { name: "None", exact: true }).click();
+  await ensureNone(page);
   await page.getByRole("button", { name: /^Continue/ }).click();
   const oral = page.getByRole("button", { name: /^Adjust oral therapy/ });
   if ((await oral.getAttribute("aria-pressed")) !== "true") await oral.click();

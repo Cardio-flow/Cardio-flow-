@@ -18,6 +18,7 @@ import type { Q } from "../db/db.js";
 import { WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, visibleAnswers, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { joinFor, prefill } from "../../shared/wizard-prefill.js";
 import { suggest } from "../../shared/wizard-guidance.js";
+import { isAssumed } from "../../shared/decision-assume.js";
 import { MEASURES } from "../../shared/catalog.js";
 import { fmtDay } from "../../shared/clinical.js";
 import { ironInputs } from "../../shared/wizards-iron.js";
@@ -120,8 +121,10 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
       if (v) { answers.review = v; defaulted.add("review"); }
     }
   const all = def.steps.flatMap((st) => visibleQuestions(st, answers));
+  // screens, checklists and the follow-up filled with the safe / not-yet default (shared/decision-assume.ts)
+  const assumedIds = all.filter((q) => q.required && !Object.hasOwn(given, q.id) && isAssumed(wizardId, q, answers[q.id], ctx) && !suggest(wizardId, q.id, answers, ctx).some((x) => (Array.isArray(answers[q.id]) ? (answers[q.id] as string[]).includes(x.value) : answers[q.id] === x.value))).map((q) => q.id);
   // the reasons behind every filled answer: the record (detected) or the guideline (suggestion)
-  const reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" | "default" }[] = [];
+  const reasons: { question: string; answer: string; why: string; source: "record" | "guideline" | "you" | "default" | "assumed" }[] = [];
   for (const q of all) {
     const v = answers[q.id];
     if (v == null || v === "" || (Array.isArray(v) && !v.length)) continue;
@@ -129,8 +132,8 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     if (!vals.length) continue;
     const opts = q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx);
     const label = vals.map((x) => opts.find((o) => o.value === x)?.label ?? x).join(" · ");
-    const from = Object.hasOwn(given, q.id) ? "you" : defaulted.has(q.id) ? "default" : ctx.detected[q.id]?.length ? "record" : "guideline";
-    const why = from === "default" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : q.type === "dose"
+    const from = Object.hasOwn(given, q.id) ? "you" : defaulted.has(q.id) || (q.id === "review" && assumedIds.includes(q.id)) ? "default" : assumedIds.includes(q.id) ? "assumed" : ctx.detected[q.id]?.length ? "record" : "guideline";
+    const why = from === "default" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : from === "assumed" ? (q.id === "review" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : "Assumed: change it if different") : q.type === "dose" && !suggest(wizardId, q.id, answers, ctx).length
       ? "Halve the dose (ESC HF practical guidance): the largest listed dose at or below half"
       : suggest(wizardId, q.id, answers, ctx).filter((x) => vals.includes(x.value)).map((x) => x.why).join(" · ");
     reasons.push({ question: q.label, answer: label, why, source: from });
@@ -170,7 +173,7 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   return {
     joined, today: ctx.today, evidenceKey: evidenceKey(s), questions, blockers,
     wizard: wizardId, title: def.title, note: def.note, source: def.sourceShort ?? def.source ?? null,
-    answers, suggested, reasons, needed, needData, plan, medReview,
+    answers, suggested, reasons, needed, needData, plan, medReview, assumed: assumedIds,
     ready: !needed.length && !needData.length && !blockers.length,
   };
 }

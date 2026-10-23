@@ -86,7 +86,9 @@ test("renal deterioration: the plan is ready after the volume status, with the m
   assert.ok(p.medReview.some((m: any) => /Spironolactone 25 mg: keep/.test(m.title)));
   assert.ok(p.medReview.some((m: any) => /Dapagliflozin 10 mg: continue/.test(m.title)));
   p = await preview(pid, "renal-function", { volume: "dry" });
-  assert.deepEqual(p.needed.map((n: any) => n.id), ["diureticDose"], "reduce the diuretic: the new dose is the clinician's");
+  // decision first (23 Oct 2026): dry → one catalogue step lower (ESC HF practical guidance), nothing to ask
+  assert.deepEqual(p.needed.map((n: any) => n.id), []);
+  assert.ok(p.plan.some((x: any) => /Furosemide: 40 mg → 20 mg/.test(x.label)), JSON.stringify(p.plan));
 });
 
 test("a >50% rise on an ACE inhibitor: the guideline halves the dose", async () => {

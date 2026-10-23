@@ -6,7 +6,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { GUIDANCE, suggest } from "../shared/wizard-guidance.js";
 import { validDate } from "../shared/dates.js";
-import { WIZARDS, optionsFor, type WizardContext } from "../shared/wizards.js";
+import { WIZARDS, doseChoices, optionsFor, type WizardContext } from "../shared/wizards.js";
 import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
@@ -46,7 +46,8 @@ test("every suggestion names a real question and a real option, with a reason", 
       for (const a of answerSets)
         for (const s of suggest(wid, qid, a, rich)) {
           count++;
-          assert.ok(q!.type === "date" ? validDate(s.value) : optionsFor(q!,rich).some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is a valid date or patient-specific option`);
+          // a dose suggestion (decision first, 23 Oct 2026) must be one of the patient's catalogue doses
+          assert.ok(q!.type === "date" ? validDate(s.value) : q!.type === "dose" ? doseChoices(rich, q!).options.some((o) => o.value === s.value) : optionsFor(q!,rich).some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is a valid date, catalogue dose or patient-specific option`);
           assert.ok(s.why.length > 5, `${wid}.${qid}.${s.value} has a reason`);
         }
     }

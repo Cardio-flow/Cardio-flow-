@@ -3,6 +3,7 @@
 // clinician reviews and changes rather than builds. Suggestions depend on earlier answers, so the steps
 // are walked in order. Nothing here decides: the plan is recorded only when the clinician confirms it.
 import { WIZARDS, doseChoices, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
+import { assumed } from "./decision-assume.js";
 import { suggest } from "./wizard-guidance.js";
 
 // questions whose answer comes only from the record (diagnoses, results, medicines), never from symptoms or
@@ -26,6 +27,11 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
         if (answers[q.id] != null) continue;
         // a "reduce" dose: the guideline step is to halve it — the largest listed dose at or below half
         // the current one, else the next lower dose (ESC HF practical guidance)
+        // a dose the guideline computes for this patient (e.g. double the loop diuretic, HFA 2019)
+        if (q.type === "dose") {
+          const v = suggest(wizardId, q.id, answers, ctx).filter((x) => !x.alt)[0]?.value;
+          if (v && doseChoices(ctx, q).options.some((o) => o.value === v)) { answers[q.id] = v; suggested.add(q.id); filled = true; continue; }
+        }
         if (q.type === "dose" && q.direction === "lower") {
           const { med, options } = doseChoices(ctx, q);
           const cur = med?.doseValue;
@@ -49,7 +55,14 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
         if (!vals.length && RECORD_LISTS[wizardId]?.includes(q.id) && ok.has("none")) vals.push("none");
         // only "none" can be chosen (e.g. nothing to stop among the medicines taken): nothing to ask
         if (!vals.length && q.type === "multi" && ok.size === 1 && ok.has("none")) vals.push("none");
-        if (!vals.length) continue;
+        if (!vals.length) {
+          // a screen, checklist or booking: the safe / not-yet default, shown as assumed (shared/decision-assume.ts)
+          const def = q.required ? assumed(wizardId, q, ctx) : undefined;
+          if (def === undefined || (Array.isArray(def) ? !def.every((v) => ok.has(v)) : !ok.has(def))) continue;
+          answers[q.id] = def;
+          filled = true;
+          continue;
+        }
         answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
         suggested.add(q.id);
         filled = true;

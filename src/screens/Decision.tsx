@@ -22,6 +22,7 @@ type Preview = {
   answers: Record<string, unknown>;
   questions: Question[];
   needed: Question[];
+  assumed?: string[];
   blockers: string[];
   reasons: { question: string; answer: string; why: string; source: string }[];
   needData: {
@@ -111,7 +112,7 @@ export function DecisionPanel({
     );
   const questions = p.questions.filter(
     (q) =>
-      editing || asked.includes(q.id) || p.needed.some((n) => n.id === q.id),
+      editing || asked.includes(q.id) || p.needed.some((n) => n.id === q.id) || (p.assumed ?? []).includes(q.id),
   );
   return (
     <div className="decision" aria-label={`Decision: ${p.title}`}>

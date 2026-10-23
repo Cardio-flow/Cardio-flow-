@@ -479,6 +479,12 @@ export function WizardDrawer({
                 </section>
               )}
               {outcomeBlock(dv.needed.length ? "Decision so far" : "Decision")}
+              {dv.assumed.length > 0 && (
+                <section className="dec-assumed" aria-label="Assumed — change if different">
+                  <h3>Assumed — change if different</h3>
+                  {dv.assumed.map(renderQ)}
+                </section>
+              )}
               {dv.why.length > 0 && (
                 <section className="dec-why" aria-label="Why">
                   <h3>Why</h3>

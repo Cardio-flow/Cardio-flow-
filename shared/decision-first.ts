@@ -10,11 +10,14 @@
 //  - check: points to look at before confirming, as a reminder box (nothing to answer).
 // The full step-by-step questions stay one tap away ("Change details").
 import { suggest } from "./wizard-guidance.js";
+import { isAssumed } from "./decision-assume.js";
 import { WIZARDS, missingRequired, optionsFor, visibleQuestions, type Answers, type Question, type WizardContext } from "./wizards.js";
 
 export type DecisionView = {
   why: { question: string; label: string; why: string }[];
   needed: Question[];
+  // screens, checklists and bookings filled with the safe / not-yet default: shown with their choices inline
+  assumed: Question[];
   instead: { question: string; value: string; label: string; why: string; replaces: string[] }[];
   check: string[];
 };
@@ -26,6 +29,11 @@ export function decisionView(wizardId: string, answers: Answers, ctx: WizardCont
   const visible = def.steps.flatMap((st) => visibleQuestions(st, answers));
   const why: DecisionView["why"] = [];
   const instead: DecisionView["instead"] = [];
+  // a computed dose (e.g. double the loop diuretic) is a reason like any other
+  for (const q of visible.filter((q) => q.type === "dose")) {
+    const x = suggest(wizardId, q.id, answers, ctx)[0];
+    if (x && answers[q.id] === x.value && !x.silent) why.push({ question: q.id, label: q.label, why: x.why });
+  }
   for (const q of visible.filter((q) => q.options)) {
     const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
     const label = (v: string) => q.options!.find((o) => o.value === v)?.label ?? v;
@@ -45,7 +53,8 @@ export function decisionView(wizardId: string, answers: Answers, ctx: WizardCont
   const check = def.checks ? def.checks(answers, ctx) : [
     ...visible.filter((q) => !q.required && !extra.has(q.id) && open(q) && q.type !== "dose" && q.type !== "date").map((q) => q.label.replace(/\?$/, "")),
   ];
-  return { why, needed, instead, check: [...new Set(check)] };
+  const assumed = visible.filter((q) => !q.required ? false : isAssumed(wizardId, q, answers[q.id], ctx) && !suggest(wizardId, q.id, answers, ctx).some((x) => chosen(answers, q.id, x.value)));
+  return { why, needed, assumed, instead, check: [...new Set(check)] };
 }
 
 // take an alternative: add its value (single: replace) and drop what it takes the place of

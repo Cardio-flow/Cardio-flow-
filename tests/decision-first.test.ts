@@ -89,3 +89,40 @@ test("Lokelma instead: keep the doses, 5 g once daily (SmPC maintenance; correct
   assert.ok(!out.some((o) => o.kind === "medication" && /Spironolactone/.test(o.label)));
   assert.deepEqual(decisionView("hyperkalaemia", a2, c).needed.map((q) => q.id), ["recheck"]);
 });
+
+// ---- all pathways (23 Oct 2026): screens are assumed, doses follow the guideline step ----
+const furo = (dose: number) => med("f1", "furosemide", "Furosemide", dose, ["loop"]);
+const decide = (w: string, c: WizardContext) => { const { answers } = prefill(w, c); return { answers, out: buildOutcome(w, answers, c), view: decisionView(w, answers, c) }; };
+
+test("congestion on furosemide 40 mg: double to 80 mg (HFA 2019); red flags assumed none and shown; signs still asked", () => {
+  const c = ctx(4.6, [furo(40), spiro], { dx: ["hfref", "hf"] } as any);
+  const { out, view } = decide("congestion", c);
+  assert.ok(out.some((o) => o.label === "Furosemide: 40 mg → 80 mg"), out.map((o) => o.label).join(" | "));
+  assert.ok(view.assumed.some((q) => q.id === "redflags"));
+  assert.ok(view.why.some((w) => /double the dose/.test(w.why)));
+  assert.deepEqual(view.needed.map((q) => q.id), ["signs"], "no weight trend: the signs are asked");
+  const c2 = ctx(4.6, [furo(40)], { dx: ["hfref", "hf"], values: { weight: { value: 81.5, at: "2026-10-21", prev: 78 } } } as any);
+  assert.deepEqual(decide("congestion", c2).view.needed.map((q) => q.id), [], "a recorded weight rise fills the signs");
+});
+
+test("renal function, dry on furosemide 80 mg: one step lower to 40 mg", () => {
+  const c = ctx(4.8, [furo(80), arni], { values: { creatinine: { value: 130, at: "2026-10-22", prev: 100 }, potassium: { value: 4.8, at: "2026-10-22", prev: 4.5 } } } as any);
+  const p2 = prefill("renal-function", c, { volume: "dry" }).answers;
+  const out = buildOutcome("renal-function", p2, c);
+  assert.ok(out.some((o) => o.label === "Furosemide: 80 mg → 40 mg"), out.map((o) => o.label).join(" | "));
+});
+
+test("structural plan checklists default to pending and are listed as assumed, not asked", () => {
+  const c = ctx(4.5, [], { dx: ["as-severe"] } as any);
+  const { view } = decide("tavi-plan", c);
+  const ids = view.assumed.map((q) => q.id);
+  for (const id of ["safety", "team", "coronary", "labs", "infection"]) assert.ok(ids.includes(id), `${id} assumed: ${ids.join(",")}`);
+  assert.ok(!view.needed.some((q) => ["team", "coronary", "labs", "infection"].includes(q.id)));
+});
+
+test("the follow-up visit is assumed none and shown; a pregnancy keeps lab pathways in specialist scope", () => {
+  const { view } = decide("diabetes", ctx(4.5, [], { dx: ["t2dm", "dm"] } as any));
+  assert.ok(view.assumed.some((q) => q.id === "review"));
+  const preg = decide("anaemia-result", ctx(4.5, [], { dx: ["pregnancy-care"] } as any)).answers;
+  assert.equal(preg.scope, "specialist");
+});
