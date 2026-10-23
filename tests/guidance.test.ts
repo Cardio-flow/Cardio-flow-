@@ -64,7 +64,8 @@ test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve
   assert.ok(vals("hyperkalaemia", "actions", { ecg: "present" }, hi).includes("urgent"));
   const mid = ctx({ potassium: 5.7 }, [["spironolactone", ["mra"]]]);
   assert.ok(vals("hyperkalaemia", "actions", {}, mid).includes("reduce-mra"));
-  assert.deepEqual(vals("hyperkalaemia", "result", {}, mid), ["repeat"]);
+  // decision first (23 Oct 2026): acted on as reported; "repeat sample" is the one-tap alternative
+  assert.deepEqual(vals("hyperkalaemia", "result", {}, mid), ["confirmed", "repeat"]);
   assert.deepEqual(vals("hyperkalaemia", "recheck", {}, mid), ["7"]);
 });
 

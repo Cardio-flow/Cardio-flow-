@@ -114,6 +114,8 @@ try {
     .getByRole("dialog")
     .getByRole("button", { name: /^Secondary hypertension: screening/ })
     .click();
+  // pathways open on the decision (23 Oct 2026): the step-by-step questions are behind "Change details"
+  await page.getByRole("button", { name: "Change details", exact: true }).last().click();
   await page.getByRole("button", { name: /^Continue/ }).click();
   const field = page.getByRole("textbox", {
     name: "Assessment / action date",
@@ -166,6 +168,7 @@ try {
     .getByRole("textbox", { name: "Search pathways" })
     .fill("severe hypertension");
   await page.getByRole("button", { name: /^Severe hypertension/ }).click();
+  await page.getByRole("button", { name: "Change details", exact: true }).last().click();
   // Legacy intervals also provide a manual date; verify this independently of new date questions.
   await page.getByRole("button", { name: "None", exact: true }).click();
   await page.getByRole("button", { name: /^Continue/ }).click();
@@ -239,7 +242,8 @@ try {
   await page.getByRole("dialog").getByRole("button",{name:/^Severe hypertension/}).click();
   await expect(page.getByRole("textbox",{name:"Clinic review due date",exact:true})).toHaveValue("22/11/2030");
   await expect(page.getByRole("textbox",{name:"Renal function and potassium due date",exact:true})).toHaveValue("21/11/2030");
-  await page.getByRole("button", { name: "Confirm plan", exact: true }).click();
+  // a reopened draft lands on the decision with the dates kept (23 Oct 2026)
+  await page.getByRole("button", { name: "Confirm decision", exact: true }).click();
   await continueAfterEntry(page);
   const rec = await api(`/patients/${p.id}/record`);
   assert(

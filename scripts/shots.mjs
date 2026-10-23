@@ -39,6 +39,10 @@ await step("summary", async () => {
 });
 await step("wizard", async () => {
   await p.locator("#att").getByRole("button", { name: "Manage hyperkalaemia" }).click();
+  // pathways open on the decision (23 Oct 2026); the step questions are behind "Change details"
+  await p.locator(".wiz-decision").waitFor();
+  await shot("03a-wizard-decision");
+  await p.getByRole("button", { name: "Change details", exact: true }).click();
   await p.getByText("Is this result reliable?").waitFor();
   await shot("04-wizard1");
   await p.getByRole("radio", { name: "Yes, act on it" }).click();

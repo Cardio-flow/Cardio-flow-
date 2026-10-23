@@ -13,6 +13,7 @@ import { HeldMedicines, ResultRows } from "./Story";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
+import { isRoutine } from "../../shared/routine";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import type { Open } from "./Patient";
 
@@ -80,7 +81,10 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   const admitted = s.header?.openContext?.kind === "admission";
   const onEpisode = new Set<string>((s.episodes ?? []).filter((e: any) => e.status === "open").flatMap((e: any) => (e.open ?? []).map((x: any) => x.id)));
   const later = (a: any) => admitted && a.severity !== "red" && CLINIC_LATER.has(a.rule_id);
-  const attention = (s.attention as any[]).filter((a) => !(a.action?.type === "plan" && onEpisode.has(a.action.planId)));
+  const live = (s.attention as any[]).filter((a) => !(a.action?.type === "plan" && onEpisode.has(a.action.planId)));
+  // screening, once-only tests and record keeping fold into "Also due" at the end (23 Oct 2026)
+  const routine = live.filter(isRoutine);
+  const attention = live.filter((a) => !isRoutine(a));
   const deferred = attention.filter(later);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
@@ -167,6 +171,17 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           <div className="problems">
             {clinic.map((p) => <ProblemCard key={p.key} p={p} items={laterOf(p.key)} row={row} />)}
           </div>
+        </details>
+      )}
+      {routine.length > 0 && (
+        <details className="routine-due" id="routine-due">
+          <summary>
+            <b>Also due · routine checks</b>
+            <span>{routine.length} · {[...new Set(routine.map((a) => a.title.split(":")[0]))].slice(0, 3).join(" · ")}{routine.length > 3 ? "…" : ""}</span>
+            <ChevronDown size={16} />
+          </summary>
+          <p className="small muted">Screening, once-only tests and record keeping. Kept off the main overview; nothing here is dropped.</p>
+          <div className="routine-list">{routine.map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>
         </details>
       )}
       <Dismissed s={s} done={done} />

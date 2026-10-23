@@ -7,6 +7,8 @@ const browser = await chromium.launch(),
   page = await browser.newPage({ viewport: { width: 390, height: 844 } }),
   errors = [];
 page.setDefaultTimeout(15000);
+// pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
+await page.addLocatorHandler(page.getByRole("button", { name: "Change details", exact: true }), (b) => b.click());
 page.on("pageerror", (e) => errors.push(e.message));
 const api = (path, body) =>
   page.evaluate(

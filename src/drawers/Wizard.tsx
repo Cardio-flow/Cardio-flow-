@@ -3,8 +3,9 @@ import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pi
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline, DateInput } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
+import { applyInstead, decisionView } from "../../shared/decision-first";
 import { JOIN, joinFor, prefill } from "../../shared/wizard-prefill";
-import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type WizardContext } from "../../shared/wizards";
+import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type Question, type WizardContext } from "../../shared/wizards";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
@@ -14,6 +15,10 @@ export type PathwayPart = {
   outcome: string[]; assessment: { heading: string; recommendations: string[] } | null; step: number;
 };
 type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string; requiresReview?: boolean };
+
+// medicine changes lead the decision, then diagnoses, dated plan items and notes
+const OUT_RANK: Record<string, number> = { start: 0, medication: 1, condition: 2, barrier: 3, plan: 4, note: 5 };
+const allAnsweredEarly = (def: (typeof WIZARDS)[string], a: Answers) => def.steps.every((st) => !missingRequired(st, a).length);
 
 export function WizardDrawer({
   patientId, patientName, wizard, recommendationId, contextId, onClose, onDone, onJoin, onBack, carried = [], resume,
@@ -26,6 +31,8 @@ export function WizardDrawer({
   const [ctx, setCtx] = useState<WizardContext | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
   const [step, setStep] = useState(0);
+  // decision first (23 Oct 2026): the pathway opens on this patient's decision; the steps are one tap away
+  const [mode, setMode] = useState<"decision" | "steps">("decision");
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -117,11 +124,12 @@ export function WizardDrawer({
     draftTimer.current = setTimeout(() => { if (!confirming.current) void flushDraft().catch(e => setError(`Draft not saved: ${e.message}`)); }, 500);
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
   }, [answers, step, dueDates, patientId, wizard, recommendationId]);
-  const isReview = step === def.steps.length;
+  const atDecision = mode === "decision";
+  const isReview = !atDecision && step === def.steps.length;
   const allAnswered = def.steps.every((st) => !missingRequired(st, answers).length);
   // the first step that still needs an answer: everything before it is filled in from the record and the guideline
   const firstOpen = def.steps.findIndex((st) => missingRequired(st, answers).length > 0);
-  const join = isReview && onJoin ? joinFor(wizard, answers, ctx) : null;
+  const join = (isReview || atDecision) && onJoin && allAnsweredEarly(def, answers) ? joinFor(wizard, answers, ctx) : null;
   const current = def.steps[step];
   const missing = current ? missingRequired(current, answers) : [];
   const outcome = useMemo(() => (ctx ? buildOutcome(wizard, answers, ctx, dueDates) : []), [ctx, wizard, answers, dueDates]);
@@ -129,15 +137,16 @@ export function WizardDrawer({
   // medicines this pathway starts go through the pre-start check; a red hit needs a reason (as in the drawer)
   const startKey = outcome.filter((o) => o.kind === "start").map((o) => (o as any).code).join(",");
   useEffect(() => {
-    if (!isReview || !startKey) { setStartHits({}); setCheckedStart(""); return; }
+    if (!(isReview || atDecision) || !startKey) { setStartHits({}); setCheckedStart(""); return; }
     setCheckedStart("");
     let live = true;
     api(`/patients/${patientId}/wizards/${wizard}/start-check`, { body: { answers, before: carried.map((p) => ({ wizard: p.wizard, answers: p.answers, overrides: p.overrides })) } }).then((r) => { if (live) { setStartHits(r.hits ?? {}); setCheckedStart(startKey); } }, e => { if (live) setError(`Medication check failed: ${e.message}`); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReview, startKey, patientId, wizard, answers]);
+  }, [isReview, atDecision, startKey, patientId, wizard, answers]);
   const needReason = Object.entries(startHits).filter(([code, hits]) => hits.some((h) => (h.severity === "red" || h.requiresReview)) && (overrides[code]?.trim().length ?? 0) < 3).map(([c]) => c);
   const assessment = useMemo(() => (ctx && def.assess ? def.assess(answers, ctx) : null), [ctx, def, answers]);
+  const dv = useMemo(() => (ctx && atDecision ? decisionView(wizard, answers, ctx) : null), [ctx, atDecision, wizard, answers]);
   // guideline suggestions for every question, from the record and the answers so far
   const suggestions = useMemo(() => {
     const out: Record<string, Suggestion[]> = {};
@@ -212,6 +221,102 @@ export function WizardDrawer({
       setBusy(false);
     }
   }
+  const renderQ = (q: Question) => {
+    if (!ctx) return null;
+              const sug = suggestions[q.id] ?? [];
+              const recVals = sug.map((x) => x.value);
+              const label = (v: string) => q.options?.find((o) => o.value === v)?.label ?? v;
+              const pending = sug.filter((x) => !isChosen(q.id, x.value));
+              return (
+              <div className="q" key={q.id}>
+                <div className="label">{q.label}{autoFilled.includes(q.id) && <span className="prefilled" title="Filled in from the guideline suggestion: change it if it does not fit">suggested</span>}</div>
+                {q.help && <details className="question-help"><summary>Details</summary><div className="help">{q.help}</div></details>}
+                {sug.length > 0 && (
+                  <details className="guide guide-compact">
+                    <summary className="guide-head">
+                      <span>Guideline suggests</span>
+                      {pending.length > 0 ? (
+                        <button type="button" className="btn ghost small" onClick={(e) => { e.preventDefault(); applySuggestions(q.id); }}>Apply</button>
+                      ) : (
+                        <span className="guide-done"><Check size={14} strokeWidth={3} /> Applied</span>
+                      )}
+                    </summary>
+                    <ul>
+                      {sug.map((x) => (
+                        <li key={x.value} className={isChosen(q.id, x.value) ? "on" : ""}>
+                          <b>{label(x.value)}</b> — {x.why}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {q.type === "multi" && (
+                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} rec={recVals} exclusive={q.exclusive} />
+                )}
+                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) && !recVals.length ? (
+                  <Segmented label={q.label} options={optionsFor(q, ctx)} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} />
+                ) : (
+                  <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} rec={recVals} />
+                ))}
+                {q.type === "date" && (
+                  <DateInput className="input" style={{ maxWidth: 220 }} aria-label={q.label} min={ctx.today} value={(answers[q.id] as string) ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                )}
+                {["recheck", "review"].includes(q.id) && answers[q.id] != null && answers[q.id] !== "none" && (() => {
+                  const titles = q.id === "recheck" ? [def.recheck?.title ?? "Renal function and potassium check"] : [String(answers.review).startsWith("phone-") ? "Phone follow-up" : "Clinic review"];
+                  return outcome.filter(o => o.kind === "plan" && titles.includes(o.title)).map(o => o.kind === "plan" && <label key={o.title} className="manual-date"><span>Manual date</span><DateInput className="input" min={ctx.today} aria-label={`${q.label} exact date`} value={dueDates[o.title] ?? o.dueDate} onChange={e => setDueDates(d => ({...d,[o.title]:e.target.value}))} /></label>);
+                })()}
+                {q.type === "dose" && (() => {
+                  const { med, options } = doseChoices(ctx, q);
+                  if (!med) return <div className="infobox">No active medication of this type is recorded.</div>;
+                  if (!options.length) return <div className="infobox">{med.name} is already at {doseLabel(MEDICATION[med.code], med.doseValue, med.doseUnit)}, the lowest dose in the catalogue: go back one question and choose Hold instead.</div>;
+                  return (
+                    <>
+                      <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>
+                        {med.name} · now {doseLabel(MEDICATION[med.code], med.doseValue, med.doseUnit)}
+                      </div>
+                      <SingleChoice label={q.label} options={options} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} />
+                    </>
+                  );
+                })()}
+              </div>
+              );
+  };
+  const outcomeBlock = (heading: string) => !ctx ? null : (
+
+            <div className="q">
+              <div className="label">{heading}</div>
+              {invalidDates && <div className="help">Complete the manual date to confirm.</div>}
+              {!!startKey && checkedStart !== startKey && <div className="help" role="status">Checking the proposed medicines together…</div>}
+              {needReason.length > 0 && <div className="infobox warn" role="status">Review the medication warnings below and enter a reason before confirming.</div>}
+              <div className="outcome">
+                {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
+                {[...outcome].sort((x, y) => OUT_RANK[x.kind] - OUT_RANK[y.kind]).map((o, i) => {
+                  const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
+                  const red = hits.some((h) => (h.severity === "red" || h.requiresReview));
+                  return (
+                    <div key={i} className={hits.length ? "has-hits" : undefined}>
+                      <div className="out-line" data-plan={o.kind === "plan"}>
+                        {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
+                        <span className="grow">{o.label}</span>
+                        {o.kind === "plan" && (
+                          <DateInput className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
+                        )}
+                      </div>
+                      {o.kind === "start" && hits.length > 0 && (
+                        <div className="out-hits">
+                          {hits.map((h, k) => <div key={k} className={`out-hit sev-${h.severity}`}><AlertTriangle size={14} /> <b>{h.title}</b> <span>{h.detail}</span></div>)}
+                          {red && (
+                            <input className="input" placeholder="Reason to start it anyway (required)" value={overrides[o.code] ?? ""} onChange={(e) => setOverrides((v) => ({ ...v, [o.code]: e.target.value }))} aria-label={`Reason to start ${o.label}`} />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {outcome.some(o => o.kind === "start" || o.kind === "medication") && <div className="help">Medication changes take effect when confirmed.</div>}
+            </div>
+            );
   const Icon = tone === "red" ? AlertTriangle : Activity;
   // the latest value is shown in alarm colours only when it is outside its reference range
   const lastTrend = ctx?.trend?.points.length ? ctx.trend.points[ctx.trend.points.length - 1].value : null;
@@ -237,14 +342,16 @@ export function WizardDrawer({
             <span className="wiz-chain-part cur">{def.title}</span>
           </div>
         )}
-        <ol className="steps" data-caption={`Step ${step + 1} of ${def.steps.length + 1} · ${[...def.steps.map((s) => s.title), "Confirm"][step]}`} style={{ gridTemplateColumns: `repeat(${def.steps.length + 1}, minmax(0, 1fr))` }}>
+        {atDecision ? (
+          <div className="wiz-decision-head">Decision for this patient · from the record and {def.sourceShort ?? "the guideline"}</div>
+        ) : <ol className="steps" data-caption={`Step ${step + 1} of ${def.steps.length + 1} · ${[...def.steps.map((s) => s.title), "Confirm"][step]}`} style={{ gridTemplateColumns: `repeat(${def.steps.length + 1}, minmax(0, 1fr))` }}>
           {[...def.steps.map((s) => s.title), "Confirm"].map((t, i) => (
             <li key={t} className={i < step ? "done" : i === step ? "cur" : ""} aria-current={i === step ? "step" : undefined}>
               <i />
               {i + 1} · {t}
             </li>
           ))}
-        </ol>
+        </ol>}
         </>
       }
       footer={
@@ -253,6 +360,23 @@ export function WizardDrawer({
             <input className="input grow" autoFocus placeholder="Why is no action needed? (required)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for closing the alert" />
             <button className="btn ghost" onClick={() => setDeclining(false)}>Back</button>
             <button className="btn danger" disabled={busy || reason.trim().length < 3} onClick={decline}>Close alert</button>
+          </>
+        ) : atDecision ? (
+          <>
+            <span className="note">
+              {dv && dv.needed.length > 0 ? <span style={{ color: "var(--orange-ink)", fontWeight: 700 }}>Answer “{dv.needed[0].label}” to complete the decision</span> : "Nothing recorded until you confirm"}
+            </span>
+            {recommendationId && <button className="btn ghost small" style={{ color: "var(--ink-3)" }} onClick={() => setDeclining(true)}>No action needed</button>}
+            <span className="end">
+              <button className="btn secondary" onClick={() => { setMode("steps"); setStep(0); }}>Change details</button>
+              {join ? (
+                <button className="btn primary" disabled={!allAnswered || (dv?.needed.length ?? 0) > 0 || (!!startKey && checkedStart !== startKey) || needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
+              ) : (
+                <button className="btn primary" disabled={busy || !allAnswered || (dv?.needed.length ?? 0) > 0 || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} onClick={() => confirm()}>
+                  {busy ? "Recording…" : carried.length ? `Confirm all ${carried.length + 1}` : "Confirm decision"}
+                </button>
+              )}
+            </span>
           </>
         ) : (
           <>
@@ -265,7 +389,7 @@ export function WizardDrawer({
               <button className="btn ghost small" style={{ color: "var(--ink-3)" }} onClick={() => setDeclining(true)}>No action needed</button>
             )}
             <span className="end">
-              <button className="btn secondary" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</button>
+              <button className="btn secondary" onClick={() => (step === 0 ? setMode("decision") : setStep(step - 1))}>{step === 0 ? "Back to decision" : "Back"}</button>
               {!isReview && !missing.length && step < def.steps.length - 1 && (allAnswered ? (
                 <button className="btn secondary" onClick={() => setStep(def.steps.length)}>Review plan</button>
               ) : firstOpen > step + 1 ? (
@@ -346,66 +470,49 @@ export function WizardDrawer({
             </div>
           )}
           {!ctx && !error && <div className="muted">Loading patient data…</div>}
-          {ctx && current &&
-            visibleQuestions(current, answers).map((q) => {
-              const sug = suggestions[q.id] ?? [];
-              const recVals = sug.map((x) => x.value);
-              const label = (v: string) => q.options?.find((o) => o.value === v)?.label ?? v;
-              const pending = sug.filter((x) => !isChosen(q.id, x.value));
-              return (
-              <div className="q" key={q.id}>
-                <div className="label">{q.label}{autoFilled.includes(q.id) && <span className="prefilled" title="Filled in from the guideline suggestion: change it if it does not fit">suggested</span>}</div>
-                {q.help && <details className="question-help"><summary>Details</summary><div className="help">{q.help}</div></details>}
-                {sug.length > 0 && (
-                  <details className="guide guide-compact">
-                    <summary className="guide-head">
-                      <span>Guideline suggests</span>
-                      {pending.length > 0 ? (
-                        <button type="button" className="btn ghost small" onClick={(e) => { e.preventDefault(); applySuggestions(q.id); }}>Apply</button>
-                      ) : (
-                        <span className="guide-done"><Check size={14} strokeWidth={3} /> Applied</span>
-                      )}
-                    </summary>
-                    <ul>
-                      {sug.map((x) => (
-                        <li key={x.value} className={isChosen(q.id, x.value) ? "on" : ""}>
-                          <b>{label(x.value)}</b> — {x.why}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-                {q.type === "multi" && (
-                  <MultiChoice options={optionsFor(q, ctx)} value={(answers[q.id] as string[]) ?? []} onChange={(v) => set(q.id, v)} auto={ctx.detected[q.id] ?? []} rec={recVals} exclusive={q.exclusive} />
-                )}
-                {q.type === "single" && (q.options!.length <= 4 && q.options!.every((o) => o.label.length < 22 && !o.hint) && !recVals.length ? (
-                  <Segmented label={q.label} options={optionsFor(q, ctx)} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} />
-                ) : (
-                  <SingleChoice label={q.label} options={optionsFor(q, ctx)} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} rec={recVals} />
-                ))}
-                {q.type === "date" && (
-                  <DateInput className="input" style={{ maxWidth: 220 }} aria-label={q.label} min={ctx.today} value={(answers[q.id] as string) ?? ""} onChange={(e) => set(q.id, e.target.value)} />
-                )}
-                {["recheck", "review"].includes(q.id) && answers[q.id] != null && answers[q.id] !== "none" && (() => {
-                  const titles = q.id === "recheck" ? [def.recheck?.title ?? "Renal function and potassium check"] : [String(answers.review).startsWith("phone-") ? "Phone follow-up" : "Clinic review"];
-                  return outcome.filter(o => o.kind === "plan" && titles.includes(o.title)).map(o => o.kind === "plan" && <label key={o.title} className="manual-date"><span>Manual date</span><DateInput className="input" min={ctx.today} aria-label={`${q.label} exact date`} value={dueDates[o.title] ?? o.dueDate} onChange={e => setDueDates(d => ({...d,[o.title]:e.target.value}))} /></label>);
-                })()}
-                {q.type === "dose" && (() => {
-                  const { med, options } = doseChoices(ctx, q);
-                  if (!med) return <div className="infobox">No active medication of this type is recorded.</div>;
-                  if (!options.length) return <div className="infobox">{med.name} is already at {doseLabel(MEDICATION[med.code], med.doseValue, med.doseUnit)}, the lowest dose in the catalogue: go back one question and choose Hold instead.</div>;
-                  return (
-                    <>
-                      <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>
-                        {med.name} · now {doseLabel(MEDICATION[med.code], med.doseValue, med.doseUnit)}
-                      </div>
-                      <SingleChoice label={q.label} options={options} value={choiceValue(q.id)} onChange={(v) => set(q.id, v)} />
-                    </>
-                  );
-                })()}
-              </div>
-              );
-            })}
+          {ctx && atDecision && dv && (
+            <div className="wiz-decision">
+              {dv.needed.length > 0 && (
+                <section className="dec-needed" aria-label="Needed for this decision">
+                  <h3>Needed for this decision</h3>
+                  {dv.needed.map(renderQ)}
+                </section>
+              )}
+              {outcomeBlock(dv.needed.length ? "Decision so far" : "Decision")}
+              {dv.why.length > 0 && (
+                <section className="dec-why" aria-label="Why">
+                  <h3>Why</h3>
+                  <ul>{dv.why.map((w) => <li key={w.question + w.label}><b>{w.label}</b> — {w.why}</li>)}</ul>
+                </section>
+              )}
+              {dv.instead.length > 0 && (
+                <section className="dec-instead" aria-label="The guideline also allows">
+                  <h3>The guideline also allows</h3>
+                  {dv.instead.map((x) => (
+                    <div className="dec-alt" key={x.question + x.value}>
+                      <div><b>{x.label}</b><span>{x.why}</span></div>
+                      <button type="button" className="btn secondary small" onClick={() => setAnswers((a) => applyInstead(a, wizard, x.question, x.value, x.replaces))}>Use this</button>
+                    </div>
+                  ))}
+                </section>
+              )}
+              {dv.check.length > 0 && (
+                <section className="dec-check" aria-label="Look at before confirming">
+                  <h3>Look at before confirming</h3>
+                  <ul>{dv.check.map((c) => <li key={c}>{c}</li>)}</ul>
+                </section>
+              )}
+              {assessment && (assessment.rows.length > 0 || assessment.recommendations.length > 0) && (
+                <details className="dec-assess">
+                  <summary>{assessment.heading}</summary>
+                  <dl>{assessment.rows.map((r) => <div key={r.label} className={r.tone ? `tone-${r.tone}` : ""}><dt>{r.label}</dt><dd>{r.value}</dd></div>)}</dl>
+                  {assessment.recommendations.length > 0 && <ol>{assessment.recommendations.map((t, i) => <li key={i}>{t}</li>)}</ol>}
+                </details>
+              )}
+            </div>
+          )}
+          {ctx && current && !atDecision &&
+            visibleQuestions(current, answers).map(renderQ)}
           {ctx && isReview && carried.length > 0 && (
             <section className="wiz-carried" aria-label="Earlier parts of this pathway">
               {carried.map((p, i) => (
@@ -465,41 +572,7 @@ export function WizardDrawer({
               <div className="help">That is your decision; it is recorded with the plan.</div>
             </div>
           )}
-          {ctx && isReview && (
-            <div className="q">
-              <div className="label">This will be recorded</div>
-              {invalidDates && <div className="help">Complete the manual date to confirm.</div>}
-              {!!startKey && checkedStart !== startKey && <div className="help" role="status">Checking the proposed medicines together…</div>}
-              {needReason.length > 0 && <div className="infobox warn" role="status">Review the medication warnings below and enter a reason before confirming.</div>}
-              <div className="outcome">
-                {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
-                {outcome.map((o, i) => {
-                  const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
-                  const red = hits.some((h) => (h.severity === "red" || h.requiresReview));
-                  return (
-                    <div key={i} className={hits.length ? "has-hits" : undefined}>
-                      <div className="out-line" data-plan={o.kind === "plan"}>
-                        {o.kind === "medication" || o.kind === "start" ? <Pill size={18} /> : o.kind === "condition" ? <ClipboardCheck size={18} /> : <CalendarCheck size={18} />}
-                        <span className="grow">{o.label}</span>
-                        {o.kind === "plan" && (
-                          <DateInput className="sl-input" min={ctx.today} value={dueDates[o.title] ?? o.dueDate} onChange={(e) => setDueDates((d) => ({ ...d, [o.title]: e.target.value }))} aria-label={`${o.title} due date`} />
-                        )}
-                      </div>
-                      {o.kind === "start" && hits.length > 0 && (
-                        <div className="out-hits">
-                          {hits.map((h, k) => <div key={k} className={`out-hit sev-${h.severity}`}><AlertTriangle size={14} /> <b>{h.title}</b> <span>{h.detail}</span></div>)}
-                          {red && (
-                            <input className="input" placeholder="Reason to start it anyway (required)" value={overrides[o.code] ?? ""} onChange={(e) => setOverrides((v) => ({ ...v, [o.code]: e.target.value }))} aria-label={`Reason to start ${o.label}`} />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {outcome.some(o => o.kind === "start" || o.kind === "medication") && <div className="help">Medication changes take effect when confirmed.</div>}
-            </div>
-          )}
+          {ctx && isReview && outcomeBlock("This will be recorded")}
           <details className="wizard-reference">
             <summary><Info size={16} /> Guidance & references <span>{def.sourceShort ?? "Guideline"}</span></summary>
             <p className="help">{def.note}</p>

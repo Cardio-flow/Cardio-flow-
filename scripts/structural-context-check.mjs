@@ -13,13 +13,22 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 page.setDefaultTimeout(15000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-const radio = (label, name) =>
-  page
+// pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
+const steps = async () => {
+  const b = page.getByRole("button", { name: "Change details", exact: true });
+  if (await b.count() && await b.last().isVisible()) await b.last().click();
+};
+const radio = async (label, name) => {
+  await steps();
+  await page
     .getByRole("radiogroup", { name: label, exact: true })
     .getByRole("radio", { name, exact: true })
     .click();
-const next = () =>
-  page.getByRole("button", { name: /^Continue( to|$)/ }).click();
+};
+const next = async () => {
+  await steps();
+  await page.getByRole("button", { name: /^Continue( to|$)/ }).click();
+};
 const dialog = (name) => page.getByRole("dialog", { name, exact: true });
 const date = (label, value) =>
   page

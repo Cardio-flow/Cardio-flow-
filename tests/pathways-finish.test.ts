@@ -53,7 +53,7 @@ test("every pathway closes with a summary; the generic one carries findings, fol
   const a = WIZARDS.hyperkalaemia.assess!({ result: "confirmed", symptoms: ["none"], ecg: "none", contributors: ["mra"], actions: ["reduce-mra"], recheck: "7", review: "clinic-7" }, ctx);
   assert.match(a.heading, /Hyperkalaemia review: summary/);
   assert.ok(a.rows.some((r) => r.label === "Follow-up" && /Renal function and potassium check · /.test(r.value)));
-  assert.ok(a.recommendations.some((x) => /K >5\.5–6\.0: halve the MRA dose/.test(x)));
+  assert.ok(a.recommendations.some((x) => /K 5\.8 >5\.5: halve Spironolactone/.test(x)));
 });
 
 test("a medicine started by a pathway with a red pre-start hit needs a reason (409 without), recorded with the start", async () => {

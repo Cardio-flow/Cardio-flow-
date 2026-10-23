@@ -37,13 +37,14 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
           continue;
         }
         if (q.type === "date") {
-          const proposed=suggest(wizardId,q.id,answers,ctx)[0]?.value;
+          const proposed=suggest(wizardId,q.id,answers,ctx).filter((x)=>!x.alt)[0]?.value;
           if(proposed) {answers[q.id]=proposed;suggested.add(q.id);filled=true;}
           continue;
         }
         if (!q.options) continue;
         const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
-        const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
+        // an alternative is offered beside the decision, never taken by default
+        const vals = suggest(wizardId, q.id, answers, ctx, ok).filter((x) => !x.alt).map((x) => x.value);
         // a list read entirely from the record (not a symptom or clinical sign) with nothing found: "none"
         if (!vals.length && RECORD_LISTS[wizardId]?.includes(q.id) && ok.has("none")) vals.push("none");
         // only "none" can be chosen (e.g. nothing to stop among the medicines taken): nothing to ask

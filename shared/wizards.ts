@@ -86,6 +86,10 @@ export type WizardDef = {
   outcome?: (answers: Answers, ctx: WizardContext) => OutcomeItem[];
   // closing summary shown before confirming and saved with the decision
   assess?: (answers: Answers, ctx: WizardContext) => Assessment;
+  // decision-first view (23 Oct 2026): questions that must be answered before this patient's decision stands
+  // (beyond those marked required), and the points the clinician should look at, shown as a reminder box
+  needed?: (answers: Answers, ctx: WizardContext) => string[];
+  checks?: (answers: Answers, ctx: WizardContext) => string[];
   // side-panel facts and trend (codes from the catalogue)
   facts?: string[];
   trend?: string;
@@ -195,7 +199,24 @@ export const WIZARDS: Record<string, WizardDef> = {
     id: "hyperkalaemia",
     title: "Hyperkalaemia review",
     tone: "red",
-    note: "Options are choices for the clinician. CardioFlow does not pick one, and never changes a dose on its own.",
+    note: "The decision is computed from the latest potassium, the medicines and doses on the list and the record, with the source on each line. Nothing changes until you confirm. Acute treatment of severe hyperkalaemia is not dosed here: use the hospital protocol.",
+    source: "ESC HF 2021 (+2023 update) and its practical guidance on RAAS inhibitors and MRAs: K >5.5 halve the dose, K >6.0 stop, recheck 1–2 weeks after a change; potassium binders may be considered to enable RAAS inhibitor therapy (IIb). Patiromer: Veltassa SmPC (start 8.4 g once daily, adjust at ≥1-week intervals, monitor magnesium). UK Kidney Association 2023: ECG for K ≥6.0; K ≥6.5 is severe.",
+    sourceShort: "ESC HF 2021 · SmPC",
+    needed: (_a, ctx) => {
+      const k = ctx.values?.potassium?.value ?? null;
+      return k != null && k > 6.0 ? ["ecg"] : [];
+    },
+    checks: (_a, ctx) => {
+      const v = (c: string) => ctx.values?.[c]?.value ?? null, pv = (c: string) => ctx.values?.[c]?.prev ?? null;
+      const k = v("potassium"), cr = v("creatinine"), cr0 = pv("creatinine");
+      const kRaising = ctx.meds.filter((m) => m.tags.some((t) => ["nsaid", "potassium-sparing", "trimethoprim", "heparin"].includes(t)) && !m.tags.includes("mra")).map((m) => m.name);
+      return [
+        "Sample: haemolysed, delayed or taken above a drip? If so, repeat before acting (“Possibly spurious, repeat sample” below)",
+        k != null && k > 6.0 ? "12-lead ECG today: peaked T waves, wide QRS, bradycardia" : "",
+        cr != null && cr0 != null && cr > cr0 ? `Creatinine ${Math.round(cr0)} → ${Math.round(cr)} µmol/L: volume depletion or AKI? Treat the cause first` : "Volume depletion, vomiting or diarrhoea: treat the cause first",
+        kRaising.length ? `Other potassium-raising medicines on the list: ${kRaising.join(", ")}` : "Ask about NSAIDs, trimethoprim, potassium supplements and salt substitutes",
+      ].filter(Boolean);
+    },
     steps: [
       {
         id: "data",
@@ -232,7 +253,6 @@ export const WIZARDS: Record<string, WizardDef> = {
             id: "ecg",
             label: "ECG changes of hyperkalaemia?",
             type: "single",
-            required: true,
             options: [
               { value: "none", label: "None" },
               { value: "present", label: "Present" },
@@ -288,8 +308,9 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "K >6.0 (ESC HF practical guidance)" },
               { value: "stop-supplement", label: "Stop potassium supplements" },
+              { value: "stop-nsaid", label: "Stop the NSAID", requires: ["nsaid"], effects: { stop: ["nsaid"] } },
               { value: "diet-advice", label: "Dietary potassium advice" },
-              { value: "binder", label: "Consider potassium binder" },
+              { value: "binder", label: "Start a potassium binder (patiromer) to keep RAAS inhibitor / MRA doses" },
               { value: "urgent", label: "Same-day urgent assessment" },
             ],
           },
@@ -784,7 +805,12 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
     }
     if (actions.includes("diet-advice")) out.push({ kind: "plan", category: "education", title: "Dietary potassium advice", dueDate: today, completesOn: { type: "manual" }, label: "" });
-    if (actions.includes("binder")) out.push({ kind: "plan", category: "medication", title: "Potassium binder decision", dueDate: today, completesOn: { type: "manual" }, label: "" });
+    // patiromer at the label start dose (Veltassa SmPC: 8.4 g once daily, separated ≥3 h from other oral
+    // medicines; adjust at ≥1-week intervals); already on a binder: review its dose instead
+    if (actions.includes("binder")) {
+      if (ctx.meds.some((m) => m.tags.includes("k-binder"))) out.push({ kind: "plan", category: "medication", title: "Potassium binder dose review", dueDate: today, completesOn: { type: "manual" }, label: "" });
+      else out.push({ kind: "start", code: "patiromer", doseValue: 8.4, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Patiromer 8.4 g once daily: start (Veltassa SmPC start dose; take 3 h apart from other oral medicines)" });
+    }
     if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit" }, label: "" });
   }
   if (wizardId === "renal-function") {

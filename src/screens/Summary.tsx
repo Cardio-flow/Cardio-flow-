@@ -1,3 +1,4 @@
+import { isRoutine } from "../../shared/routine";
 import { useEffect, useState } from "react";
 import { MedicationReviewLink } from "./MedicationReview";
 import { Pulse, toneOf } from "./Pulse";
@@ -72,7 +73,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
   const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
   const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
-  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
+  const tabs: [string, string, number | null][] = [["decide", "Decide", (s.attention ?? []).filter((a: any) => !isRoutine(a)).length], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
   if (narrow)
     return (
       <main className="page overview-page">

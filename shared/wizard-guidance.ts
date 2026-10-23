@@ -32,7 +32,10 @@ import { STRATA_LABEL } from "./ph.js";
 import { ferinjectPlan, ironInputs } from "./wizards-iron.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
-export type Suggestion = { value: string; why: string };
+// alt: an option the guideline also allows, offered beside the decision instead of being taken by default;
+// replaces: the values it takes the place of when chosen
+// silent: a default taken without comment (not listed under "Why")
+export type Suggestion = { value: string; why: string; alt?: boolean; replaces?: string[]; silent?: boolean };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
 
 const inrRange = (c: any) => {
@@ -49,6 +52,7 @@ const list = (a: Answers, id: string) => ((a[id] as string[] | undefined) ?? [])
 const is = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 const n1 = (x: number) => (Math.round(x * 10) / 10).toString();
 const S = (value: string, why: string): Suggestion => ({ value, why });
+const ALT = (value: string, why: string, replaces: string[] = []): Suggestion => ({ value, why, alt: true, replaces });
 // the medicine with this tag is already at its lowest catalogue dose (no "reduce" possible: hold instead)
 const lowest = (c: WizardContext, tag: string) => {
   const m = c.meds.find((x) => x.tags.includes(tag));
@@ -99,31 +103,41 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   },
   // ---------------- Heart failure ----------------
   hyperkalaemia: {
+    // acted on as reported; a doubtful sample is the alternative
     result: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && k > 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
+      return [k != null && { ...S("confirmed", `K ${n1(k)} acted on as reported`), silent: true }, k != null && k <= 6.5 && ALT("repeat", "Haemolysed, delayed or unexpected result: repeat before changing therapy")];
     },
     actions: (a, c) => {
       const k = val(c, "potassium");
       if (k == null) return [];
       const ecg = a.ecg === "present", sym = list(a, "symptoms").length > 0;
+      const mra = c.meds.find((m) => m.tags.includes("mra")), raas = c.meds.find((m) => m.tags.includes("raas"));
+      const keep = ["reduce-mra", "hold-mra", "reduce-raas", "hold-raas"];
       return [
-        (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
-        k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K >5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
-        // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold instead (Inspra SmPC: 25 mg every other day, or withhold)
-        k > 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K >5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
-        k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `K >5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && !on(c, "mra") && lowest(c, "raas") && S("hold-raas", "K >5.5–6.0 on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)"),
-        k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
-        k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),
-        (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and K-containing salt substitutes"),
+        (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment by the hospital protocol (UK Kidney Association 2023: K ≥6.5 is severe)`),
+        k > 6.0 && mra && S("hold-mra", `K ${n1(k)} >6.0: stop ${mra.name} (ESC HF practical guidance)`),
+        k > 6.0 && raas && S("hold-raas", `K ${n1(k)} >6.0: stop ${raas.name} (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && mra && !mraLowest(c) && S("reduce-mra", `K ${n1(k)} >5.5: halve ${mra.name} (ESC HF practical guidance)`),
+        // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold (Inspra SmPC: 25 mg every other day, or withhold)
+        k > 5.5 && k <= 6.0 && mra && mraLowest(c) && S("hold-mra", `K ${n1(k)} >5.5 on the lowest ${mra.name} dose: hold it (label: every other day, or withhold)`),
+        k > 5.5 && k <= 6.0 && !mra && raas && !lowest(c, "raas") && S("reduce-raas", `K ${n1(k)} >5.5: halve ${raas.name} (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && !mra && raas && lowest(c, "raas") && S("hold-raas", `K ${n1(k)} >5.5 on the lowest ${raas.name} dose: hold it (ESC HF practical guidance)`),
+        k > 5.0 && k <= 5.5 && (mra || raas) && S("continue", `K ${n1(k)} ≤5.5: keep the current doses — up to 5.5 is acceptable on RAAS inhibitor / MRA therapy (ESC HF practical guidance)`),
+        k > 5.0 && k <= 6.0 && (mra || raas) && !c.meds.some((m) => m.tags.includes("k-binder")) &&
+          ALT("binder", "Keep the RAAS inhibitor / MRA dose with a potassium binder instead (ESC HF 2021, IIb); patiromer 8.4 g once daily (SmPC)", keep),
+        on(c, "nsaid") && S("stop-nsaid", `Stop ${c.meds.filter((m) => m.tags.includes("nsaid")).map((m) => m.name).join(", ")}: NSAIDs raise potassium and worsen HF and renal function (ESC HF 2021: avoid, class III)`),
+        (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and potassium-containing salt substitutes"),
         k > 5.0 && S("diet-advice", "Limit high-potassium foods and salt substitutes"),
       ];
     },
-    recheck: (_a, c) => {
+    // the blood test is the follow-up; a visit only if the clinician wants one
+    review: (a) => [!is(a, "actions", "urgent") && { ...S("none", "Follow-up is the blood test"), silent: true }],
+    recheck: (a, c) => {
       const k = val(c, "potassium");
-      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k > 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
+      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment")
+        : k > 5.5 || is(a, "actions", "binder") ? S("7", is(a, "actions", "binder") ? "Binder started: recheck potassium and magnesium after 1 week before any dose change (Veltassa SmPC)" : "Recheck potassium and creatinine 1–2 weeks after the dose change (ESC HF practical guidance)")
+        : null)];
     },
   },
   "iv-iron": {
