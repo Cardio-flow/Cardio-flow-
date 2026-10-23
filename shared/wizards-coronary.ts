@@ -1,3 +1,4 @@
+import { statinUp } from "./start-doses.js";
 // Coronary pathways (coronary module, 4 Oct 2026). Content only; the one wizard engine renders them.
 //
 // Antithrombotic plan after ACS / PCI — dates are counted from the PCI (or the ACS when there was
@@ -408,10 +409,7 @@ CORONARY_WIZARDS["acs-discharge"].outcome = (a: Answers, ctx: WizardContext): Ou
   for (const v of pick("start")) {
     const m = ACS_MEDS[v];
     if (m && !ctx.meds.some((x) => x.code === m.code)) out.push({ kind: "start", code: m.code, doseValue: m.dose, frequency: m.frequency, indication: "cad", label: `${m.label}: start` });
-    if (v === "intensify") {
-      const st = ctx.meds.find((x) => x.tags.includes("statin"));
-      if (st) out.push(plan("medication", `Increase ${st.name.toLowerCase()} to high intensity (atorvastatin 40–80 mg / rosuvastatin 20–40 mg)`, ctx.today, { type: "manual" }, st.id));
-    }
+    if (v === "intensify") out.push(...statinUp(ctx));
   }
   const prevent = pick("prevent");
   const has = (re: RegExp) => (ctx.planned ?? []).some((t) => re.test(t));
@@ -586,10 +584,7 @@ CORONARY_WIZARDS["after-cabg"].outcome = (a: Answers, ctx: WizardContext): Outco
   const meds = ((a.meds as string[]) ?? []).filter((v) => v !== "none");
   if (meds.includes("aspirin") && !ctx.meds.some((m) => m.code === "aspirin")) out.push({ kind: "start", code: "aspirin", doseValue: 100, frequency: "OD", indication: "cad", label: "Aspirin 100 mg daily: start (long term after CABG)" });
   if (meds.includes("statin") && !ctx.meds.some((m) => m.tags.includes("statin"))) out.push({ kind: "start", code: ACS_MEDS.statin.code, doseValue: ACS_MEDS.statin.dose, frequency: "OD", indication: "cad", label: `${ACS_MEDS.statin.label}: start` });
-  if (meds.includes("intensify")) {
-    const st = ctx.meds.find((m) => m.tags.includes("statin"));
-    if (st) out.push(plan("medication", "Increase the statin to high intensity (atorvastatin 40–80 mg / rosuvastatin 20–40 mg)", ctx.today, { type: "manual" }, st.id));
-  }
+  if (meds.includes("intensify")) out.push(...statinUp(ctx));
   if (meds.includes("p2y12")) {
     const p2 = ctx.meds.find((m) => m.tags.includes("p2y12"));
     out.push(plan("medication", p2 ? `Resume ${p2.name.toLowerCase()} after CABG` : "Resume a P2Y12 inhibitor after CABG", ctx.today, { type: "manual" }, p2?.id ?? null));

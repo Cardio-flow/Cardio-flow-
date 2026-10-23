@@ -163,8 +163,10 @@ test("diabetes pathway: offers only what fits, records brands, stops unsafe drug
   const st = await loadState(db, pid);
   assert.equal(st.meds.find((m) => m.code === "glimepiride")!.doseValue, 2);
   const titles = out.outcome.filter((o) => o.kind === "plan").map((o: any) => o.title);
-  assert.ok(titles.includes("Start a GLP-1 RA with proven benefit: Semaglutide (Ozempic), Dulaglutide (Trulicity) or Liraglutide (Victoza)"), titles.join(" | "));
-  assert.ok(titles.includes("Start finerenone (Kerendia); potassium at 4 weeks"));
+  // label start doses (23 Oct 2026): semaglutide 0.25 mg weekly is started; finerenone needs an eGFR first
+  assert.ok(out.outcome.some((o: any) => o.kind === "start" && o.code === "semaglutide" && o.doseValue === 0.25), JSON.stringify(out.outcome));
+  assert.ok(out.outcome.some((o: any) => o.kind === "note" && /finerenone starting dose depends on it/.test(o.label)));
+  assert.equal(st.meds.find((m) => m.code === "semaglutide")?.status, "active");
   assert.ok(titles.includes("HbA1c") && titles.includes("Diabetic retinal screening") && titles.includes("Clinic review"));
   await tx((q) => reassess(q, pid, "sandbox", out.changed));
   assert.equal(await one(pid, "dm.hf-unsafe-agent"), undefined, "pioglitazone alert closes once stopped");

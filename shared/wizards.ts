@@ -28,6 +28,7 @@ import type { MedicationReviewContext } from "./medication-review.js";
 import { MEDICATION_WIZARDS } from "./wizards-medication.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
+import { startItem } from "./start-doses.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -681,6 +682,24 @@ function closingSummary(def: WizardDef) {
     return { heading: `${def.title}: summary`, rows, recommendations: recs };
   };
 }
+// starts with their label doses for pathways whose options name a drug (23 Oct 2026; shared/start-doses.ts)
+const withStarts = (id: string, f: (a: Answers, ctx: WizardContext) => (OutcomeItem | null)[]) => {
+  const w = WIZARDS[id]; if (!w) return;
+  const prev = w.outcome;
+  w.outcome = (a, ctx) => [...(prev?.(a, ctx) ?? []), ...(f(a, ctx).filter(Boolean) as OutcomeItem[])];
+};
+const picked = (a: Answers, q: string, v: string) => (Array.isArray(a[q]) ? (a[q] as string[]).includes(v) : a[q] === v);
+withStarts("diabetes", (a, ctx) => [
+  picked(a, "protect", "sglt2") ? startItem("sglt2", ctx, "Type 2 diabetes: heart and kidney protection", "sglt2") : null,
+  picked(a, "protect", "glp1") ? startItem("glp1", ctx, "Type 2 diabetes: cardiovascular protection", "glp1") : null,
+  picked(a, "protect", "finerenone") ? startItem("finerenone", ctx, "Type 2 diabetes with albuminuric CKD", "mra") : null,
+  picked(a, "lower", "metformin") ? startItem("metformin", ctx, "diabetes", "metformin") : null,
+  picked(a, "lower", "tirzepatide") ? startItem("tirzepatide", ctx, "diabetes", "glp1") : null,
+  picked(a, "lower", "dpp4") ? startItem("dpp4", ctx, "diabetes", "dpp4") : null,
+  picked(a, "lower", "gliclazide") || picked(a, "safety", "switch-glib") ? startItem("gliclazide", ctx, "diabetes") : null,
+]);
+withStarts("bleeding", (a, ctx) => [picked(a, "actions", "ppi") ? startItem("ppi", ctx, "GI protection on antithrombotic therapy", "ppi") : null]);
+withStarts("low-potassium", (a, ctx) => [picked(a, "actions", "mra") ? startItem("mra", ctx, "hf", "mra") : null]);
 for (const w of Object.values(WIZARDS)) w.assess ??= closingSummary(w);
 // link each "reduce" option to its lower-dose question, so it is offered only when a lower dose exists
 for (const w of Object.values(WIZARDS))
@@ -842,9 +861,10 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   if (wizardId === "congestion") {
     if (red.length || actions.includes("admit")) plan("follow_up", red.length ? "Same-day hospital assessment (red flag)" : "Admission for IV diuretics", 0, { type: "visit" });
     if (actions.includes("increase-loop")) change("loop", "loopDose", "increase");
-    if (actions.includes("start-loop")) plan("medication", "Start a loop diuretic (dose by clinician)", 0);
-    if (actions.includes("thiazide")) plan("medication", "Short thiazide-type diuretic course (sequential nephron blockade)", 0);
-    if (actions.includes("sglt2") && !ctx.meds.some((m) => m.tags.includes("sglt2"))) plan("medication", "Start an SGLT2 inhibitor", 0);
+    // starting doses from the label / guideline (shared/start-doses.ts)
+    if (actions.includes("start-loop")) { const i = startItem("loop", ctx, "hf", "loop"); if (i) out.push(i); }
+    if (actions.includes("thiazide")) plan("medication", "Metolazone 2.5 mg once daily, short course (HFA 2019 range 2.5–10 mg): weight, sodium, potassium and creatinine in 2–3 days", 0);
+    if (actions.includes("sglt2")) { const i = startItem("sglt2", ctx, "hf", "sglt2"); if (i) out.push(i); }
     if (actions.includes("precipitant")) plan("other", "Treat the precipitant: " + (((answers.precipitants as string[]) ?? []).join(", ") || "as documented"), 0);
     if (actions.includes("self-care")) plan("education", "Daily weights, flexible diuretic, salt and fluid advice", 0);
   }
