@@ -67,3 +67,17 @@ test("K 6.6: same-day emergency treatment (not dosed here)", () => {
   assert.ok(out.some((o) => o.kind === "plan" && /Same-day urgent assessment/.test(o.title)));
   assert.ok(!out.some((o) => o.kind === "start"), "no acute drug is dosed");
 });
+
+test("Lokelma instead: keep the doses, 5 g once daily (SmPC maintenance; correction phase not dosed), recheck set by the clinician", () => {
+  const c = ctx(5.8, [spiro, arni]);
+  const { answers } = prefill("hyperkalaemia", c);
+  const alt = decisionView("hyperkalaemia", answers, c).instead.find((x) => x.value === "binder-szc")!;
+  assert.match(alt.why, /400 mg sodium/);
+  const a2 = applyInstead({ ...answers, recheck: undefined as any }, "hyperkalaemia", alt.question, alt.value, alt.replaces);
+  const out = buildOutcome("hyperkalaemia", a2, c);
+  const start = out.find((o) => o.kind === "start") as any;
+  assert.equal(start.code, "sodium-zirconium-cyclosilicate");
+  assert.equal(start.doseValue, 5);
+  assert.ok(!out.some((o) => o.kind === "medication" && /Spironolactone/.test(o.label)));
+  assert.deepEqual(decisionView("hyperkalaemia", a2, c).needed.map((q) => q.id), ["recheck"]);
+});

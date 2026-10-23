@@ -125,7 +125,9 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         k > 5.5 && k <= 6.0 && !mra && raas && lowest(c, "raas") && S("hold-raas", `K ${n1(k)} >5.5 on the lowest ${raas.name} dose: hold it (ESC HF practical guidance)`),
         k > 5.0 && k <= 5.5 && (mra || raas) && S("continue", `K ${n1(k)} ≤5.5: keep the current doses — up to 5.5 is acceptable on RAAS inhibitor / MRA therapy (ESC HF practical guidance)`),
         k > 5.0 && k <= 6.0 && (mra || raas) && !c.meds.some((m) => m.tags.includes("k-binder")) &&
-          ALT("binder", "Keep the RAAS inhibitor / MRA dose with a potassium binder instead (ESC HF 2021, IIb); patiromer 8.4 g once daily (SmPC)", keep),
+          ALT("binder", "Keep the RAAS inhibitor / MRA dose with a potassium binder instead (ESC HF 2021, IIb): patiromer 8.4 g once daily (Veltassa SmPC start dose)", keep),
+        k > 5.0 && k <= 6.0 && (mra || raas) && !c.meds.some((m) => m.tags.includes("k-binder")) &&
+          ALT("binder-szc", "Or with sodium zirconium cyclosilicate (ESC HF 2021, IIb): 5 g once daily (Lokelma SmPC maintenance); about 400 mg sodium per 5 g — watch for oedema in HF (SmPC)", keep),
         on(c, "nsaid") && S("stop-nsaid", `Stop ${c.meds.filter((m) => m.tags.includes("nsaid")).map((m) => m.name).join(", ")}: NSAIDs raise potassium and worsen HF and renal function (ESC HF 2021: avoid, class III)`),
         (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and potassium-containing salt substitutes"),
         k > 5.0 && S("diet-advice", "Limit high-potassium foods and salt substitutes"),
@@ -135,6 +137,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     review: (a) => [!is(a, "actions", "urgent") && { ...S("none", "Follow-up is the blood test"), silent: true }],
     recheck: (a, c) => {
       const k = val(c, "potassium");
+      // Lokelma: the SmPC asks for regular potassium monitoring without a fixed first interval — the clinician sets it
+      if (k != null && k <= 6.0 && is(a, "actions", "binder-szc")) return [];
       return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment")
         : k > 5.5 || is(a, "actions", "binder") ? S("7", is(a, "actions", "binder") ? "Binder started: recheck potassium and magnesium after 1 week before any dose change (Veltassa SmPC)" : "Recheck potassium and creatinine 1–2 weeks after the dose change (ESC HF practical guidance)")
         : null)];

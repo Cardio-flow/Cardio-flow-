@@ -310,7 +310,8 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "stop-supplement", label: "Stop potassium supplements" },
               { value: "stop-nsaid", label: "Stop the NSAID", requires: ["nsaid"], effects: { stop: ["nsaid"] } },
               { value: "diet-advice", label: "Dietary potassium advice" },
-              { value: "binder", label: "Start a potassium binder (patiromer) to keep RAAS inhibitor / MRA doses" },
+              { value: "binder", label: "Start patiromer (Veltassa) to keep RAAS inhibitor / MRA doses" },
+              { value: "binder-szc", label: "Start sodium zirconium cyclosilicate (Lokelma) to keep RAAS inhibitor / MRA doses" },
               { value: "urgent", label: "Same-day urgent assessment" },
             ],
           },
@@ -807,6 +808,10 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("diet-advice")) out.push({ kind: "plan", category: "education", title: "Dietary potassium advice", dueDate: today, completesOn: { type: "manual" }, label: "" });
     // patiromer at the label start dose (Veltassa SmPC: 8.4 g once daily, separated ≥3 h from other oral
     // medicines; adjust at ≥1-week intervals); already on a binder: review its dose instead
+    // sodium zirconium cyclosilicate at the label maintenance dose (Lokelma SmPC: 5 g once daily); the
+    // 10 g three-times-daily correction phase is an acute regimen and is not dosed here
+    if (actions.includes("binder-szc") && !ctx.meds.some((m) => m.tags.includes("k-binder")))
+      out.push({ kind: "start", code: "sodium-zirconium-cyclosilicate", doseValue: 5, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Sodium zirconium cyclosilicate (Lokelma) 5 g once daily: start (SmPC maintenance dose; any correction phase is prescribed separately)" });
     if (actions.includes("binder")) {
       if (ctx.meds.some((m) => m.tags.includes("k-binder"))) out.push({ kind: "plan", category: "medication", title: "Potassium binder dose review", dueDate: today, completesOn: { type: "manual" }, label: "" });
       else out.push({ kind: "start", code: "patiromer", doseValue: 8.4, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Patiromer 8.4 g once daily: start (Veltassa SmPC start dose; take 3 h apart from other oral medicines)" });
