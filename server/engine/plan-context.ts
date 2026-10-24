@@ -21,6 +21,8 @@ export function planContext(s: PatientState, p: PlanRow) {
   // Routine follow-up from a red finding must not inherit urgency.
   const urgent =
     p.completes_on?.purpose === "pregnancy-urgent" ||
+    p.completes_on?.purpose === "hyperkalaemia-urgent" ||
+    (p.title === "Same-day urgent assessment" && sources.some(d=>d.wizard === "hyperkalaemia" && Array.isArray(d.answers?.actions) && d.answers.actions.includes("urgent"))) ||
     sources.some(
       (d) =>
         (d.wizard === "pregnancy-plan" && d.answers?.safety === "urgent") ||

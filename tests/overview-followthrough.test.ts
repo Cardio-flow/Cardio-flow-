@@ -196,3 +196,11 @@ test("episode results awaiting review stay in the episode, not duplicated on Tod
   assert.ok(!html.includes("Episode blood panel"));
   assert.match(html, /1 awaiting review/);
 });
+
+test("urgent hyperkalaemia assessment retains urgency without promoting its routine blood tests",()=>{
+  const source={id:"decision",wizard:"hyperkalaemia",ruleId:"hf.hyperkalaemia-review",answers:{actions:["urgent"]}};
+  const p=task({title:"Same-day urgent assessment",decision_sources:[source]});
+  assert.ok(planContext(state([p]),p).urgent);
+  const monitoring=task({title:"Renal function and potassium check",decision_sources:[source]});
+  assert.equal(planContext(state([monitoring]),monitoring).urgent,false);
+});

@@ -839,7 +839,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       if (ctx.meds.some((m) => m.tags.includes("k-binder"))) out.push({ kind: "plan", category: "medication", title: "Potassium binder dose review", dueDate: today, completesOn: { type: "manual" }, label: "" });
       else out.push({ kind: "start", code: "patiromer", doseValue: 8.4, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Patiromer 8.4 g once daily: start (Veltassa SmPC start dose; take 3 h apart from other oral medicines)" });
     }
-    if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit" }, label: "" });
+    if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit", purpose:"hyperkalaemia-urgent" }, label: "" });
   }
   if (wizardId === "renal-function") {
     if (actions.includes("reduce-diuretic")) change("loop", "diureticDose", "decrease");

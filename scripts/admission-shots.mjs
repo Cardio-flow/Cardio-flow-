@@ -83,6 +83,7 @@ try {
     .getByRole("button", { name: /Hyperkalaemia review/ })
     .first()
     .click();
+  await p.getByRole("button",{name:"Change details",exact:true}).click();
   await p.getByText("Is this result reliable?").waitFor();
   await p.getByRole("radio", { name: "Yes, act on it", exact: true }).click();
   await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
