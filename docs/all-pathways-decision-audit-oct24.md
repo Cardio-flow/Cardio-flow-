@@ -93,3 +93,5 @@ Drug/procedure choices requiring specialist protocol, measured anatomy or additi
 - The catalogue browser check passed 132 API previews (66 pathways with sparse and measured records), plus 13 representative phone drawers and a desktop view, with no browser errors or horizontal overflow. It now runs in CI.
 - One-week medication monitoring cannot stand in for the four-week checkpoint. Both dates are verified after a confirmed spironolactone prescription.
 - Screenshots and synthetic logs are local audit artifacts; no real patient records were used. These results verify the implementation, not every possible clinical scenario.
+
+A subsequent hosted CI run passed all 728 unit/integration tests but reproduced a TAVI date-entry timing failure in the development browser server. The date control now synchronises external changes before paint, so pasting the previous date after switching to procedure scheduling cannot target stale text. The scheduling walkthrough explicitly verifies clearing and retaining the entered date. Production build, 72 date/catalogue tests and development-mode structural/date walkthroughs passed after this correction.

@@ -329,8 +329,10 @@ export function DateInput({
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setUTCDate(start.getUTCDate() + i); return d.toISOString().slice(0, 10); });
   const changeMonth = (by: number) => { const d = new Date(first); d.setUTCMonth(d.getUTCMonth() + by); setMonth(d.toISOString().slice(0, 7)); };
   const focusDay = (d: string) => { setFocused(d); setMonth(d.slice(0, 7)); requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>(`[data-day="${d}"]`)?.focus()); };
-  useEffect(() => {
+  useLayoutEffect(() => {
     // a half-typed or invalid date is reported as "" — keep the text so the clinician can finish it
+    // Synchronise external date changes before paint: otherwise a quick paste of
+    // the previous date can hit stale text and emit no change before it clears.
     if (parseShown(text) !== value && !(value === "" && !parseShown(text))) setText(toShown(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);

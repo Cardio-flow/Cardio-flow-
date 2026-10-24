@@ -1,6 +1,6 @@
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic browser regression: encounter corrections, navigation and structural decisions.
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 const base = process.env.CARDIO_BASE_URL || "http://127.0.0.1:4310";
@@ -279,7 +279,11 @@ try {
     "No active infection; prevention plan reviewed",
   );
   await radio("Next step", "Team agreed: schedule intervention");
+  // A referral date must clear when switching to an actual procedure booking.
+  const procedureDate = page.getByRole("textbox", {name:"Work-up / procedure / review date",exact:true});
+  await expect(procedureDate).toHaveValue("");
   await date("Work-up / procedure / review date", T);
+  await expect(procedureDate).toHaveValue(T.split("-").reverse().join("/"));
   await next();
   await page
     .getByText(/Structural CT \/ 3D TOE report/)
