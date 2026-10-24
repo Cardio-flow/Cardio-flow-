@@ -31,7 +31,7 @@ try {
   await p.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
   await p.getByRole("button", { name: "Sample patients", exact: true }).click();
   const patients = await api("/patients?sample=1");
-  const urgent = patients.find((x) => x.name === "Synthetic pregnancy urgent");
+  const urgent = (await api("/patients?sample=1&q=Synthetic%20pregnancy%20urgent")).find((x) => x.name === "Synthetic pregnancy urgent");
   assert.ok(urgent, "Run pregnancy-check.mjs first");
   await p.goto(`${base}/patients/${urgent.id}`);
   const s = await api(`/patients/${urgent.id}/summary`);

@@ -1,3 +1,4 @@
+import { resistantMraEligible } from "./hypertension.js";
 import { addDays } from "./clinical.js";
 import { WIZARDS, buildOutcome, doseChoices, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 
@@ -16,6 +17,7 @@ export function decisionBlocker(id: string, a: Answers, c: WizardContext, dates:
     if(!m || m.status && m.status !== "active" || m.doseValue == null || !m.frequency)
       return "Confirm the active medicine, current dose and frequency before changing its dose";
   }
+  if(id === "htn-resistance" && a.treatment === "mra" && !resistantMraEligible(a,c)) return "Confirm resistant hypertension, current eGFR ≥30 and K ≤4.5, adherence and maximally tolerated doses before adding spironolactone";
   if(id !== "hyperkalaemia") return null;
   const k = c.values?.potassium?.value;
   if(k == null) return "Record potassium before confirming this decision";

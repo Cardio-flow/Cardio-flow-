@@ -1,6 +1,6 @@
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic admission → pathway → decision → plan → discharge walkthrough.
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
 const out = process.argv[2] || "/tmp/admission-shots";
 fs.mkdirSync(out, { recursive: true });
@@ -49,7 +49,7 @@ try {
   });
   await post(`/patients/${pat.id}/observations`, {
     effectiveAt: new Date().toISOString(),
-    items: [{ code: "potassium", value: 5.8 }],
+    items: [{ code: "potassium", value: 5.8 }, { code: "creatinine", value: 110 }],
   });
   await p.goto(`http://127.0.0.1:4310/patients/${pat.id}`);
   await p
@@ -83,24 +83,15 @@ try {
     .getByRole("button", { name: /Hyperkalaemia review/ })
     .first()
     .click();
-  await p.getByRole("button",{name:"Change details",exact:true}).click();
-  await p.getByText("Is this result reliable?").waitFor();
-  await p.getByRole("radio", { name: "Yes, act on it", exact: true }).click();
-  await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
-  await p
-    .getByRole("radiogroup", { name: "ECG changes of hyperkalaemia?" })
-    .getByRole("radio", { name: "None", exact: true })
-    .click();
-  await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
-  await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
-  const reduce = p.getByRole("button", { name: "Reduce MRA dose" });
-  if ((await reduce.getAttribute("aria-pressed")) !== "true")
-    await reduce.click();
-  await p.getByRole("radio", { name: "12.5 mg" }).click();
-  await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
-  await p.getByRole("radio", { name: "In 3 days" }).click();
-  await p.getByRole("radio", { name: "Clinic · 1 week" }).click();
-  await p.getByRole("button", { name: /^Continue( to|$)/ }).click();
+  const decision = p.getByRole("dialog");
+  await expect(decision).toContainText("Spironolactone: 25 mg → 12.5 mg OD");
+  await expect(decision.getByRole("button",{name:"Confirm decision",exact:true})).toBeEnabled();
+  // Retain the existing booking-reuse scenario, explicitly choosing its clinic date.
+  await decision.getByRole("button",{name:"Change details",exact:true}).click();
+  const review=p.getByRole("radiogroup",{name:"Clinical review",exact:true});
+  for(let n=0;n<6 && !(await review.count());n++) await p.getByRole("button",{name:/^Continue( to|$)/}).click();
+  await review.getByRole("radio",{name:"Clinic · 1 week",exact:true}).click();
+  await p.getByRole("button",{name:/^Continue( to|$)/}).click();
   await p.screenshot({ animations: "disabled", path: `${out}/03-pathway-confirm.png` });
   const request = p.waitForRequest((r) =>
     r.url().endsWith("/wizards/hyperkalaemia/complete"),

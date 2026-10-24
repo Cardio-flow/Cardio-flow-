@@ -31,7 +31,7 @@ type Preview = {
     why: string;
     last: { value: number; at: string } | null;
   }[];
-  plan: { kind: string; label: string; title?: string; dueDate?: string }[];
+  plan: { kind: string; decision?: boolean; routine?: boolean; label: string; title?: string; dueDate?: string }[];
   medReview: { title: string; source: string; tone: string }[];
   ready: boolean;
   joined: { next: string; title: string; why: string } | null;
@@ -55,6 +55,7 @@ export function DecisionPanel({
   const [busy, setBusy] = useState(false),
     [why, setWhy] = useState(false),
     [editing, setEditing] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
   const [asked, setAsked] = useState<string[]>([]),
     [loaded, setLoaded] = useState("");
   const seq = useRef(0);
@@ -112,7 +113,7 @@ export function DecisionPanel({
     );
   const questions = p.questions.filter(
     (q) =>
-      editing || asked.includes(q.id) || p.needed.some((n) => n.id === q.id) || (p.assumed ?? []).includes(q.id),
+      editing || asked.includes(q.id) || p.needed.some((n) => n.id === q.id) || (editing && (p.assumed ?? []).includes(q.id)),
   );
   return (
     <div className="decision" aria-label={`Decision: ${p.title}`}>
@@ -127,6 +128,31 @@ export function DecisionPanel({
           {editing ? "Fewer fields" : "Edit answers"}
         </button>
       </div>
+      {p.plan.filter((x) => (x.kind !== "note" || x.decision) && (routineOpen || !x.routine)).length > 0 && (
+        <ol className="decision-plan draft">
+          {p.plan
+            .filter((x) => (x.kind !== "note" || x.decision) && (routineOpen || !x.routine))
+            .map((x, i) => (
+              <li key={x.title ?? i}>
+                <Clock3 size={14} />
+                <div>
+                  <b>{x.title ?? x.label}</b>
+                  {x.kind === "plan" && x.title && (
+                    <DateInput
+                      value={dates[x.title] ?? x.dueDate ?? ""}
+                      min={p.today}
+                      aria-label={`Date: ${x.title}`}
+                      onChange={(e) =>
+                        setDates((d) => ({ ...d, [x.title!]: e.target.value }))
+                      }
+                    />
+                  )}
+                </div>
+              </li>
+            ))}
+        </ol>
+      )}
+      {p.plan.some(x => x.routine) && <button type="button" className="btn ghost small" aria-expanded={routineOpen} onClick={() => setRoutineOpen(!routineOpen)}>Also due · routine checks ({p.plan.filter(x => x.routine).length})</button>}
       {p.blockers.map((t) => (
         <div key={t} role="alert" className="error-box">
           {t}
@@ -229,30 +255,6 @@ export function DecisionPanel({
           )}
         </div>
       ))}
-      {p.plan.filter((x) => x.kind !== "note").length > 0 && (
-        <ol className="decision-plan draft">
-          {p.plan
-            .filter((x) => x.kind !== "note")
-            .map((x, i) => (
-              <li key={x.title ?? i}>
-                <Clock3 size={14} />
-                <div>
-                  <b>{x.title ?? x.label}</b>
-                  {x.dueDate && x.title && (
-                    <DateInput
-                      value={dates[x.title] ?? x.dueDate}
-                      min={p.today}
-                      aria-label={`Date: ${x.title}`}
-                      onChange={(e) =>
-                        setDates((d) => ({ ...d, [x.title!]: e.target.value }))
-                      }
-                    />
-                  )}
-                </div>
-              </li>
-            ))}
-        </ol>
-      )}
       <button
         className="btn ghost small"
         onClick={() => setWhy(!why)}
@@ -280,7 +282,7 @@ export function DecisionPanel({
             ))}
           </ul>
           {p.plan
-            .filter((x) => x.kind === "note")
+            .filter((x) => x.kind === "note" && !x.decision)
             .map((x, i) => (
               <p key={i} className="decision-note">
                 {x.label}

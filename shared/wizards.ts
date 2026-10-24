@@ -1,3 +1,4 @@
+import { validDate } from "./dates.js";
 import { PREGNANCY_WIZARDS } from "./wizards-pregnancy.js";
 import type { PregnancyContext } from "./pregnancy.js";
 import type { PericardialContext } from "./pericardial.js";
@@ -332,6 +333,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   "renal-function": {
+    source: "ESC HF 2021 practical guidance on RAAS inhibitors and MRAs; HFA diuretic position statement 2019",
+    sourceShort: "ESC HF 2021 · HFA 2019",
     group: "Heart failure",
     id: "renal-function",
     title: "Worsening renal function review",
@@ -427,6 +430,8 @@ export const WIZARDS: Record<string, WizardDef> = {
   },
   // ---- ESC HF 2021 practical guidance (retained in 2023/2026; confirm in review) ----
   congestion: {
+    source: "ESC HF 2021 and focused update 2023; HFA diuretic position statement 2019",
+    sourceShort: "ESC HF 2021/2023 · HFA 2019",
     group: "Heart failure",
     id: "congestion",
     title: "Congestion / worsening heart failure",
@@ -500,6 +505,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   hypotension: {
+    source: "ESC HF 2021 practical guidance on managing low blood pressure during HF treatment",
+    sourceShort: "ESC HF 2021",
     group: "Heart failure",
     id: "hypotension",
     title: "Low blood pressure on HF therapy",
@@ -564,6 +571,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   bradycardia: {
+    source: "ESC HF 2021 practical beta-blocker guidance; ESC cardiac pacing 2021",
+    sourceShort: "ESC HF · Pacing 2021",
     group: "Rhythm & devices",
     id: "bradycardia",
     title: "Bradycardia / AV block",
@@ -722,7 +731,7 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
 };
 
 // Options that fit this patient's current medicines.
-export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }) {
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }): Option[] {
   if (q.optionsFrom === "medicationChecks") return (ctx.medicationReview?.checks ?? []).map(check=>({value:check.id,label:check.codes ? `Blood tests · ${check.codes.map(code=>MEASURES[code]?.short ?? code).join(", ")}` : check.title}));
   const tags = new Set(ctx.meds.flatMap((m) => m.tags));
   const dx = new Set(ctx.dx ?? []);
@@ -784,7 +793,7 @@ export type OutcomeItem =
   | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
   // a diagnosis the pathway confirms (added, or its detail updated, keeping its onset)
   | { kind: "condition"; code: string; attributes: Record<string, unknown>; label: string }
-  | { kind: "note"; label: string }
+  | { kind: "note"; label: string; decision?: boolean }
   // why a drug class is not given (recorded once, reused by every rule, as from an alert card)
   | { kind: "barrier"; drugClass: string; category: "contraindication" | "declined"; label: string };
 
@@ -792,7 +801,7 @@ export type OutcomeItem =
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
-  if(["pericarditis","pregnancy-plan"].includes(wizardId))answers=visibleAnswers(wizardId,answers);
+  answers=visibleAnswers(wizardId,answers);
   if(wizardId === "hyperkalaemia" && (answers.result === "repeat" || answers.haemolysis === "yes") && (ctx.values?.potassium?.value ?? 0) < 6.5 && answers.ecg !== "present")
     answers = {...answers, actions: ["continue"], recheck:"0"};
   const out: OutcomeItem[] = [];
@@ -939,6 +948,17 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       label: "",
     });
   }
+  // Continuing / withholding treatment is also an explicit decision. Keep the
+  // selected guideline option visible instead of reporting an empty plan.
+  const decisionQuestions = new Set(["actions", "decision", "lower", "oac", "rate", "rhythm", "protect", "treatment"]);
+  for (const q of WIZARDS[wizardId].steps.flatMap(st => visibleQuestions(st,answers))) {
+    if (!decisionQuestions.has(q.id)) continue;
+    const selected = Array.isArray(answers[q.id]) ? answers[q.id] as string[] : [String(answers[q.id] ?? "")];
+    for (const option of optionsFor(q,ctx)) {
+      if (!selected.includes(option.value) || option.effects || !["continue","no-change","not-indicated","covered"].includes(option.value)) continue;
+      out.push({kind:"note",decision:true,label:`${q.label}: ${option.label}`});
+    }
+  }
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
@@ -947,11 +967,15 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];
-    const date = dueDates[item.title] ?? item.dueDate;
+    const proposedDate = dueDates[item.title] ?? item.dueDate;
+    const date = validDate(proposedDate) ? proposedDate : "";
     const target = item.completesOn ?? { type: "manual" };
     const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
       if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
       if (p.completesOn.type !== target.type) return false;
+      // Sequential drug monitoring is tied to its own timepoint; an earlier test
+      // cannot stand in for the later post-start check.
+      if (item.medicationRef && p.dueDate !== date) return false;
       if ((aorta || wizardId === "pericarditis") && target.purpose === "Surveillance" && p.dueDate !== date) return false;
       if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
       if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!(aorta || wizardId === "pericarditis") || (p.completesOn.method === target.method && p.completesOn.procedureId === target.procedureId));
@@ -960,7 +984,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
     }) : null;
     const key = `${item.title}:${date}`;
-    if (htn && seen.has(key)) return [];
+    if (seen.has(key)) return [];
     seen.add(key);
     if (existing) return [{kind:"note", label:`Already planned: ${existing.title} · ${fmtDay(existing.dueDate!, {year:true})}`}];
     return [{...item, dueDate:date, label:`${item.title} · ${date ? fmtDay(date, {weekday:true, year:true}) : "Choose a date"}`}];

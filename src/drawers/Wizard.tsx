@@ -1,3 +1,4 @@
+import { prioritiseDecision, routineDecisionItem } from "../../shared/decision-display";
 import { CURRENT_SCREENS } from "../../shared/decision-assume";
 import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements";
 import { decisionBlocker } from "../../shared/decision-validation";
@@ -20,7 +21,7 @@ export type PathwayPart = {
 type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string; requiresReview?: boolean };
 
 // medicine changes lead the decision, then diagnoses, dated plan items and notes
-const OUT_RANK: Record<string, number> = { start: 0, medication: 1, condition: 2, barrier: 3, plan: 4, note: 5 };
+
 const allAnsweredEarly = (def: (typeof WIZARDS)[string], a: Answers) => def.steps.every((st) => !missingRequired(st, a).length);
 
 export function WizardDrawer({
@@ -43,6 +44,7 @@ export function WizardDrawer({
   const [declining, setDeclining] = useState(false);
   // phones: the record panel is folded away by default so it never covers the questions
   const [sideOpen, setSideOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
   // an open episode of this pathway: this run is its review
   const [episode, setEpisode] = useState<{ id: string; startedAt: string; day: number; reviews: number; lastAt: string } | null>(null);
   const [reason, setReason] = useState("");
@@ -175,7 +177,7 @@ export function WizardDrawer({
     return qType(id) === "multi" ? ((answers[id] as string[]) ?? []).includes(v) : answers[id] === v;
   };
   const applySuggestions = (id: string) => {
-    const vals = (suggestions[id] ?? []).map((x) => x.value);
+    const vals = (suggestions[id] ?? []).filter(x => !x.alt).map((x) => x.value);
     if (!vals.length) return;
     if (qType(id) === "multi") {
       const exclusive = def.steps.flatMap(st => st.questions).find(q => q.id === id)?.exclusive ?? [];
@@ -185,7 +187,7 @@ export function WizardDrawer({
   };
   // on the Confirm step: guideline suggestions that were not taken
   const notTaken = isReview
-    ? Object.entries(suggestions).flatMap(([id, list]) => list.filter((x) => !isChosen(id, x.value) && x.value !== "none").map((x) => ({ id, ...x, label: def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options?.find((o) => o.value === x.value)?.label ?? x.value })))
+    ? Object.entries(suggestions).flatMap(([id, list]) => list.filter((x) => !x.alt && !isChosen(id, x.value) && x.value !== "none").map((x) => ({ id, ...x, label: def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options?.find((o) => o.value === x.value)?.label ?? x.value })))
     : [];
   const set = (id: string, v: any) => {
     if (id === "recheck" || id === "review") setDueDates(d => { const next={...d}; for (const title of id === "recheck" ? [def.recheck?.title ?? "Renal function and potassium check"] : ["Clinic review", "Phone follow-up"]) delete next[title]; return next; });
@@ -233,7 +235,7 @@ export function WizardDrawer({
               const sug = suggestions[q.id] ?? [];
               const recVals = sug.map((x) => x.value);
               const label = (v: string) => q.options?.find((o) => o.value === v)?.label ?? v;
-              const pending = sug.filter((x) => !isChosen(q.id, x.value));
+              const pending = sug.filter((x) => !x.alt && !isChosen(q.id, x.value));
               return (
               <div className="q" key={q.id}>
                 <div className="label">{q.label}{autoFilled.includes(q.id) && <span className="prefilled" title="Filled in from the guideline suggestion: change it if it does not fit">suggested</span>}</div>
@@ -297,7 +299,7 @@ export function WizardDrawer({
               {needReason.length > 0 && <div className="infobox warn" role="status">Review the medication warnings below and enter a reason before confirming.</div>}
               <div className="outcome">
                 {outcome.length === 0 && <div>No additional action proposed</div>}
-                {[...outcome].sort((x, y) => OUT_RANK[x.kind] - OUT_RANK[y.kind]).map((o, i) => {
+                {prioritiseDecision(outcome).filter(o => routineOpen || !routineDecisionItem(o)).map((o, i) => {
                   const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
                   const red = hits.some((h) => (h.severity === "red" || h.requiresReview));
                   return (
@@ -321,6 +323,7 @@ export function WizardDrawer({
                   );
                 })}
               </div>
+              {outcome.some(routineDecisionItem) && <button type="button" className="btn ghost small" aria-expanded={routineOpen} onClick={() => setRoutineOpen(!routineOpen)}>Also due · routine checks ({outcome.filter(routineDecisionItem).length})</button>}
               {outcome.some(o => o.kind === "start" || o.kind === "medication") && <div className="help">Medication changes take effect when confirmed.</div>}
             </div>
             );

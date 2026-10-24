@@ -1,3 +1,4 @@
+import { resistantMraEligible } from "./hypertension.js";
 import { pregnancySuggestions } from "./wizards-pregnancy.js";
 import { pericardialSuggestions } from "./wizards-pericardial.js";
 import { aortaUrgent } from "./wizards-aorta.js";
@@ -46,7 +47,7 @@ const inrRange = (c: any) => {
 const val = (c: WizardContext, code: string) => c.values?.[code]?.value ?? null;
 const prev = (c: WizardContext, code: string) => c.values?.[code]?.prev ?? null;
 const on = (c: WizardContext, ...tags: string[]) => c.meds.some((m) => (!m.status || m.status === "active") && m.tags.some((t) => tags.includes(t)));
-const onCode = (c: WizardContext, ...codes: string[]) => c.meds.some((m) => codes.includes(m.code));
+const onCode = (c: WizardContext, ...codes: string[]) => c.meds.some((m) => (!m.status || m.status === "active") && codes.includes(m.code));
 const dx = (c: WizardContext, ...d: string[]) => (c.dx ?? []).some((x) => d.includes(x));
 const list = (a: Answers, id: string) => ((a[id] as string[] | undefined) ?? []).filter((v) => v !== "none");
 const is = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
@@ -90,7 +91,10 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     target: (_a,c) => [(c.profile?.age ?? 0) >=85 || (c.hypertension?.egfr != null && c.hypertension.egfr <30) ? S("individual","Age ≥85 or advanced CKD: individualize BP targets and tolerance (ESC 2024; ESC CKD 2026).") : false],
     actions: (a,c) => [S("lifestyle","Lifestyle and adherence support accompany BP care (ESC hypertension 2024)."), !c.hypertension?.outside?.valid && S("abpm","Missing / invalid out-of-office readings: confirm with ABPM before escalation (ESC 2024)."), (c.hypertension?.egfr == null || c.hypertension?.potassium == null || val(c,"uacr") == null) && S("baseline","Assess renal function, electrolytes, albuminuria and organ damage (ESC 2024; ESC CKD 2026)."), a.confirmation === "confirmed" && c.hypertension?.phenotype !== "White-coat phenotype" && !!c.hypertension?.office && (c.hypertension.office.sbp >=140 || c.hypertension.office.dbp >=90) && S("medication","Confirmed hypertension: promptly review pharmacological therapy alongside lifestyle (ESC 2024)."), S("annual","Hypertension warrants at least annual albuminuria reassessment (ESC CKD 2026).")],
   },
-  "htn-resistance": {decision: () => [S("specialist","Suspected resistant hypertension needs specialist evaluation and exclusion of pseudo-resistance / secondary causes (ESC 2024).") ]},
+  "htn-resistance": {
+    basis: (_a,c) => [c.hypertension?.apparentResistance && S("resistant","The recorded regimen and BP suggest apparent resistance; verify adherence and tolerated doses (ESC 2024)")],
+    treatment: (a,c) => [resistantMraEligible(a,c) ? S("mra","Confirmed resistant hypertension with eGFR ≥30 and K ≤4.5: consider spironolactone 25 mg daily; renal function and potassium monitoring (ESC 2024)") : S("review","Confirm resistance and renal/potassium eligibility before choosing fourth-line medication (ESC 2024)")],
+    decision: () => [S("specialist","Suspected resistant hypertension needs specialist evaluation and exclusion of pseudo-resistance / secondary causes (ESC 2024).") ]},
   "htn-secondary": {
     paAction: (_a,c) => [!c.hypertension?.pa ? S("screen","Offer aldosterone, renin / ARR and potassium screening in hypertensive adults; discuss feasibility (Endocrine Society 2025, conditional).") : !c.hypertension.pa.reliable || c.hypertension.pa.result === "Indeterminate" ? S("repeat","Review and repeat an uninterpretable screen, including potassium and medication effects (Endocrine Society 2025).") : c.hypertension.pa.result === "Positive" ? S("refer","A positive screen needs specialist interpretation and a cause-specific plan (Endocrine Society 2025).") : S("reviewed","The recorded negative screen is interpretable; assess clinical suspicion before repeating.")],
     tests: (a,c) => [((a.clues as string[] | undefined)?.includes("renal") || dx(c,"ckd")) && S("renal","Kidney disease clue: renal function, urine testing and ultrasound assessment (ESC 2024 Table 13)."), ((a.clues as string[] | undefined)?.includes("osa") || (a.clues as string[] | undefined)?.includes("resistant")) && S("osa","Sleep apnoea is relevant with symptoms, non-dipping or resistant hypertension (ESC 2024)."), ...["renovascular","adrenergic","cushing","thyroid","calcium","coarctation","drugs"].filter(v=>(a.clues as string[] | undefined)?.includes(v)).map(v=>S(v,"The selected clinical clue supports this targeted secondary-cause assessment (ESC 2024 Table 13)."))],
@@ -214,7 +218,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     signs: (_a, c) => { const w = val(c, "weight"), w0 = prev(c, "weight"); return [w != null && w0 != null && w > w0 && S("weight", `Weight ${n1(w0)} → ${n1(w)} kg in the record`)]; },
     actions: (a, c) => [
       list(a, "redflags").length > 0 && S("admit", "Red flags (hypoxia, hypoperfusion, ACS, arrhythmia, K/renal): hospital assessment (ESC HF acute HF)"),
-      on(c, "loop") ? S("increase-loop", "Congested on a loop diuretic: increase the dose (ESC HF 2021, I C)") : S("start-loop", "Congestion without a loop diuretic: start one (ESC HF 2021, I C)"),
+      list(a, "signs").length > 0 && a.redflags != null && !list(a, "redflags").length && (on(c, "loop") ? S("increase-loop", "Congested on a loop diuretic: increase the dose (ESC HF 2021, I C)") : S("start-loop", "Congestion without a loop diuretic: start one (ESC HF 2021, I C)")),
       !on(c, "sglt2") && dx(c, "hf") && S("sglt2", "SGLT2 inhibitor for every HF patient (ESC HF 2021/2023, I A)"),
       list(a, "precipitants").length > 0 && S("precipitant", "Treat the precipitant you found"),
       S("self-care", "Daily weights and a written diuretic plan (ESC HF self-care, I)"),
@@ -233,10 +237,11 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     recheck: (a) => [["reduce-loop", "reduce-raas", "stop-vasodilator"].some((v) => is(a, "actions", v)) && S("7", "Recheck renal function and potassium 1–2 weeks after a change (ESC HF practical guidance)")],
     actions: (a, c) => {
       const sym = list(a, "symptoms").length > 0;
+      if (!a.symptoms || !a.volume) return [];
       if (!sym) return [S("continue", "Asymptomatic low BP: no change to HF therapy (ESC HF practical guidance)")];
       return [
         on(c, "vasodilator", "bp-lowering") && S("stop-vasodilator", "Symptomatic: first stop BP-lowering drugs without HF benefit (nitrates, CCB, alpha-blockers)"),
-        a.volume !== "congested" && on(c, "loop") && S("reduce-loop", "Not congested: then reduce the diuretic"),
+        a.volume === "dry" && on(c, "loop") && S("reduce-loop", "Not congested: then reduce the diuretic"),
         S("stagger", "Space the HF drugs through the day"),
         is(a, "symptoms", "syncope") && S("specialist", "Syncope: specialist review"),
       ];
@@ -254,7 +259,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         on(c, "ivabradine", "digoxin", "ndhp-ccb") && S("stop-other", "Review other rate-slowing drugs before the beta-blocker (ESC HF practical guidance)"),
         sym && hr != null && hr < 50 && on(c, "bb") && !highGrade && !lowest(c, "bb") && S("reduce-bb", `HR ${hr} with symptoms: halve the beta-blocker (ESC HF practical guidance)`),
         sym && hr != null && hr < 50 && on(c, "bb") && !highGrade && lowest(c, "bb") && S("hold-bb", `HR ${hr} with symptoms on the lowest beta-blocker dose: stop it and review (ESC HF practical guidance)`),
-        !sym && !highGrade && a.block && a.block !== "no-ecg" && S("continue", "Asymptomatic sinus bradycardia: no change"),
+        !!a.symptoms && !sym && !highGrade && a.block && a.block !== "no-ecg" && S("continue", "Asymptomatic sinus bradycardia: no change"),
       ];
     },
   },
@@ -263,7 +268,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   shock: {
     stage: (_a, c) => {
       const sbp = val(c, "sbp"), lac = val(c, "lactate");
-      return [sbp != null && sbp < 90 && (lac != null && lac >= 2 ? S("C", `SBP ${sbp} with lactate ${n1(lac)}: hypoperfusion needing intervention (SCAI C)`) : S("B", `SBP ${sbp} without raised lactate: SCAI B (beginning)`))];
+      return [sbp != null && sbp < 90 && (lac != null && lac >= 2 ? S("C", `SBP ${sbp} with lactate ${n1(lac)}: hypoperfusion needing intervention (SCAI C)`) : lac != null ? S("B", `SBP ${sbp} with measured lactate <2: assess perfusion before confirming SCAI B`) : null)];
     },
     actions: (a) => [
       S("icu", "Shock: ICU/CCU-level care"),
@@ -310,7 +315,6 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         k != null && k >= 3 && acid && g != null && g >= 11.1 && S("dka", `Glucose ${n1(g)}, ketones ${n1(k)}, acidosis: DKA (2024 consensus)`),
         k != null && k >= 3 && acid && g != null && g < 11.1 && S("eudka", `Ketones ${n1(k)} with acidosis and glucose <11.1${on(c, "sglt2") ? " on an SGLT2i" : ""}: euglycaemic DKA`),
-        g != null && g >= 33.3 && (k == null || k < 3) && S("hhs", `Glucose ${n1(g)} without significant ketosis: HHS (2024 consensus)`),
       ];
     },
     actions: (a, c) => {
@@ -336,7 +340,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         on(c, "insulin") && S("reduce-insulin", "Reduce insulin and review timing (ADA 2026)"),
         a.level && a.level !== "1" && S("relax-target", "Level 2–3 hypoglycaemia: raise the glycaemic target for a time (ADA 2026)"),
         S("education", "Hypoglycaemia recognition and treatment education; glucagon if level 2–3"),
-        a.level !== "1" && S("diabetes-team", "Level 2–3: re-evaluate the treatment plan with the diabetes team (ADA 2026)"),
+        !!a.level && a.level !== "1" && S("diabetes-team", "Level 2–3: re-evaluate the treatment plan with the diabetes team (ADA 2026)"),
       ];
     },
   },
@@ -368,7 +372,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         k != null && (k < 2.5 || a.ecg === "changes") && S("urgent", `K ${n1(k)}${a.ecg === "changes" ? " with ECG changes" : ""}: urgent IV replacement with monitoring`),
         k != null && k < 3.5 && S("oral-k", `K ${n1(k)}: replace potassium`),
         ((mg != null && mg < 0.7) || on(c, "loop", "thiazide")) && S("mg", mg != null && mg < 0.7 ? `Mg ${mg}: replace magnesium (needed to correct K)` : "Check and replace magnesium on diuretics"),
-        dx(c, "hf") && !on(c, "mra") && S("mra", "HF: an MRA corrects K long term and is indicated in HFrEF (ESC HF, I A)"),
+        dx(c, "hfref") && !on(c, "mra") && S("mra", "HFrEF: an MRA corrects K long term and is indicated in HFrEF (ESC HF, I A)"),
         on(c, "loop", "thiazide") && S("review-diuretic", "Review the diuretic dose"),
       ];
     },
@@ -404,12 +408,12 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const high = a.direction === "high";
       return [
         a.bleeding === "major" && S("emergency", "Major bleeding: emergency reversal (PCC + IV vitamin K) per protocol (CHEST 2012)"),
-        high && a.bleeding !== "major" && S("omit", "Supratherapeutic INR: omit/reduce the next dose(s) (CHEST 2012)"),
-        high && a.bleeding !== "major" && inr != null && inr > 10 && S("vitk", `INR ${n1(inr)} >10 without bleeding: oral vitamin K (CHEST 2012)`),
+        high && !!a.bleeding && a.bleeding !== "major" && S("omit", "Supratherapeutic INR: omit/reduce the next dose(s) (CHEST 2012)"),
+        high && !!a.bleeding && a.bleeding !== "major" && inr != null && inr > 10 && S("vitk", `INR ${n1(inr)} >10 without bleeding: oral vitamin K (CHEST 2012)`),
         high && a.bleeding === "minor" && S("vitk", "Minor bleeding with a high INR: consider oral vitamin K"),
-        !high && !list(a, "causes").includes("adherence") && S("increase", "Sub-therapeutic INR without missed doses: increase the weekly dose (anticoagulation clinic dosing)"),
-        !high && list(a, "causes").includes("adherence") && S("education", "Missed doses: address adherence before changing the dose"),
-        !high && dx(c, "mechanical-valve") && S("bridge", "Low INR with a mechanical valve: consider bridging with heparin until INR in range"),
+        a.direction === "low" && !list(a, "causes").includes("adherence") && S("increase", "Sub-therapeutic INR without missed doses: increase the weekly dose (anticoagulation clinic dosing)"),
+        a.direction === "low" && list(a, "causes").includes("adherence") && S("education", "Missed doses: address adherence before changing the dose"),
+        a.direction === "low" && dx(c, "mechanical-valve") && S("bridge", "Low INR with a mechanical valve: consider bridging with heparin until INR in range"),
         S("education", "Review interactions, diet and adherence"),
       ];
     },
@@ -434,8 +438,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const hmod = list(a, "hmod").length > 0;
       return [
         hmod && S("emergency", "Acute organ damage: hypertensive emergency — admit for IV therapy (ESC 2024)"),
-        !hmod && S("oral", "No acute organ damage: oral therapy, lower BP over days to weeks; avoid rapid drops (ESC 2024)"),
-        !hmod && S("home-bp", "Confirm with home / ambulatory BP (ESC 2024)"),
+        a.hmod != null && !hmod && S("oral", "No acute organ damage: oral therapy, lower BP over days to weeks; avoid rapid drops (ESC 2024)"),
+        a.hmod != null && !hmod && S("home-bp", "Confirm with home / ambulatory BP (ESC 2024)"),
         ((c.profile?.age ?? 99) < 40 || (val(c, "potassium") ?? 9) < 3.5) && S("secondary", "Age <40 or low K: screen for secondary hypertension (ESC 2024)"),
       ];
     },
@@ -458,7 +462,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         t2 && !on(c, "glp1") && ascvd && S("glp1", "ASCVD: GLP-1 RA with proven CV benefit regardless of HbA1c (ESC 2023, I A)"),
         t2 && !onCode(c, "finerenone") && on(c, "raas") && uacr != null && uacr >= 3 && (egfr == null || egfr >= 25) && (k == null || k <= 4.8) && S("finerenone", `UACR ${uacr} mg/mmol on a RAAS inhibitor: finerenone (ESC 2023, I A)`),
       ].filter(Boolean) as Suggestion[];
-      return out.length ? out : [S("covered", "Heart and kidney protection already in place")];
+      return out.length ? out : [S("covered", "No additional protective drug selected from the recorded indications and contraindications")];
     },
     lower: (a, c) => {
       const a1c = val(c, "hba1c"), egfr = val(c, "egfr");
@@ -821,7 +825,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const t = (a.therapy as string[]) ?? [];
       const onBb = t.includes("bb") || t.includes("bb-max");
       return [
-        !onBb && !t.includes("bb-intolerant") ? S("bb", "First line (I B)") : null,
+        !!a.therapy && a.nyha !== "I" && !!a.nyha && !onBb && !t.includes("bb-intolerant") ? S("bb", "First line (I B)") : null,
         t.includes("bb") && !t.includes("bb-max") ? S("bb", "To the maximum tolerated dose (I B)") : null,
         t.includes("bb-intolerant") && !t.includes("ccb") ? S("ccb", "Beta-blocker not possible (I B)") : null,
         (t.includes("bb-max") || t.includes("ccb")) && !t.includes("myosin") ? S("myosin", "Persistent symptoms (IIa A)") : null,
@@ -864,7 +868,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       return [
         S("symptoms", a.pericarditis === "yes" ? "With colchicine for the pericarditis" : "Symptom relief"),
         S("bb", "At least 6 months, whatever the LV function (IIa C)"),
-        (ef != null && ef < 50) || a.form !== "uncomplicated" ? S("hf", "LV dysfunction / heart failure") : null,
+        (ef != null && ef < 50) || ["complicated", "fulminant"].includes(String(a.form)) ? S("hf", "LV dysfunction / heart failure") : null,
         S("exercise", "1 month at first, then individualised"),
         S("cmr6", "Within 6 months (I B)"),
         a.form === "uncomplicated" ? S("followup", "Uncomplicated: 6, 12 and 24 months") : null,
@@ -878,6 +882,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     actions: (a, c) => {
       const r = pahStrata(c);
       const t = ((a.therapy as string[]) ?? []).filter((x) => x !== "none");
+      if (a.stage === "new" && (!a.comorbid || !r.category)) return [];
       if (a.stage === "new") return a.comorbid === "yes" ? [S("mono", "Cardiopulmonary comorbidities")]
         : r.category === "high" ? [S("combo", "High risk: ERA + PDE5i"), S("parenteral", "High risk: with an IV/SC prostacyclin")]
         : [S("combo", `${r.category ? STRATA_LABEL[r.category] : "Low or intermediate"} risk without comorbidities`)];
@@ -1217,6 +1222,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
 
 // Procedural safety confirmations stay explicit. Suggestions reuse recorded facts, never infer adherence.
 GUIDANCE["af-ablation-plan"] = {
+  periOac: () => [S("continuous", "Uninterrupted anticoagulation for AF ablation (ESC AF 2024, I A)")],
   decision: () => [S("refer", "EP shared decision: confirm indication, symptoms, preparation and procedural risks (ESC AF 2024)")],
 };
 GUIDANCE["after-af-ablation"] = {
@@ -1238,6 +1244,17 @@ GUIDANCE["after-laao"] = {
 
 for (const [id,def] of Object.entries(LAB_WIZARDS)) {
   GUIDANCE[id] = Object.fromEntries(def.steps.flatMap(st=>st.questions).filter(q=>q.options).map(q=>[q.id,(a:Answers,c:WizardContext)=>labSuggestions(id,q.id,a,c)??[]]));
+}
+
+// The request date is today, not a fabricated procedure appointment. Every
+// proposed date remains editable. Procedure scheduling still needs its actual date.
+for (const id of ["af-ablation-plan","laao-selection","tavi-plan","teer-plan","rdn-plan"]) {
+  GUIDANCE[id].when = (a,c) => [
+    ["refer","workup"].includes(String(a.decision)) && S(c.today,"Assessment requested today; edit the actual referral/work-up date"),
+  ];
+}
+for (const id of ["htn-review","htn-resistance","htn-secondary","other-structural-plan"]) {
+  GUIDANCE[id].when = (_a,c) => [S(c.today,"Assessment/action date: today by default; edit the date as needed")];
 }
 
 // Suggestions for one question, limited to the options this patient can be offered.

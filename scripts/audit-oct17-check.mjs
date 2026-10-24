@@ -93,7 +93,7 @@ try {
   await expect(page.locator(".pulse-vitals")).toContainText("SBP");
   await expect(page.locator(".decision")).toHaveCount(0);
   await shot("01-compact-overview");
-  const item = page.locator(".item").filter({ hasText: "IV iron" }).first();
+  const item = page.locator('.problem[aria-label="Blood count & iron"]');
   await item.getByRole("button", { name: "Review plan", exact: true }).click();
   const panel = page.locator(
     '[aria-label="Decision: IV iron for iron deficiency in heart failure"]',

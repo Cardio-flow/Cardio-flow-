@@ -1,3 +1,4 @@
+import { prioritiseDecision, routineDecisionItem } from "../../shared/decision-display.js";
 import { decisionBlocker } from "../../shared/decision-validation.js";
 import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements.js";
 import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
@@ -109,8 +110,8 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = decisionDataNeeded(wizardId,ctx,answers).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)
-  const plan = (potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
-    kind: o.kind, label: o.kind === "plan" ? `${o.title} · ${fmtDay(o.dueDate, { weekday: true, year: true })}` : o.label,
+  const plan = prioritiseDecision(potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
+    kind: o.kind, label: o.label, routine: routineDecisionItem(o), decision: o.kind === "note" && !!o.decision,
     ...(o.kind === "plan" ? { title: o.title, dueDate: o.dueDate, category: o.category } : {}),
   }));
   const s = await loadState(tx, patientId);

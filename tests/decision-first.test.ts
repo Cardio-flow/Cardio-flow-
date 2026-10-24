@@ -95,10 +95,13 @@ const decide = (w: string, c: WizardContext) => { const { answers } = prefill(w,
 
 test("congestion on furosemide 40 mg: double to 80 mg (HFA 2019); red flags remain an essential check", () => {
   const c = ctx(4.6, [furo(40), spiro], { dx: ["hfref", "hf"] } as any);
-  const { out, view } = decide("congestion", c);
+  const { out: incomplete, view } = decide("congestion", c);
+  assert.ok(!incomplete.some(o => o.kind === "medication"), "do not increase the loop before confirming clinical congestion and stability");
+  const completed = prefill("congestion",c,{signs:["oedema"],redflags:["none"]}).answers;
+  const out = buildOutcome("congestion",completed,c);
   assert.ok(out.some((o) => o.label === "Furosemide: 40 mg → 80 mg OD"), out.map((o) => o.label).join(" | "));
   assert.ok(!view.assumed.some((q) => q.id === "redflags"));
-  assert.ok(view.why.some((w) => /double the dose/.test(w.why)));
+  assert.ok(decisionView("congestion",completed,c).why.some((w) => /double the dose/.test(w.why)));
   assert.deepEqual(view.needed.map((q) => q.id), ["signs", "redflags"], "no weight trend: the signs are asked");
   const c2 = ctx(4.6, [furo(40)], { dx: ["hfref", "hf"], values: { weight: { value: 81.5, at: "2026-10-21", prev: 78 } } } as any);
   assert.deepEqual(decide("congestion", c2).view.needed.map((q) => q.id), ["redflags"], "a recorded weight rise fills signs but cannot exclude red flags");
@@ -141,7 +144,8 @@ test("starts carry the label dose: SGLT2i 10 mg, finerenone by eGFR, metformin, 
   assert.match((startItem("metformin", c(40), "dm") as any).label, /maximum 1000 mg\/day/);
 });
 test("missing eGFR prevents an SGLT2 start; statin intensity uses the known dose", () => {
-  const { out } = decide("congestion", ctx(4.6, [], { dx: ["hfref", "hf"] } as any));
+  const c = ctx(4.6, [], { dx: ["hfref", "hf"] } as any);
+  const out = buildOutcome("congestion",prefill("congestion",c,{signs:["oedema"],redflags:["none"]}).answers,c);
   assert.ok(out.some(o=>o.kind === "note" && /Record eGFR/.test(o.label)));
   const starts = out.filter((o) => o.kind === "start").map((o: any) => `${o.code} ${o.doseValue}`);
   assert.deepEqual(starts.sort(), ["furosemide 40"]);

@@ -247,6 +247,8 @@ try {
   await page.getByRole("dialog").getByRole("button",{name:/^Severe hypertension/}).click();
   await expect(page.getByRole("textbox",{name:"Clinic review due date",exact:true})).toHaveValue("22/11/2030");
   await expect(page.getByRole("textbox",{name:"Renal function and potassium due date",exact:true})).toHaveValue("21/11/2030");
+  // Dates survive; the current organ-damage screen must be reassessed.
+  await ensureNone(page);
   // a reopened draft lands on the decision with the dates kept (23 Oct 2026)
   await page.getByRole("button", { name: "Confirm decision", exact: true }).click();
   await continueAfterEntry(page);

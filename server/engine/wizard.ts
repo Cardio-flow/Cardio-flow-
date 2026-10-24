@@ -491,7 +491,7 @@ export async function completeWizard(
   const chosen = (id: string, v: string) => (Array.isArray(input.answers[id]) ? (input.answers[id] as string[]).includes(v) : input.answers[id] === v);
   const notTaken = def.steps.flatMap((st) => visibleQuestions(st, input.answers)).filter((q) => q.options)
     .flatMap((q) => suggest(wizardId, q.id, input.answers, ctx, new Set(optionsFor(q, ctx).map((o) => o.value)))
-      .filter((x) => x.value !== "none" && !chosen(q.id, x.value))
+      .filter((x) => !x.alt && x.value !== "none" && !chosen(q.id, x.value))
       .map((x) => q.options!.find((o) => o.value === x.value)?.label ?? x.value));
   const summary = assessment ? [...assessment.rows.map((r) => `${r.label}: ${r.value}`), ...assessment.recommendations].join(" · ") : "";
   await journeyEvent(tx, actor, {

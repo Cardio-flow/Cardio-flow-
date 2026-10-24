@@ -855,3 +855,16 @@ export const AF_AFTERCARE_WIZARDS: Record<string, WizardDef> = {
     },
   },
 };
+
+// Referral requests the preparation; only an agreed procedure needs clearance.
+// These questions remain required whenever the clinician chooses "proceed".
+for (const q of AF_AFTERCARE_WIZARDS["af-ablation-plan"].steps.flatMap(s => s.questions))
+  if (["anticoag", "thrombus", "periOac"].includes(q.id)) q.showIf = { question: "decision", includes: "proceed" };
+for (const q of AF_AFTERCARE_WIZARDS["laao-selection"].steps.flatMap(s => s.questions))
+  if (["life", "shortTherapy", "imaging"].includes(q.id)) q.showIf = { question: "decision", includes: "proceed" };
+AF_AFTERCARE_WIZARDS["af-ablation-plan"].checks = a => a.decision === "proceed" ? [] : [
+  "EP team to verify effective anticoagulation/adherence, thrombus exclusion and uninterrupted procedural anticoagulation before scheduling.",
+];
+AF_AFTERCARE_WIZARDS["laao-selection"].checks = a => a.decision === "proceed" ? [] : [
+  "LAAO team to assess expected benefit, anatomy/thrombus and a feasible postimplant antithrombotic regimen before scheduling.",
+];
