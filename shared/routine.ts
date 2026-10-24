@@ -8,14 +8,20 @@ export const ROUTINE_RULES = new Set<string>([
   "dm.hba1c-due",              // HbA1c monitoring interval
   "lipids.lpa-once",           // Lp(a) once in adulthood
   "cardiorenal.screening",     // eGFR / UACR screening interval
-  "cardiorenal.ckd-stage",     // problem-list entry for CKD
-  "cardiorenal.stage-review",  // recorded CKD stage vs latest eGFR
-  "studies.problem-list",      // study findings not on the problem list
-  "valve.echo-lesion-unlisted",// valve lesion not on the problem list
   "valve.echo-surveillance",   // scheduled echo surveillance
   "cmp.follow-up",             // ECG and echo every 1–2 years
   "rhythm.remote-monitoring",  // remote monitoring enrolment
-  "lab.vitamin-d",             // vitamin D result
-  "med.monitoring",            // routine medicine blood tests
 ]);
 export const isRoutine = (a: { rule_id: string; severity: string }) => ROUTINE_RULES.has(a.rule_id) && a.severity !== "red";
+
+// Exact existing preventive plan templates only; do not classify free-text clinical
+// work as routine merely because it says "annual" or "screening".
+const PREVENTIVE_TITLES = new Set([
+  "Diabetic retinal screening", "Diabetic foot examination", "Influenza vaccination",
+  "Influenza, pneumococcal and COVID-19 vaccination",
+]);
+export function isRoutinePlan(p: {title?:string;clinicalContext?:{urgent?:boolean};completesOn?:{type?:string;codes?:unknown};completes_on?:{type?:string;codes?:unknown}}) {
+  if(p.clinicalContext?.urgent) return false;
+  const target=p.completesOn ?? p.completes_on;
+  return PREVENTIVE_TITLES.has(p.title ?? "") || target?.type === "lab" && Array.isArray(target.codes) && target.codes.length === 1 && target.codes[0] === "lpa";
+}

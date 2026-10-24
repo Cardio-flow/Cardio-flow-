@@ -1,48 +1,23 @@
-// Assumed answers (23 Oct 2026, Ahmed: "you can just advise to check and put a list for whatever you want as a box
-// the physician should look at, just a reminder, but the pathway itself should be kept for the final decision").
-//
-// Questions that are screens, checklists or bookings — not the input the decision turns on — no longer stop the
-// decision. They are filled with the safe or honest default and shown in an "Assumed — change if different" box
-// with their choices inline, so the clinician sees each one and changes it with one tap:
-//  - red-flag / safety screens → "none" / "stable" (the patient is in front of the clinician; a red flag is
-//    one tap and changes the decision at once),
-//  - checklists ("reviewed / pending", "yes / no / unknown") → the not-yet state, so the plan lists what is left,
-//  - the follow-up visit → by urgency: red pathways an early call or visit, orange a visit in 1–2 weeks, others none.
-// Never assumed by design: acute aortic syndrome (aorta), tamponade / instability (pericardial disease) and the
-// obstetric/cardiac safety check in pregnancy — these are asked every time.
-// The input a decision turns on (symptoms in hypotension, the ECG in bradycardia, bleeding severity, shock type,
-// syncope history in HCM…) is never assumed: it stays under "Needed for this decision".
+// Defaults are limited to pending work and scheduling. A missing safety screen is
+// never recorded as normal: decision-changing findings remain a short inline check.
 import { WIZARDS, type Question, type WizardContext } from "./wizards.js";
+
+// Reassess these current clinical findings when resuming a historical decision.
+export const CURRENT_SCREENS: Record<string,string[]> = {
+  congestion:["redflags"], "severe-hypertension":["hmod"], "sick-day":["redflags"],
+  "ph-suspected":["warning"], "pre-procedure":["active"], inr:["bleeding"],
+  "icd-shock":["state"], "after-device":["wound"], "af-ablation-plan":["safety"],
+  "after-af-ablation":["safety"], "after-laao":["safety"], "tavi-plan":["safety"],
+  "teer-plan":["safety"], "other-structural-plan":["safety"], "after-structural":["safety"],
+  "rdn-plan":["safety"], "after-rdn":["safety"], "htn-review":["safety"],
+  "anaemia-result":["redflags"], "liver-result":["redflags"], "statin-ck-result":["redflags"],
+  "vitamin-d-result":["redflags"], hyperkalaemia:["symptoms","ecg"],
+};
 
 const PENDING = ["pending", "unknown", "needed", "uncertain"];
 const A: Record<string, Record<string, string | string[]>> = {
-  congestion: { redflags: ["none"] },
-  "severe-hypertension": { hmod: ["none"] },
-  "sick-day": { redflags: ["none"] },
-  "ph-suspected": { warning: ["none"] },
-  "pre-procedure": { active: ["none"] },
-  inr: { bleeding: "none" },
   "low-potassium": { ecg: "not-done" },
-  "icd-shock": { state: "stable" },
-  "after-device": { wound: "ok" },
-  myocarditis: { pericarditis: "no" },
-  "valve-heart-team": { factors: ["none"] },
-  "af-ablation-plan": { safety: "stable", thrombus: "unknown" },
-  "after-af-ablation": { safety: "stable" },
-  "after-laao": { safety: "stable" },
-  "tavi-plan": { safety: "stable" },
-  "teer-plan": { safety: "stable" },
-  "other-structural-plan": { safety: "stable" },
-  "after-structural": { safety: "stable" },
-  "rdn-plan": { safety: "stable" },
-  "after-rdn": { safety: "stable" },
-  "htn-review": { safety: "stable" },
-  "anaemia-result": { redflags: ["none"], scope: "standard" },
-  "liver-result": { redflags: ["none"] },
-  "statin-ck-result": { redflags: ["none"] },
-  "vitamin-d-result": { redflags: ["none"], scope: "standard" },
-  "chest-infection": { setting: "cap" },
-  "valve-antithrombotic": { bleeding: "usual" },
+  "af-ablation-plan": { thrombus: "unknown" },
 };
 // checklist questions: the not-yet state (the plan then lists them as tasks)
 const CHECKLIST: Record<string, string[]> = {

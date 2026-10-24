@@ -1,3 +1,4 @@
+import { decisionQuestions } from "./decision-requirements.js";
 // Decision first (23 Oct 2026, Ahmed: "the pathways give just steps which a cardiologist already knows … at the
 // end it gives options to choose, not a solid recommendation with the doses adjusted to the patient. Checks can
 // be a reminder box the physician looks at, but the pathway itself is for the final decision").
@@ -45,10 +46,7 @@ export function decisionView(wizardId: string, answers: Answers, ctx: WizardCont
   }
   const extra = new Set(def.needed?.(answers, ctx) ?? []);
   const open = (q: Question) => { const v = answers[q.id]; return v == null || v === "" || (Array.isArray(v) && !v.length); };
-  const needed = [
-    ...def.steps.flatMap((st) => missingRequired(st, answers)),
-    ...visible.filter((q) => extra.has(q.id) && open(q) && !q.required),
-  ];
+  const needed = decisionQuestions(wizardId, answers, ctx);
   // optional questions left open are worth a look, not an answer (a pathway with its own checks lists them itself)
   const check = def.checks ? def.checks(answers, ctx) : [
     ...visible.filter((q) => !q.required && !extra.has(q.id) && open(q) && q.type !== "dose" && q.type !== "date").map((q) => q.label.replace(/\?$/, "")),

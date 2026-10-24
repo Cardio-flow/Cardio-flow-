@@ -6,8 +6,8 @@ import type {
   WizardDef,
 } from "./wizards.js";
 import { addCalendarMonths } from "./af.js";
-import { localDay } from "./clinical.js";
-import { officeHigh, severeBp } from "./hypertension.js";
+import { localDay, addDays } from "./clinical.js";
+import { officeHigh, severeBp, resistantMraEligible } from "./hypertension.js";
 const source =
   "ESC hypertension 2024 (10.1093/eurheartj/ehae178), sections 5–9; ESC CVD/CKD 2026 (10.1093/eurheartj/ehag098), BP recommendations (official slide 24); ESC/EAPCI RDN consensus 2023 (10.1093/eurheartj/ehad054); Endocrine Society PA 2025 (10.1210/clinem/dgaf284); selected current regional device IFU";
 const base = {
@@ -278,6 +278,7 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
       };
     },
     outcome(a, c) {
+      if (!a.safety) return [];
       if (a.safety !== "stable")
         return [
           plan(
@@ -446,6 +447,10 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
             ["specialist", "Hypertension specialist review"],
             ["continue", "Continue agreed treatment and reassess"],
           ]),
+          { id: "treatment", label: "Recommended fourth-line treatment", type: "single", options: [
+            {value:"mra",label:"Add spironolactone 25 mg once daily"},
+            {value:"review",label:"Review regimen / alternatives with the specialist"},
+          ] },
           when,
           {
             id: "reviewDate",
@@ -489,7 +494,15 @@ export const HYPERTENSION_WIZARDS: Record<string, WizardDef> = {
     },
     outcome(a, c) {
       const d = String(a.when);
+      const mra = a.treatment === "mra" && resistantMraEligible(a,c);
       return [
+        ...(mra ? [
+          {kind:"start",code:"spironolactone",doseValue:25,frequency:"OD",indication:"Confirmed resistant hypertension",label:`Spironolactone 25 mg once daily: start — confirmed resistance, eGFR ${c.values!.egfr.value}, K ${c.values!.potassium.value} (ESC hypertension 2024)`} as OutcomeItem,
+          ...[7,28].map(days => ({
+            ...plan("lab",`Spironolactone: renal function and potassium (${days === 7 ? "1 week" : "4 weeks"})`,addDays(c.today,days),{type:"lab",codes:["creatinine","potassium","sodium"]}),
+            medicationRef:"code:spironolactone",
+          } as OutcomeItem)),
+        ] : []),
         ...(!c.hypertension?.outside?.valid
           ? [
               plan("study", "Ambulatory BP monitoring", d, {

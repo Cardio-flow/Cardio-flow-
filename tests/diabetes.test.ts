@@ -147,7 +147,7 @@ test("diabetes pathway: offers only what fits, records brands, stops unsafe drug
   await start(pid, "dapagliflozin", 10, "OD", "hf");
   await start(pid, "pioglitazone", 30, "OD");
   await start(pid, "glimepiride", 4, "OD");
-  await obs(pid, [{ code: "hba1c", value: 8.2 }]);
+  await obs(pid, [{ code: "hba1c", value: 8.2 }, {code:"creatinine",value:100}, {code:"potassium",value:4.5}]);
   const w = await tx((q) => getWizard(q, pid, "diabetes"));
   const opts = (qid: string) => optionsFor(WIZARDS.diabetes.steps.flatMap((s) => s.questions).find((q) => q.id === qid)!, w.context).map((o) => o.value);
   assert.ok(!opts("protect").includes("sglt2"), "already on an SGLT2 inhibitor");
@@ -165,7 +165,7 @@ test("diabetes pathway: offers only what fits, records brands, stops unsafe drug
   const titles = out.outcome.filter((o) => o.kind === "plan").map((o: any) => o.title);
   // label start doses (23 Oct 2026): semaglutide 0.25 mg weekly is started; finerenone needs an eGFR first
   assert.ok(out.outcome.some((o: any) => o.kind === "start" && o.code === "semaglutide" && o.doseValue === 0.25), JSON.stringify(out.outcome));
-  assert.ok(out.outcome.some((o: any) => o.kind === "note" && /finerenone starting dose depends on it/.test(o.label)));
+  assert.ok(out.outcome.some((o: any) => o.kind === "start" && o.code === "finerenone" && o.doseValue === 10), "recorded renal function supports the 10 mg label start");
   assert.equal(st.meds.find((m) => m.code === "semaglutide")?.status, "active");
   assert.ok(titles.includes("HbA1c") && titles.includes("Diabetic retinal screening") && titles.includes("Clinic review"));
   await tx((q) => reassess(q, pid, "sandbox", out.changed));

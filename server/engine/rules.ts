@@ -1,3 +1,4 @@
+import { planContext } from "./plan-context.js";
 import { PREGNANCY_RULES } from "./pregnancy-rules.js";
 import { AORTA_RULES } from "./aorta-rules.js";
 import { SYNCOPE_RULES } from "./syncope-rules.js";
@@ -201,25 +202,27 @@ export const RULES: RuleDef[] = [
     id: "ops.plan-due",
     kind: "operational",
     title: "Planned actions due or overdue",
-    inputs: ["plan"],
+    inputs: ["plan", "pathways", "episodes"],
     defaultParams: {},
-    evidence: "Workflow: every plan action with a date is tracked until it happens.",
+    evidence: "Workflow: every plan action with a date is tracked until it happens. Explicit urgent pathway assessments retain urgency until completed and reviewed.",
     evaluate(s) {
       return s.plan
-        .filter((a) => a.status === "planned" && a.due_date && a.due_date <= s.today)
+        .filter((a) => (a.status === "planned" && ((a.due_date && a.due_date <= s.today) || planContext(s, a).urgent)) || (a.status === "completed" && a.progress === "performed" && planContext(s, a).urgent))
         .map((a) => {
-          const state = planStatusView(a.status, a.due_date, s.today);
-          const late = daysBetween(a.due_date!, s.today);
+          const context = planContext(s, a);
+          const review = a.status === "completed" && a.progress === "performed";
+          const state = review ? "review" : planStatusView(a.status, a.due_date, s.today);
+          const late = a.due_date ? daysBetween(a.due_date, s.today) : 0;
           const ctx = s.contexts.find((c) => c.id === a.source_context_id);
           return {
             key: "plan-" + a.id,
-            signature: `${a.id}:${a.version}:${state}`,
-            severity: "yellow" as const,
-            title: state === "overdue" ? `${a.title} overdue` : `${a.title} due today`,
+            signature: `${a.id}:${a.version}:${state}:${context.urgent}`,
+            severity: context.urgent ? "red" as const : "yellow" as const,
+            title: review ? `${a.title} awaiting review` : state === "overdue" ? `${a.title} overdue` : state === "due" ? `${a.title} due today` : `${a.title} outstanding`,
             detail:
               (ctx ? `From ${ctx.kind === "admission" ? (ctx.ended_at ? "discharge plan" : "admission plan") : "visit plan"} ${day(ctx.ended_at ?? ctx.started_at)} · ` : "") +
-              (state === "overdue" ? `due ${day(a.due_date!)} · ${late} day${late === 1 ? "" : "s"} overdue` : "due today"),
-            facts: [{ label: "Due", value: fmtDay(a.due_date!, { weekday: true }) }],
+              (review ? "Assessment recorded; review remains outstanding" : state === "overdue" ? `due ${day(a.due_date!)} · ${late} day${late === 1 ? "" : "s"} overdue` : state === "due" ? "due today" : "Urgent assessment remains outstanding"),
+            facts: [{ label: "Due", value: a.due_date ? fmtDay(a.due_date, { weekday: true }) : "Not dated" }],
             missing: [],
             action: { type: "plan" as const, planId: a.id },
           };
@@ -273,7 +276,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-20.solve1";
+export const RULESET = "2026-10-24.all-pathways-decision1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

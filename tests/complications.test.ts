@@ -35,7 +35,7 @@ test("congestion: weight gain opens the wizard; the confirmed plan changes the d
   await start(pid, "furosemide", 40, "OD");
   await tx(async (q) => {
     await K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -3)), items: [{ code: "weight", value: 80 }, { code: "creatinine", value: 110 }] });
-    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "weight", value: 82.4 }] });
+    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "weight", value: 82.4 }, { code: "potassium", value: 4.5 }] });
     await reassess(q, pid, "sandbox");
   });
   const rec = (await active(pid)).find((r) => r.rule_id === "hf.congestion");

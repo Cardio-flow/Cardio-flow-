@@ -4,6 +4,8 @@
 // lives in its problem's card; items with no problem go to "Other". Due tests are gathered in one button.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, FlaskConical, X, RotateCcw, AlertTriangle, Info } from "lucide-react";
+import { PlanTasks } from "./PlanTasks";
+import { problemOfRule as PROBLEM_OF, overviewCounts } from "../../shared/overview";
 import { api } from "../api";
 import { formatNumber, MEASURES, MEDICATION } from "../../shared/catalog";
 import { fmtDay } from "../../shared/clinical";
@@ -13,7 +15,7 @@ import { HeldMedicines, ResultRows } from "./Story";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
-import { isRoutine } from "../../shared/routine";
+import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import type { Open } from "./Patient";
 
@@ -29,27 +31,6 @@ const SEV_RANK: Record<string, number> = { red: 0, orange: 1, yellow: 2, blue: 3
 // shown under "Before discharge or at clinic" during an admission (display grouping only; red never folds)
 const CLINIC_LATER = new Set(["lipids.lpa-once", "lipids.ldl-goal", "cardiorenal.screening", "cardiorenal.finerenone", "cardiorenal.ckd-stage", "cardiorenal.stage-review", "dm.annual-checks", "dm.hba1c-due", "dm.glycaemic-control", "metabolic.obesity", "metabolic.diabetes-cv-protection", "hf.device-assessment", "cad.rehab", "cad.dapt-beyond-default", "htn.bp-target", "htn.management", "htn.secondary", "htn.rdn", "lab.vitamin-d", "cmp.family-screening", "cmp.genetic-testing", "valve.echo-surveillance", "rhythm.remote-monitoring", "rhythm.device-check-due"]);
 const CLINIC_CARDS = ["lipids", "diabetes", "bp"];
-const PROBLEM_OF = (ruleId: string): string => {
-  if (["hf.hyperkalaemia-review", "hf.worsening-renal-function", "safety.low-potassium", "safety.hyponatraemia", "ops.monitoring-after-change"].includes(ruleId) || ruleId.startsWith("cardiorenal.")) return "kidney";
-  if (["lab.anaemia", "lab.iron-deficiency", "hf.iron-deficiency", "safety.bleeding"].includes(ruleId)) return "anaemia";
-  if (ruleId.startsWith("med.") || ruleId === "meds.not-taking") return "medication";
-  if (ruleId.startsWith("pregnancy."))return "pregnancy";
-  if (ruleId.startsWith("aorta.")) return "aorta";
-  if (ruleId === "event.pericarditis") return "pericardial";
-  if (ruleId === "event.syncope") return "syncope";
-  if (["safety.inr", "safety.digoxin", "event.amiodarone-thyroid"].includes(ruleId)) return "af";
-  if (["lab.liver-enzymes", "lab.statin-ck"].includes(ruleId)) return "lipids";
-  if (ruleId.startsWith("hf.")) return "hf";
-  if (ruleId.startsWith("htn.")) return "bp";
-  if (ruleId.startsWith("lipids.")) return "lipids";
-  if (ruleId.startsWith("dm.") || ruleId.startsWith("metabolic.")) return "diabetes";
-  if (ruleId.startsWith("af.") || ruleId.startsWith("rhythm.")) return "af";
-  if (ruleId.startsWith("cad.") || ruleId.startsWith("acs.")) return "cad";
-  if (ruleId.startsWith("valve.") || ruleId.startsWith("structural.")) return "valve";
-  if (ruleId.startsWith("cmp.")) return "cmp";
-  if (ruleId.startsWith("ph.")) return "ph";
-  return "other";
-};
 // every result belongs to one problem card; abnormal ones are listed there once, with their trend, and the
 // rest of a card's results as one "normal" line (20 Oct 2026: one home for every fact)
 const RESULT_PROBLEM: Record<string, string> = {
@@ -64,7 +45,8 @@ const RESULT_PROBLEM: Record<string, string> = {
 const resultHome = (code: string, keys: Set<string>) => { const k = RESULT_PROBLEM[code]; return k && keys.has(k) ? k : "results"; };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
 type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[]; assessment?: "met" | "above" | "incomplete" | "review" };
-const TITLES: Record<string, string> = { results: "Other results", pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Blood count & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const TITLES: Record<string, string> = { infection: "Infection", results: "Other results", pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Blood count & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+const homeOf = (a: any) => a.clinicalContext?.problem ?? PROBLEM_OF(a.rule_id);
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
 
@@ -79,16 +61,25 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   // optimisation fold into "Before discharge or at clinic" (red items never fold). Due plan items of an open
   // complication episode live on its card, not again as alerts.
   const admitted = s.header?.openContext?.kind === "admission";
-  const onEpisode = new Set<string>((s.episodes ?? []).filter((e: any) => e.status === "open").flatMap((e: any) => (e.open ?? []).map((x: any) => x.id)));
+  const onEpisode = new Set<string>([
+    ...(s.episodes ?? []).filter((e: any) => e.status === "open").flatMap((e: any) => (e.open ?? []).map((x: any) => x.id)),
+    ...(s.plan ?? []).filter((p: any) => p.clinicalContext?.episodeId && (p.status === "planned" || p.awaitingReview)).map((p: any) => p.id),
+  ]);
   const later = (a: any) => admitted && a.severity !== "red" && CLINIC_LATER.has(a.rule_id);
-  const live = (s.attention as any[]).filter((a) => !(a.action?.type === "plan" && onEpisode.has(a.action.planId)));
-  // screening, once-only tests and record keeping fold into "Also due" at the end (23 Oct 2026)
-  const routine = live.filter(isRoutine);
-  const attention = live.filter((a) => !isRoutine(a));
+  const live = (s.attention as any[]).filter((a) => !(a.severity !== "red" && a.action?.type === "plan" && onEpisode.has(a.action.planId)));
+  const routine = live.filter(a=>isRoutine(a) || a.action?.type === "plan" && (s.plan ?? []).some((p: any)=>p.id===a.action.planId && isRoutinePlan(p)));
+  const attention = live.filter(a=>!routine.includes(a));
+  const pending = (s.plan ?? []).filter((p: any) => p.status === "planned" || p.awaitingReview);
+  const routineTasks = pending.filter(isRoutinePlan);
+  const managementTasks = pending.filter((p: any)=>!isRoutinePlan(p));
+  const tasksOf = (key: string) => managementTasks.filter((p: any) => (p.clinicalContext?.problem ?? "other") === key &&
+    (!onEpisode.has(p.id) || p.clinicalContext?.urgent));
+  row.tasksOf = tasksOf;
+
   const deferred = attention.filter(later);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
-  for (const key of new Set(attention.map((a) => PROBLEM_OF(a.rule_id))))
+  for (const key of new Set([...attention.map(homeOf), ...managementTasks.filter((p: any) => !onEpisode.has(p.id) || p.clinicalContext?.urgent).map((p: any) => p.clinicalContext?.problem ?? "other")]))
     if (!problems.some((p) => p.key === key)) problems.splice(problems.length - 1, 0, { key, label: TITLES[key] ?? TITLES.other, stats: [], need: [] } as Problem);
   // an abnormal result whose problem has no card yet gets that card (kidney, anaemia…); the rest go to
   // "Other results" — nothing abnormal is ever left off the overview
@@ -102,30 +93,37 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
   if (resultsOf("results").length) problems.splice(problems.length - 1, 0, { key: "results", label: TITLES.results, stats: [], need: [] } as Problem);
   row.resultsOf = resultsOf;
   row.normalOf = normalOf;
-  const items = (key: string) => attention.filter((a) => PROBLEM_OF(a.rule_id) === key && !later(a)).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
-  const laterOf = (key: string) => deferred.filter((a) => PROBLEM_OF(a.rule_id) === key);
+  const items = (key: string) => attention.filter((a) => homeOf(a) === key && !later(a)).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
+  const laterOf = (key: string) => deferred.filter((a) => homeOf(a) === key);
   // a card left with nothing for today during an admission goes into the folded clinic section
   // (only lipids, diabetes and BP: kidney, HF and the rest keep their results in view during the admission)
-  const clinicCard = (p: Problem) => admitted && !items(p.key).length && CLINIC_CARDS.includes(p.key);
-  const all = problems.filter((p) => (p.key !== "other" || items("other").length || laterOf("other").length));
+  const clinicCard = (p: Problem) => admitted && !items(p.key).length && !tasksOf(p.key).length && CLINIC_CARDS.includes(p.key);
+  const all = problems.filter((p) => (p.key !== "other" || items("other").length || laterOf("other").length || tasksOf("other").length));
   const shown = all.filter((p) => !clinicCard(p));
   const clinic = all.filter(clinicCard);
   // a card with only results ranks after cards with alerts; "Other results" stays last of them
-  const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : resultsOf(p.key).length ? (p.key === "results" ? 8 : 7) : 9; };
+  const rank = (p: Problem) => { const r = items(p.key)[0]; return r ? SEV_RANK[r.severity] : tasksOf(p.key).some((t: any) => t.awaitingReview) ? 2 : resultsOf(p.key).length ? (p.key === "results" ? 8 : 7) : 9; };
   shown.sort((x, y) => rank(x) - rank(y));
   // one decision per pathway: the first alert (in display order) that opens it carries the plan
-  const panels = new Set<string>(), seenWiz = new Set<string>();
-  for (const p of shown) for (const a of items(p.key).filter((x) => x.severity !== "blue"))
-    if (decides(a) && !seenWiz.has(a.action.wizard)) { seenWiz.add(a.action.wizard); panels.add(a.id); }
+  const panels = new Set<string>(), owners = new Map<string, string>();
+  const include = (a: any) => {
+    if (a.action?.type === "wizard" && !owners.has(a.action.wizard)) {
+      owners.set(a.action.wizard, a.id);
+      if (decides(a)) panels.add(a.id);
+    }
+    (a.children ?? []).forEach(include);
+  };
+  for (const p of [...shown, ...clinic]) [...items(p.key), ...laterOf(p.key)].forEach(include);
+  routine.forEach(include);
   row.panels = panels;
+  row.owners = owners;
   // every due test in one entry (the items stay in their problem cards)
   const today = attention.filter((a) => !later(a));
   const dueLabs = today.filter((a) => a.action?.type === "add-labs");
-  const dueLabCodes = [...new Set(dueLabs.flatMap((a) => a.action.codes ?? []))];
   const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
-  const urgent = today.filter((a) => a.severity === "red").length;
-  const decisions = today.filter((a) => a.action?.type !== "add-labs").length;
-  const onCards = s.attention.length - attention.length;
+  const counts = overviewCounts(s.attention.filter((a: any) => !isRoutine(a)), s.plan ?? []);
+  const { urgent, decisions } = counts;
+  const onCards = s.attention.length - live.length;
   const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   return (
     <section className="tb" aria-labelledby="att-h" id="att">
@@ -138,8 +136,9 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
       ) : (
         <div className="tb-summary">
           {urgent > 0 && <span className="tb-count red"><AlertTriangle size={15} /> {urgent} urgent</span>}
-          {decisions > 0 && <span className="tb-count">{decisions} to decide</span>}
-          {dueLabCodes.length > 0 && <span className="tb-count">{dueLabCodes.length} test{dueLabCodes.length === 1 ? "" : "s"} to arrange</span>}
+          {decisions > 0 && <span className="tb-count">{decisions} decision{decisions === 1 ? "" : "s"} needed</span>}
+          {counts.tasks > 0 && <span className="tb-count">{counts.tasks} task{counts.tasks === 1 ? "" : "s"} due</span>}
+          {counts.review > 0 && <span className="tb-count">{counts.review} awaiting review</span>}
           {onCards > 0 && <a className="tb-count" href="#eph">{onCards} complication task{onCards === 1 ? "" : "s"}</a>}
           {deferred.length > 0 && <a className="tb-count muted" href="#clinic-later">{deferred.length} for discharge / clinic</a>}
           {dueCodes.length > 0 && (
@@ -150,15 +149,11 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
         </div>
       )}
       {draft && <p className="tb-draft">Items marked “in review” come from rules still in clinical review. They run on this sandbox only.</p>}
-      {s.plan.some((p: any) => p.awaitingReview) && <div className="lane review-queue" aria-label="Results awaiting review">
-        <div className="lane-head"><span className="lane-title">Results to review</span><span className="lane-hint">Recorded evidence, awaiting your decision</span></div>
-        <div className="lane-rows">{s.plan.filter((p: any) => p.awaitingReview).map((p: any) => <div className="review-row" key={p.id}><div><b>{p.title}</b><span className="small muted">{p.owner ? `Owner: ${p.owner} · ` : ""}{p.completedAt ? fmtDay(p.completedAt) : "Result recorded"}</span></div><button className="btn secondary small" onClick={() => open({ kind: "plan-item", planId: p.id })}>Review result</button></div>)}</div>
-      </div>}
       <FollowUp f={s.followUp} />
       <AskToday items={s.ask ?? []} open={open} admitted={admitted} />
       <div className="problems" aria-label="Problems at a glance">
         {/* the top three problems open; the rest fold to one line each (20 Oct 2026) */}
-        {shown.map((p, i) => <ProblemCard key={p.key} p={p} items={items(p.key)} later={laterOf(p.key)} row={row} folded={i >= 3} />)}
+        {shown.map((p, i) => <ProblemCard key={p.key} p={p} items={items(p.key)} later={laterOf(p.key)} row={row} folded={i >= 3 && !items(p.key).some(a => a.severity === "red")} />)}
       </div>
       {admitted && (clinic.length > 0 || deferred.length > 0) && (
         <details className="clinic-later" id="clinic-later">
@@ -173,15 +168,16 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           </div>
         </details>
       )}
-      {routine.length > 0 && (
+      {(routine.length > 0 || routineTasks.length > 0) && (
         <details className="routine-due" id="routine-due">
           <summary>
             <b>Also due · routine checks</b>
-            <span>{routine.length} · {[...new Set(routine.map((a) => a.title.split(":")[0]))].slice(0, 3).join(" · ")}{routine.length > 3 ? "…" : ""}</span>
+            <span>{routine.length + routineTasks.filter((p: any)=>!routine.some(a=>a.action?.planId===p.id)).length} · {[...new Set(routine.map((a) => a.title.split(":")[0]))].slice(0, 3).join(" · ")}{routine.length > 3 ? "…" : ""}</span>
             <ChevronDown size={16} />
           </summary>
           <p className="small muted">Screening, once-only tests and record keeping. Kept off the main overview; nothing here is dropped.</p>
-          <div className="routine-list">{routine.map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>
+          <div className="routine-list">{routine.filter(a=>a.action?.type !== "plan").map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>
+          <PlanTasks tasks={routineTasks} open={open} today={s.today} />
         </details>
       )}
       <Dismissed s={s} done={done} />
@@ -194,13 +190,16 @@ function ProblemCard({ p, items, later = [], row, folded = false }: { p: Problem
   const [moreLater, setMoreLater] = useState(false);
   const [expanded, setExpanded] = useState(!folded);
   const nResults = row.resultsOf?.(p.key).length ?? 0;
-  if (!expanded) {
+  const tasks = row.tasksOf?.(p.key) ?? [];
+  const taskLabel = [tasks.filter(t => t.awaitingReview).length && `${tasks.filter(t => t.awaitingReview).length} awaiting review`,
+    tasks.filter(t => t.status === "planned").length && `${tasks.filter(t => t.status === "planned").length} planned task${tasks.filter(t => t.status === "planned").length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  if (!expanded && !items.some(a => a.severity === "red")) {
     const top0 = items[0];
     return (
       <section className={`problem folded ${top0 ? `p-${top0.severity}` : p.assessment === "met" ? "ok" : ""}`} aria-label={p.label}>
         <button type="button" className="problem-fold" aria-expanded={false} onClick={() => setExpanded(true)}>
           <b>{p.label}</b>
-          <span className="problem-sub">{[items.length && `${items.length} to review`, nResults && `${nResults} abnormal result${nResults === 1 ? "" : "s"}`, !items.length && !nResults && p.assessment === "met" && "on track"].filter(Boolean).join(" · ") || "open"}</span>
+          <span className="problem-sub">{[items.filter(a => a.action?.type !== "plan").length && `${items.filter(a => a.action?.type !== "plan").length} to review`, taskLabel, nResults && `${nResults} abnormal result${nResults === 1 ? "" : "s"}`, !items.length && !tasks.length && !nResults && p.assessment === "met" && "on track"].filter(Boolean).join(" · ") || "open"}</span>
           <ChevronDown size={16} />
         </button>
       </section>
@@ -208,14 +207,14 @@ function ProblemCard({ p, items, later = [], row, folded = false }: { p: Problem
   }
   const top = items[0];
   // low-priority suggestions fold under "to consider" so the card leads with what matters
-  const main = items.filter((a) => a.severity !== "blue" || a.rule_id === "htn.rdn");
+  const main = items.filter((a) => a.action?.type !== "plan" && (a.severity !== "blue" || a.rule_id === "htn.rdn"));
   const consider = items.filter((a) => a.severity === "blue" && a.rule_id !== "htn.rdn");
   return (
     <section className={`problem ${top ? `p-${top.severity}` : p.assessment === "above" ? "p-orange" : p.need.length || p.assessment === "incomplete" ? "p-need" : p.assessment === "met" ? "ok" : ""}`} aria-label={p.label}>
       <div className="problem-head">
         <b>{p.label}</b>
         {p.sub && <span className="problem-sub">{p.sub}</span>}
-        {!top && !p.need.length && !later.length && p.assessment === "met" && !(row.resultsOf?.(p.key).length) && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
+        {!top && !tasks.length && !p.need.length && !later.length && p.assessment === "met" && !(row.resultsOf?.(p.key).length) && <span className="problem-ok"><CheckCircle2 size={15} /> On track</span>}
         {!top && p.assessment === "above" && <span className="problem-sub">{p.key === "bp" && row.s.pregnancy?.phase === "Pregnant" ? "Above pregnancy target" : "Above target"}</span>}
         {!top && p.assessment === "incomplete" && <span className="problem-sub">Incomplete reading</span>}
       </div>
@@ -236,6 +235,7 @@ function ProblemCard({ p, items, later = [], row, folded = false }: { p: Problem
         </div>
       )}
       {p.key === "hf" && <HeldMedicines s={row.s} />}
+      {row.tasksOf && <PlanTasks tasks={row.tasksOf(p.key)} open={row.open} today={row.s.today} />}
       {main.length > 0 && <div className="problem-items">{main.map((a) => <Item key={a.id} a={a} {...row} />)}</div>}
       {later.length > 0 && items.length > 0 && (
         <div className="problem-consider">
@@ -313,7 +313,7 @@ function buildProblems(s: any): Problem[] {
   return out;
 }
 
-type RowProps = { resultsOf?(key: string): any[]; normalOf?(key: string): string[]; selected:string|null; setSelected(id:string|null):void; panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
+type RowProps = { tasksOf?: (key: string) => any[]; owners?: Map<string, string>; resultsOf?(key: string): any[]; normalOf?(key: string): string[]; selected:string|null; setSelected(id:string|null):void; panels?: Set<string>; dismiss: string | null; setDismiss(id: string | null): void; why: string | null; setWhy(id: string | null): void; open(o: Open): void; done(message?: string): void; patientId: string; s: any; line: string | null; setLine(id: string | null): void };
 
 
 // an alert that opens a pathway shows the pathway's decision on the card (the after-PCI plan opens its own
@@ -321,6 +321,8 @@ type RowProps = { resultsOf?(key: string): any[]; normalOf?(key: string): string
 const decides = (a: any) => a.action?.type === "wizard" && a.severity !== "blue" && !(a.action.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title));
 function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
   // a medicine start or dose change opens inline as an editable line (drug, dose, dates)
+  const sharedWizard = a.action?.type === "wizard" && p.owners?.get(a.action.wizard) !== a.id;
+  const panel = p.panels?.has(a.id);
   const inline = (a.action?.type === "start-med" && MEDICATION[a.action.code]) || a.action?.type === "titrate";
   return (
     <div data-recommendation-id={a.id} tabIndex={-1} className={`item${compact ? " compact" : ""}`}>
@@ -341,7 +343,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
           <button className="dismiss" aria-expanded={p.dismiss === a.id} aria-label={`Not needed: ${a.title}`} title="Dismiss" onClick={() => p.setDismiss(p.dismiss === a.id ? null : a.id)}><X size={16} /><span className="dismiss-l">Dismiss</span></button>
           {inline ? (
             <button className="go" aria-expanded={p.line === a.id} onClick={() => p.setLine(p.line === a.id ? null : a.id)}>{a.action.label}</button>
-          ) : !(a.action?.wizard === "pregnancy-plan" && p.panels?.has(a.id) && !compact) && (
+          ) : !sharedWizard && !panel && (
             <ActionButton a={a} open={p.open} />
           )}
         </div>
@@ -350,7 +352,7 @@ function Item({ a, compact, ...p }: { a: any; compact?: boolean } & RowProps) {
       {p.dismiss === a.id && <DismissPanel a={a} patientId={p.patientId} done={p.done} onCancel={() => p.setDismiss(null)} />}
       {inline && p.line === a.id && <SuggestLine a={a} s={p.s} open={p.open} done={p.done} onCancel={() => p.setLine(null)} />}
       {a.children?.length > 0 && <div className="item-children">{a.children.map((c: any) => <Item key={c.id} a={c} compact {...p} />)}</div>}
-      {!compact && decides(a) && p.panels?.has(a.id) && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care":"Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
+      {decides(a) && panel && <div className="decision-entry"><button className="btn secondary small" aria-expanded={p.selected===a.id} onClick={()=>p.setSelected(p.selected===a.id?null:a.id)}>{p.selected===a.id?"Close decision":a.action?.wizard === "pregnancy-plan" ? "Review pregnancy care" : a.action?.wizard === "diabetes" ? "Review diabetes care" : "Review plan"}</button>{p.selected===a.id&&<DecisionPanel key={a.id} a={a} patientId={p.patientId} open={p.open} done={p.done}/>}</div>}
     </div>
   );
 }
@@ -398,7 +400,7 @@ function Brief({ o }: { o: any }) {
   const parts: [string, string][] = [
     ["Why here", o.why.text + (o.why.sub ? ` · ${o.why.sub}` : "")],
     ["Unfinished", o.unfinished.overdue + o.unfinished.due + (o.unfinished.review ?? 0) === 0 ? "Nothing overdue" : [o.unfinished.overdue && `${o.unfinished.overdue} overdue`, o.unfinished.due && `${o.unfinished.due} due today`, o.unfinished.review && `${o.unfinished.review} to review`].filter(Boolean).join(", ")],
-    ["Next", o.next[0] ? `${o.next[0].title} · ${fmtDay(o.next[0].dueDate, { weekday: true })}` : "Nothing booked"],
+    ["Next", o.next[0] ? `${o.next[0].title} · ${o.next[0].view === "review" ? "Awaiting review" : o.next[0].view === "due" ? "Due today" : `${o.next[0].view === "overdue" ? "Overdue · " : ""}${fmtDay(o.next[0].dueDate, { weekday: true })}`}` : "Nothing booked"],
   ];
   return (
     <dl className="brief">
