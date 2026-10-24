@@ -1,3 +1,4 @@
+import { isRoutine, isRoutinePlan } from "./routine.js";
 // Display ownership only; clinical urgency comes from the server.
 export const problemOfRule = (ruleId: string): string => {
   if (
@@ -112,7 +113,8 @@ export const problemOfWizard = (id: string): string => {
 export function overviewCounts(attention: any[], plan: any[]) {
   const flatten = (items: any[]): any[] =>
     items.flatMap((a) => [a, ...flatten(a.children ?? [])]);
-  const all = flatten(attention);
+  const all = flatten(attention).filter(a=>!isRoutine(a));
+  plan = plan.filter(p=>!isRoutinePlan(p));
   const decisions = new Set(
     all
       .filter((a) => a.action && !["plan", "add-labs"].includes(a.action.type))

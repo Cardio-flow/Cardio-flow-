@@ -1,3 +1,4 @@
+import { isRoutinePlan } from "../../shared/routine.js";
 import { planContext } from "../engine/plan-context.js";
 import { overviewCounts } from "../../shared/overview.js";
 import { pregnancyProfile } from "../engine/pregnancy-profile.js";
@@ -677,8 +678,8 @@ export function overview(s: PatientState, attention: any[], plan: ReturnType<typ
     why = { text: `Discharged ${fmtDay(dis.ended_at)} · day ${daysBetween(dis.ended_at, s.today)}`, sub: dis.reasons.join(", ") || undefined };
   else why = { text: lastVisit ? `Last seen ${fmtDay(lastVisit.started_at, { year: true })}` : "No visit recorded yet", sub: lastVisit?.reasons.join(", ") || undefined };
   const sev = (k: string) => attention.filter((a) => a.severity === k).length;
-  const unfinished = plan.filter((p) => p.view === "overdue" || p.view === "due");
-  const next = plan.filter(p => (p.status === "planned" && (p.dueDate || p.clinicalContext.urgent)) || p.awaitingReview)
+  const unfinished = plan.filter((p) => !isRoutinePlan(p) && (p.view === "overdue" || p.view === "due"));
+  const next = plan.filter(p => !isRoutinePlan(p)).filter(p => (p.status === "planned" && (p.dueDate || p.clinicalContext.urgent)) || p.awaitingReview)
     .sort((a, b) => Number(b.clinicalContext.urgent) - Number(a.clinicalContext.urgent) ||
       Number(b.awaitingReview) - Number(a.awaitingReview) || (a.dueDate ?? "9").localeCompare(b.dueDate ?? "9"));
   return {

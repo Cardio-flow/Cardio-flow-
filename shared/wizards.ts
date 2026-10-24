@@ -28,6 +28,7 @@ import type { MedicationReviewContext } from "./medication-review.js";
 import { MEDICATION_WIZARDS } from "./wizards-medication.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
 import { suggest } from "./wizard-guidance.js";
+import { startItem } from "./start-doses.js";
 
 // requires: shown only when the patient takes a drug with one of these tags; unless: hidden when they do
 export type Effect = {
@@ -86,6 +87,10 @@ export type WizardDef = {
   outcome?: (answers: Answers, ctx: WizardContext) => OutcomeItem[];
   // closing summary shown before confirming and saved with the decision
   assess?: (answers: Answers, ctx: WizardContext) => Assessment;
+  // decision-first view (23 Oct 2026): questions that must be answered before this patient's decision stands
+  // (beyond those marked required), and the points the clinician should look at, shown as a reminder box
+  needed?: (answers: Answers, ctx: WizardContext) => string[];
+  checks?: (answers: Answers, ctx: WizardContext) => string[];
   // side-panel facts and trend (codes from the catalogue)
   facts?: string[];
   trend?: string;
@@ -195,7 +200,24 @@ export const WIZARDS: Record<string, WizardDef> = {
     id: "hyperkalaemia",
     title: "Hyperkalaemia review",
     tone: "red",
-    note: "Options are choices for the clinician. CardioFlow does not pick one, and never changes a dose on its own.",
+    note: "The decision is computed from the latest potassium, the medicines and doses on the list and the record, with the source on each line. Nothing changes until you confirm. Acute treatment of severe hyperkalaemia is not dosed here: use the hospital protocol.",
+    source: "ESC HF 2021 (+2023 update) and its practical guidance on RAAS inhibitors and MRAs: K >5.5 halve the dose, K >6.0 stop, recheck 1–2 weeks after a change; potassium binders may be considered to enable RAAS inhibitor therapy (IIb). Patiromer: Veltassa SmPC (start 8.4 g once daily, adjust at ≥1-week intervals, monitor magnesium). UK Kidney Association community recommendations 1.2.1–1.2.3: newly detected K 5.5–5.9 repeat within 3 days; 6.0–6.4 within 1 day; K ≥6.5 urgent hospital assessment. ECG for K ≥6.0.",
+    sourceShort: "ESC HF · UKKA · SmPC",
+    needed: (_a, ctx) => {
+      const k = ctx.values?.potassium?.value ?? null;
+      return k != null && k >= 6.0 && k < 6.5 ? ["ecg", "symptoms"] : [];
+    },
+    checks: (_a, ctx) => {
+      const v = (c: string) => ctx.values?.[c]?.value ?? null, pv = (c: string) => ctx.values?.[c]?.prev ?? null;
+      const k = v("potassium"), cr = v("creatinine"), cr0 = pv("creatinine");
+      const kRaising = ctx.meds.filter((m) => m.tags.some((t) => ["nsaid", "potassium-sparing", "trimethoprim", "heparin"].includes(t)) && !m.tags.includes("mra")).map((m) => m.name);
+      return [
+        "Sample: haemolysed, delayed or taken above a drip? If so, repeat before acting (“Possibly spurious, repeat sample” below)",
+        k != null && k > 6.0 ? "12-lead ECG today: peaked T waves, wide QRS, bradycardia" : "",
+        cr != null && cr0 != null && cr > cr0 ? `Creatinine ${Math.round(cr0)} → ${Math.round(cr)} µmol/L: volume depletion or AKI? Treat the cause first` : "Volume depletion, vomiting or diarrhoea: treat the cause first",
+        kRaising.length ? `Other potassium-raising medicines on the list: ${kRaising.join(", ")}` : "Ask about NSAIDs, trimethoprim, potassium supplements and salt substitutes",
+      ].filter(Boolean);
+    },
     steps: [
       {
         id: "data",
@@ -232,7 +254,6 @@ export const WIZARDS: Record<string, WizardDef> = {
             id: "ecg",
             label: "ECG changes of hyperkalaemia?",
             type: "single",
-            required: true,
             options: [
               { value: "none", label: "None" },
               { value: "present", label: "Present" },
@@ -288,8 +309,11 @@ export const WIZARDS: Record<string, WizardDef> = {
               { value: "reduce-raas", label: "Reduce ACEi/ARB/ARNI dose", requires: ["raas"] },
               { value: "hold-raas", label: "Hold ACEi/ARB/ARNI", requires: ["raas"], hint: "K >6.0 (ESC HF practical guidance)" },
               { value: "stop-supplement", label: "Stop potassium supplements" },
+              { value: "stop-nsaid", label: "Stop the NSAID", requires: ["nsaid"], effects: { stop: ["nsaid"] } },
               { value: "diet-advice", label: "Dietary potassium advice" },
-              { value: "binder", label: "Consider potassium binder" },
+              { value: "binder", label: "Start patiromer (Veltassa) to keep RAAS inhibitor / MRA doses" },
+              { value: "binder-szc", label: "Start sodium zirconium cyclosilicate (Lokelma) to keep RAAS inhibitor / MRA doses" },
+              { value: "no-binder", label: "Keep the doses without a binder" },
               { value: "urgent", label: "Same-day urgent assessment" },
             ],
           },
@@ -658,6 +682,24 @@ function closingSummary(def: WizardDef) {
     return { heading: `${def.title}: summary`, rows, recommendations: recs };
   };
 }
+// starts with their label doses for pathways whose options name a drug (23 Oct 2026; shared/start-doses.ts)
+const withStarts = (id: string, f: (a: Answers, ctx: WizardContext) => (OutcomeItem | null)[]) => {
+  const w = WIZARDS[id]; if (!w) return;
+  const prev = w.outcome;
+  w.outcome = (a, ctx) => [...(prev?.(a, ctx) ?? []), ...(f(a, ctx).filter(Boolean) as OutcomeItem[])];
+};
+const picked = (a: Answers, q: string, v: string) => (Array.isArray(a[q]) ? (a[q] as string[]).includes(v) : a[q] === v);
+withStarts("diabetes", (a, ctx) => [
+  picked(a, "protect", "sglt2") ? startItem("sglt2", ctx, "Type 2 diabetes: heart and kidney protection", "sglt2") : null,
+  picked(a, "protect", "glp1") ? startItem("glp1", ctx, "Type 2 diabetes: cardiovascular protection", "glp1") : null,
+  picked(a, "protect", "finerenone") ? startItem("finerenone", ctx, "Type 2 diabetes with albuminuric CKD", "mra") : null,
+  picked(a, "lower", "metformin") ? startItem("metformin", ctx, "diabetes", "metformin") : null,
+  picked(a, "lower", "tirzepatide") ? startItem("tirzepatide", ctx, "diabetes", "glp1") : null,
+  picked(a, "lower", "dpp4") ? startItem("dpp4", ctx, "diabetes", "dpp4") : null,
+  picked(a, "lower", "gliclazide") || picked(a, "safety", "switch-glib") ? startItem("gliclazide", ctx, "diabetes") : null,
+]);
+withStarts("bleeding", (a, ctx) => [picked(a, "actions", "ppi") ? startItem("ppi", ctx, "GI protection on antithrombotic therapy", "ppi") : null]);
+withStarts("low-potassium", (a, ctx) => [picked(a, "actions", "mra") ? startItem("mra", ctx, "hf", "mra") : null]);
 for (const w of Object.values(WIZARDS)) w.assess ??= closingSummary(w);
 // link each "reduce" option to its lower-dose question, so it is offered only when a lower dose exists
 for (const w of Object.values(WIZARDS))
@@ -720,12 +762,12 @@ export function missingRequired(step: Step, answers: Answers) {
 }
 
 export function medForTag(ctx: WizardContext, tag: string) {
-  return ctx.meds.find((m) => m.tags.includes(tag)) ?? null;
+  return ctx.meds.find((m) => (!m.status || m.status === "active") && m.tags.includes(tag)) ?? null;
 }
 
 export function doseChoices(ctx: WizardContext, q: Question) {
   const med = q.medTag ? medForTag(ctx, q.medTag) : null;
-  if (!med) return { med: null, options: [] as Option[] };
+  if (!med || med.doseValue == null || !med.frequency) return { med, options: [] as Option[] };
   const def = MEDICATION[med.code];
   const doses = (def?.doses ?? []).filter((d) => q.direction !== "lower" || med.doseValue == null || d < med.doseValue);
   return {
@@ -751,6 +793,8 @@ const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypote
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
   if(["pericarditis","pregnancy-plan"].includes(wizardId))answers=visibleAnswers(wizardId,answers);
+  if(wizardId === "hyperkalaemia" && (answers.result === "repeat" || answers.haemolysis === "yes") && (ctx.values?.potassium?.value ?? 0) < 6.5 && answers.ecg !== "present")
+    answers = {...answers, actions: ["continue"], recheck:"0"};
   const out: OutcomeItem[] = [];
   const actions = (answers.actions as string[] | undefined) ?? [];
   const today = ctx.today;
@@ -766,7 +810,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       medicationId: m.id,
       event: kind,
       doseValue: v,
-      label: `${m.name}: ${doseLabel(def, m.doseValue, m.doseUnit)} → ${doseLabel(def, v, m.doseUnit)}`,
+      label: `${m.name}: ${doseLabel(def, m.doseValue, m.doseUnit)} → ${doseLabel(def, v, m.doseUnit)}${m.frequency ? ` ${m.frequency}` : " — frequency needs confirmation"}`,
     });
   };
   if (wizardId === "hyperkalaemia") {
@@ -784,7 +828,17 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       if (m) out.push({ kind: "medication", medicationId: m.id, event: "hold", doseValue: null, label: `${m.name}: hold` });
     }
     if (actions.includes("diet-advice")) out.push({ kind: "plan", category: "education", title: "Dietary potassium advice", dueDate: today, completesOn: { type: "manual" }, label: "" });
-    if (actions.includes("binder")) out.push({ kind: "plan", category: "medication", title: "Potassium binder decision", dueDate: today, completesOn: { type: "manual" }, label: "" });
+    // patiromer at the label start dose (Veltassa SmPC: 8.4 g once daily, separated ≥3 h from other oral
+    // medicines; adjust at ≥1-week intervals); already on a binder: review its dose instead
+    // Correction and maintenance are distinct. The current record cannot represent
+    // the conditional 24–72h transition, so book the exact prescription review rather
+    // than silently prescribing maintenance against a high potassium result.
+    if (actions.includes("binder-szc") && !ctx.meds.some((m) => m.tags.includes("k-binder") && m.status !== "stopped"))
+      out.push({kind:"plan",category:"medication",title:"Lokelma correction prescription review: 10 g three times daily; maintenance 5 g daily only after normokalaemia (SmPC)",dueDate:today,completesOn:{type:"manual"},label:""});
+    if (actions.includes("binder")) {
+      if (ctx.meds.some((m) => m.tags.includes("k-binder"))) out.push({ kind: "plan", category: "medication", title: "Potassium binder dose review", dueDate: today, completesOn: { type: "manual" }, label: "" });
+      else out.push({ kind: "start", code: "patiromer", doseValue: 8.4, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Patiromer 8.4 g once daily: start (Veltassa SmPC start dose; take 3 h apart from other oral medicines)" });
+    }
     if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit" }, label: "" });
   }
   if (wizardId === "renal-function") {
@@ -810,9 +864,10 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   if (wizardId === "congestion") {
     if (red.length || actions.includes("admit")) plan("follow_up", red.length ? "Same-day hospital assessment (red flag)" : "Admission for IV diuretics", 0, { type: "visit" });
     if (actions.includes("increase-loop")) change("loop", "loopDose", "increase");
-    if (actions.includes("start-loop")) plan("medication", "Start a loop diuretic (dose by clinician)", 0);
-    if (actions.includes("thiazide")) plan("medication", "Short thiazide-type diuretic course (sequential nephron blockade)", 0);
-    if (actions.includes("sglt2") && !ctx.meds.some((m) => m.tags.includes("sglt2"))) plan("medication", "Start an SGLT2 inhibitor", 0);
+    // starting doses from the label / guideline (shared/start-doses.ts)
+    if (actions.includes("start-loop")) { const i = startItem("loop", ctx, "hf", "loop"); if (i) out.push(i); }
+    if (actions.includes("thiazide")) plan("medication", "Metolazone 2.5 mg once daily, short course (HFA 2019 range 2.5–10 mg): weight, sodium, potassium and creatinine in 2–3 days", 0);
+    if (actions.includes("sglt2")) { const i = startItem("sglt2", ctx, "hf", "sglt2"); if (i) out.push(i); }
     if (actions.includes("precipitant")) plan("other", "Treat the precipitant: " + (((answers.precipitants as string[]) ?? []).join(", ") || "as documented"), 0);
     if (actions.includes("self-care")) plan("education", "Daily weights, flexible diuretic, salt and fluid advice", 0);
   }
@@ -868,7 +923,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       category: "monitoring",
       title: r.title,
       dueDate: addDays(today, recheck),
-      completesOn: { type: "lab", codes: r.codes },
+      completesOn: { type: "lab", codes: wizardId === "hyperkalaemia" && actions.includes("binder") ? [...new Set([...r.codes,"magnesium"])] : r.codes },
       label: "",
     });
   }

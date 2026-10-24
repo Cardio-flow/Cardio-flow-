@@ -3,6 +3,7 @@
 // clinician reviews and changes rather than builds. Suggestions depend on earlier answers, so the steps
 // are walked in order. Nothing here decides: the plan is recorded only when the clinician confirms it.
 import { WIZARDS, doseChoices, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
+import { assumed } from "./decision-assume.js";
 import { suggest } from "./wizard-guidance.js";
 
 // questions whose answer comes only from the record (diagnoses, results, medicines), never from symptoms or
@@ -26,6 +27,11 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
         if (answers[q.id] != null) continue;
         // a "reduce" dose: the guideline step is to halve it — the largest listed dose at or below half
         // the current one, else the next lower dose (ESC HF practical guidance)
+        // a dose the guideline computes for this patient (e.g. double the loop diuretic, HFA 2019)
+        if (q.type === "dose") {
+          const v = suggest(wizardId, q.id, answers, ctx).filter((x) => !x.alt)[0]?.value;
+          if (v && doseChoices(ctx, q).options.some((o) => o.value === v)) { answers[q.id] = v; suggested.add(q.id); filled = true; continue; }
+        }
         if (q.type === "dose" && q.direction === "lower") {
           const { med, options } = doseChoices(ctx, q);
           const cur = med?.doseValue;
@@ -37,18 +43,26 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
           continue;
         }
         if (q.type === "date") {
-          const proposed=suggest(wizardId,q.id,answers,ctx)[0]?.value;
+          const proposed=suggest(wizardId,q.id,answers,ctx).filter((x)=>!x.alt)[0]?.value;
           if(proposed) {answers[q.id]=proposed;suggested.add(q.id);filled=true;}
           continue;
         }
         if (!q.options) continue;
         const ok = new Set(optionsFor(q, ctx).map((o) => o.value));
-        const vals = suggest(wizardId, q.id, answers, ctx, ok).map((x) => x.value);
+        // an alternative is offered beside the decision, never taken by default
+        const vals = suggest(wizardId, q.id, answers, ctx, ok).filter((x) => !x.alt).map((x) => x.value);
         // a list read entirely from the record (not a symptom or clinical sign) with nothing found: "none"
         if (!vals.length && RECORD_LISTS[wizardId]?.includes(q.id) && ok.has("none")) vals.push("none");
         // only "none" can be chosen (e.g. nothing to stop among the medicines taken): nothing to ask
         if (!vals.length && q.type === "multi" && ok.size === 1 && ok.has("none")) vals.push("none");
-        if (!vals.length) continue;
+        if (!vals.length) {
+          // a screen, checklist or booking: the safe / not-yet default, shown as assumed (shared/decision-assume.ts)
+          const def = q.required ? assumed(wizardId, q, ctx) : undefined;
+          if (def === undefined || (Array.isArray(def) ? !def.every((v) => ok.has(v)) : !ok.has(def))) continue;
+          answers[q.id] = def;
+          filled = true;
+          continue;
+        }
         answers[q.id] = q.type === "multi" ? (vals.includes("none") ? ["none"] : vals) : vals[0];
         suggested.add(q.id);
         filled = true;
@@ -57,6 +71,25 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
     }
   }
   return { answers, suggested: [...suggested] };
+}
+
+// Recompute generated downstream answers when a clinical input changes. Keep
+// clinician overrides; clear invisible old branches and recompute doses/dates.
+export function updateDecisionAnswers(id: string, ctx: WizardContext, before: Answers, patch: Answers) {
+  const previousAuto = prefill(id,ctx).answers;
+  const base: Answers = {};
+  for(const [key,value] of Object.entries(before)) {
+    if(JSON.stringify(value) !== JSON.stringify(previousAuto[key])) base[key]=value;
+  }
+  const qs = WIZARDS[id].steps.flatMap(st=>st.questions);
+  if(Object.hasOwn(patch,"actions") || Object.keys(patch).some(k=>!["recheck","review"].includes(k))) {
+    for(const q of qs) if(q.type === "dose" || ["recheck","review"].includes(q.id)) delete base[q.id];
+  }
+  Object.assign(base,patch);
+  const result = prefill(id,ctx,base).answers;
+  const visible = new Set(WIZARDS[id].steps.flatMap(st=>visibleQuestions(st,result)).map(q=>q.id));
+  for(const q of qs) if(!visible.has(q.id)) delete result[q.id];
+  return result;
 }
 
 // Joined pathways: when the answers call for it, the pathway carries straight on into the one that follows,

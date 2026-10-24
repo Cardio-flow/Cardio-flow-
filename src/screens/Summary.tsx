@@ -1,4 +1,5 @@
 import { PlanTasks } from "./PlanTasks";
+import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { useEffect, useState } from "react";
 import { MedicationReviewLink } from "./MedicationReview";
 import { Pulse, toneOf } from "./Pulse";
@@ -73,7 +74,7 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
   const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
   const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
   const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
-  const tabs: [string, string, number | null][] = [["decide", "Decide", s.attention?.length ?? 0], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
+  const tabs: [string, string, number | null][] = [["decide", "Decide", (s.attention ?? []).filter((a: any) => !isRoutine(a)).length], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
   if (narrow)
     return (
       <main className="page overview-page">
@@ -403,7 +404,7 @@ function EpisodeCard({ e, s, open, done }: { e: any; s: any; open(o: Open): void
         )}
         {e.total > 0 && <span className="muted small">{e.done} of {e.total} plan items done</span>}
       </div>
-      <PlanTasks tasks={(s.plan ?? []).filter((p: any) => p.clinicalContext?.episodeId === e.id && !p.clinicalContext?.urgent && (p.status === "planned" || p.awaitingReview))} open={open} today={s.today} />
+      <PlanTasks tasks={(s.plan ?? []).filter((p: any) => p.clinicalContext?.episodeId === e.id && !isRoutinePlan(p) && !p.clinicalContext?.urgent && (p.status === "planned" || p.awaitingReview))} open={open} today={s.today} />
       {!closing ? (
         <div className="ep-actions">
           <button className="btn secondary small" onClick={() => open({ kind: "wizard", wizard: e.wizard })}>Review</button>

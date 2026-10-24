@@ -240,6 +240,7 @@ test("ST elevation → immediate angiography; stable exertional angina → nitra
 
 test("bleeding on DAPT: a bleeding visit offers the pathway; moderate bleeding → keep the P2Y12 inhibitor, hold aspirin, or switch to clopidogrel", async () => {
   const pid = await newCad("Bleed");
+  await tx(q=>K.recordObservations(q,doc,pid,{effectiveAt:new Date().toISOString(),items:[{code:"haemoglobin",value:10.5}]}));
   await pci(pid, -40, "nste-acs");
   await start(pid, "aspirin", 100, "OD", "cad", -40);
   await start(pid, "ticagrelor", 90, "BID", "cad", -40);

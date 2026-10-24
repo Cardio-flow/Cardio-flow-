@@ -86,7 +86,9 @@ test("renal deterioration: the plan is ready after the volume status, with the m
   assert.ok(p.medReview.some((m: any) => /Spironolactone 25 mg: keep/.test(m.title)));
   assert.ok(p.medReview.some((m: any) => /Dapagliflozin 10 mg: continue/.test(m.title)));
   p = await preview(pid, "renal-function", { volume: "dry" });
-  assert.deepEqual(p.needed.map((n: any) => n.id), ["diureticDose"], "reduce the diuretic: the new dose is the clinician's");
+  // decision first (23 Oct 2026): dry → one catalogue step lower (ESC HF practical guidance), nothing to ask
+  assert.deepEqual(p.needed.map((n: any) => n.id), []);
+  assert.ok(p.plan.some((x: any) => /Furosemide: 40 mg → 20 mg/.test(x.label)), JSON.stringify(p.plan));
 });
 
 test("a >50% rise on an ACE inhibitor: the guideline halves the dose", async () => {
@@ -148,4 +150,28 @@ test("coronary disease reads as one IHD line with its PCI history; non-cardiac c
   await tx((q) => K.startMedication(q, doc, pid, { code: "clopidogrel", doseValue: 75, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at(addDays(T, -300)) } as any));
   const p = await preview(pid, "antithrombotic");
   assert.equal(p.answers.dapt, "extended");
+});
+
+test("decision-first confirmation enforces the same conditional ECG and symptoms as preview at K 6.0", async () => {
+  const pid=await newPatient(["hfref"]);
+  await med(pid,"spironolactone",25,"OD");
+  await obs(pid,[{code:"potassium",value:6},{code:"creatinine",value:120}]);
+  const p=await preview(pid,"hyperkalaemia");
+  assert.ok(p.needed.some(q=>q.id === "ecg") && p.needed.some(q=>q.id === "symptoms"));
+  await assert.rejects(tx(q=>completeWizard(q,doc,pid,"hyperkalaemia",{answers:p.answers})),/Symptoms|ECG/);
+  assert.equal((await loadState(db,pid)).meds.find(m=>m.code==="spironolactone")?.doseValue,25);
+  const ready=await preview(pid,"hyperkalaemia",{ecg:"none",symptoms:["none"]});
+  assert.equal(ready.ready,true);
+  await tx(q=>completeWizard(q,doc,pid,"hyperkalaemia",{answers:ready.answers}));
+});
+
+test("urgent hyperkalaemia can be escalated with renal tests outstanding, but cannot be deferred", async()=>{
+  const pid=await newPatient(["hfref"]);
+  await obs(pid,[{code:"potassium",value:6.6}]);
+  const p=await preview(pid,"hyperkalaemia");
+  assert.equal(p.ready,true,JSON.stringify({needed:p.needed,data:p.needData,block:p.blockers}));
+  await assert.rejects(tx(q=>completeWizard(q,doc,pid,"hyperkalaemia",{answers:p.answers,dueDates:{"Same-day urgent assessment":addDays(T,1)}})),/today/);
+  await tx(q=>completeWizard(q,doc,pid,"hyperkalaemia",{answers:p.answers}));
+  const s=await loadState(db,pid);
+  assert.ok(s.plan.some(p=>p.title === "Same-day urgent assessment" && p.due_date === T));
 });

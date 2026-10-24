@@ -15,6 +15,7 @@ import { HeldMedicines, ResultRows } from "./Story";
 import { SuggestLine } from "./SuggestLine";
 import { DecisionPanel } from "./Decision";
 import { WIZARDS } from "../../shared/wizards";
+import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy";
 import type { Open } from "./Patient";
 
@@ -65,17 +66,20 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
     ...(s.plan ?? []).filter((p: any) => p.clinicalContext?.episodeId && (p.status === "planned" || p.awaitingReview)).map((p: any) => p.id),
   ]);
   const later = (a: any) => admitted && a.severity !== "red" && CLINIC_LATER.has(a.rule_id);
-  const attention = (s.attention as any[]).filter((a) => !(a.severity !== "red" && a.action?.type === "plan" && onEpisode.has(a.action.planId)));
-  // Keep the clinical home while a task or its result review is outstanding, even
-  // after the initiating recommendation has closed.
+  const live = (s.attention as any[]).filter((a) => !(a.severity !== "red" && a.action?.type === "plan" && onEpisode.has(a.action.planId)));
+  const routine = live.filter(a=>isRoutine(a) || a.action?.type === "plan" && (s.plan ?? []).some((p: any)=>p.id===a.action.planId && isRoutinePlan(p)));
+  const attention = live.filter(a=>!routine.includes(a));
   const pending = (s.plan ?? []).filter((p: any) => p.status === "planned" || p.awaitingReview);
-  const tasksOf = (key: string) => pending.filter((p: any) => (p.clinicalContext?.problem ?? "other") === key &&
+  const routineTasks = pending.filter(isRoutinePlan);
+  const managementTasks = pending.filter((p: any)=>!isRoutinePlan(p));
+  const tasksOf = (key: string) => managementTasks.filter((p: any) => (p.clinicalContext?.problem ?? "other") === key &&
     (!onEpisode.has(p.id) || p.clinicalContext?.urgent));
   row.tasksOf = tasksOf;
+
   const deferred = attention.filter(later);
   // an alert whose problem has no card of its own (e.g. statin CK without a lipid card) gets a card with the
   // problem's name, so nothing on the list is ever left out of the overview
-  for (const key of new Set([...attention.map(homeOf), ...pending.filter((p: any) => !onEpisode.has(p.id) || p.clinicalContext?.urgent).map((p: any) => p.clinicalContext?.problem ?? "other")]))
+  for (const key of new Set([...attention.map(homeOf), ...managementTasks.filter((p: any) => !onEpisode.has(p.id) || p.clinicalContext?.urgent).map((p: any) => p.clinicalContext?.problem ?? "other")]))
     if (!problems.some((p) => p.key === key)) problems.splice(problems.length - 1, 0, { key, label: TITLES[key] ?? TITLES.other, stats: [], need: [] } as Problem);
   // an abnormal result whose problem has no card yet gets that card (kidney, anaemia…); the rest go to
   // "Other results" — nothing abnormal is ever left off the overview
@@ -110,15 +114,16 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
     (a.children ?? []).forEach(include);
   };
   for (const p of [...shown, ...clinic]) [...items(p.key), ...laterOf(p.key)].forEach(include);
+  routine.forEach(include);
   row.panels = panels;
   row.owners = owners;
   // every due test in one entry (the items stay in their problem cards)
   const today = attention.filter((a) => !later(a));
   const dueLabs = today.filter((a) => a.action?.type === "add-labs");
   const dueCodes = [...new Set([...dueLabs.flatMap((a) => a.action.codes ?? []), ...shown.flatMap((p) => p.need.map((n) => n.code))])];
-  const counts = s.overview?.counts ?? overviewCounts(s.attention, s.plan ?? []);
+  const counts = overviewCounts(s.attention.filter((a: any) => !isRoutine(a)), s.plan ?? []);
   const { urgent, decisions } = counts;
-  const onCards = s.attention.length - attention.length;
+  const onCards = s.attention.length - live.length;
   const draft = s.attention.some((a: any) => a.rule_status !== "PUBLISHED");
   return (
     <section className="tb" aria-labelledby="att-h" id="att">
@@ -161,6 +166,18 @@ export function TodayBoard({ s, open, done }: { s: any; open(o: Open): void; don
           <div className="problems">
             {clinic.map((p) => <ProblemCard key={p.key} p={p} items={laterOf(p.key)} row={row} />)}
           </div>
+        </details>
+      )}
+      {(routine.length > 0 || routineTasks.length > 0) && (
+        <details className="routine-due" id="routine-due">
+          <summary>
+            <b>Also due · routine checks</b>
+            <span>{routine.length + routineTasks.filter((p: any)=>!routine.some(a=>a.action?.planId===p.id)).length} · {[...new Set(routine.map((a) => a.title.split(":")[0]))].slice(0, 3).join(" · ")}{routine.length > 3 ? "…" : ""}</span>
+            <ChevronDown size={16} />
+          </summary>
+          <p className="small muted">Screening, once-only tests and record keeping. Kept off the main overview; nothing here is dropped.</p>
+          <div className="routine-list">{routine.filter(a=>a.action?.type !== "plan").map((a) => <Item key={a.id} a={a} compact {...row} />)}</div>
+          <PlanTasks tasks={routineTasks} open={open} today={s.today} />
         </details>
       )}
       <Dismissed s={s} done={done} />

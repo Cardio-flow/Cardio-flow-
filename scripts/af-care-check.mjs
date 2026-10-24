@@ -11,6 +11,8 @@ const browser = await chromium.launch(
 );
 const p = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 p.setDefaultTimeout(15000);
+// pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
+await p.addLocatorHandler(p.getByRole("button", { name: "Change details", exact: true }), (b) => b.click());
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 const shown = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;

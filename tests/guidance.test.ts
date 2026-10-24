@@ -6,7 +6,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { GUIDANCE, suggest } from "../shared/wizard-guidance.js";
 import { validDate } from "../shared/dates.js";
-import { WIZARDS, optionsFor, type WizardContext } from "../shared/wizards.js";
+import { WIZARDS, doseChoices, optionsFor, type WizardContext } from "../shared/wizards.js";
 import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
@@ -46,7 +46,8 @@ test("every suggestion names a real question and a real option, with a reason", 
       for (const a of answerSets)
         for (const s of suggest(wid, qid, a, rich)) {
           count++;
-          assert.ok(q!.type === "date" ? validDate(s.value) : optionsFor(q!,rich).some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is a valid date or patient-specific option`);
+          // a dose suggestion (decision first, 23 Oct 2026) must be one of the patient's catalogue doses
+          assert.ok(q!.type === "date" ? validDate(s.value) : q!.type === "dose" ? doseChoices(rich, q!).options.some((o) => o.value === s.value) : optionsFor(q!,rich).some((o) => o.value === s.value), `${wid}.${qid}: "${s.value}" is a valid date, catalogue dose or patient-specific option`);
           assert.ok(s.why.length > 5, `${wid}.${qid}.${s.value} has a reason`);
         }
     }
@@ -56,7 +57,7 @@ test("every suggestion names a real question and a real option, with a reason", 
   for (const id of Object.keys(WIZARDS)) assert.ok(GUIDANCE[id], `${id} has guideline suggestions`);
 });
 
-test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve MRA, recheck in 1–2 weeks", () => {
+test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve MRA, repeat within 3 days", () => {
   const hi = ctx({ potassium: 6.3 }, [["spironolactone", ["mra"]], ["ramipril", ["raas"]]]);
   assert.deepEqual(vals("hyperkalaemia", "actions", {}, hi).slice(0, 1), ["hold-mra"]);
   assert.ok(!vals("hyperkalaemia", "actions", {}, hi).includes("reduce-mra"));
@@ -64,8 +65,9 @@ test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve
   assert.ok(vals("hyperkalaemia", "actions", { ecg: "present" }, hi).includes("urgent"));
   const mid = ctx({ potassium: 5.7 }, [["spironolactone", ["mra"]]]);
   assert.ok(vals("hyperkalaemia", "actions", {}, mid).includes("reduce-mra"));
-  assert.deepEqual(vals("hyperkalaemia", "result", {}, mid), ["repeat"]);
-  assert.deepEqual(vals("hyperkalaemia", "recheck", {}, mid), ["7"]);
+  // decision first (23 Oct 2026): acted on as reported; "repeat sample" is the one-tap alternative
+  assert.deepEqual(vals("hyperkalaemia", "result", {}, mid), ["confirmed", "repeat"]);
+  assert.deepEqual(vals("hyperkalaemia", "recheck", {}, mid), ["3"]);
 });
 
 test("renal function: +20% → continue; +70% on ARNI → halve; congested → decongest", () => {
@@ -110,10 +112,10 @@ test("a guideline suggestion not taken is written into the Journey entry", async
   const pid = await db.transaction((q) => K.createPatient(q, doc, { name: "Gd " + Date.now(), mrn: "G" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"] }));
   await db.transaction(async (q) => {
     await K.startMedication(q, doc, pid, { code: "spironolactone", doseValue: 25, frequency: "OD", route: "PO", indication: "hf", effectiveAt: new Date(addDays(today(), -40) + "T09:00:00Z").toISOString() });
-    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "potassium", value: 6.3 }] });
+    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "potassium", value: 6.3 }, {code:"creatinine",value:110}] });
   });
   await db.transaction((q) => completeWizard(q, doc, pid, "hyperkalaemia", { answers: {
-    result: "confirmed", symptoms: ["none"], ecg: "none", contributors: ["mra"], haemolysis: "no", actions: ["diet-advice"], recheck: "3", review: "none",
+    result: "confirmed", symptoms: ["none"], ecg: "none", contributors: ["mra"], haemolysis: "no", actions: ["diet-advice"], recheck: "0", review: "none",
   } }));
   const ev = (await db.query(`SELECT detail FROM cf.clinical_event WHERE patient_id=$1 AND title LIKE 'Hyperkalaemia%'`, [pid])).rows[0] as any;
   assert.match(ev.detail, /Guideline suggestions not taken: .*Hold MRA/);

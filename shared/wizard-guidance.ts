@@ -32,7 +32,10 @@ import { STRATA_LABEL } from "./ph.js";
 import { ferinjectPlan, ironInputs } from "./wizards-iron.js";
 import { interventionFor, prosthesisKind, LESION_LABEL, mrRepairFeatures } from "./wizards-valve.js";
 
-export type Suggestion = { value: string; why: string };
+// alt: an option the guideline also allows, offered beside the decision instead of being taken by default;
+// replaces: the values it takes the place of when chosen
+// silent: a default taken without comment (not listed under "Why")
+export type Suggestion = { value: string; why: string; alt?: boolean; replaces?: string[]; silent?: boolean };
 type Fn = (a: Answers, ctx: WizardContext) => (Suggestion | false | null | undefined | "" | 0)[];
 
 const inrRange = (c: any) => {
@@ -42,19 +45,29 @@ const inrRange = (c: any) => {
 };
 const val = (c: WizardContext, code: string) => c.values?.[code]?.value ?? null;
 const prev = (c: WizardContext, code: string) => c.values?.[code]?.prev ?? null;
-const on = (c: WizardContext, ...tags: string[]) => c.meds.some((m) => m.tags.some((t) => tags.includes(t)));
+const on = (c: WizardContext, ...tags: string[]) => c.meds.some((m) => (!m.status || m.status === "active") && m.tags.some((t) => tags.includes(t)));
 const onCode = (c: WizardContext, ...codes: string[]) => c.meds.some((m) => codes.includes(m.code));
 const dx = (c: WizardContext, ...d: string[]) => (c.dx ?? []).some((x) => d.includes(x));
 const list = (a: Answers, id: string) => ((a[id] as string[] | undefined) ?? []).filter((v) => v !== "none");
 const is = (a: Answers, id: string, v: string) => (Array.isArray(a[id]) ? (a[id] as string[]).includes(v) : a[id] === v);
 const n1 = (x: number) => (Math.round(x * 10) / 10).toString();
 const S = (value: string, why: string): Suggestion => ({ value, why });
+const ALT = (value: string, why: string, replaces: string[] = []): Suggestion => ({ value, why, alt: true, replaces });
 // the medicine with this tag is already at its lowest catalogue dose (no "reduce" possible: hold instead)
 const lowest = (c: WizardContext, tag: string) => {
-  const m = c.meds.find((x) => x.tags.includes(tag));
+  const m = c.meds.find((x) => (!x.status || x.status === "active") && x.tags.includes(tag));
   return !!m && m.doseValue != null && !(MEDICATION[m.code]?.doses ?? []).some((d) => d < m.doseValue!);
 };
 const mraLowest = (c: WizardContext) => lowest(c, "mra");
+// catalogue doses of the medicine with this tag, the current one, and the guideline step from it
+const doses = (c: WizardContext, tag: string) => {
+  const m = c.meds.find((x) => (!x.status || x.status === "active") && x.tags.includes(tag));
+  return m && m.doseValue != null && m.frequency ? { m, cur: m.doseValue, list: [...(MEDICATION[m.code]?.doses ?? [])].sort((x, y) => x - y) } : null;
+};
+// Only compute an exact doubling of a known regimen, never round upward or call a partial increase doubling.
+const doubled = (c: WizardContext, tag: string) => { const d = doses(c, tag); if (!d) return null; const v = d.list.find((x) => x === 2 * d.cur); return v != null ? { ...d, v } : null; };
+const stepDown = (c: WizardContext, tag: string) => { const d = doses(c, tag); if (!d) return null; const v = [...d.list].reverse().find((x) => x < d.cur); return v != null ? { ...d, v } : null; };
+const unit = (d: { m: { doseUnit: string | null } }) => d.m.doseUnit ?? "mg";
 
 export const GUIDANCE: Record<string, Record<string, Fn>> = {
   "pregnancy-plan":pregnancySuggestions,
@@ -99,31 +112,52 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
   },
   // ---------------- Heart failure ----------------
   hyperkalaemia: {
+    // acted on as reported; a doubtful sample is the alternative
     result: (_a, c) => {
       const k = val(c, "potassium");
-      return [k != null && k > 5.5 && k <= 6.0 && S("repeat", `K ${n1(k)}: repeat to exclude a haemolysed sample before changing therapy`)];
+      return [k != null && { ...S("confirmed", `K ${n1(k)} acted on as reported`), silent: true }, k != null && k <= 6.5 && ALT("repeat", "Haemolysed, delayed or unexpected result: repeat before changing therapy")];
     },
     actions: (a, c) => {
       const k = val(c, "potassium");
       if (k == null) return [];
+      if ((a.result === "repeat" || a.haemolysis === "yes") && k < 6.5 && a.ecg !== "present") return [S("continue", "Repeat the doubtful sample today before changing maintenance therapy")];
       const ecg = a.ecg === "present", sym = list(a, "symptoms").length > 0;
+      const mra = c.meds.find((m) => (!m.status || m.status === "active") && m.tags.includes("mra")), raas = c.meds.find((m) => (!m.status || m.status === "active") && m.tags.includes("raas"));
+      const keep = ["reduce-mra", "hold-mra", "reduce-raas", "hold-raas"];
+      const onBinder = c.meds.some((m) => m.tags.includes("k-binder"));
       return [
-        (k >= 6.5 || ecg || (k > 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment`),
-        k > 6.0 && on(c, "mra") && S("hold-mra", `K >6.0: stop the MRA (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && on(c, "mra") && !mraLowest(c) && S("reduce-mra", `K >5.5–6.0: halve the MRA dose (ESC HF practical guidance)`),
-        // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold instead (Inspra SmPC: 25 mg every other day, or withhold)
-        k > 5.5 && k <= 6.0 && mraLowest(c) && S("hold-mra", "K >5.5–6.0 on the lowest MRA dose: hold the MRA (or every other day per label) and recheck"),
-        k > 5.5 && k <= 6.0 && !on(c, "mra") && on(c, "raas") && !lowest(c, "raas") && S("reduce-raas", `K >5.5–6.0: halve the ACEi/ARB/ARNI dose (ESC HF practical guidance)`),
-        k > 5.5 && k <= 6.0 && !on(c, "mra") && lowest(c, "raas") && S("hold-raas", "K >5.5–6.0 on the lowest ACEi/ARB/ARNI dose: hold it and recheck (ESC HF practical guidance)"),
-        k > 6.0 && on(c, "raas") && S("hold-raas", `K >6.0: stop the ACEi/ARB/ARNI (ESC HF practical guidance)`),
-        k > 5.0 && on(c, "raas", "mra") && S("binder", `A potassium binder may be considered to keep RAAS inhibitor/MRA therapy (ESC HF 2021, IIb)`),
-        (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and K-containing salt substitutes"),
+        (k >= 6.5 || ecg || (k >= 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment by the hospital protocol (UK Kidney Association 2023: K ≥6.5 is severe)`),
+        k > 6.0 && mra && S("hold-mra", `K ${n1(k)} >6.0: stop ${mra.name} (ESC HF practical guidance)`),
+        k > 6.0 && raas && S("hold-raas", `K ${n1(k)} >6.0: stop ${raas.name} (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && mra && !mraLowest(c) && S("reduce-mra", `K ${n1(k)} >5.5: halve ${mra.name} (ESC HF practical guidance)`),
+        // already at the lowest catalogue dose (e.g. eplerenone 25 mg): hold (Inspra SmPC: 25 mg every other day, or withhold)
+        k > 5.5 && k <= 6.0 && mra && mraLowest(c) && S("hold-mra", `K ${n1(k)} >5.5 on the lowest ${mra.name} dose: hold it (label: every other day, or withhold)`),
+        k > 5.5 && k <= 6.0 && !mra && raas && !lowest(c, "raas") && S("reduce-raas", `K ${n1(k)} >5.5: halve ${raas.name} (ESC HF practical guidance)`),
+        k > 5.5 && k <= 6.0 && !mra && raas && lowest(c, "raas") && S("hold-raas", `K ${n1(k)} >5.5 on the lowest ${raas.name} dose: hold it (ESC HF practical guidance)`),
+        k > 5.0 && k <= 5.5 && (mra || raas) && S("continue", `K ${n1(k)} ≤5.5: keep the current doses — up to 5.5 is acceptable on RAAS inhibitor / MRA therapy (ESC HF practical guidance)`),
+        // K 5.0–5.5 on HF therapy: a binder by default to protect the RAAS inhibitor / MRA doses (Ahmed, 23 Oct 2026,
+        // local default; ESC HF 2021 IIb); K 5.5–6.0: the dose step stays the default and a binder is the alternative
+        k > 5.0 && k <= 5.5 && (mra || raas) && !onBinder && S("binder", "Protect the RAAS inhibitor / MRA doses with a potassium binder (ESC HF 2021, IIb; MKH default): patiromer 8.4 g once daily (Veltassa SmPC start dose)"),
+        k > 5.0 && k <= 5.5 && (mra || raas) && !onBinder && ALT("no-binder", "Keep the doses and recheck without a binder (K up to 5.5 is acceptable, ESC HF practical guidance)", ["binder", "binder-szc"]),
+        k > 5.5 && k <= 6.0 && (mra || raas) && !onBinder &&
+          ALT("binder", "Keep the RAAS inhibitor / MRA dose with a potassium binder instead (ESC HF 2021, IIb): patiromer 8.4 g once daily (Veltassa SmPC start dose)", keep),
+        k > 5.0 && k <= 6.0 && (mra || raas) && !onBinder &&
+          ALT("binder-szc", "Lokelma requires a separate correction course: 10 g three times daily, typically 24–48 hours, then 5 g daily only after normokalaemia (SmPC). Review the prescription today; about 400 mg sodium per 5 g — watch for oedema in HF", ["binder", "no-binder"]),
+        on(c, "nsaid") && S("stop-nsaid", `Stop ${c.meds.filter((m) => m.tags.includes("nsaid")).map((m) => m.name).join(", ")}: NSAIDs raise potassium and worsen HF and renal function (ESC HF 2021: avoid, class III)`),
+        (list(a, "contributors").includes("k-supplement") || onCode(c, "potassium-chloride")) && S("stop-supplement", "Stop potassium supplements and potassium-containing salt substitutes"),
         k > 5.0 && S("diet-advice", "Limit high-potassium foods and salt substitutes"),
       ];
     },
-    recheck: (_a, c) => {
+    // the blood test is the follow-up; a visit only if the clinician wants one
+    review: (a) => [!is(a, "actions", "urgent") && { ...S("none", "Follow-up is the blood test"), silent: true }],
+    recheck: (a, c) => {
       const k = val(c, "potassium");
-      return [k != null && (k > 6.0 ? S("0", "K >6.0: repeat today after treatment") : k > 5.5 ? S("7", "Recheck K and renal function within 1–2 weeks of a dose change (ESC HF practical guidance)") : null)];
+      if (a.ecg === "present" || is(a,"actions","urgent")) return [S("0", "Urgent assessment and potassium reassessment today")];
+      if (a.result === "repeat" || a.haemolysis === "yes") return [S("0", "Repeat the doubtful sample today")];
+      return [k != null && (k >= 6.0 ? S("0", "K ≥6.0: arrange repeat today (UKKA: within 1 day at 6.0–6.4)")
+        : k >= 5.5 ? S("3", "K 5.5–5.9: repeat within 3 days for a newly detected result (UKKA 1.2.1)")
+        : is(a,"actions","binder") ? S("7", "Patiromer: potassium and magnesium review at 1 week; do not titrate sooner (SmPC)")
+        : is(a,"actions","continue") ? S("7", "Suggested follow-up after mild potassium elevation; adjust to the clinical course") : null)];
     },
   },
   "iv-iron": {
@@ -167,6 +201,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const cr = r?.current ?? val(c, "creatinine"), p = r?.baseline ?? prev(c, "creatinine");
       return [cr != null && p ? ((r ? r.stop : (cr - p) / p > 1) ? S("3", "Large rise: recheck within days") : S("7", "Recheck renal function and K in 1–2 weeks (ESC HF practical guidance)")) : null];
     },
+    diureticUp: (_a, c) => { const d = doubled(c, "loop"); return d ? [S(String(d.v), `${d.m.name} ${d.cur} → ${d.v} ${unit(d)}: double to decongest (HFA 2019)`)] : []; },
+    diureticDose: (_a, c) => { const d = stepDown(c, "loop"); return d ? [S(String(d.v), `${d.m.name} ${d.cur} → ${d.v} ${unit(d)}: one step lower when dry (ESC HF practical guidance: reduce the diuretic)`)] : []; },
     // the review follows the recheck so the result is acted on (ESC HF practical guidance: recheck 1–2 weeks)
     review: (a, c) => {
       const r = c.renal ?? null;
@@ -174,6 +210,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
   },
   congestion: {
+    // a recorded weight rise is a sign from the record; the examination signs are the clinician's to add
+    signs: (_a, c) => { const w = val(c, "weight"), w0 = prev(c, "weight"); return [w != null && w0 != null && w > w0 && S("weight", `Weight ${n1(w0)} → ${n1(w)} kg in the record`)]; },
     actions: (a, c) => [
       list(a, "redflags").length > 0 && S("admit", "Red flags (hypoxia, hypoperfusion, ACS, arrhythmia, K/renal): hospital assessment (ESC HF acute HF)"),
       on(c, "loop") ? S("increase-loop", "Congested on a loop diuretic: increase the dose (ESC HF 2021, I C)") : S("start-loop", "Congestion without a loop diuretic: start one (ESC HF 2021, I C)"),
@@ -181,10 +219,18 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       list(a, "precipitants").length > 0 && S("precipitant", "Treat the precipitant you found"),
       S("self-care", "Daily weights and a written diuretic plan (ESC HF self-care, I)"),
     ],
+    loopDose: (_a, c) => {
+      const d = doubled(c, "loop");
+      if (!d) return [];
+      const atMax = d.v === d.list[d.list.length - 1] && d.v < 2 * d.cur;
+      return [S(String(d.v), `${d.m.name} ${d.cur} → ${d.v} ${unit(d)}: double the dose for an inadequate response (HFA 2019)${atMax ? "; at the highest listed dose — consider twice daily or adding a thiazide (sequential nephron blockade, HFA 2019)" : ""}`)];
+    },
     recheck: () => [S("3", "Renal function, K and weight a few days after a diuretic increase (HFA 2019)")],
     review: () => [S("phone-3", "Early review of the response to diuretics (HFA 2019)")],
   },
   hypotension: {
+    loopDose: (_a, c) => { const d = stepDown(c, "loop"); return d ? [S(String(d.v), `${d.m.name} ${d.cur} → ${d.v} ${unit(d)}: one step lower when not congested (ESC HF practical guidance)`)] : []; },
+    recheck: (a) => [["reduce-loop", "reduce-raas", "stop-vasodilator"].some((v) => is(a, "actions", v)) && S("7", "Recheck renal function and potassium 1–2 weeks after a change (ESC HF practical guidance)")],
     actions: (a, c) => {
       const sym = list(a, "symptoms").length > 0;
       if (!sym) return [S("continue", "Asymptomatic low BP: no change to HF therapy (ESC HF practical guidance)")];
@@ -416,21 +462,31 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
     lower: (a, c) => {
       const a1c = val(c, "hba1c"), egfr = val(c, "egfr");
-      if (a1c == null || a1c <= 7) return [a1c != null && S("no-change", `HbA1c ${n1(a1c)}% at the usual 7% target (ADA 2026)`)];
+      const t = c.glycaemicTarget?.value ?? 7;
+      if (a1c == null || a1c <= t) return [a1c != null && S("no-change", `HbA1c ${n1(a1c)}% at the individual target ${c.glycaemicTarget?.label ?? "7%"} (ADA 2026)`)];
+      // the protective drugs chosen above also lower HbA1c: start them and reassess before adding more (ADA 2026)
+      const protecting = list(a, "protect").some((v) => ["sglt2", "glp1"].includes(v));
+      const metOk = !on(c, "metformin") && (egfr == null || egfr >= 30);
       return [
-        !on(c, "metformin") && (egfr == null || egfr >= 30) && S("metformin", `HbA1c ${n1(a1c)}%: metformin if not contraindicated (ADA 2026)`),
-        dx(c, "obesity") && !on(c, "glp1") && S("tirzepatide", "Obesity: GLP-1 RA / tirzepatide lowers glucose and weight (ADA 2026)"),
+        metOk && S("metformin", `HbA1c ${n1(a1c)}%: metformin if not contraindicated (ADA 2026)`),
+        !metOk && protecting && S("no-change", `The ${list(a, "protect").includes("glp1") ? "GLP-1 RA" : "SGLT2 inhibitor"} started for heart/kidney protection also lowers HbA1c: reassess in 3 months before adding more (ADA 2026)`),
+        !metOk && !protecting && !on(c, "glp1") && S("tirzepatide", `HbA1c ${n1(a1c)}% above target: the highest glucose-lowering efficacy without hypoglycaemia, with weight loss (ADA 2026)`),
+        !metOk && !protecting && on(c, "glp1") && ALT("switch-tirzepatide", "Already on a GLP-1 RA: switching to tirzepatide adds efficacy (ADA 2026)"),
+        !metOk && !on(c, "dpp4", "glp1") && ALT("dpp4", "Lower efficacy, weight-neutral, no hypoglycaemia (ADA 2026); not with a GLP-1 RA"),
+        !metOk && !on(c, "sulfonylurea") && ALT("gliclazide", "Effective and low cost; hypoglycaemia risk (ADA 2026)"),
+        !metOk && !on(c, "insulin-basal") && ALT("basal", "Basal insulin when HbA1c is very high or there is catabolism (ADA 2026); dose by the diabetes plan"),
       ];
     },
     safety: (_a, c) => {
       const egfr = val(c, "egfr");
-      return [
+      const out = [
         on(c, "tzd") && dx(c, "hf") && S("stop-tzd", "Pioglitazone is contraindicated in heart failure (ESC HF, III A)"),
         on(c, "dpp4-hf") && dx(c, "hf") && S("stop-dpp4-hf", "Saxagliptin/alogliptin: HF hospitalisation signal — avoid in HF (ESC, III B)"),
         on(c, "glibenclamide") && S("switch-glib", "Glibenclamide: highest hypoglycaemia risk — switch (ADA 2026)"),
         on(c, "metformin") && egfr != null && egfr < 30 && S("stop-metformin", `eGFR ${egfr} <30: stop metformin (label)`),
         on(c, "metformin") && egfr != null && egfr >= 30 && egfr < 45 && S("reduce-metformin", `eGFR ${egfr} 30–44: maximum 1000 mg/day (label)`),
-      ];
+      ].filter(Boolean) as Suggestion[];
+      return out.length ? out : [{ ...S("none", "Nothing to remove or reduce"), silent: true }];
     },
     monitoring: () => [S("hba1c", "HbA1c every 3–6 months (ADA 2026)"), S("renal", "eGFR and UACR at least yearly (ADA 2026)"), S("eyes", "Annual eye screening"), S("feet", "Annual foot examination")],
   },
@@ -498,6 +554,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
   },
   "chest-infection": {
+    // NICE NG138 / BTS: reassess, with CRP, if not improving by about 3 days
+    recheck: () => [S("3", "Reassess with CRP, renal function and K at about 3 days, or sooner if worse (NICE NG138 / BTS)")],
     curb: (_a, c) => {
       const urea = val(c, "urea"), rr = val(c, "rr"), sbp = val(c, "sbp"), dbp = val(c, "dbp"), age = c.profile?.age;
       return [
@@ -814,6 +872,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
   },
   "pah-followup": {
+    // ESC/ERS 2022: follow-up risk assessment every 3–6 months
+    reassess: () => [S("91", "Reassess risk every 3–6 months (ESC/ERS 2022); 3 months by default"), ALT("182", "6 months when stable at low risk (ESC/ERS 2022)")],
     stage: (_a, c) => [c.meds.some((m) => ["era", "pde5", "sgc", "prostacyclin"].some((t) => m.tags.includes(t))) ? S("follow", "PAH therapy on the medication list") : S("new", "No PAH therapy on the medication list")],
     actions: (a, c) => {
       const r = pahStrata(c);
@@ -912,6 +972,12 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
     },
   },
   "valve-antithrombotic": {
+    // ARC-HBR major criteria found in the record (Hb <11 g/dL, eGFR <30, previous major bleeding, platelets <100)
+    bleeding: (_a, c) => {
+      const hb = val(c, "haemoglobin"), egfr = val(c, "egfr"), plt = val(c, "platelets");
+      const why = [hb != null && hb < 11 && `Hb ${n1(hb)}`, egfr != null && egfr < 30 && `eGFR ${egfr}`, dx(c, "prior-bleeding") && "previous major bleeding", plt != null && plt < 100 && `platelets ${plt}`].filter(Boolean);
+      return [why.length > 0 && S("high", `High bleeding risk: ${why.join(", ")} (ARC-HBR major criteria)`)];
+    },
     intervention: (_a, c) => {
       const v = (c.valve?.interventions ?? [])[0];
       const k = v ? interventionFor(v.type, v.procedure, v.position) : null;

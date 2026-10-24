@@ -736,6 +736,14 @@ export function labSuggestions(
         "Reference limits from the recorded lab report",
       ),
     ];
+  // anaemia cause from the record (23 Oct 2026, decision first): HF iron deficiency (ESC HF: ferritin <100, or
+  // 100–299 with TSAT <20%), iron deficiency (BSG 2021: ferritin <30 µg/L), otherwise not yet established
+  if (id === "anaemia-result" && q === "cause") {
+    const f = c.values?.ferritin?.value ?? null, t = c.values?.tsat?.value ?? null;
+    if (hfIronReview(c)) return [rec("hf-iron", `Heart failure with ferritin ${f ?? "?"}${t != null ? `, TSAT ${t}%` : ""}: iron deficiency by the ESC HF definition`)];
+    if (f != null && f < 30) return [rec("iron", `Ferritin ${f} µg/L <30: iron deficiency (BSG 2021)`)];
+    return [rec("unknown", f == null ? "No ferritin / TSAT in the record: cause not yet established — iron studies, B12, folate" : `Ferritin ${f} µg/L: iron deficiency not shown — look for other causes`)];
+  }
   if (q === "actions") {
     if (id === "vitamin-d-result")
       return [

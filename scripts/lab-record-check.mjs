@@ -11,6 +11,8 @@ const browser = await chromium.launch(
   ),
   page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 page.setDefaultTimeout(15000);
+// pathways open on the decision (23 Oct 2026); this walkthrough drives the step-by-step questions
+await page.addLocatorHandler(page.getByRole("button", { name: "Change details", exact: true }), (b) => b.click());
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 let csrf = "";
@@ -48,6 +50,11 @@ const radio = async (label, value) =>
     .getByRole("radiogroup", { name: label, exact: true })
     .getByRole("radio", { name: value, exact: true })
     .click();
+// red-flag "None" is pre-ticked as assumed since 23 Oct 2026: tick it only if it is not already
+const ensureNone = async (scope) => {
+  const b = scope.getByRole("button", { name: "None", exact: true });
+  if ((await b.getAttribute("aria-pressed")) !== "true") await b.click();
+};
 try {
   await page.goto(base);
   await page.getByText("Dr. Ahmed", { exact: true }).click();
@@ -212,10 +219,7 @@ try {
   await card
     .getByRole("button", { name: "Review statin CK", exact: true })
     .click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "None", exact: true })
-    .click();
+  await ensureNone(page.getByRole("dialog"));
   await radio("Muscle symptoms", "No muscle symptoms");
   await page
     .getByRole("button", {

@@ -38,7 +38,13 @@ await step("summary", async () => {
   await shot("02-summary", true);
 });
 await step("wizard", async () => {
-  await p.locator("#att").getByRole("button", { name: "Manage hyperkalaemia" }).click();
+  const kidney=p.locator('.problem[aria-label="Kidney & potassium"]');
+  await kidney.getByRole("button",{name:"Review plan",exact:true}).first().click();
+  await kidney.getByRole("button",{name:"Full pathway",exact:true}).click();
+  // pathways open on the decision (23 Oct 2026); the step questions are behind "Change details"
+  await p.locator(".wiz-decision").waitFor();
+  await shot("03a-wizard-decision");
+  await p.getByRole("button", { name: "Change details", exact: true }).click();
   await p.getByText("Is this result reliable?").waitFor();
   await shot("04-wizard1");
   await p.getByRole("radio", { name: "Yes, act on it" }).click();
@@ -81,8 +87,11 @@ await step("labs", async () => {
   await p.getByText(/results? saved/).waitFor();
   await continueAfterEntry(p);
   await shot("10-after-labs", true);
-  const reviewQueue = p.getByLabel("Results awaiting review");
-  await reviewQueue.getByRole("button", { name: "Review result" }).first().click();
+  const otherFold=p.locator('.problem[aria-label="Other alerts"] .problem-fold');
+  if(await otherFold.count()) await otherFold.click();
+  const reviewTasks = p.locator(".problem-tasks details").filter({hasText:"awaiting review"}).first();
+  await reviewTasks.locator("summary").click();
+  await reviewTasks.getByRole("button", { name: "Review result" }).first().click();
   await p.getByRole("dialog").getByText("Result recorded · awaiting review", { exact: true }).waitFor();
   await p.getByRole("radio", { name: "Mark reviewed", exact: true }).click();
   await p.getByRole("button", { name: "Confirm", exact: true }).click();

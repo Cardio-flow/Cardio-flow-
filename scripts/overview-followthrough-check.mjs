@@ -76,6 +76,7 @@ try {
   const linked = infectionSummary.plan.filter(
     (t) =>
       t.clinicalContext?.episodeId &&
+      t.title !== "Influenza, pneumococcal and COVID-19 vaccination" &&
       (t.status === "planned" || t.awaitingReview),
   );
   assert.ok(linked.length > 0);
@@ -85,6 +86,8 @@ try {
       p.locator(".tb .task-row").filter({ hasText: t.title }),
     ).toHaveCount(0);
   }
+  await expect(p.locator("#routine-due")).toContainText("Influenza, pneumococcal and COVID-19 vaccination");
+  await expect(p.locator("#routine-due")).not.toHaveAttribute("open");
   await ep.scrollIntoViewIfNeeded();
   await shot("04-desktop-infection-tasks");
   await p.setViewportSize({ width: 390, height: 844 });

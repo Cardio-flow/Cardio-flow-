@@ -28,7 +28,7 @@ const answers = {
   contributors: ["mra"],
   actions: ["reduce-mra"],
   mraDose: 12.5,
-  recheck: "7",
+  recheck: "3",
   review: "clinic-7",
 };
 before(async () => {
@@ -78,7 +78,7 @@ for (const kind of ["admission", "clinic_visit"] as const) {
       await K.recordObservations(q, actor, pid, {
         effectiveAt: nowIso(),
         contextId: ctx.id,
-        items: [{ code: "potassium", value: 5.8 }],
+        items: [{ code: "potassium", value: 5.8 }, { code: "creatinine", value: 110 }],
       });
       await reassess(q, pid, "production");
     });
@@ -189,6 +189,7 @@ test("a failed second joined pathway rolls back the first decision and its medic
       effectiveAt: nowIso(),
     }),
   );
+  await db.transaction(q=>K.recordObservations(q,actor,pid,{effectiveAt:nowIso(),items:[{code:"potassium",value:5.8},{code:"creatinine",value:110}]}));
   await assert.rejects(
     db.transaction(async (q) => {
       await completeWizard(q, actor, pid, "hyperkalaemia", { answers });
@@ -352,7 +353,7 @@ test("deferred decision and its reason belong to the open admission narrative, n
     await K.recordObservations(q, actor, pid, {
       effectiveAt: nowIso(),
       contextId: ctx.id,
-      items: [{ code: "potassium", value: 5.8 }],
+      items: [{ code: "potassium", value: 5.8 }, { code: "creatinine", value: 110 }],
     });
     await reassess(q, pid, "production");
   });
