@@ -58,3 +58,21 @@ export const HTN_STUDY_PURPOSES = [
   "Secondary hypertension review",
   "RDN anatomical assessment",
 ];
+
+// ESC 2024: consider spironolactone 25–50 mg/day after confirmed resistant
+// hypertension; restrict use to eGFR ≥30 and K ≤4.5, with close monitoring.
+// Confirmation is tied to the current regimen/out-of-office BP, never inferred
+// merely from having three medicines on the list.
+export function resistantMraEligible(a: import("./wizards.js").Answers, c: import("./wizards.js").WizardContext) {
+  const h = c.hypertension;
+  const recent = (code: string) => {
+    const v = c.values?.[code];
+    const days = v ? (Date.parse(c.today) - Date.parse(v.at.slice(0,10))) / 86400000 : NaN;
+    return !!v && Number.isFinite(v.value) && days >= 0 && days <= 30;
+  };
+  return a.basis === "resistant" && ["technique","adherence","doses"].every(k => a[k] === "yes") &&
+    !!h?.triple && !!h.outside?.valid && h.outside.high && recent("egfr") && recent("potassium") &&
+    c.values!.egfr.value >= 30 && c.values!.potassium.value <= 4.5 &&
+    !c.meds.some(m => m.status !== "stopped" && m.tags.some(t => ["mra","potassium-sparing"].includes(t))) &&
+    !c.dx?.some(d => ["pregnancy", "pregnancy-care"].includes(d));
+}

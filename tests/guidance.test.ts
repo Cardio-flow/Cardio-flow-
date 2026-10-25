@@ -57,7 +57,7 @@ test("every suggestion names a real question and a real option, with a reason", 
   for (const id of Object.keys(WIZARDS)) assert.ok(GUIDANCE[id], `${id} has guideline suggestions`);
 });
 
-test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve MRA, recheck in 1–2 weeks", () => {
+test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve MRA, repeat within 3 days", () => {
   const hi = ctx({ potassium: 6.3 }, [["spironolactone", ["mra"]], ["ramipril", ["raas"]]]);
   assert.deepEqual(vals("hyperkalaemia", "actions", {}, hi).slice(0, 1), ["hold-mra"]);
   assert.ok(!vals("hyperkalaemia", "actions", {}, hi).includes("reduce-mra"));
@@ -67,7 +67,7 @@ test("hyperkalaemia: K 6.3 on an MRA → stop MRA, repeat today; K 5.7 → halve
   assert.ok(vals("hyperkalaemia", "actions", {}, mid).includes("reduce-mra"));
   // decision first (23 Oct 2026): acted on as reported; "repeat sample" is the one-tap alternative
   assert.deepEqual(vals("hyperkalaemia", "result", {}, mid), ["confirmed", "repeat"]);
-  assert.deepEqual(vals("hyperkalaemia", "recheck", {}, mid), ["7"]);
+  assert.deepEqual(vals("hyperkalaemia", "recheck", {}, mid), ["3"]);
 });
 
 test("renal function: +20% → continue; +70% on ARNI → halve; congested → decongest", () => {
@@ -112,10 +112,10 @@ test("a guideline suggestion not taken is written into the Journey entry", async
   const pid = await db.transaction((q) => K.createPatient(q, doc, { name: "Gd " + Date.now(), mrn: "G" + Date.now(), sex: "Male", birthDate: "1960-01-01", conditions: ["hfref"] }));
   await db.transaction(async (q) => {
     await K.startMedication(q, doc, pid, { code: "spironolactone", doseValue: 25, frequency: "OD", route: "PO", indication: "hf", effectiveAt: new Date(addDays(today(), -40) + "T09:00:00Z").toISOString() });
-    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "potassium", value: 6.3 }] });
+    await K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "potassium", value: 6.3 }, {code:"creatinine",value:110}] });
   });
   await db.transaction((q) => completeWizard(q, doc, pid, "hyperkalaemia", { answers: {
-    result: "confirmed", symptoms: ["none"], ecg: "none", contributors: ["mra"], haemolysis: "no", actions: ["diet-advice"], recheck: "3", review: "none",
+    result: "confirmed", symptoms: ["none"], ecg: "none", contributors: ["mra"], haemolysis: "no", actions: ["diet-advice"], recheck: "0", review: "none",
   } }));
   const ev = (await db.query(`SELECT detail FROM cf.clinical_event WHERE patient_id=$1 AND title LIKE 'Hyperkalaemia%'`, [pid])).rows[0] as any;
   assert.match(ev.detail, /Guideline suggestions not taken: .*Hold MRA/);

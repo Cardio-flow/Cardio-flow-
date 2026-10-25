@@ -118,6 +118,7 @@ try {
     '[aria-label="Decision: Pericardial disease: assessment and care"]',
   );
   await panel.waitFor();
+  await panel.getByRole("button", { name: "Edit answers", exact: true }).click();
   const radio = async (group, name) =>
     panel
       .getByRole("radiogroup", { name: "Decision: " + group, exact: true })
@@ -285,9 +286,11 @@ try {
   await p.emulateMedia({ reducedMotion: "reduce" });
   await p.goto(base + "/patients/" + id);
   await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  await p
-    .locator('[aria-label="Results awaiting review"]')
-    .scrollIntoViewIfNeeded();
+  const reviewCard = p.locator('.problem[aria-label="Pericardial disease"]');
+  if (await reviewCard.locator(".problem-fold").isVisible()) await reviewCard.locator(".problem-fold").click();
+  await reviewCard.locator(".problem-tasks summary").filter({hasText:"awaiting review"}).click();
+  await expect(reviewCard.getByRole("button", {name:"Review result",exact:true})).toBeVisible();
+  await reviewCard.scrollIntoViewIfNeeded();
   await shot("08-phone-results-review");
   expect(errors).toEqual([]);
   fs.writeFileSync(

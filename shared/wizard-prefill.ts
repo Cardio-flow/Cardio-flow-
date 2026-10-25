@@ -4,7 +4,7 @@
 // are walked in order. Nothing here decides: the plan is recorded only when the clinician confirms it.
 import { WIZARDS, doseChoices, optionsFor, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 import { assumed } from "./decision-assume.js";
-import { suggest } from "./wizard-guidance.js";
+import { GUIDANCE, suggest } from "./wizard-guidance.js";
 
 // questions whose answer comes only from the record (diagnoses, results, medicines), never from symptoms or
 // examination: when the record shows nothing, "none" is the answer
@@ -71,6 +71,42 @@ export function prefill(wizardId: string, ctx: WizardContext, base: Answers = {}
     }
   }
   return { answers, suggested: [...suggested] };
+}
+
+// Recompute generated downstream answers when a clinical input changes. Keep
+// clinician overrides; clear invisible old branches and recompute doses/dates.
+export function updateDecisionAnswers(id: string, ctx: WizardContext, before: Answers, patch: Answers) {
+  const base: Answers = { ...before, ...patch };
+  const qs = WIZARDS[id].steps.flatMap(st => st.questions);
+  const changed = new Set(Object.keys(patch).filter(k => JSON.stringify(before[k]) !== JSON.stringify(patch[k])));
+  // Follow the actual dependencies read by each guideline function. This works
+  // across the entire catalogue, including downstream actions in earlier steps.
+  // A changed clinical premise invalidates the old recommendation, even when
+  // that recommendation was previously edited by the clinician.
+  for (let pass = 0; pass < qs.length; pass++) {
+    let invalidated = false;
+    for (const q of qs) {
+      if (Object.hasOwn(patch, q.id) || changed.has(q.id)) continue;
+      const dependencies = new Set<string>();
+      const observed = new Proxy(before, { get(target, key) {
+        if (typeof key === "string") dependencies.add(key);
+        return Reflect.get(target, key);
+      } });
+      suggest(id, q.id, observed, ctx);
+      for (let condition = q.showIf; condition; condition = condition.and) dependencies.add(condition.question);
+      if (![...dependencies].some(k => changed.has(k))) continue;
+      if (GUIDANCE[id]?.[q.id] || q.type === "dose" || q.showIf) {
+        delete base[q.id];
+        changed.add(q.id);
+        invalidated = true;
+      }
+    }
+    if (!invalidated) break;
+  }
+  const result = prefill(id, ctx, base).answers;
+  const visible = new Set(WIZARDS[id].steps.flatMap(st => visibleQuestions(st, result)).map(q => q.id));
+  for (const q of qs) if (!visible.has(q.id)) delete result[q.id];
+  return result;
 }
 
 // Joined pathways: when the answers call for it, the pathway carries straight on into the one that follows,

@@ -121,6 +121,11 @@ const ckPatient = async (label) => {
   ]);
   return x;
 };
+const openCk = async () => {
+  await page.getByRole("button",{name:"Pathways",exact:true}).click();
+  await page.getByRole("textbox",{name:"Search pathways"}).fill("CK on statin");
+  await page.getByRole("dialog",{name:"Clinical pathways"}).getByRole("button",{name:/CK on statin/}).click();
+};
 // red-flag "None" is pre-ticked as assumed since 23 Oct 2026: tick it only if it is not already
 const ensureNone = async (scope) => {
   await steps();
@@ -137,9 +142,7 @@ try {
     .click();
   const stale = await ckPatient("stale evidence");
   await go(stale);
-  await page
-    .getByRole("button", { name: "Review statin CK", exact: true })
-    .click();
+  await openCk();
   await ensureNone(page);
   await radio("Muscle symptoms", "No muscle symptoms");
   await page
@@ -168,15 +171,11 @@ try {
   await close();
   const rapid = await ckPatient("rapid close");
   await go(rapid);
-  await page
-    .getByRole("button", { name: "Review statin CK", exact: true })
-    .click();
+  await openCk();
   // answer a question (red flags are pre-ticked as assumed since 23 Oct 2026), close at once, reopen: kept
   await radio("Muscle symptoms", "No muscle symptoms");
   await close();
-  await page
-    .getByRole("button", { name: "Review statin CK", exact: true })
-    .click();
+  await openCk();
   await steps();
   await expect(
     page.getByRole("radiogroup", { name: "Muscle symptoms", exact: true }).getByRole("radio", { name: "No muscle symptoms", exact: true }),
@@ -185,9 +184,7 @@ try {
   console.log("PASS immediate wizard close persists latest answer");
   const exclusive = await ckPatient("exclusive choices");
   await go(exclusive);
-  await page
-    .getByRole("button", { name: "Review statin CK", exact: true })
-    .click();
+  await openCk();
   await ensureNone(page);
   await radio("Muscle symptoms", "No muscle symptoms");
   await page
@@ -335,9 +332,7 @@ try {
     "2024-10-12T09:00:00Z",
   );
   await go(historic);
-  await page
-    .getByRole("button", { name: "Review statin CK", exact: true })
-    .click();
+  await openCk();
   await page.getByRole("button", { name: /^Values from the record/ }).click();
   await expect(page.locator(".wiz-side")).toContainText("2024");
   await expect(page.getByText(/This CK predates/)).toBeVisible();

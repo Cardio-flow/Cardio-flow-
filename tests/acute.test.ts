@@ -205,6 +205,7 @@ test("pericarditis, endocarditis and amiodarone-thyroid pathways write the dated
 
   const p3 = await newPatient(["af"]);
   await start(p3, "amiodarone", 200, "OD", "af");
+  await obs(p3,[{code:"tsh",value:0.01},{code:"ft4",value:36}]);
   await tx((q) => completeWizard(q, doc, p3, "amiodarone-thyroid", { answers: {
     situation: "thyrotox", type: "type2", cardiac: ["amio", "rate"], endo: "refer", review: "clinic-14",
   } }));

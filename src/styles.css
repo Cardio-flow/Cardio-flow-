@@ -2237,6 +2237,18 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .item-acts .dismiss .dismiss-l { font-size: 13px; }
 @media (min-width: 900px) { .item-acts .dismiss .dismiss-l { display: none; } .item-acts .dismiss { padding: 0; width: 34px; } }
 @media (max-width: 899px) { .item-acts { flex-wrap: wrap; } .item-acts .dismiss { min-height: 44px; min-width: 44px; } }
+
+/* Compact follow-through in the owning problem/episode. Urgent actions never fold. */
+.problem-tasks { margin: 10px 0; border-radius: 12px; background: var(--blue-soft, #f0f6ff); }
+.problem-tasks summary { cursor: pointer; padding: 12px; font-weight: 700; min-height: 44px; }
+.task-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-top: 1px solid var(--line, #dce4ef); }
+.task-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.task-row b, .task-row span { display: block; }
+.task-row span { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.task-row button { flex-shrink: 0; min-height: 44px; }
+@media (max-width: 480px) { .task-row { flex-wrap: wrap; } .task-row > div { flex-basis: 70%; } }
+
+.urgent-task { background: var(--red-soft, #fff1ef); border-radius: 12px; }
 /* routine checks folded at the end of the overview (23 Oct 2026) */
 .routine-due { margin-top: 14px; border: 1px dashed var(--line); border-radius: 16px; background: var(--surface-2, #f6f8fb); padding: 4px 14px 10px; }
 .routine-due > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; list-style: none; cursor: pointer; padding: 10px 0; }
@@ -2269,3 +2281,7 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .dec-assumed { border: 1px solid var(--line); border-left: 4px solid var(--navy, #0b2d5b); border-radius: 12px; padding: 10px 14px; background: #fbfcfe; }
 .dec-assumed .q { margin: 6px 0; }
 .dec-assumed .q .label { font-size: 13.5px; }
+
+.wiz-decision details > summary { cursor: pointer; font-weight: 700; color: var(--navy); padding: 8px 0; }
+.wiz-decision details:not([open]) > :not(summary) { display: none; }
+.wiz-decision details[open] > summary { margin-bottom: 8px; }

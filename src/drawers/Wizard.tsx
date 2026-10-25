@@ -1,10 +1,14 @@
+import { prioritiseDecision, routineDecisionItem } from "../../shared/decision-display";
+import { CURRENT_SCREENS } from "../../shared/decision-assume";
+import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements";
+import { decisionBlocker } from "../../shared/decision-validation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Activity, Check, Info, CalendarCheck, ClipboardCheck, Pill } from "lucide-react";
 import { api } from "../api";
 import { Drawer, MultiChoice, SingleChoice, Segmented, Sparkline, DateInput } from "../ui";
 import { suggest, type Suggestion } from "../../shared/wizard-guidance";
 import { applyInstead, decisionView } from "../../shared/decision-first";
-import { JOIN, joinFor, prefill } from "../../shared/wizard-prefill";
+import { JOIN, joinFor, prefill, updateDecisionAnswers } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type Question, type WizardContext } from "../../shared/wizards";
 import { addDays, flagFor, fmtDay } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
@@ -17,7 +21,7 @@ export type PathwayPart = {
 type Hit = { severity: "red" | "orange" | "yellow"; title: string; detail: string; source?: string; requiresReview?: boolean };
 
 // medicine changes lead the decision, then diagnoses, dated plan items and notes
-const OUT_RANK: Record<string, number> = { start: 0, medication: 1, condition: 2, barrier: 3, plan: 4, note: 5 };
+
 const allAnsweredEarly = (def: (typeof WIZARDS)[string], a: Answers) => def.steps.every((st) => !missingRequired(st, a).length);
 
 export function WizardDrawer({
@@ -40,6 +44,7 @@ export function WizardDrawer({
   const [declining, setDeclining] = useState(false);
   // phones: the record panel is folded away by default so it never covers the questions
   const [sideOpen, setSideOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
   // an open episode of this pathway: this run is its review
   const [episode, setEpisode] = useState<{ id: string; startedAt: string; day: number; reviews: number; lastAt: string } | null>(null);
   const [reason, setReason] = useState("");
@@ -62,6 +67,7 @@ export function WizardDrawer({
       if (base) {
         // drop choices that no longer fit the patient's medicines (e.g. the drug was stopped since the draft)
         const clean: Record<string, any> = { ...base };
+        if(!resume) for(const id of CURRENT_SCREENS[wizard] ?? []) delete clean[id];
         for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
           const ok = new Set(optionsFor(q, r.context).map((o) => o.value));
           const v = clean[q.id];
@@ -126,7 +132,10 @@ export function WizardDrawer({
   }, [answers, step, dueDates, patientId, wizard, recommendationId]);
   const atDecision = mode === "decision";
   const isReview = !atDecision && step === def.steps.length;
-  const allAnswered = def.steps.every((st) => !missingRequired(st, answers).length);
+  const decisionNeeds = ctx ? decisionQuestions(wizard,answers,ctx) : [];
+  const dataNeeded = ctx ? decisionDataNeeded(wizard,ctx,answers) : [];
+  const blocker = ctx ? decisionBlocker(wizard,answers,ctx,dueDates) : null;
+  const allAnswered = !!ctx && !decisionNeeds.length && !dataNeeded.length && !blocker;
   // the first step that still needs an answer: everything before it is filled in from the record and the guideline
   const firstOpen = def.steps.findIndex((st) => missingRequired(st, answers).length > 0);
   const join = (isReview || atDecision) && onJoin && allAnsweredEarly(def, answers) ? joinFor(wizard, answers, ctx) : null;
@@ -168,7 +177,7 @@ export function WizardDrawer({
     return qType(id) === "multi" ? ((answers[id] as string[]) ?? []).includes(v) : answers[id] === v;
   };
   const applySuggestions = (id: string) => {
-    const vals = (suggestions[id] ?? []).map((x) => x.value);
+    const vals = (suggestions[id] ?? []).filter(x => !x.alt).map((x) => x.value);
     if (!vals.length) return;
     if (qType(id) === "multi") {
       const exclusive = def.steps.flatMap(st => st.questions).find(q => q.id === id)?.exclusive ?? [];
@@ -178,11 +187,11 @@ export function WizardDrawer({
   };
   // on the Confirm step: guideline suggestions that were not taken
   const notTaken = isReview
-    ? Object.entries(suggestions).flatMap(([id, list]) => list.filter((x) => !isChosen(id, x.value) && x.value !== "none").map((x) => ({ id, ...x, label: def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options?.find((o) => o.value === x.value)?.label ?? x.value })))
+    ? Object.entries(suggestions).flatMap(([id, list]) => list.filter((x) => !x.alt && !isChosen(id, x.value) && x.value !== "none").map((x) => ({ id, ...x, label: def.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options?.find((o) => o.value === x.value)?.label ?? x.value })))
     : [];
   const set = (id: string, v: any) => {
     if (id === "recheck" || id === "review") setDueDates(d => { const next={...d}; for (const title of id === "recheck" ? [def.recheck?.title ?? "Renal function and potassium check"] : ["Clinic review", "Phone follow-up"]) delete next[title]; return next; });
-    setAnswers(a => ({...a,[id]:v}));
+    setAnswers(a => ctx ? updateDecisionAnswers(wizard,ctx,a,{[id]:v}) : ({...a,[id]:v}));
   };
   const tone = def.tone;
   const thisPart = (): PathwayPart => ({
@@ -226,7 +235,7 @@ export function WizardDrawer({
               const sug = suggestions[q.id] ?? [];
               const recVals = sug.map((x) => x.value);
               const label = (v: string) => q.options?.find((o) => o.value === v)?.label ?? v;
-              const pending = sug.filter((x) => !isChosen(q.id, x.value));
+              const pending = sug.filter((x) => !x.alt && !isChosen(q.id, x.value));
               return (
               <div className="q" key={q.id}>
                 <div className="label">{q.label}{autoFilled.includes(q.id) && <span className="prefilled" title="Filled in from the guideline suggestion: change it if it does not fit">suggested</span>}</div>
@@ -289,8 +298,8 @@ export function WizardDrawer({
               {!!startKey && checkedStart !== startKey && <div className="help" role="status">Checking the proposed medicines together…</div>}
               {needReason.length > 0 && <div className="infobox warn" role="status">Review the medication warnings below and enter a reason before confirming.</div>}
               <div className="outcome">
-                {outcome.length === 0 && <div>Decision recorded with no further actions</div>}
-                {[...outcome].sort((x, y) => OUT_RANK[x.kind] - OUT_RANK[y.kind]).map((o, i) => {
+                {outcome.length === 0 && <div>No additional action proposed</div>}
+                {prioritiseDecision(outcome).filter(o => routineOpen || !routineDecisionItem(o)).map((o, i) => {
                   const hits = o.kind === "start" ? startHits[o.code] ?? [] : [];
                   const red = hits.some((h) => (h.severity === "red" || h.requiresReview));
                   return (
@@ -314,6 +323,7 @@ export function WizardDrawer({
                   );
                 })}
               </div>
+              {outcome.some(routineDecisionItem) && <button type="button" className="btn ghost small" aria-expanded={routineOpen} onClick={() => setRoutineOpen(!routineOpen)}>Also due · routine checks ({outcome.filter(routineDecisionItem).length})</button>}
               {outcome.some(o => o.kind === "start" || o.kind === "medication") && <div className="help">Medication changes take effect when confirmed.</div>}
             </div>
             );
@@ -397,11 +407,11 @@ export function WizardDrawer({
               ) : null)}
               {isReview && join ? (
                 <>
-                  <button className="btn secondary" disabled={busy || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
-                  <button className="btn primary" disabled={(!!startKey && checkedStart !== startKey) || needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
+                  <button className="btn secondary" disabled={busy || !allAnswered || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} onClick={() => confirm()}>{carried.length ? "Confirm all without it" : "Confirm without it"}</button>
+                  <button className="btn primary" disabled={!allAnswered || (!!startKey && checkedStart !== startKey) || needReason.length > 0} title={join.why} onClick={() => onJoin?.([...carried, thisPart()], join.next)}>Continue to {WIZARDS[join.next].title.charAt(0).toLowerCase() + WIZARDS[join.next].title.slice(1)}</button>
                 </>
               ) : isReview ? (
-                <button className="btn primary" disabled={busy || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} title={needReason.length ? "Review medication warnings and give a reason" : undefined} onClick={() => confirm()}>
+                <button className="btn primary" disabled={busy || !allAnswered || (!!startKey && checkedStart !== startKey) || needReason.length > 0 || invalidDates} title={needReason.length ? "Review medication warnings and give a reason" : undefined} onClick={() => confirm()}>
                   {busy ? "Recording…" : carried.length ? `Confirm all ${carried.length + 1}` : "Confirm plan"}
                 </button>
               ) : (
@@ -466,41 +476,43 @@ export function WizardDrawer({
           {episode && step === 0 && (
             <div className="wiz-review">
               <b>Review · day {episode.day}</b> of the episode opened {fmtDay(episode.startedAt, { year: true })}
-              {episode.reviews ? ` (${episode.reviews} earlier review${episode.reviews === 1 ? "" : "s"})` : ""}. Your last answers are kept: change what is different. New plan items are added; earlier ones stay.
+              {episode.reviews ? ` (${episode.reviews} earlier review${episode.reviews === 1 ? "" : "s"})` : ""}. Your previous plan is retained. Confirm current safety findings before recording this review.
             </div>
           )}
           {!ctx && !error && <div className="muted">Loading patient data…</div>}
           {ctx && atDecision && dv && (
             <div className="wiz-decision">
+              {outcomeBlock(allAnswered ? "Recommended decision" : "Provisional decision")}
+              {blocker && <div className="error-box" role="alert">{blocker}</div>}
+              {dataNeeded.length > 0 && <div className="decision-need">{dataNeeded.map(n=><p key={n.code}><b>{MEASURES[n.code]?.display ?? n.code}</b> · {n.why}</p>)}<span className="small">Save and close to update these results, then reopen the decision.</span></div>}
               {dv.needed.length > 0 && (
                 <section className="dec-needed" aria-label="Needed for this decision">
                   <h3>Needed for this decision</h3>
                   {dv.needed.map(renderQ)}
                 </section>
               )}
-              {outcomeBlock(dv.needed.length ? "Decision so far" : "Decision")}
               {dv.assumed.length > 0 && (
-                <section className="dec-assumed" aria-label="Assumed — change if different">
-                  <h3>Assumed — change if different</h3>
+                <details className="dec-assumed" aria-label="Pending checks and follow-up">
+                  <summary>Pending checks and follow-up</summary>
                   {dv.assumed.map(renderQ)}
-                </section>
+                </details>
               )}
               {dv.why.length > 0 && (
-                <section className="dec-why" aria-label="Why">
-                  <h3>Why</h3>
+                <details className="dec-why" aria-label="Why">
+                  <summary>Why this decision</summary>
                   <ul>{dv.why.map((w) => <li key={w.question + w.label}><b>{w.label}</b> — {w.why}</li>)}</ul>
-                </section>
+                </details>
               )}
               {dv.instead.length > 0 && (
-                <section className="dec-instead" aria-label="The guideline also allows">
-                  <h3>The guideline also allows</h3>
+                <details className="dec-instead" aria-label="Alternatives">
+                  <summary>Alternatives</summary>
                   {dv.instead.map((x) => (
                     <div className="dec-alt" key={x.question + x.value}>
                       <div><b>{x.label}</b><span>{x.why}</span></div>
-                      <button type="button" className="btn secondary small" onClick={() => setAnswers((a) => applyInstead(a, wizard, x.question, x.value, x.replaces))}>Use this</button>
+                      <button type="button" className="btn secondary small" onClick={() => setAnswers((a) => { const changed = applyInstead(a, wizard, x.question, x.value, x.replaces); return updateDecisionAnswers(wizard,ctx,a,{[x.question]:changed[x.question]}); })}>Use this</button>
                     </div>
                   ))}
-                </section>
+                </details>
               )}
               {dv.check.length > 0 && (
                 <section className="dec-check" aria-label="Look at before confirming">

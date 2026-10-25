@@ -1,3 +1,5 @@
+import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements.js";
+import { decisionBlocker } from "../../shared/decision-validation.js";
 import { pregnancyProfile } from "./pregnancy-profile.js";
 import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
 import { medicationReviewContext } from "./medication-review.js";
@@ -317,6 +319,8 @@ export async function completeWizard(
   checkEvidence(s, input.evidenceKey);
   await checkRecommendation(tx, patientId, wizardId, input.recommendationId);
   const ctx = wizardContext(s, wizardId);
+  const essential = decisionQuestions(wizardId,input.answers,ctx);
+  if(essential.length) throw new ApiError(400,`Answer "${essential[0].label}" before confirming`);
   if(wizardId === "pericarditis") {
     const error=validatePericardial(input.answers,ctx,input.dueDates);
     if(error)throw new ApiError(400,error);
@@ -375,6 +379,10 @@ export async function completeWizard(
     const open = IRON_CHECKS.filter((c) => !ticked.has(c.value));
     if (open.length) throw new ApiError(400, `Confirm before IV iron: ${open.map((c) => c.label.toLowerCase()).join("; ")} — or choose "Not now"`);
   }
+  const dataNeeded = decisionDataNeeded(wizardId,ctx,input.answers);
+  if(dataNeeded.length) throw new ApiError(400,`Update ${dataNeeded.map(n=>n.code).join(", ")} before confirming: ${dataNeeded[0].why}`);
+  const decisionError = decisionBlocker(wizardId,input.answers,ctx,input.dueDates);
+  if(decisionError) throw new ApiError(400,decisionError);
   const labError=validateLabAnswers(wizardId,input.answers,ctx);
   if(labError)throw new ApiError(400,labError);
   // Validate edited dates before a matching existing booking can replace the proposed item.
@@ -483,7 +491,7 @@ export async function completeWizard(
   const chosen = (id: string, v: string) => (Array.isArray(input.answers[id]) ? (input.answers[id] as string[]).includes(v) : input.answers[id] === v);
   const notTaken = def.steps.flatMap((st) => visibleQuestions(st, input.answers)).filter((q) => q.options)
     .flatMap((q) => suggest(wizardId, q.id, input.answers, ctx, new Set(optionsFor(q, ctx).map((o) => o.value)))
-      .filter((x) => x.value !== "none" && !chosen(q.id, x.value))
+      .filter((x) => !x.alt && x.value !== "none" && !chosen(q.id, x.value))
       .map((x) => q.options!.find((o) => o.value === x.value)?.label ?? x.value));
   const summary = assessment ? [...assessment.rows.map((r) => `${r.label}: ${r.value}`), ...assessment.recommendations].join(" · ") : "";
   await journeyEvent(tx, actor, {

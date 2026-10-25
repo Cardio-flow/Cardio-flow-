@@ -890,3 +890,20 @@ test("routine BP goals include isolated diastolic elevation and respect individu
   assert.equal(targets(s).bp?.target, "Individualized");
   assert.match(bpTarget(s)[0].title, /individualized/);
 });
+
+test("resistant-hypertension decision records the proposed dose and dated monitoring atomically", async () => {
+  const id = await prepared();
+  const {prefill} = await import("../shared/wizard-prefill.js");
+  const ctx = (await getWizard(db,id,"htn-resistance")).context;
+  const answers = prefill("htn-resistance",ctx,resistance).answers;
+  assert.equal(answers.treatment,"mra");
+  assert.equal((await loadState(db,id)).meds.some(m=>m.code==="spironolactone"),false,"preview must not prescribe");
+  await complete(id,"htn-resistance",answers);
+  const s=await loadState(db,id);
+  const m=s.meds.find(m=>m.code==="spironolactone" && m.status==="active");
+  assert.equal(m?.doseValue,25);assert.equal(m?.frequency,"OD");
+  assert.ok(s.plan.some(p=>p.due_date===addDays(T,7) && p.completes_on.type==="lab"));
+  assert.ok(s.plan.some(p=>p.due_date===addDays(T,28) && p.completes_on.type==="lab"));
+  const again=(await getWizard(db,id,"htn-resistance")).context;
+  assert.equal(prefill("htn-resistance",again,resistance).answers.treatment,"review","do not start a second MRA");
+});

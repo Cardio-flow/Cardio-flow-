@@ -296,6 +296,31 @@ test("urgent route ignores hidden outpatient, aspirin and old dates and cannot b
   );
   await confirm(id, a);
   assert.equal((await state(id)).meds.length, 0);
+  await active(id, ["plan", "pathways"]);
+  let view = await summary(db, id, "production");
+  let task = view.plan.find(p => p.completesOn.purpose === "pregnancy-urgent")!;
+  assert.equal(task.clinicalContext.problem, "pregnancy");
+  assert.equal(task.clinicalContext.urgent, true);
+  assert.equal(view.attention.find(a => a.action?.planId === task.id)?.severity, "red");
+  assert.equal(view.overview.next[0].id, task.id);
+  assert.equal(view.overview.counts.tasks, 1);
+  const html = renderToStaticMarkup(createElement(TodayBoard, { s: view, open() {}, done() {} }));
+  assert.match(html, /aria-label="Pregnancy &amp; heart disease"/);
+  assert.match(html, /Open task/);
+  // A performed assessment still needs its explicit clinical review.
+  await tx(q => K.updatePlanAction(q, actor, id, task.id, { action: "performed", version: task.version, outcome: "Synthetic specialist assessment recorded" }));
+  await active(id, ["plan"]);
+  view = await summary(db, id, "production");
+  task = view.plan.find(p => p.id === task.id)!;
+  assert.equal(view.attention.find(a => a.action?.planId === task.id)?.severity, "red");
+  assert.equal(view.overview.counts.tasks, 0);
+  assert.equal(view.overview.counts.review, 1);
+  assert.equal(view.overview.next[0].view, "review");
+  await tx(q => K.updatePlanAction(q, actor, id, task.id, { action: "reviewed", version: task.version, outcome: "Synthetic care reviewed" }));
+  await active(id, ["plan"]);
+  view = await summary(db, id, "production");
+  assert.ok(!view.attention.some(a => a.action?.planId === task.id));
+  assert.equal(view.overview.counts.review, 0);
 });
 for (const ef of [29, 30, 45])
   test(`recorded EF ${ef}% cannot be cleared as low-risk routine pregnancy care`, async () => {

@@ -21,12 +21,12 @@ const run = (c: WizardContext) => {
   return { answers, out: buildOutcome("hyperkalaemia", answers, c), view: decisionView("hyperkalaemia", answers, c) };
 };
 
-test("K 5.8 on spironolactone 25 mg: halve to 12.5 mg, stop the NSAID, recheck in 1 week — no question left", () => {
+test("K 5.8 on spironolactone 25 mg: halve to 12.5 mg, stop the NSAID, recheck within 3 days — no question left", () => {
   const { out, view } = run(ctx(5.8, [spiro, arni, ibu]));
   const labels = out.map((o) => o.label);
-  assert.ok(labels.includes("Spironolactone: 25 mg → 12.5 mg"), labels.join(" | "));
+  assert.ok(labels.includes("Spironolactone: 25 mg → 12.5 mg OD"), labels.join(" | "));
   assert.ok(labels.includes("Ibuprofen: stop"));
-  assert.ok(labels.some((l) => /^Renal function and potassium check · Fri 30 Oct 2026/.test(l)));
+  assert.ok(labels.some((l) => /^Renal function and potassium check · Mon 26 Oct 2026/.test(l)));
   assert.ok(!labels.some((l) => /Sacubitril/.test(l)), "the ARNI is kept when the MRA is reduced");
   assert.deepEqual(view.needed.map((q) => q.id), [], "nothing to answer");
   assert.ok(view.why.some((w) => /halve Spironolactone/.test(w.why)));
@@ -34,7 +34,7 @@ test("K 5.8 on spironolactone 25 mg: halve to 12.5 mg, stop the NSAID, recheck i
   assert.ok(view.check.some((c) => /Creatinine 102 → 121/.test(c)) && view.check.some((c) => /Ibuprofen/.test(c)));
 });
 
-test("binder instead: keep the doses, patiromer 8.4 g once daily (label start), recheck in 1 week", () => {
+test("binder instead: keep the doses, patiromer 8.4 g once daily with early potassium review", () => {
   const c = ctx(5.8, [spiro, arni]);
   const { answers } = prefill("hyperkalaemia", c);
   const alt = decisionView("hyperkalaemia", answers, c).instead.find((x) => x.value === "binder")!;
@@ -51,7 +51,7 @@ test("K 6.2: stop MRA and ARNI, repeat today; the ECG is needed before the decis
   const labels = out.map((o) => o.label);
   assert.ok(labels.includes("Spironolactone: hold") && labels.includes("Sacubitril/valsartan: hold"), labels.join(" | "));
   assert.ok(labels.some((l) => /Renal function and potassium check · Fri 23 Oct 2026/.test(l)));
-  assert.deepEqual(view.needed.map((q) => q.id), ["ecg"]);
+  assert.deepEqual(view.needed.map((q) => q.id), ["symptoms", "ecg"]);
   assert.ok(!view.instead.some((x) => x.value === "binder"), "no binder offered above 6.0");
 });
 
@@ -76,17 +76,16 @@ test("K 6.6: same-day emergency treatment (not dosed here)", () => {
   assert.ok(!out.some((o) => o.kind === "start"), "no acute drug is dosed");
 });
 
-test("Lokelma instead: keep the doses, 5 g once daily (SmPC maintenance; correction phase not dosed), recheck set by the clinician", () => {
+test("Lokelma requests a correction prescription; no maintenance dose against an elevated result", () => {
   const c = ctx(5.8, [spiro, arni]);
   const { answers } = prefill("hyperkalaemia", c);
   const alt = decisionView("hyperkalaemia", answers, c).instead.find((x) => x.value === "binder-szc")!;
   assert.match(alt.why, /400 mg sodium/);
   const a2 = applyInstead({ ...answers, recheck: undefined as any }, "hyperkalaemia", alt.question, alt.value, alt.replaces);
   const out = buildOutcome("hyperkalaemia", a2, c);
-  const start = out.find((o) => o.kind === "start") as any;
-  assert.equal(start.code, "sodium-zirconium-cyclosilicate");
-  assert.equal(start.doseValue, 5);
-  assert.ok(!out.some((o) => o.kind === "medication" && /Spironolactone/.test(o.label)));
+  assert.ok(!out.some(o=>o.kind === "start"), "maintenance is not correction");
+  assert.ok(out.some(o=>o.kind === "plan" && /10 g three times daily/.test(o.title)));
+  assert.ok(out.some(o=>o.kind === "medication" && /Spironolactone/.test(o.label)), "requesting correction does not silently undo the MRA reduction");
   assert.deepEqual(decisionView("hyperkalaemia", a2, c).needed.map((q) => q.id), ["recheck"]);
 });
 
@@ -94,29 +93,32 @@ test("Lokelma instead: keep the doses, 5 g once daily (SmPC maintenance; correct
 const furo = (dose: number) => med("f1", "furosemide", "Furosemide", dose, ["loop"]);
 const decide = (w: string, c: WizardContext) => { const { answers } = prefill(w, c); return { answers, out: buildOutcome(w, answers, c), view: decisionView(w, answers, c) }; };
 
-test("congestion on furosemide 40 mg: double to 80 mg (HFA 2019); red flags assumed none and shown; signs still asked", () => {
+test("congestion on furosemide 40 mg: double to 80 mg (HFA 2019); red flags remain an essential check", () => {
   const c = ctx(4.6, [furo(40), spiro], { dx: ["hfref", "hf"] } as any);
-  const { out, view } = decide("congestion", c);
-  assert.ok(out.some((o) => o.label === "Furosemide: 40 mg → 80 mg"), out.map((o) => o.label).join(" | "));
-  assert.ok(view.assumed.some((q) => q.id === "redflags"));
-  assert.ok(view.why.some((w) => /double the dose/.test(w.why)));
-  assert.deepEqual(view.needed.map((q) => q.id), ["signs"], "no weight trend: the signs are asked");
+  const { out: incomplete, view } = decide("congestion", c);
+  assert.ok(!incomplete.some(o => o.kind === "medication"), "do not increase the loop before confirming clinical congestion and stability");
+  const completed = prefill("congestion",c,{signs:["oedema"],redflags:["none"]}).answers;
+  const out = buildOutcome("congestion",completed,c);
+  assert.ok(out.some((o) => o.label === "Furosemide: 40 mg → 80 mg OD"), out.map((o) => o.label).join(" | "));
+  assert.ok(!view.assumed.some((q) => q.id === "redflags"));
+  assert.ok(decisionView("congestion",completed,c).why.some((w) => /double the dose/.test(w.why)));
+  assert.deepEqual(view.needed.map((q) => q.id), ["signs", "redflags"], "no weight trend: the signs are asked");
   const c2 = ctx(4.6, [furo(40)], { dx: ["hfref", "hf"], values: { weight: { value: 81.5, at: "2026-10-21", prev: 78 } } } as any);
-  assert.deepEqual(decide("congestion", c2).view.needed.map((q) => q.id), [], "a recorded weight rise fills the signs");
+  assert.deepEqual(decide("congestion", c2).view.needed.map((q) => q.id), ["redflags"], "a recorded weight rise fills signs but cannot exclude red flags");
 });
 
 test("renal function, dry on furosemide 80 mg: one step lower to 40 mg", () => {
   const c = ctx(4.8, [furo(80), arni], { values: { creatinine: { value: 130, at: "2026-10-22", prev: 100 }, potassium: { value: 4.8, at: "2026-10-22", prev: 4.5 } } } as any);
   const p2 = prefill("renal-function", c, { volume: "dry" }).answers;
   const out = buildOutcome("renal-function", p2, c);
-  assert.ok(out.some((o) => o.label === "Furosemide: 80 mg → 40 mg"), out.map((o) => o.label).join(" | "));
+  assert.ok(out.some((o) => o.label === "Furosemide: 80 mg → 40 mg OD"), out.map((o) => o.label).join(" | "));
 });
 
 test("structural plan checklists default to pending and are listed as assumed, not asked", () => {
   const c = ctx(4.5, [], { dx: ["as-severe"] } as any);
   const { view } = decide("tavi-plan", c);
   const ids = view.assumed.map((q) => q.id);
-  for (const id of ["safety", "team", "coronary", "labs", "infection"]) assert.ok(ids.includes(id), `${id} assumed: ${ids.join(",")}`);
+  for (const id of ["team", "coronary", "labs", "infection"]) assert.ok(ids.includes(id), `${id} assumed: ${ids.join(",")}`);
   assert.ok(!view.needed.some((q) => ["team", "coronary", "labs", "infection"].includes(q.id)));
 });
 
@@ -141,10 +143,12 @@ test("starts carry the label dose: SGLT2i 10 mg, finerenone by eGFR, metformin, 
   assert.equal((startItem("mra", c(70), "hf") as any).doseValue, 25);
   assert.match((startItem("metformin", c(40), "dm") as any).label, /maximum 1000 mg\/day/);
 });
-test("congestion without a loop diuretic starts furosemide 40 mg and empagliflozin 10 mg; statin intensity goes to the next high-intensity dose", () => {
-  const { out } = decide("congestion", ctx(4.6, [], { dx: ["hfref", "hf"] } as any));
+test("missing eGFR prevents an SGLT2 start; statin intensity uses the known dose", () => {
+  const c = ctx(4.6, [], { dx: ["hfref", "hf"] } as any);
+  const out = buildOutcome("congestion",prefill("congestion",c,{signs:["oedema"],redflags:["none"]}).answers,c);
+  assert.ok(out.some(o=>o.kind === "note" && /Record eGFR/.test(o.label)));
   const starts = out.filter((o) => o.kind === "start").map((o: any) => `${o.code} ${o.doseValue}`);
-  assert.deepEqual(starts.sort(), ["empagliflozin 10", "furosemide 40"]);
+  assert.deepEqual(starts.sort(), ["furosemide 40"]);
   const atorva = med("a", "atorvastatin", "Atorvastatin", 20, ["statin"]);
   assert.match(statinUp(ctx(4.5, [atorva]))[0].label, /20 mg → 40 mg/);
   const rosu = med("r", "rosuvastatin", "Rosuvastatin", 20, ["statin"]);

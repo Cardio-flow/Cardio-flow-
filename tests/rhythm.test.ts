@@ -69,6 +69,7 @@ test("Hamad: AF on today's ECG, not on the problem list → AF-CARE suggests the
   assert.ok(r && r.severity === "orange");
   assert.match(r.title, /atrial fibrillation — not on the problem list/);
   assert.equal(await rec(pid, "rhythm.af-fast-rate"), undefined, "the undiagnosed-AF finding covers the rate");
+  await tx(q=>K.recordObservations(q,doc,pid,{effectiveAt:at(T),items:[{code:"creatinine",value:100},{code:"weight",value:70}]}));
   const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
   assert.ok(ctx.af!.score >= 2);
   assert.deepEqual(suggest("af-care", "pattern", {}, ctx).map((x) => x.value), ["first"]);
@@ -95,6 +96,7 @@ test("Hamad: AF on today's ECG, not on the problem list → AF-CARE suggests the
 test("Abdullah (permanent AF, warfarin, ECG 112 bpm): fast-rate finding; AF-CARE suggests no rhythm control and keeps warfarin with his mechanical valve", async () => {
   const pid = await byName("Abdullah Al-Enezi");
   assert.match((await rec(pid, "rhythm.af-fast-rate")).title, /^AF at 112 bpm .*above the lenient target <110/);
+  await tx(q=>K.recordObservations(q,doc,pid,{effectiveAt:at(T),items:[{code:"creatinine",value:100},{code:"weight",value:70}]}));
   const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
   assert.deepEqual(suggest("af-care", "pattern", {}, ctx).map((x) => x.value), ["permanent"]);
   assert.deepEqual(suggest("af-care", "rhythm", { pattern: "permanent" }, ctx).map((x) => x.value), ["none"]);
@@ -104,6 +106,7 @@ test("Abdullah (permanent AF, warfarin, ECG 112 bpm): fast-rate finding; AF-CARE
 test("aspirin alone for AF without vascular disease: AF-CARE suggests stopping it; completing stops aspirin", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Asa " + Date.now(), mrn: "Q" + Date.now(), sex: "Female", birthDate: "1950-01-01", conditions: ["af", "htn"] }));
   await tx(async (q) => { await K.startMedication(q, doc, pid, { code: "aspirin", doseValue: 100, frequency: "OD", route: "PO", indication: "af", effectiveAt: at(addDays(T, -100)) }); await reassess(q, pid, "sandbox"); });
+  await tx(q=>K.recordObservations(q,doc,pid,{effectiveAt:at(T),items:[{code:"creatinine",value:100},{code:"weight",value:70}]}));
   const ctx = (await tx((q) => getWizard(q, pid, "af-care"))).context;
   assert.ok(suggest("af-care", "bleed", {}, ctx).some((x) => x.value === "stop-asa"));
   await run(pid, "af-care", { pattern: "paroxysmal", comorb: ["none"], oac: "other-doac", bleed: ["stop-asa"], symptoms: "2", rate: ["none"], rhythm: ["ablation"], tests: ["none"], review: "none" });
@@ -152,6 +155,7 @@ test("Legacy AF procedure pathway refers for full ablation preparation; actual a
 
 test("a cardioversion planned with no anticoagulant is flagged until anticoagulation covers 3 weeks", async () => {
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Cv3 " + Date.now(), mrn: "C3" + Date.now(), sex: "Female", birthDate: "1962-01-01", conditions: ["af"] }));
+  await tx(q=>K.recordObservations(q,doc,pid,{effectiveAt:at(T),items:[{code:"creatinine",value:100},{code:"weight",value:70}]}));
   await run(pid, "af-care", { pattern: "persistent", comorb: ["none"], oac: "declined", bleed: ["none"], symptoms: "2", rate: ["none"], rhythm: ["cardioversion"], tests: ["none"], review: "none" });
   const r = await rec(pid, "rhythm.cardioversion-before-3w");
   assert.ok(r && r.severity === "yellow");

@@ -1,3 +1,4 @@
+import { validDate } from "./dates.js";
 import { PREGNANCY_WIZARDS } from "./wizards-pregnancy.js";
 import type { PregnancyContext } from "./pregnancy.js";
 import type { PericardialContext } from "./pericardial.js";
@@ -201,11 +202,11 @@ export const WIZARDS: Record<string, WizardDef> = {
     title: "Hyperkalaemia review",
     tone: "red",
     note: "The decision is computed from the latest potassium, the medicines and doses on the list and the record, with the source on each line. Nothing changes until you confirm. Acute treatment of severe hyperkalaemia is not dosed here: use the hospital protocol.",
-    source: "ESC HF 2021 (+2023 update) and its practical guidance on RAAS inhibitors and MRAs: K >5.5 halve the dose, K >6.0 stop, recheck 1–2 weeks after a change; potassium binders may be considered to enable RAAS inhibitor therapy (IIb). Patiromer: Veltassa SmPC (start 8.4 g once daily, adjust at ≥1-week intervals, monitor magnesium). UK Kidney Association 2023: ECG for K ≥6.0; K ≥6.5 is severe.",
-    sourceShort: "ESC HF 2021 · SmPC",
+    source: "ESC HF 2021 (+2023 update) and its practical guidance on RAAS inhibitors and MRAs: K >5.5 halve the dose, K >6.0 stop, recheck 1–2 weeks after a change; potassium binders may be considered to enable RAAS inhibitor therapy (IIb). Patiromer: Veltassa SmPC (start 8.4 g once daily, adjust at ≥1-week intervals, monitor magnesium). UK Kidney Association community recommendations 1.2.1–1.2.3: newly detected K 5.5–5.9 repeat within 3 days; 6.0–6.4 within 1 day; K ≥6.5 urgent hospital assessment. ECG for K ≥6.0.",
+    sourceShort: "ESC HF · UKKA · SmPC",
     needed: (_a, ctx) => {
       const k = ctx.values?.potassium?.value ?? null;
-      return k != null && k > 6.0 ? ["ecg"] : [];
+      return k != null && k >= 6.0 && k < 6.5 ? ["ecg", "symptoms"] : [];
     },
     checks: (_a, ctx) => {
       const v = (c: string) => ctx.values?.[c]?.value ?? null, pv = (c: string) => ctx.values?.[c]?.prev ?? null;
@@ -332,6 +333,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   "renal-function": {
+    source: "ESC HF 2021 practical guidance on RAAS inhibitors and MRAs; HFA diuretic position statement 2019",
+    sourceShort: "ESC HF 2021 · HFA 2019",
     group: "Heart failure",
     id: "renal-function",
     title: "Worsening renal function review",
@@ -427,6 +430,8 @@ export const WIZARDS: Record<string, WizardDef> = {
   },
   // ---- ESC HF 2021 practical guidance (retained in 2023/2026; confirm in review) ----
   congestion: {
+    source: "ESC HF 2021 and focused update 2023; HFA diuretic position statement 2019",
+    sourceShort: "ESC HF 2021/2023 · HFA 2019",
     group: "Heart failure",
     id: "congestion",
     title: "Congestion / worsening heart failure",
@@ -500,6 +505,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   hypotension: {
+    source: "ESC HF 2021 practical guidance on managing low blood pressure during HF treatment",
+    sourceShort: "ESC HF 2021",
     group: "Heart failure",
     id: "hypotension",
     title: "Low blood pressure on HF therapy",
@@ -564,6 +571,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   bradycardia: {
+    source: "ESC HF 2021 practical beta-blocker guidance; ESC cardiac pacing 2021",
+    sourceShort: "ESC HF · Pacing 2021",
     group: "Rhythm & devices",
     id: "bradycardia",
     title: "Bradycardia / AV block",
@@ -722,7 +731,7 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
 };
 
 // Options that fit this patient's current medicines.
-export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }) {
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }): Option[] {
   if (q.optionsFrom === "medicationChecks") return (ctx.medicationReview?.checks ?? []).map(check=>({value:check.id,label:check.codes ? `Blood tests · ${check.codes.map(code=>MEASURES[code]?.short ?? code).join(", ")}` : check.title}));
   const tags = new Set(ctx.meds.flatMap((m) => m.tags));
   const dx = new Set(ctx.dx ?? []);
@@ -762,12 +771,12 @@ export function missingRequired(step: Step, answers: Answers) {
 }
 
 export function medForTag(ctx: WizardContext, tag: string) {
-  return ctx.meds.find((m) => m.tags.includes(tag)) ?? null;
+  return ctx.meds.find((m) => (!m.status || m.status === "active") && m.tags.includes(tag)) ?? null;
 }
 
 export function doseChoices(ctx: WizardContext, q: Question) {
   const med = q.medTag ? medForTag(ctx, q.medTag) : null;
-  if (!med) return { med: null, options: [] as Option[] };
+  if (!med || med.doseValue == null || !med.frequency) return { med, options: [] as Option[] };
   const def = MEDICATION[med.code];
   const doses = (def?.doses ?? []).filter((d) => q.direction !== "lower" || med.doseValue == null || d < med.doseValue);
   return {
@@ -784,7 +793,7 @@ export type OutcomeItem =
   | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
   // a diagnosis the pathway confirms (added, or its detail updated, keeping its onset)
   | { kind: "condition"; code: string; attributes: Record<string, unknown>; label: string }
-  | { kind: "note"; label: string }
+  | { kind: "note"; label: string; decision?: boolean }
   // why a drug class is not given (recorded once, reused by every rule, as from an alert card)
   | { kind: "barrier"; drugClass: string; category: "contraindication" | "declined"; label: string };
 
@@ -792,7 +801,9 @@ export type OutcomeItem =
 const LEGACY = new Set(["hyperkalaemia", "renal-function", "congestion", "hypotension", "bradycardia"]);
 
 export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardContext, dueDates: Record<string, string> = {}): OutcomeItem[] {
-  if(["pericarditis","pregnancy-plan"].includes(wizardId))answers=visibleAnswers(wizardId,answers);
+  answers=visibleAnswers(wizardId,answers);
+  if(wizardId === "hyperkalaemia" && (answers.result === "repeat" || answers.haemolysis === "yes") && (ctx.values?.potassium?.value ?? 0) < 6.5 && answers.ecg !== "present")
+    answers = {...answers, actions: ["continue"], recheck:"0"};
   const out: OutcomeItem[] = [];
   const actions = (answers.actions as string[] | undefined) ?? [];
   const today = ctx.today;
@@ -808,7 +819,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       medicationId: m.id,
       event: kind,
       doseValue: v,
-      label: `${m.name}: ${doseLabel(def, m.doseValue, m.doseUnit)} → ${doseLabel(def, v, m.doseUnit)}`,
+      label: `${m.name}: ${doseLabel(def, m.doseValue, m.doseUnit)} → ${doseLabel(def, v, m.doseUnit)}${m.frequency ? ` ${m.frequency}` : " — frequency needs confirmation"}`,
     });
   };
   if (wizardId === "hyperkalaemia") {
@@ -828,15 +839,16 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     if (actions.includes("diet-advice")) out.push({ kind: "plan", category: "education", title: "Dietary potassium advice", dueDate: today, completesOn: { type: "manual" }, label: "" });
     // patiromer at the label start dose (Veltassa SmPC: 8.4 g once daily, separated ≥3 h from other oral
     // medicines; adjust at ≥1-week intervals); already on a binder: review its dose instead
-    // sodium zirconium cyclosilicate at the label maintenance dose (Lokelma SmPC: 5 g once daily); the
-    // 10 g three-times-daily correction phase is an acute regimen and is not dosed here
-    if (actions.includes("binder-szc") && !ctx.meds.some((m) => m.tags.includes("k-binder")))
-      out.push({ kind: "start", code: "sodium-zirconium-cyclosilicate", doseValue: 5, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Sodium zirconium cyclosilicate (Lokelma) 5 g once daily: start (SmPC maintenance dose; any correction phase is prescribed separately)" });
+    // Correction and maintenance are distinct. The current record cannot represent
+    // the conditional 24–72h transition, so book the exact prescription review rather
+    // than silently prescribing maintenance against a high potassium result.
+    if (actions.includes("binder-szc") && !ctx.meds.some((m) => m.tags.includes("k-binder") && m.status !== "stopped"))
+      out.push({kind:"plan",category:"medication",title:"Lokelma correction prescription review: 10 g three times daily; maintenance 5 g daily only after normokalaemia (SmPC)",dueDate:today,completesOn:{type:"manual"},label:""});
     if (actions.includes("binder")) {
       if (ctx.meds.some((m) => m.tags.includes("k-binder"))) out.push({ kind: "plan", category: "medication", title: "Potassium binder dose review", dueDate: today, completesOn: { type: "manual" }, label: "" });
       else out.push({ kind: "start", code: "patiromer", doseValue: 8.4, frequency: "OD", indication: "Hyperkalaemia on RAAS inhibitor / MRA therapy", label: "Patiromer 8.4 g once daily: start (Veltassa SmPC start dose; take 3 h apart from other oral medicines)" });
     }
-    if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit" }, label: "" });
+    if (actions.includes("urgent")) out.push({ kind: "plan", category: "follow_up", title: "Same-day urgent assessment", dueDate: today, completesOn: { type: "visit", purpose:"hyperkalaemia-urgent" }, label: "" });
   }
   if (wizardId === "renal-function") {
     if (actions.includes("reduce-diuretic")) change("loop", "diureticDose", "decrease");
@@ -920,7 +932,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       category: "monitoring",
       title: r.title,
       dueDate: addDays(today, recheck),
-      completesOn: { type: "lab", codes: r.codes },
+      completesOn: { type: "lab", codes: wizardId === "hyperkalaemia" && actions.includes("binder") ? [...new Set([...r.codes,"magnesium"])] : r.codes },
       label: "",
     });
   }
@@ -936,6 +948,17 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       label: "",
     });
   }
+  // Continuing / withholding treatment is also an explicit decision. Keep the
+  // selected guideline option visible instead of reporting an empty plan.
+  const decisionQuestions = new Set(["actions", "decision", "lower", "oac", "rate", "rhythm", "protect", "treatment"]);
+  for (const q of WIZARDS[wizardId].steps.flatMap(st => visibleQuestions(st,answers))) {
+    if (!decisionQuestions.has(q.id)) continue;
+    const selected = Array.isArray(answers[q.id]) ? answers[q.id] as string[] : [String(answers[q.id] ?? "")];
+    for (const option of optionsFor(q,ctx)) {
+      if (!selected.includes(option.value) || option.effects || !["continue","no-change","not-indicated","covered"].includes(option.value)) continue;
+      out.push({kind:"note",decision:true,label:`${q.label}: ${option.label}`});
+    }
+  }
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
   const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
@@ -944,11 +967,15 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   const seen = new Set<string>();
   return items.flatMap((item): OutcomeItem[] => {
     if (item.kind !== "plan") return [item];
-    const date = dueDates[item.title] ?? item.dueDate;
+    const proposedDate = dueDates[item.title] ?? item.dueDate;
+    const date = validDate(proposedDate) ? proposedDate : "";
     const target = item.completesOn ?? { type: "manual" };
     const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
       if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
       if (p.completesOn.type !== target.type) return false;
+      // Sequential drug monitoring is tied to its own timepoint; an earlier test
+      // cannot stand in for the later post-start check.
+      if (item.medicationRef && p.dueDate !== date) return false;
       if ((aorta || wizardId === "pericarditis") && target.purpose === "Surveillance" && p.dueDate !== date) return false;
       if (target.type === "lab") return (target.codes as string[]).every(code => p.completesOn.codes?.includes(code));
       if (target.type === "study") return p.completesOn.kind === target.kind && p.completesOn.purpose === target.purpose && (!(aorta || wizardId === "pericarditis") || (p.completesOn.method === target.method && p.completesOn.procedureId === target.procedureId));
@@ -957,7 +984,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
       return p.title === item.title || (target.type === "visit" && /^(Hypertension|Resistant hypertension): BP.*tolerance review$/.test(p.title) && /^Hypertension: BP.*tolerance review$/.test(item.title));
     }) : null;
     const key = `${item.title}:${date}`;
-    if (htn && seen.has(key)) return [];
+    if (seen.has(key)) return [];
     seen.add(key);
     if (existing) return [{kind:"note", label:`Already planned: ${existing.title} · ${fmtDay(existing.dueDate!, {year:true})}`}];
     return [{...item, dueDate:date, label:`${item.title} · ${date ? fmtDay(date, {weekday:true, year:true}) : "Choose a date"}`}];

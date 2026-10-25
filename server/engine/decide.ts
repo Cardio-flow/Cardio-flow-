@@ -1,3 +1,6 @@
+import { prioritiseDecision, routineDecisionItem } from "../../shared/decision-display.js";
+import { decisionBlocker } from "../../shared/decision-validation.js";
+import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements.js";
 import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
 // The pathway as the app's hidden decision engine (14 Oct 2026, Ahmed: "make the pathways the hidden brain …
 // collect the data needed for the decision and only give us what is necessary to fill before the decision").
@@ -27,53 +30,6 @@ import { safetyHits } from "./med-safety.js";
 import { loadState } from "../kernel/state.js";
 import { RENAL_DEFAULTS } from "./renal-trend.js";
 import { doseLabel, MEDICATION } from "../../shared/catalog.js";
-
-// results a pathway's decision depends on: missing or older than `days` → asked for before the decision
-const ironNeeds = (ctx: WizardContext) => {
-    const { hb, weight } = ironInputs(ctx);
-    return [
-      ...(hb == null ? [{ code: "haemoglobin", days: 90, why: "the total iron dose depends on it (SmPC Table 1)" }] : []),
-      ...(weight == null ? [{ code: "weight", days: 365, why: "the total iron dose and the per-infusion limit (20 mg/kg) depend on it" }] : []),
-    ];
-};
-// Data freshness (how recent a result must be to stand for "now") is a recording convention, not a treatment
-// threshold: 30 days for electrolytes/renal function in an acute pathway, 180 days for the DOAC creatinine (as
-// the DOAC label-dose check), 365 days for weight, 90 days for Hb before IV iron and thyroid tests.
-const need = (ctx: WizardContext, code: string, days: number, why: string) =>
-  ctx.values?.[code] && fresh(ctx, ctx.values[code].at, days) ? [] : [{ code, days, why }];
-const NEEDS: Record<string, (ctx: WizardContext, a: Answers) => { code: string; days: number; why: string }[]> = {
-  "iv-iron": (ctx, a) => (a.decision === "give" ? ironNeeds(ctx) : []),
-  "anaemia-result": (ctx, a) => (Array.isArray(a.actions) && a.actions.includes("iv") ? ironNeeds(ctx) : []),
-  "renal-function": (ctx) => need(ctx, "potassium", 30, "decides whether the MRA/RAAS doses can stay"),
-  hyperkalaemia: (ctx) => need(ctx, "creatinine", 30, "renal function with the potassium"),
-  congestion: (ctx) => [
-    ...need(ctx, "creatinine", 30, "renal function before changing the diuretic"),
-    ...need(ctx, "potassium", 30, "potassium before changing the diuretic"),
-    ...need(ctx, "weight", 30, "the weight to judge decongestion"),
-  ],
-  "af-care": (ctx) => [
-    ...need(ctx, "creatinine", 180, "creatinine clearance decides the DOAC dose"),
-    ...need(ctx, "weight", 365, "weight decides the DOAC dose (apixaban, edoxaban) and the clearance"),
-  ],
-  digoxin: (ctx) => [
-    ...need(ctx, "potassium", 30, "hypokalaemia increases digoxin toxicity"),
-    ...need(ctx, "creatinine", 30, "digoxin is renally cleared"),
-  ],
-  "low-potassium": (ctx) => need(ctx, "magnesium", 30, "low magnesium must be corrected for potassium to recover"),
-  diabetes: (ctx) => [
-    ...need(ctx, "hba1c", 180, "glycaemic control decides the next step"),
-    ...need(ctx, "creatinine", 365, "eGFR decides metformin and SGLT2 inhibitor use"),
-  ],
-  "amiodarone-thyroid": (ctx) => [...need(ctx, "tsh", 90, "thyroid status on amiodarone"), ...need(ctx, "ft4", 90, "thyroid status on amiodarone")],
-  bleeding: (ctx) => need(ctx, "haemoglobin", 30, "haemoglobin grades the bleed and guides the restart"),
-  "peri-af-procedure": (ctx) => [
-    ...need(ctx, "creatinine", 180, "creatinine clearance sets the DOAC interruption"),
-    ...need(ctx, "weight", 365, "weight for the creatinine clearance"),
-  ],
-  "pre-procedure": (ctx) => ctx.meds.some((m) => m.tags.includes("oac")) ? [...need(ctx, "creatinine", 180, "creatinine clearance sets the DOAC interruption"), ...need(ctx, "weight", 365, "weight for the creatinine clearance")] : [],
-  hyponatraemia: (ctx) => need(ctx, "potassium", 30, "potassium with the sodium (diuretic effect)"),
-};
-const fresh = (ctx: WizardContext, at: string, days: number) => (Date.parse(ctx.today) - Date.parse(at.slice(0, 10))) / 86400000 <= days;
 
 // medicines to look at with this decision: the safety table's rows (renal limits, contraindications, interactions)
 const MED_REVIEW: Record<string, string[]> = {
@@ -139,7 +95,7 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     reasons.push({ question: q.label, answer: label, why, source: from });
   }
   // what only the clinician can answer
-  const needed = def.steps.flatMap((st) => missingRequired(st, answers)).map((q) => ({
+  const needed = decisionQuestions(wizardId, answers, ctx).map((q) => ({
     id: q.id, label: q.label, help: q.help ?? null, type: q.type,
     options: q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx),
   }));
@@ -150,12 +106,12 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
   }
   if(iron) dueDates=ironDates(answers,ctx,dueDates);
-  const blockers = [wizardId === "pregnancy-plan" ? validatePregnancy(visibleAnswers(wizardId,answers),ctx,dueDates) : null, pregnancyOutcomeBlocker(wizardId,buildOutcome(wizardId,answers,ctx,dueDates),ctx,answers), wizardId === "pericarditis" ? validatePericardial(visibleAnswers(wizardId,answers),ctx,dueDates) : null, wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
+  const blockers = [decisionBlocker(wizardId,answers,ctx,dueDates),wizardId === "pregnancy-plan" ? validatePregnancy(visibleAnswers(wizardId,answers),ctx,dueDates) : null, pregnancyOutcomeBlocker(wizardId,buildOutcome(wizardId,answers,ctx,dueDates),ctx,answers), wizardId === "pericarditis" ? validatePericardial(visibleAnswers(wizardId,answers),ctx,dueDates) : null, wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
-  const needData = (NEEDS[wizardId]?.(ctx, answers) ?? []).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
+  const needData = decisionDataNeeded(wizardId,ctx,answers).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)
-  const plan = (potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
-    kind: o.kind, label: o.kind === "plan" ? `${o.title} · ${fmtDay(o.dueDate, { weekday: true, year: true })}` : o.label,
+  const plan = prioritiseDecision(potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
+    kind: o.kind, label: o.label, routine: routineDecisionItem(o), decision: o.kind === "note" && !!o.decision,
     ...(o.kind === "plan" ? { title: o.title, dueDate: o.dueDate, category: o.category } : {}),
   }));
   const s = await loadState(tx, patientId);

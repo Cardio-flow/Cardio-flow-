@@ -98,6 +98,7 @@ try {
     '[aria-label="Decision: Thoracic aorta: assessment and surveillance"]',
   );
   await panel.waitFor();
+  await panel.getByRole("button", { name: "Edit answers", exact: true }).click();
   const radio = async (group, label) =>
     panel
       .getByRole("radiogroup", { name: "Decision: " + group, exact: true })
