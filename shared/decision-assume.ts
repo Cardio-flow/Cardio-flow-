@@ -14,6 +14,33 @@ export const CURRENT_SCREENS: Record<string,string[]> = {
   "vitamin-d-result":["redflags"], hyperkalaemia:["symptoms","ecg"],
 };
 
+// Carry-forward (25 Oct 2026, Ahmed agreed): a safety screen is never assumed, but one the clinician already
+// answered is not asked blind again. Today's answer (this pathway, or the same "stable today" screen in a related
+// pathway) is filled in with its source and time and stays changeable; an older answer of this pathway is only
+// offered ("Same as 10 Oct: Stable"), never filled, because "today" findings must be confirmed today.
+const STABLE_TODAY = ["af-ablation-plan", "after-af-ablation", "after-laao", "tavi-plan", "teer-plan", "other-structural-plan", "after-structural", "rdn-plan", "after-rdn", "htn-review"];
+export type ScreenDecision = { wizard: string | null; answers: Record<string, unknown>; at: string; day: string };
+export type CarriedScreen = { value: string | string[]; at: string; wizard: string; today: boolean };
+// decisions newest first; only "acted" decisions belong here (a declined alert answered nothing)
+export function carriedScreens(wizardId: string, decisions: ScreenDecision[], today: string): Record<string, CarriedScreen> {
+  const out: Record<string, CarriedScreen> = {};
+  for (const id of CURRENT_SCREENS[wizardId] ?? []) {
+    const ok = new Set((WIZARDS[wizardId]?.steps.flatMap((st) => st.questions).find((q) => q.id === id)?.options ?? []).map((o) => o.value));
+    const fits = (v: unknown): v is string | string[] => Array.isArray(v) ? v.length > 0 && v.every((x) => ok.has(String(x))) : typeof v === "string" && ok.has(v);
+    for (const d of decisions) {
+      if (!d.wizard) continue;
+      const same = d.wizard === wizardId;
+      // a related pathway's "stable today" counts only on the same day
+      const related = !same && id === "safety" && STABLE_TODAY.includes(wizardId) && STABLE_TODAY.includes(d.wizard) && d.day === today;
+      const v = same ? d.answers[id] : related ? d.answers.safety : undefined;
+      if (!fits(v)) continue;
+      out[id] = { value: v, at: d.at, wizard: d.wizard, today: d.day === today };
+      break;
+    }
+  }
+  return out;
+}
+
 const PENDING = ["pending", "unknown", "needed", "uncertain"];
 const A: Record<string, Record<string, string | string[]>> = {
   "low-potassium": { ecg: "not-done" },

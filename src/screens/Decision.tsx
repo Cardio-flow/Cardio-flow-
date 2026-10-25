@@ -3,6 +3,7 @@ import { Clock3, ChevronDown, FlaskConical, Pencil } from "lucide-react";
 import { api } from "../api";
 import { DateInput } from "../ui";
 import { validDate } from "../../shared/dates";
+import { fmtDay } from "../../shared/clinical";
 import type { Open } from "./Patient";
 
 type Question = {
@@ -12,6 +13,8 @@ type Question = {
   type: string;
   exclusive?: string[];
   options: { value: string; label: string }[];
+  // a safety screen answered on an earlier day: offered, never filled
+  last?: { value: string | string[]; label: string; at: string; title: string } | null;
 };
 type Preview = {
   wizard: string;
@@ -191,6 +194,14 @@ export function DecisionPanel({
             {q.label}
             {q.help && <small>{q.help}</small>}
           </span>
+          {(() => {
+            const last = p.needed.find((n) => n.id === q.id)?.last;
+            return last && given[q.id] == null ? (
+              <button type="button" className="btn ghost small decision-same" onClick={() => set(q.id, last.value)} title={`Answered in ${last.title}`}>
+                Same as {fmtDay(last.at)}: {last.label}
+              </button>
+            ) : null;
+          })()}
           {q.type === "date" ? (
             <DateInput
               value={String(given[q.id] ?? p.answers[q.id] ?? "")}

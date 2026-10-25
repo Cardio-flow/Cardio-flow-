@@ -10,7 +10,7 @@ import { suggest, type Suggestion } from "../../shared/wizard-guidance";
 import { applyInstead, decisionView } from "../../shared/decision-first";
 import { JOIN, joinFor, prefill, updateDecisionAnswers } from "../../shared/wizard-prefill";
 import { RELEVANT_TAGS, WIZARDS, buildOutcome, doseChoices, missingRequired, optionsFor, visibleQuestions, type Answers, type Question, type WizardContext } from "../../shared/wizards";
-import { addDays, flagFor, fmtDay } from "../../shared/clinical";
+import { addDays, flagFor, fmtDay, fmtTime } from "../../shared/clinical";
 import { MEASURES, MEDICATION, doseLabel, formatNumber } from "../../shared/catalog";
 
 // one part of a joined pathway, answered and waiting to be recorded with the parts after it
@@ -67,7 +67,8 @@ export function WizardDrawer({
       if (base) {
         // drop choices that no longer fit the patient's medicines (e.g. the drug was stopped since the draft)
         const clean: Record<string, any> = { ...base };
-        if(!resume) for(const id of CURRENT_SCREENS[wizard] ?? []) delete clean[id];
+        // today's state is asked again on a review, unless it was already answered today (then filled, changeable)
+        if(!resume) for(const id of CURRENT_SCREENS[wizard] ?? []) { delete clean[id]; const c = r.context.screens?.[id]; if (c?.today) clean[id] = c.value; }
         for (const q of def.steps.flatMap((st) => st.questions).filter((q) => q.options)) {
           const ok = new Set(optionsFor(q, r.context).map((o) => o.value));
           const v = clean[q.id];
@@ -240,6 +241,15 @@ export function WizardDrawer({
               <div className="q" key={q.id}>
                 <div className="label">{q.label}{autoFilled.includes(q.id) && <span className="prefilled" title="Filled in from the guideline suggestion: change it if it does not fit">suggested</span>}</div>
                 {q.help && <details className="question-help"><summary>Details</summary><div className="help">{q.help}</div></details>}
+                {(() => {
+                  const c = ctx.screens?.[q.id];
+                  const v = answers[q.id];
+                  if (!c) return null;
+                  if (c.today) return <div className="small muted screen-src">Recorded today {fmtTime(c.at)} in {c.title}: {c.label}</div>;
+                  return v == null || (Array.isArray(v) && !v.length) ? (
+                    <button type="button" className="btn ghost small decision-same" onClick={() => set(q.id, c.value as any)} title={`Answered in ${c.title}`}>Same as {fmtDay(c.at)}: {c.label}</button>
+                  ) : null;
+                })()}
                 {sug.length > 0 && (
                   <details className="guide guide-compact">
                     <summary className="guide-head">

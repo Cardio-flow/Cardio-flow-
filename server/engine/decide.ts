@@ -23,7 +23,7 @@ import { joinFor, prefill } from "../../shared/wizard-prefill.js";
 import { suggest } from "../../shared/wizard-guidance.js";
 import { isAssumed } from "../../shared/decision-assume.js";
 import { MEASURES } from "../../shared/catalog.js";
-import { fmtDay } from "../../shared/clinical.js";
+import { fmtDay, fmtTime } from "../../shared/clinical.js";
 import { ironInputs } from "../../shared/wizards-iron.js";
 import { getWizard } from "./wizard.js";
 import { safetyHits } from "./med-safety.js";
@@ -84,12 +84,15 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   for (const q of all) {
     const v = answers[q.id];
     if (v == null || v === "" || (Array.isArray(v) && !v.length)) continue;
-    const vals = (Array.isArray(v) ? v : [String(v)]).filter((x) => x !== "none");
+    // a "none" answer is a reason only when it is a safety screen carried from earlier today (its source matters)
+    const screen = !Object.hasOwn(given, q.id) && ctx.screens?.[q.id]?.today;
+    const vals = (Array.isArray(v) ? v : [String(v)]).filter((x) => screen || x !== "none");
     if (!vals.length) continue;
     const opts = q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx);
     const label = vals.map((x) => opts.find((o) => o.value === x)?.label ?? x).join(" · ");
     const from = Object.hasOwn(given, q.id) ? "you" : defaulted.has(q.id) || (q.id === "review" && assumedIds.includes(q.id)) ? "default" : assumedIds.includes(q.id) ? "assumed" : ctx.detected[q.id]?.length ? "record" : "guideline";
-    const why = from === "default" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : from === "assumed" ? (q.id === "review" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : "Assumed: change it if different") : q.type === "dose" && !suggest(wizardId, q.id, answers, ctx).length
+    const carried = from === "record" ? ctx.screens?.[q.id] : undefined;
+    const why = carried?.today ? `Recorded today ${fmtTime(carried.at)} in ${carried.title}: change it if different` : from === "default" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : from === "assumed" ? (q.id === "review" ? "Default follow-up by urgency, not a guideline timing: change it if needed" : "Assumed: change it if different") : q.type === "dose" && !suggest(wizardId, q.id, answers, ctx).length
       ? "Halve the dose (ESC HF practical guidance): the largest listed dose at or below half"
       : suggest(wizardId, q.id, answers, ctx).filter((x) => vals.includes(x.value)).map((x) => x.why).join(" · ");
     reasons.push({ question: q.label, answer: label, why, source: from });
@@ -98,12 +101,14 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   const needed = decisionQuestions(wizardId, answers, ctx).map((q) => ({
     id: q.id, label: q.label, help: q.help ?? null, type: q.type,
     options: q.type === "dose" ? doseChoices(ctx, q).options : optionsFor(q, ctx),
+    // a safety screen answered before (not today): offered as "Same as …", never filled
+    last: ctx.screens?.[q.id] && !ctx.screens[q.id].today ? { value: ctx.screens[q.id].value, label: ctx.screens[q.id].label, at: ctx.screens[q.id].at, title: ctx.screens[q.id].title } : null,
   }));
   const iron = wizardId === "iv-iron" && answers.decision === "give" || wizardId === "anaemia-result" && (answers.actions as string[] | undefined)?.includes("iv");
   const checkId = wizardId === "iv-iron" ? "checks" : "ivChecks";
   if (iron && IRON_CHECKS.some(c => !(answers[checkId] as string[] | undefined)?.includes(c.value)) && !needed.some(q => q.id === checkId)) {
     const q = all.find(q => q.id === checkId)!;
-    needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx) });
+    needed.push({ id:q.id,label:q.label,help:q.help ?? null,type:q.type,options:optionsFor(q,ctx),last:null });
   }
   if(iron) dueDates=ironDates(answers,ctx,dueDates);
   const blockers = [decisionBlocker(wizardId,answers,ctx,dueDates),wizardId === "pregnancy-plan" ? validatePregnancy(visibleAnswers(wizardId,answers),ctx,dueDates) : null, pregnancyOutcomeBlocker(wizardId,buildOutcome(wizardId,answers,ctx,dueDates),ctx,answers), wizardId === "pericarditis" ? validatePericardial(visibleAnswers(wizardId,answers),ctx,dueDates) : null, wizardId === "medication-monitoring" ? validateMedicationMonitoring(answers,ctx) : null, wizardId === "aorta-plan" ? validateAorta(answers,ctx,dueDates) : null, wizardId === "syncope" ? validateSyncope(answers,ctx,dueDates) : null, potassiumFirst(wizardId,ctx), iron ? validateIronDates(answers,ctx,dueDates) : null].filter(Boolean) as string[];

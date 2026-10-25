@@ -20,11 +20,14 @@ const day = (d, n) =>
   new Date(Date.parse(`${d}T12:00:00Z`) + n * 86400000)
     .toISOString()
     .slice(0, 10);
-const radio = (label, value) =>
-  p
-    .getByRole("radiogroup", { name: label, exact: true })
-    .getByRole("radio", { name: value })
-    .click();
+// a question answered in the decision view (or carried from earlier today, 25 Oct 2026) sits behind "Change details"
+const radio = async (label, value) => {
+  const g = p.getByRole("radiogroup", { name: label, exact: true });
+  const b = p.getByRole("button", { name: "Change details", exact: true });
+  await g.or(b).first().waitFor();
+  if (!(await g.count())) await b.last().click();
+  await g.getByRole("radio", { name: value }).click();
+};
 const date = (label, value) =>
   p.getByRole("textbox", { name: label, exact: true }).fill(shown(value));
 const next = () => p.getByRole("button", { name: /^Continue( to|$)/ }).click();

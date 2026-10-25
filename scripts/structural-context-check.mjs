@@ -18,12 +18,13 @@ const steps = async () => {
   const b = page.getByRole("button", { name: "Change details", exact: true });
   if (await b.count() && await b.last().isVisible()) await b.last().click();
 };
+// a question answered in the decision view (or carried from earlier today, 25 Oct 2026) sits behind "Change details"
 const radio = async (label, name) => {
-  await steps();
-  await page
-    .getByRole("radiogroup", { name: label, exact: true })
-    .getByRole("radio", { name, exact: true })
-    .click();
+  const g = page.getByRole("radiogroup", { name: label, exact: true });
+  const b = page.getByRole("button", { name: "Change details", exact: true });
+  await g.or(b).first().waitFor();
+  if (!(await g.count())) await b.last().click();
+  await g.getByRole("radio", { name, exact: true }).click();
 };
 const next = async () => {
   await steps();
@@ -346,6 +347,7 @@ try {
     .getByRole("button", { name: /TAVI: indication & preparation/ })
     .click();
   await radio("Clinical stability", "Stable for elective evaluation");
+  assert.ok(await page.getByText(/^Recorded today \d\d:\d\d in TAVI: indication & preparation: Stable for elective evaluation$/).count(), "the stability answered earlier today is carried with its source");
   await radio(
     "Expected benefit and patient goals",
     "Meaningful benefit and goals agreed",

@@ -282,6 +282,9 @@ try {
           .first(),
       ).toBeHidden();
       // lower-priority items sit in the overview's folds (Consult, 25 Oct 2026)
+      // wait for the overview to settle (the fold renders after the alerts load), then open it
+      await page.locator("details.cx-fold", { hasText: "To consider" }).first().waitFor();
+      await page.waitForLoadState("networkidle");
       await page.locator("details.cx-fold").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
       await expect(
         page

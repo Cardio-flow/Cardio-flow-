@@ -2435,3 +2435,7 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .cx-goal { display: flex; flex-direction: column; gap: 2px; padding: 9px 13px; border-radius: 10px; border: 1px solid #EEF1F5; font-size: 13.5px; }
 .cx-goal b { color: var(--cx-ink); }
 .cx-goal span { color: var(--cx-muted); }
+
+/* safety screen answered before: one tap to say it is unchanged (25 Oct) */
+.decision-same{align-self:flex-start;margin:4px 0;border:1px dashed var(--line,#cfd6e0);color:var(--ink-2,#3a4a63)}
+.screen-src{margin:2px 0 6px}

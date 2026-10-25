@@ -27,6 +27,7 @@ import { MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, localDay } from "../../shared/clinical.js";
 import { WIZARDS, buildOutcome, missingRequired, optionsFor, visibleQuestions, visibleAnswers, type Answers, type WizardContext } from "../../shared/wizards.js";
 import { suggest } from "../../shared/wizard-guidance.js";
+import { CURRENT_SCREENS, carriedScreens } from "../../shared/decision-assume.js";
 import { ApiError, audit, journeyEvent, liveContext, nowIso, today, uuid, type Actor } from "../kernel/base.js";
 import { structuralPlanning, taviSchedulingMissing } from "../../shared/wizards-structural.js";
 import { structuralTarget } from "../../shared/structural.js";
@@ -287,7 +288,30 @@ export async function getWizard(tx: Q, patientId: string, wizardId: string) {
     const answers = last ? ((await tx.query(`SELECT answers FROM cf.decision WHERE id=$1`, [last.id])).rows[0] as any)?.answers ?? {} : {};
     episode = { id: ep.id, startedAt: ep.started_at, day: daysBetween(ep.started_at, s.today) + 1, reviews: Math.max(0, ep.decisions.length - 1), lastAt: last?.decided_at ?? ep.started_at, answers: typeof answers === "string" ? JSON.parse(answers) : answers };
   }
-  return { context: wizardContext(s, wizardId), draft: draft ?? null, episode };
+  const context = wizardContext(s, wizardId);
+  await addScreens(tx, patientId, wizardId, context);
+  return { context, draft: draft ?? null, episode };
+}
+
+// safety screens the clinician answered before: today's fill the question (as from the record), older ones are offered
+async function addScreens(tx: Q, patientId: string, wizardId: string, ctx: WizardContext) {
+  const ids = CURRENT_SCREENS[wizardId];
+  if (!ids?.length) return;
+  const rows = (await tx.query(`SELECT wizard, answers, decided_at FROM cf.decision WHERE patient_id=$1 AND outcome='acted' AND wizard IS NOT NULL ORDER BY decided_at DESC LIMIT 60`, [patientId])).rows as any[];
+  const decisions = rows.map((r) => {
+    const at = r.decided_at instanceof Date ? r.decided_at.toISOString() : String(r.decided_at);
+    return { wizard: r.wizard as string, answers: typeof r.answers === "string" ? JSON.parse(r.answers) : r.answers ?? {}, at, day: localDay(at) };
+  });
+  const found = carriedScreens(wizardId, decisions, ctx.today);
+  const qs = WIZARDS[wizardId].steps.flatMap((st) => st.questions);
+  ctx.screens = {};
+  for (const [id, c] of Object.entries(found)) {
+    const q = qs.find((x) => x.id === id)!;
+    const label = (Array.isArray(c.value) ? c.value : [c.value]).map((v) => q.options?.find((o) => o.value === v)?.label ?? v).join(" · ");
+    ctx.screens[id] = { ...c, title: WIZARDS[c.wizard]?.title ?? c.wizard, label };
+    // today's answer fills the question unless the record itself shows something
+    if (c.today && !ctx.detected[id]?.length) ctx.detected[id] = Array.isArray(c.value) ? c.value : [c.value];
+  }
 }
 
 export async function saveDraft(tx: Q, actor: Actor, patientId: string, wizardId: string, input: { answers: Answers; step: number; recommendationId?: string | null }) {

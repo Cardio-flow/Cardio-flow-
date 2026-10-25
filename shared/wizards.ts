@@ -122,6 +122,8 @@ export type WizardContext = {
   meds: WizardMed[];
   facts: { label: string; value: string; date?: string; tone?: string }[];
   detected: Record<string, string[]>; // questionId -> auto-detected option values
+  // safety screens answered before (shared/decision-assume.ts carriedScreens): today's are filled, older offered
+  screens?: Record<string, { value: string | string[]; at: string; wizard: string; title: string; label: string; today: boolean }>;
   trend?: { code: string; label: string; unit: string; points: { date: string; value: number }[] };
   // who the patient is, for pathways whose summary depends on it (age, known CVD, CV risk factors)
   profile?: { age: number; cvd: boolean; riskFactors: boolean; sex?: "Male" | "Female" };

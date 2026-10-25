@@ -132,7 +132,7 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
             {checks.slice(0, 4).map((c, i) => <label key={i} className="cx-check"><input type="checkbox" /><span>{c}</span></label>)}
           </div>
         )}
-        {p && !p.ready && (p.needed?.length > 0) && !panel && <div className="cx-needed">To decide: <b>{(p.needed as any[]).map((q) => q.label).join(" · ")}</b></div>}
+        {p && !p.ready && (p.needed?.length > 0) && !panel && <div className="cx-needed">To decide: <b>{(p.needed as any[]).map((q) => q.last ? `${q.label} (last ${fmtDay(q.last.at)}: ${q.last.label})` : q.label).join(" · ")}</b></div>}
         {(more || allTasks.some((t) => t.clinicalContext?.urgent || t.awaitingReview)) && allTasks.length > 0 && <div className="cx-tasks"><PlanTasks tasks={allTasks} open={open} today={s.today} /></div>}
         {more && extra.length > 0 && (
           <div className="cx-extra" aria-label="Also for this problem">
