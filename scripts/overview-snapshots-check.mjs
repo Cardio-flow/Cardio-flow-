@@ -142,10 +142,12 @@ try {
   // is shown once, with its trend, in its problem card (creatinine in "Kidney & potassium")
   const section = async (name) => { const t = page.getByRole("tab", { name: new RegExp(`^${name}`) }); if (await t.count()) await t.click(); };
   const labs = page.getByRole("region", { name: "Latest lab results" });
-  const allResults = async () => { await section("Results"); if (!(await labs.count())) await page.getByRole("region", { name: "All results" }).getByRole("button", { name: /All results/ }).click(); };
-  const abnCr = page.getByRole("region", { name: "Kidney & potassium" }).locator("li").filter({ hasText: "Cr " });
+  // the Consult overview (25 Oct 2026): a result with a trend is in the rail; all results and the medicines are
+  // in "The record"
+  const allResults = async () => { await section("Results"); if (!(await labs.count())) await page.locator("#cx-meds").evaluate((d) => (d.open = true)); };
+  const abnCr = page.locator(".cx-trend").filter({ hasText: "Creatinine" });
   await expect(abnCr).toContainText("+25%");
-  await expect(abnCr).toContainText("before 100");
+  await expect(abnCr).toContainText("from 100");
   await allResults();
   await expect(labs.locator('[data-lab-code="nt-probnp"]')).toContainText(
     "-40.0%",

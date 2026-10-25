@@ -103,7 +103,7 @@ try {
   await continueAfterEntry(p);
   await expect(dialog).toHaveCount(0);
   await p.goto(base + `/patients/${id}`);
-  let card = p.locator('.problem[aria-label="Pregnancy & heart disease"]');
+  let card = p.locator('.cx-dec[data-problem="Pregnancy & heart disease"]');
   await expect(card).toHaveCount(1);
   await card.getByRole("button", { name: "Review pregnancy care", exact: true }).click();
   panel = p.locator(
@@ -298,7 +298,7 @@ try {
     ],
   });
   await p.goto(base + `/patients/${urgent}`);
-  card = p.locator('.problem[aria-label="Pregnancy & heart disease"]');
+  card = p.locator('.cx-dec[data-problem="Pregnancy & heart disease"]');
   await expect(card).toContainText("urgent assessment");
   await card.getByRole("button", { name: "Review pregnancy care", exact: true }).click();
   panel = p.locator(

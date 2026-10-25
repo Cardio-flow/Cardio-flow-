@@ -33,7 +33,7 @@ const CLINIC_LATER = new Set(["lipids.lpa-once", "lipids.ldl-goal", "cardiorenal
 const CLINIC_CARDS = ["lipids", "diabetes", "bp"];
 // every result belongs to one problem card; abnormal ones are listed there once, with their trend, and the
 // rest of a card's results as one "normal" line (20 Oct 2026: one home for every fact)
-const RESULT_PROBLEM: Record<string, string> = {
+export const RESULT_PROBLEM: Record<string, string> = {
   egfr: "kidney", creatinine: "kidney", urea: "kidney", potassium: "kidney", sodium: "kidney", magnesium: "kidney", uacr: "kidney", bicarbonate: "kidney", chloride: "kidney", phosphate: "kidney", "calcium-total": "kidney", calcium: "kidney", urate: "kidney",
   alt: "lipids", ast: "lipids", ck: "lipids", alp: "lipids", ggt: "lipids", bilirubin: "lipids",
   haemoglobin: "anaemia", ferritin: "anaemia", tsat: "anaemia", iron: "anaemia", transferrin: "anaemia", mcv: "anaemia", b12: "anaemia", folate: "anaemia", platelets: "anaemia", wbc: "anaemia",
@@ -45,7 +45,7 @@ const RESULT_PROBLEM: Record<string, string> = {
 const resultHome = (code: string, keys: Set<string>) => { const k = RESULT_PROBLEM[code]; return k && keys.has(k) ? k : "results"; };
 type Stat = { label: string; value: string; tone?: "ok" | "warn" | "bad" };
 type Problem = { key: string; label: string; sub?: string; history?: string[]; stats: Stat[]; goal?: string; therapy?: string; need: { code: string; label: string }[]; assessment?: "met" | "above" | "incomplete" | "review" };
-const TITLES: Record<string, string> = { infection: "Infection", results: "Other results", pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Blood count & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
+export const TITLES: Record<string, string> = { infection: "Infection", results: "Other results", pregnancy:"Pregnancy & heart disease", pericardial:"Pericardial disease", medication:"Medication review", aorta:"Thoracic aorta", syncope: "Syncope & unexplained falls", hf: "Heart failure", kidney: "Kidney & potassium", anaemia: "Blood count & iron", bp: "Blood pressure", lipids: "Lipids", diabetes: "Diabetes", af: "Atrial fibrillation", cad: "Coronary disease", valve: "Valve / structural", cmp: "Cardiomyopathy", ph: "Pulmonary hypertension", other: "Other alerts" };
 const homeOf = (a: any) => a.clinicalContext?.problem ?? PROBLEM_OF(a.rule_id);
 const labelOf = (c: string) => NEED_LABEL[c] ?? MEASURES[c]?.short ?? MEASURES[c]?.display ?? c;
 const NEED_LABEL: Record<string, string> = { sbp: "BP", dbp: "BP", hr: "Heart rate", weight: "Weight", creatinine: "Creatinine", potassium: "Potassium", "ldl-c": "LDL-C", hba1c: "HbA1c", uacr: "UACR", haemoglobin: "Hb", ferritin: "Ferritin", tsat: "TSAT", inr: "INR", "nt-probnp": "NT-proBNP" };
@@ -254,7 +254,7 @@ function ProblemCard({ p, items, later = [], row, folded = false }: { p: Problem
 }
 
 // the problems this patient has, from the problem list and the guideline targets
-function buildProblems(s: any): Problem[] {
+export function buildProblems(s: any): Problem[] {
   const t = s.targets ?? {};
   const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : formatNumber(v, d));
   const R: Record<string, any> = Object.fromEntries((s.reviewContext?.results ?? []).map((r: any) => [r.code, r]));
@@ -460,7 +460,7 @@ const DISMISS_REASONS: { value: string; label: string; outcome: "declined" | "de
   { value: "patient", label: "Patient declined", outcome: "declined" },
   { value: "later", label: "Not now — review later", outcome: "deferred" },
 ];
-function DismissPanel({ a, patientId, done, onCancel }: { a: any; patientId: string; done(message?: string): void; onCancel(): void }) {
+export function DismissPanel({ a, patientId, done, onCancel }: { a: any; patientId: string; done(message?: string): void; onCancel(): void }) {
   const [pick, setPick] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -496,7 +496,7 @@ function DismissPanel({ a, patientId, done, onCancel }: { a: any; patientId: str
   );
 }
 
-function Dismissed({ s, done }: { s: any; done(message?: string): void }) {
+export function Dismissed({ s, done }: { s: any; done(message?: string): void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const list: any[] = s.dismissed ?? [];
   if (!list.length) return null;

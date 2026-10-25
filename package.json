@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@fontsource/newsreader": "^5.3.0",
     "@fontsource/outfit": "^5.3.0",
     "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@neondatabase/auth": "0.5.0-beta",

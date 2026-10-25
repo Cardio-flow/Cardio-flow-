@@ -111,7 +111,7 @@ try {
   await expect(dialog).toHaveCount(0);
   await p.goto(base + "/patients/" + id);
   await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  let card = p.locator('.problem[aria-label="Pericardial disease"]');
+  let card = p.locator('.cx-dec[data-problem="Pericardial disease"]');
   await expect(card).toHaveCount(1);
   await card.getByRole("button", { name: "Review plan", exact: true }).click();
   let panel = p.locator(
@@ -187,9 +187,9 @@ try {
   await p.setViewportSize({ width: 1440, height: 1000 });
   // The desktop overview mounts a new decision board. Wait for that layout,
   // rather than inspecting the phone panel during the resize transition.
-  await expect(p.locator(".overview-page .grid-main")).toBeVisible();
-  await expect(panel).toHaveCount(0);
-  await card.getByRole("button", { name: "Review plan", exact: true }).click();
+  await expect(p.locator(".overview-page .cx-grid")).toBeVisible();
+  // the Consult overview (25 Oct 2026) keeps one layout across widths: an open decision stays open
+  if (!(await panel.count())) await card.getByRole("button", { name: "Review plan", exact: true }).click();
   await expect(
     panel.getByRole("button", { name: "Apply plan", exact: true }),
   ).toBeEnabled();
@@ -286,7 +286,7 @@ try {
   await p.emulateMedia({ reducedMotion: "reduce" });
   await p.goto(base + "/patients/" + id);
   await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  const reviewCard = p.locator('.problem[aria-label="Pericardial disease"]');
+  const reviewCard = p.locator('.cx-dec[data-problem="Pericardial disease"]');
   if (await reviewCard.locator(".problem-fold").isVisible()) await reviewCard.locator(".problem-fold").click();
   await reviewCard.locator(".problem-tasks summary").filter({hasText:"awaiting review"}).click();
   await expect(reviewCard.getByRole("button", {name:"Review result",exact:true})).toBeVisible();

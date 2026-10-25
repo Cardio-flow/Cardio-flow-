@@ -91,7 +91,7 @@ try {
   await expect(dialog).toHaveCount(0);
   await p.goto(base + "/patients/" + id);
   await p.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  const card = p.locator('.problem[aria-label="Thoracic aorta"]');
+  const card = p.locator('.cx-dec[data-problem="Thoracic aorta"]');
   await expect(card).toContainText("assessment and surveillance");
   await card.getByRole("button", { name: "Review plan", exact: true }).click();
   const panel = p.locator(

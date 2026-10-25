@@ -38,7 +38,7 @@ await step("summary", async () => {
   await shot("02-summary", true);
 });
 await step("wizard", async () => {
-  const kidney=p.locator('.problem[aria-label="Kidney & potassium"]');
+  const kidney=p.locator('.cx-dec[data-problem="Kidney & potassium"]');
   await kidney.getByRole("button",{name:"Review plan",exact:true}).first().click();
   await kidney.getByRole("button",{name:"Full pathway",exact:true}).click();
   // pathways open on the decision (23 Oct 2026); the step questions are behind "Change details"
@@ -87,14 +87,14 @@ await step("labs", async () => {
   await p.getByText(/results? saved/).waitFor();
   await continueAfterEntry(p);
   await shot("10-after-labs", true);
-  const otherFold=p.locator('.problem[aria-label="Other alerts"] .problem-fold');
+  const otherFold=p.locator('.cx-dec[data-problem="Other alerts"] .problem-fold');
   if(await otherFold.count()) await otherFold.click();
   const reviewTasks = p.locator(".problem-tasks details").filter({hasText:"awaiting review"}).first();
   await reviewTasks.locator("summary").click();
   await reviewTasks.getByRole("button", { name: "Review result" }).first().click();
   await p.getByRole("dialog").getByText("Result recorded · awaiting review", { exact: true }).waitFor();
   await p.getByRole("radio", { name: "Mark reviewed", exact: true }).click();
-  await p.getByRole("button", { name: "Confirm", exact: true }).click();
+  await p.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
   await p.getByText(/^Reviewed ·/).waitFor();
 });
 await step("tabs", async () => {

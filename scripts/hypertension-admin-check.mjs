@@ -133,7 +133,8 @@ try {
   });
   await page.goto(`${base}/patients/${pat.id}`);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  for (const b of await page.locator('.problem-consider button[aria-expanded="false"]').all()) await b.click();
+  // lower-priority items sit in the overview's folds (Consult, 25 Oct 2026)
+  await page.locator("details.cx-fold").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
   await page.locator("#att").getByRole("button", { name: "Assess RDN", exact: true }).waitFor();
   assert.equal(
     await page
@@ -192,7 +193,8 @@ try {
 
   await page.goto(`${base}/patients/${pat.id}`);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  for (const b of await page.locator('.problem-consider button[aria-expanded="false"]').all()) await b.click();
+  // lower-priority items sit in the overview's folds (Consult, 25 Oct 2026)
+  await page.locator("details.cx-fold").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
   await page.locator("#att").getByRole("button", { name: "Assess RDN", exact: true }).click();
   await radio("Elective RDN setting", "Stable adult; pregnancy excluded");
   for (const label of [

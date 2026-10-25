@@ -48,7 +48,7 @@ try {
     "urgent obstetric and cardiac assessment",
   );
   const pregnancy = p.locator(
-    '.problem[aria-label="Pregnancy & heart disease"]',
+    '.cx-dec[data-problem="Pregnancy & heart disease"]',
   );
   await expect(
     pregnancy.getByRole("button", { name: "Open task", exact: true }),
@@ -98,7 +98,7 @@ try {
   const diabetes = patients.find((x) => x.name === "Khalid Al-Rashidi");
   assert.ok(diabetes);
   await p.goto(`${base}/patients/${diabetes.id}`);
-  const card = p.locator('.problem[aria-label="Diabetes"]');
+  const card = p.locator('.cx-dec[data-problem="Diabetes"]');
   await expect(
     card.getByRole("button", { name: "Review diabetes care", exact: true }),
   ).toHaveCount(1);

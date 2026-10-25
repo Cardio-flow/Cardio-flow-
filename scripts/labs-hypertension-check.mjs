@@ -281,7 +281,8 @@ try {
           })
           .first(),
       ).toBeHidden();
-      await page.getByRole("region", { name: "Blood pressure" }).locator('.problem-consider button[aria-expanded="false"]').click();
+      // lower-priority items sit in the overview's folds (Consult, 25 Oct 2026)
+      await page.locator("details.cx-fold").evaluateAll((ds) => ds.forEach((d) => (d.open = true)));
       await expect(
         page
           .getByText("Office BP above target: review white-coat effect", {

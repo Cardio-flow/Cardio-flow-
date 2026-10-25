@@ -12,6 +12,8 @@ import { BARRIER_CATEGORIES, MEDICATION, formatNumber, formatRange } from "../..
 import type { Open } from "./Patient";
 import { Fold, TodayBoard, useTriage } from "./Today";
 import { StoryCard } from "./Story";
+import { Consult } from "./Consult";
+import { Dismissed } from "./Today";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
   const { hot } = useTriage(s);
@@ -71,49 +73,29 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       })()}
     </>
   );
-  const planned = (s.plan ?? []).filter((p: any) => p.status === "planned").length;
-  const nMeds = (s.medications?.groups ?? []).reduce((n: number, g: any) => n + g.meds.length, 0);
-  const resultCount = (s.results ?? []).filter((r: any) => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr")).length;
-  const tabs: [string, string, number | null][] = [["decide", "Decide", (s.attention ?? []).filter((a: any) => !isRoutine(a)).length], ["meds", "Medicines", nMeds], ["results", "Results", resultCount], ["plan", "Plan", planned]];
-  if (narrow)
-    return (
-      <main className="page overview-page">
-        {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
-        <Pulse s={s} open={open} go={go} labs={false} />
-        <StoryCard s={s} narrow />
-        <nav className="ov-switch" role="tablist" aria-label="Overview sections">
-          {tabs.map(([k, label, n]) => (
-            <button key={k} role="tab" aria-selected={pane === k} onClick={() => go(k)}>{label}{n ? <span>{n}</span> : null}</button>
-          ))}
-        </nav>
-        <div className="stack ov-pane">
-          {pane === "decide" && decide}
-          {pane === "meds" && <Meds s={s} open={open} done={done} />}
-          {pane === "results" && <Results s={s} open={open} />}
-          {pane === "plan" && <><ActivePlan s={s} open={open} /><Upcoming s={s} open={open} /></>}
-        </div>
-      </main>
-    );
+  // the Consult overview (25 Oct 2026): one sentence, ranked decisions, HF strip, story, rail; the rest of the
+  // record folds into "The record" at the end (same layout on phones, one column)
+  const modules = (() => {
+    const panels: [string, any, React.ReactNode, string][] = [
+      ["hf", s.hf, <HfPanel hf={s.hf} open={open} />, "heart failure"], ["cad", s.cad, <CadPanel cad={s.cad} open={open} />, "coronary"],
+      ["rhythm", s.rhythm, <RhythmPanel r={s.rhythm} open={open} />, "rhythm"], ["valve", s.valve, <ValvePanel v={s.valve} open={open} />, "valves"],
+      ["cmp", s.cmp, <CmpPanel c={s.cmp} open={open} />, "cardiomyopathy"], ["ph", s.ph, <PhPanel p={s.ph} open={open} />, "pulmonary hypertension"],
+    ];
+    const present = panels.filter(([, d]) => d);
+    return present.length ? { node: <div className="stack">{present.map(([k, , node]) => <div key={k}>{F(k, node, false)}</div>)}</div>, label: present.map(([, , , name]) => name).join(", ") } : null;
+  })();
+  void decide; void narrow; void pane; void allResults; void setAllResults;
   return (
-    <main className="page overview-page">
-      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} go("decide");requestAnimationFrame(()=>{const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});});}}>Review urgent issue</button></div>)}
-        <Pulse s={s} open={open} go={go} labs={false} meds={false} />
-        <StoryCard s={s} narrow={false} />
-      <div className="grid-main">
-        <div className="stack">
-          {decide}
-          <ActivePlan s={s} open={open} />
-        </div>
-        <div className="stack">
-          <Meds s={s} open={open} done={done} />
-          <section className="card pad results-entry" aria-label="All results">
-            <div className="card-head"><h2>Results</h2><button className="btn ghost small" aria-expanded={allResults} onClick={() => setAllResults(!allResults)}>{allResults ? "Hide" : `All results (${resultCount})`}</button></div>
-
-          </section>
-          {allResults && <Results s={s} open={open} />}
-          <Upcoming s={s} open={open} />
-        </div>
-      </div>
+    <main className="page overview-page cx-page">
+      {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});}}>Review urgent issue</button></div>)}
+      <Consult s={s} open={open} done={done} slots={{
+        episodes: <Episodes s={s} open={open} done={done} />,
+        meds: <Meds s={s} open={open} done={done} />,
+        plan: <><ActivePlan s={s} open={open} /><Upcoming s={s} open={open} /></>,
+        results: <Results s={s} open={open} />,
+        more: modules?.node, moreLabel: modules?.label,
+        dismissed: <Dismissed s={s} done={done} />,
+      }} />
     </main>
   );
 }
