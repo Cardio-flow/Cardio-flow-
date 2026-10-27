@@ -149,8 +149,11 @@ test("statin that cannot reach high intensity is changed, not 'increased' to the
   await tx((q) => reassess(q, pid, "sandbox"));
   const r = (await db.query(`SELECT action FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id='lipids.ldl-goal'`, [pid])).rows[0] as any;
   const action = typeof r.action === "string" ? JSON.parse(r.action) : r.action;
-  assert.equal(action.type, "start-med");
-  assert.equal(action.code, "atorvastatin");
+  // decided in the lipids pathway (27 Oct 2026): the change stops simvastatin and starts atorvastatin 40 mg
+  assert.deepEqual([action.type, action.wizard, action.startCode], ["wizard", "lipids", "atorvastatin"]);
+  const lctx = (await tx((q) => getWizard(q, pid, "lipids"))).context;
+  assert.equal(lctx.lipids?.step, "switch");
+  assert.deepEqual(buildOutcome("lipids", { step: "switch" }, lctx).filter((o) => o.kind === "start" || o.kind === "medication").map((o) => o.label.split(" — ")[0]).sort(), ["Atorvastatin 40 mg once daily: start", "Simvastatin: stop"]);
   await start(pid, "amiodarone", 200, "OD", addDays(T, -10), "af");
   await tx((q) => reassess(q, pid, "sandbox"));
   const titles = (await db.query(`SELECT title FROM cf.recommendation WHERE patient_id=$1 AND status='active' AND rule_id LIKE 'med.%'`, [pid])).rows.map((x: any) => x.title);

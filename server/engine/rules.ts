@@ -41,7 +41,8 @@ export type Finding = {
   facts: Fact[];
   missing: string[];
   action:
-    | { type: "wizard"; wizard: string }
+    // startCode / medicationId: the drug class a dose pathway acts on (hf-medicines), for barrier suppression
+    | { type: "wizard"; wizard: string; startCode?: string; medicationId?: string; direction?: "increase" }
     | { type: "plan"; planId: string }
     | { type: "add-plan"; template: string; medicationId?: string }
     | { type: "tab"; tab: string }
@@ -276,7 +277,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-26.consult-integration1";
+export const RULESET = "2026-10-27.audit-integration2";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

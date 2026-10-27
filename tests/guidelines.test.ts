@@ -7,6 +7,8 @@ import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
 import { cha2ds2va, lipidRisk, targets } from "../server/engine/guidelines.js";
 import { today, type Actor } from "../server/kernel/base.js";
+import { getWizard } from "../server/engine/wizard.js";
+import { suggest } from "../shared/wizard-guidance.js";
 
 let db: DB;
 const doc: Actor = { id: "dr.test@cardioflow.local", name: "Dr Test", role: "clinician", siteId: SITE_ID };
@@ -15,6 +17,9 @@ const active = async (pid: string) =>
   (await db.query(`SELECT rule_id, severity, title, action FROM cf.recommendation WHERE patient_id=$1 AND status='active'`, [pid])).rows as any[];
 const byName = async (name: string) => (await db.query(`SELECT id FROM cf.patient WHERE name=$1`, [name])).rows[0].id as string;
 const act = (r: any) => (typeof r.action === "string" ? JSON.parse(r.action) : r.action);
+// the drug a start alert proposes: decided in a pathway since 27 Oct 2026 (startCode), or a direct start
+const drug = (r: any) => act(r).startCode ?? act(r).code;
+const wizCtx = (pid: string, w: string) => db.transaction((tx) => getWizard(tx, pid, w)).then((r) => r.context);
 
 before(async () => {
   db = await createLocalDb();
@@ -30,15 +35,17 @@ test("cardiometabolic patient: LDL escalation, SGLT2i, GLP-1 RA, finerenone and 
   assert.equal(ids.includes("htn.management"),false,"Established non-resistant hypertension has the BP target route only");
   const ldl = recs.find((r) => r.rule_id === "lipids.ldl-goal");
   assert.match(ldl.title, /above goal <1\.4/);
-  assert.equal(act(ldl).type, "titrate"); // moderate-intensity statin → high intensity first
+  // moderate-intensity statin → high intensity first, decided in the lipids pathway (27 Oct 2026)
+  assert.deepEqual([act(ldl).type, act(ldl).wizard, act(ldl).direction], ["wizard", "lipids", "increase"]);
+  assert.equal((await wizCtx(id, "lipids")).lipids?.step, "intensify");
   const glp1 = recs.find((r) => /GLP-1/.test(r.title));
-  assert.equal(act(glp1).code, "semaglutide");
+  assert.deepEqual([act(glp1).wizard, drug(glp1)], ["diabetes", "semaglutide"]);
 });
 
 test("LDL ladder moves to the next step when therapy changes, and LDL at goal clears it", async () => {
   const id = await byName("Noura Al-Kandari");
   let ldl = (await active(id)).find((r) => r.rule_id === "lipids.ldl-goal");
-  assert.equal(act(ldl).code, "ezetimibe");
+  assert.equal(drug(ldl), "ezetimibe");
   await db.transaction(async (tx) => {
     await K.startMedication(tx, doc, id, { code: "ezetimibe", doseValue: 10, frequency: "OD", route: "PO", indication: "cad", effectiveAt: at() });
     await reassess(tx, id, "sandbox", ["meds"]);
@@ -52,7 +59,7 @@ test("LDL ladder moves to the next step when therapy changes, and LDL at goal cl
     await reassess(tx, id, "sandbox", ["ldl-c"]);
   });
   ldl = (await active(id)).find((r) => r.rule_id === "lipids.ldl-goal");
-  assert.equal(act(ldl).code, "evolocumab");
+  assert.equal(drug(ldl), "evolocumab");
   await db.transaction(async (tx) => {
     await K.recordObservations(tx, doc, id, { effectiveAt: at(), items: [{ code: "ldl-c", value: 1.2 }] });
     await reassess(tx, id, "sandbox", ["ldl-c"]);
@@ -114,7 +121,11 @@ test("CHA2DS2-VA, DOAC preference and apixaban dose criteria", async () => {
   });
   const dose = (await active(fatma.patient.id)).find((r) => r.rule_id === "af.doac-dose");
   assert.ok(dose);
-  assert.equal(act(dose).dose, 2.5);
+  // the dose change is decided in AF-CARE with the same label-dose check (27 Oct 2026)
+  assert.equal(act(dose).wizard, "af-care");
+  const fctx = await wizCtx(fatma.patient.id, "af-care");
+  assert.equal(fctx.af?.doac.find((d) => d.code === "apixaban")?.right, 2.5);
+  assert.deepEqual(suggest("af-care", "oac", {}, fctx).map((x) => x.value), ["label-dose"]);
 });
 
 test("targets panel reports % of HF target dose and the LDL goal by risk", async () => {
@@ -144,5 +155,7 @@ test("GLP-1 RA is suggested for every indication: T2DM with CKD even without ASC
   await db.transaction((tx) => reassess(tx, pid, "sandbox"));
   const glp = (await active(pid)).find((r) => /GLP-1 RA/.test(r.title));
   assert.match(glp.title, /^T2DM with CKD: GLP-1 RA with proven benefit not prescribed/);
-  assert.equal(act(glp).code, "semaglutide");
+  assert.equal(drug(glp), "semaglutide");
+  // the diabetes pathway the alert opens suggests the same GLP-1 RA for CKD without ASCVD (27 Oct 2026 audit)
+  assert.ok(suggest("diabetes", "protect", {}, await wizCtx(pid, "diabetes")).some((x) => x.value === "glp1"));
 });

@@ -99,7 +99,10 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
   const asks = ((s.ask ?? []) as any[]).filter((q) => (ASK_FOR[home] ?? []).includes(q.key)).map((q) => `${q.ask} — ${q.why}`);
   const data = ((p?.needData ?? []) as any[]).map((d) => `Record ${d.label.toLowerCase()}: ${d.why}`);
   const warns = ((p?.medReview ?? []) as any[]).filter((m) => m.tone === "warn").map((m) => m.title as string).slice(0, 2);
-  const checks = [...data, ...asks, ...warns];
+  const reminders = ((p?.reminders ?? []) as string[]).slice(0, 3);
+  const checks = [...new Set([...data, ...asks, ...warns, ...reminders])];
+  // medicines this decision already stops, changes or starts: an alert about them has no second button
+  const actedOn = new Set(((p?.plan ?? []) as any[]).flatMap((x) => [x.medicationId, x.code].filter(Boolean)));
   const ready = !!p && p.ready && !p.joined;
   async function confirm() {
     if (!p || busy) return;
@@ -136,12 +139,13 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
           {links.length > 0 && <ul className="cx-links">{links.map((l,i)=><li key={i}>{l}</li>)}</ul>}
           {checks.length > 0 && <ul className="cx-checks">{checks.map((c,i)=><li key={i}>{c}</li>)}</ul>}
         </details>}
+        {p && p.blockers?.length > 0 && !panel && p.blockers.map((b: string) => <div key={b} className="cx-blocker" role="alert">{b}</div>)}
         {p && !p.ready && (p.needed?.length > 0) && !panel && <div className="cx-needed">To decide: <b>{(p.needed as any[]).map((q) => q.last ? `${q.label} (last ${fmtDay(q.last.at)}: ${q.last.label})` : q.label).join(" · ")}</b></div>}
         {(more || allTasks.some((t) => t.clinicalContext?.urgent || t.awaitingReview)) && allTasks.length > 0 && <div className="cx-tasks"><PlanTasks tasks={allTasks} open={open} today={s.today} /></div>}
         {more && extra.length > 0 && (
           <div className="cx-extra" aria-label="Also for this problem">
             <div className="cx-checks-h">Also for this problem</div>
-            {extra.map((x) => <Row key={x.id} a={x} s={s} open={open} done={done} covered={wizard} />)}
+            {extra.map((x) => <Row key={x.id} a={x} s={s} open={open} done={done} covered={wizard} coveredMeds={actedOn} />)}
           </div>
         )}
         {error && <div className="error-box" role="alert">{error}</div>}
@@ -286,15 +290,17 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
   );
 }
 
-function Row({ a, s, open, done, covered }: { a: any; s: any; open(o: Open): void; done(m?: string): void; covered?: string | null }) {
+function Row({ a, s, open, done, covered, coveredMeds, coveredLabel = "In the decision above" }: { a: any; s: any; open(o: Open): void; done(m?: string): void; covered?: string | null; coveredMeds?: Set<string>; coveredLabel?: string }) {
   const [dismiss, setDismiss] = useState(false);
+  const act = a.action ?? {};
+  const inDecision = (covered && act.type === "wizard" && act.wizard === covered) || (!!coveredMeds && ((act.medicationId && coveredMeds.has(act.medicationId)) || (act.code && coveredMeds.has(act.code))));
   return (
     <div className="cx-row" data-recommendation-id={a.id} tabIndex={-1}>
       <span className={`cx-dot sev-${a.severity}`} aria-hidden="true" />
       <div className="cx-row-t"><b>{a.title}</b>{a.detail && <span>{a.detail}</span>}</div>
       <div className="cx-row-a">
         {/* one decision per pathway: an alert whose pathway the card above already decides has no second button */}
-        {covered && a.action?.type === "wizard" && a.action.wizard === covered ? <span className="cx-covered">In the decision above</span> : <ActionButton a={a} open={open} />}
+        {inDecision ? <span className="cx-covered">{coveredLabel}</span> : <ActionButton a={a} open={open} />}
         <button className="btn ghost small" onClick={() => setDismiss(!dismiss)} aria-expanded={dismiss}>Not now</button>
       </div>
       {dismiss && <div className="cx-row-d"><DismissPanel a={a} patientId={s.header.id} done={done} onCancel={() => setDismiss(false)} /></div>}
@@ -418,7 +424,8 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
           {top.map((a, i) => <DecisionCard key={a.id} a={a} n={i + 1} s={s} open={open} done={done} tasks={topTasks[i]} extra={extraOf[i]} compact={i >= 3 && a.severity !== "red"} results={resultsOf(homeOf(a, s))} prob={problems.find((p: any) => p.key === homeOf(a, s)) ?? null} />)}
           {rest.length > 0 && (
             <FoldLine dot="#B54708" title={`To consider · ${rest.length}`} sub={rest.slice(0, 3).map((a) => a.title.split(":")[0]).join(" · ")}>
-              {rest.map((a) => <Row key={a.id} a={a} s={s} open={open} done={done} />)}
+              {/* one review per pathway: later rows of the same pathway (e.g. three HF dose steps) point to the first */}
+              {rest.map((a, i) => <Row key={a.id} a={a} s={s} open={open} done={done} covered={a.action?.type === "wizard" && rest.slice(0, i).some((x) => x.action?.type === "wizard" && x.action.wizard === a.action.wizard) ? a.action.wizard : null} coveredLabel="Same review as above" />)}
             </FoldLine>
           )}
           {orphanTasks.length>0 && <section aria-label="Outstanding work"><PlanTasks tasks={orphanTasks} open={open} today={s.today}/></section>}

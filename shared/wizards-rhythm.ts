@@ -158,6 +158,7 @@ export const RHYTHM_WIZARDS: Record<string, WizardDef> = {
             id: "oac", label: "Anticoagulation", type: "single", required: true,
             options: [
               { value: "continue", label: "Continue the current anticoagulant", requires: ["oac"] },
+              { value: "label-dose", label: "Change the DOAC to the label dose", requires: ["doac"], hint: "Dose from age, weight and creatinine clearance (SmPC)" },
               { value: "apixaban", label: "Start apixaban at the label dose", unless: ["oac"], unlessDx: ["mechanical-valve", "ms-significant"], hint: "Dose from age, weight, creatinine and CrCl" },
               { value: "other-doac", label: "Start another DOAC (dose by renal function)", unless: ["oac"], unlessDx: ["mechanical-valve", "ms-significant"] },
               { value: "warfarin", label: "Start warfarin (INR-guided)", unless: ["oac"], requiresDx: ["mechanical-valve", "ms-significant"], hint: "Mechanical valve or moderate–severe mitral stenosis: a VKA, not a DOAC" },
@@ -254,6 +255,12 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
     if (d?.dose) out.push({ kind: "start", code: "apixaban", doseValue: d.dose, frequency: "BID", indication: "af", label: `Apixaban ${d.dose} mg twice daily: start (${d.why})` });
     else if (d) out.push(plan("medication", `Anticoagulant choice: ${d.why}`));
     else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose"));
+  }
+  if (a.oac === "label-dose") {
+    const wrong = (ctx.af?.doac ?? []).find((d) => d.dose != null && d.dose !== d.right);
+    const m = wrong && ctx.meds.find((x) => x.code === wrong.code && x.tags.includes("doac"));
+    if (wrong && m) out.push({ kind: "medication", medicationId: m.id, event: wrong.right > wrong.dose! ? "increase" : "decrease", doseValue: wrong.right, label: `${m.name}: ${wrong.dose} mg → ${wrong.right} mg — label AF dose (${wrong.why})` });
+    else out.push({ kind: "note", label: "The current DOAC dose matches the label dose, or the record lacks the weight / creatinine to check it", decision: true });
   }
   if (a.oac === "other-doac") out.push(plan("medication", "Start a DOAC at the label dose (renal function, age, weight)"));
   if (a.oac === "warfarin") out.push(plan("medication", "Start warfarin with INR monitoring (target for the valve or mitral stenosis)", t, { type: "lab", codes: ["inr"] }));

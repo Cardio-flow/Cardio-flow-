@@ -9,11 +9,47 @@ import { MEDICATION, doseLabel } from "./catalog.js";
 import type { OutcomeItem, WizardContext } from "./wizards.js";
 
 type Start = { code: string; dose: number; frequency: string; why: string };
+
+// ---- one source for the starting dose of each HF / CKD class, read by the alert engine (server guidelines.ts
+// pillarsFor) and by every pathway (START below), so the two can never disagree (27 Oct 2026 audit) ----
+type Dose = { code: string; dose: number; why: string };
+// dapagliflozin is not started below eGFR 25 (Forxiga SmPC 4.2); empagliflozin from eGFR 20 (Jardiance SmPC 4.2)
+export function sglt2Start(egfr: number | null): Dose | string {
+  if (egfr != null && egfr < 20) return `eGFR ${Math.round(egfr)} <20: an SGLT2 inhibitor is not started (SmPC)`;
+  return egfr != null && egfr < 25
+    ? { code: "empagliflozin", dose: 10, why: `eGFR ${Math.round(egfr)} 20–24: empagliflozin 10 mg (dapagliflozin not started below 25; Jardiance / Forxiga SmPC)` }
+    : { code: "dapagliflozin", dose: 10, why: "label dose, no titration (Forxiga SmPC; ESC HF)" };
+}
+// Spironolactone in heart failure (27 Oct 2026, Ahmed: "use the latest guidelines"). Aldactone UK SmPC 4.2: start
+// 25 mg once daily if potassium ≤5.0 and creatinine ≤2.5 mg/dL (221 µmol/L); 25 mg every other day if 25 mg daily
+// is not tolerated; then 50 mg daily as indicated. The label has no eGFR-based 12.5 mg start: the earlier
+// 12.5 mg below eGFR 45 / 50 had no verified source and is removed. Not started below eGFR 30 (ESC HF practical
+// guidance, as the HF alert gate). The ESC 2026 dose table (Table 11) could not be retrieved to cross-check.
+export const SPIRONOLACTONE_MAX_CREATININE = 221; // µmol/L = 2.5 mg/dL (Aldactone SmPC 4.2)
+export function spironolactoneStart(egfr: number | null, creatinine: number | null = null): Dose | string {
+  if (egfr != null && egfr < 30) return `eGFR ${Math.round(egfr)} <30: an MRA is not started (ESC HF practical guidance)`;
+  if (creatinine != null && creatinine > SPIRONOLACTONE_MAX_CREATININE) return `Creatinine ${Math.round(creatinine)} µmol/L >221 (2.5 mg/dL): spironolactone is not started (Aldactone SmPC)`;
+  return { code: "spironolactone", dose: 25, why: "25 mg once daily (Aldactone SmPC; 25 mg every other day if not tolerated)" };
+}
+// eplerenone after MI with LVEF ≤40% (Inspra SmPC 4.2/4.3): 25 mg once daily; not started with K >5.0 or eGFR <30
+export function eplerenoneStart(egfr: number | null, k: number | null): Dose | string {
+  if (egfr == null || k == null) return "Record eGFR and potassium before starting eplerenone (Inspra SmPC)";
+  if (k > 5.0) return `K ${k} >5.0: eplerenone is not started (Inspra SmPC)`;
+  if (egfr < 30) return `eGFR ${Math.round(egfr)} <30: eplerenone is not started (Inspra SmPC)`;
+  return { code: "eplerenone", dose: 25, why: "25 mg once daily; potassium and creatinine in the first week and at 1 month (Inspra SmPC)" };
+}
+// Kerendia SmPC 4.2: eGFR ≥60 20 mg, 25–<60 10 mg; not started below 25
+export function finerenoneStart(egfr: number | null): Dose | string {
+  if (egfr != null && egfr < 25) return `eGFR ${Math.round(egfr)} <25: finerenone is not started (SmPC)`;
+  return egfr != null && egfr >= 60
+    ? { code: "finerenone", dose: 20, why: `eGFR ${Math.round(egfr)}: 20 mg starting dose (Kerendia SmPC)` }
+    : { code: "finerenone", dose: 10, why: `eGFR ${egfr == null ? "not recorded" : Math.round(egfr)}: 10 mg starting dose (Kerendia SmPC)` };
+}
 const v = (c: WizardContext, code: string) => c.values?.[code]?.value ?? null;
 
 export const START: Record<string, (c: WizardContext) => Start | string> = {
-  // ESC HF 2021/2023 (I A); Jardiance SmPC: 10 mg once daily, not started below eGFR 20
-  sglt2: (c) => { const e = v(c, "egfr"); return e == null ? "Record eGFR before starting an SGLT2 inhibitor (SmPC)" : e < 20 ? `eGFR ${Math.round(e)} <20: an SGLT2 inhibitor is not started (SmPC)` : { code: "empagliflozin", dose: 10, frequency: "OD", why: "label dose; no titration (Jardiance SmPC; ESC HF 2021/2023)" }; },
+  // ESC HF 2021/2023 (I A); the same drug and dose as the HF alert engine (sglt2Start)
+  sglt2: (c) => { const e = v(c, "egfr"); if (e == null) return "Record eGFR before starting an SGLT2 inhibitor (SmPC)"; const st = sglt2Start(e); return typeof st === "string" ? st : { ...st, frequency: "OD" }; },
   // Ozempic SmPC: 0.25 mg once weekly for 4 weeks, then 0.5 mg
   glp1: () => ({ code: "semaglutide", dose: 0.25, frequency: "Weekly", why: "SmPC start for 4 weeks, then 0.5 mg weekly (Ozempic SmPC)" }),
   // Mounjaro SmPC: 2.5 mg once weekly for 4 weeks, then 5 mg
@@ -23,9 +59,11 @@ export const START: Record<string, (c: WizardContext) => Start | string> = {
     const e = v(c, "egfr"), k = v(c, "potassium");
     if (e == null) return "No eGFR in the record: the finerenone starting dose depends on it (SmPC)";
     if (k == null) return "Record potassium before starting finerenone (SmPC)";
-    if (e < 25) return `eGFR ${Math.round(e)} <25: finerenone is not started (SmPC)`;
     if (k != null && k > 5.0) return `K ${k} >5.0: finerenone is not started (SmPC)`;
-    return { code: "finerenone", dose: e >= 60 ? 20 : 10, frequency: "OD", why: `eGFR ${Math.round(e)}: ${e >= 60 ? "20" : "10"} mg starting dose; potassium at 4 weeks (Kerendia SmPC)` };
+    const st = finerenoneStart(e);
+    // CKD with type 2 diabetes (Kerendia SmPC 4.2): start with K ≤4.8; 4.8–5.0 only with extra potassium monitoring
+    const extra = k > 4.8 && !(c.dx ?? []).some((d) => d === "hf" || d.startsWith("hf")) ? `; K ${k} 4.8–5.0: start only with additional potassium monitoring in the first 4 weeks (SmPC)` : "";
+    return typeof st === "string" ? st : { ...st, frequency: "OD", why: `${st.why}; potassium at 4 weeks (Kerendia SmPC)${extra}` };
   },
   // ADA 2026: start 500 mg once or twice daily with food; label: not below eGFR 30, maximum 1000 mg/day at 30–44
   metformin: (c) => { const e = v(c, "egfr"); return e == null ? "Record eGFR before starting metformin (SmPC)" : e < 30 ? `eGFR ${Math.round(e)} <30: metformin is not started (label)` : { code: "metformin", dose: 500, frequency: "OD", why: `start low with food and titrate (ADA 2026)${e != null && e < 45 ? `; eGFR ${Math.round(e)}: maximum 1000 mg/day (label)` : ""}` }; },
@@ -35,24 +73,32 @@ export const START: Record<string, (c: WizardContext) => Start | string> = {
   gliclazide: () => ({ code: "gliclazide", dose: 30, frequency: "OD", why: "SmPC starting dose with breakfast; hypoglycaemia advice" }),
   // ESC HF 2021 diuretic table: furosemide starting dose 20–40 mg
   loop: () => ({ code: "furosemide", dose: 40, frequency: "OD", why: "within the ESC HF 2021 starting range 20–40 mg; adjust to weight and congestion" }),
-  // ESC HF practical guidance on MRA: spironolactone 25 mg (12.5 mg with eGFR 30–49); not below eGFR 30 or with K >5.0
+  // spironolactone 25 mg once daily (Aldactone SmPC); not with K >5.0, creatinine >221 µmol/L or eGFR <30
   mra: (c) => {
     const e = v(c, "egfr"), k = v(c, "potassium");
     if (e == null || k == null) return "Record eGFR and potassium before starting an MRA (ESC HF practical guidance)";
     if (k != null && k > 5.0) return `K ${k} >5.0: an MRA is not started (ESC HF practical guidance)`;
-    if (e != null && e < 30) return `eGFR ${Math.round(e)} <30: an MRA is not started (ESC HF practical guidance)`;
-    return { code: "spironolactone", dose: e != null && e < 50 ? 12.5 : 25, frequency: "OD", why: `${e != null && e < 50 ? `eGFR ${Math.round(e)} 30–49: 12.5 mg` : "25 mg"} starting dose; potassium and creatinine at 1 and 4 weeks (ESC HF practical guidance)` };
+    const st = spironolactoneStart(e, v(c, "creatinine"));
+    return typeof st === "string" ? st : { ...st, frequency: "OD", why: `${st.why}; potassium and creatinine at 1 week, then monthly for 3 months (SmPC)` };
   },
   // pantoprazole 40 mg once daily with combined antithrombotic therapy (ESC ACS 2023; label dose)
   ppi: () => ({ code: "pantoprazole", dose: 40, frequency: "OD", why: "gastroprotection with antithrombotic therapy (ESC 2023; label dose)" }),
 };
+
+// the results each labelled start is dosed from
+export const START_NEEDS: Record<string, string[]> = { sglt2: ["egfr"], finerenone: ["egfr", "potassium"], metformin: ["egfr"], mra: ["egfr", "potassium"], eplerenone: ["egfr", "potassium"] };
 
 // a start item, or a note saying why the label does not allow it; nothing when the class is already taken
 export function startItem(key: string, c: WizardContext, indication: string, tag?: string): OutcomeItem | null {
   if (tag && c.meds.some((m) => m.tags.includes(tag) && m.status !== "stopped")) return null;
   const s = START[key]?.(c);
   if (!s) return null;
-  if (typeof s === "string") return { kind: "note", label: s };
+  // a start the label rules out, or one waiting for a result, is shown in the decision (never dropped silently);
+  // the missing result becomes "record this" in the decision card
+  if (typeof s === "string") {
+    const needs = (START_NEEDS[key] ?? []).filter((code) => v(c, code) == null);
+    return { kind: "note", label: s, decision: true, ...(needs.length ? { needs } : {}) };
+  }
   const def = MEDICATION[s.code];
   const freq = s.frequency === "OD" ? "once daily" : s.frequency === "BID" ? "twice daily" : s.frequency === "Weekly" ? "once weekly" : s.frequency;
   return { kind: "start", code: s.code, doseValue: s.dose, frequency: s.frequency, indication, label: `${def?.name ?? s.code} ${doseLabel(def, s.dose, def?.unit ?? "mg")} ${freq}: start — ${s.why}` };

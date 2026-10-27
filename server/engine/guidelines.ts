@@ -25,6 +25,7 @@ import { activeBarrier, type MedState, type PatientState } from "../kernel/state
 import type { Fact, Finding, RuleDef } from "./rules.js";
 import { DIABETES_RULES, diabetesRecord, glycaemicTarget } from "./diabetes-rules.js";
 import { mechanicalInrTarget } from "./acute-rules.js";
+import { finerenoneStart, sglt2Start, spironolactoneStart } from "../../shared/start-doses.js";
 
 // ---------- helpers ----------
 const cur = (s: PatientState, code: string) => s.resolved(code).current;
@@ -170,14 +171,16 @@ type Pillar = { key: string; label: string; tags: string[]; start: { code: strin
 const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[] => {
   const phen = use === "panel" && hfImprovedEf(s) ? "HFrEF" : hfPhenotype(s);
   const egfr = val(s, "egfr", 90);
-  // dapagliflozin is not started below eGFR 25 (Forxiga SmPC 4.2); empagliflozin can be started from eGFR 20 (Jardiance SmPC 4.2)
-  const sglt2: Pillar = { key: "sglt2", label: "SGLT2 inhibitor", tags: ["sglt2"], start: { code: egfr != null && egfr < 25 ? "empagliflozin" : "dapagliflozin", dose: 10 } };
+  // starting doses come from the one shared source the pathways also use (shared/start-doses.ts); a start the
+  // label rules out keeps the default drug here and is blocked by pillarGate with the same reason
+  const pick = (d: ReturnType<typeof sglt2Start>, fallback: { code: string; dose: number }) => (typeof d === "string" ? fallback : { code: d.code, dose: d.dose });
+  const sglt2: Pillar = { key: "sglt2", label: "SGLT2 inhibitor", tags: ["sglt2"], start: pick(sglt2Start(egfr), { code: "empagliflozin", dose: 10 }) };
   if (phen === "HFpEF")
-    return [sglt2, { key: "mra", label: "MRA (finerenone preferred)", tags: ["mra"], start: { code: "finerenone", dose: egfr != null && egfr < 60 ? 10 : 20 } }];
+    return [sglt2, { key: "mra", label: "MRA (finerenone preferred)", tags: ["mra"], start: pick(finerenoneStart(egfr), { code: "finerenone", dose: 10 }) }];
   return [
     { key: "raas", label: "ARNI / ACE inhibitor / ARB", tags: ["raas"], start: { code: "sacubitril-valsartan", dose: 24 } },
     { key: "bb", label: "Beta-blocker", tags: ["bb"], start: { code: "bisoprolol", dose: 1.25 } },
-    { key: "mra", label: "MRA", tags: ["mra"], start: { code: "spironolactone", dose: egfr != null && egfr < 45 ? 12.5 : 25 } },
+    { key: "mra", label: "MRA", tags: ["mra"], start: pick(spironolactoneStart(egfr, val(s, "creatinine", 90)), { code: "spironolactone", dose: 25 }) },
     sglt2,
   ];
 };
@@ -230,7 +233,9 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
     if (k == null) missing.push("Potassium (last 60 days)");
     if (egfr == null) missing.push("eGFR (last 60 days)");
     if (k != null && k > 5.0) return { block: `K ${formatNumber(k, 1)} > 5.0`, unlock: "when K ≤ 5.0", missing };
-    if (egfr != null && egfr < (mode === "start" ? 30 : 30)) return { block: `eGFR ${Math.round(egfr)} < 30`, unlock: "when eGFR ≥ 30", missing };
+    // finerenone (the HFpEF MRA start) from eGFR 25 (Kerendia SmPC 4.2); spironolactone / eplerenone from 30
+    const floor = mode === "start" && hfPhenotype(s) === "HFpEF" ? 25 : 30;
+    if (egfr != null && egfr < floor) return { block: `eGFR ${Math.round(egfr)} < ${floor}`, unlock: `when eGFR ≥ ${floor}`, missing };
   }
   if (key === "sglt2") {
     if (egfr == null) missing.push("eGFR (last 60 days)");
@@ -286,6 +291,113 @@ export function fmtStatus(s: PatientState) {
   };
 }
 
+// ---------- HF medicines: one decision across the pillars (27 Oct 2026, Ahmed: "the drug dose engines and their
+// needed information should be in the pathways") ----------
+// The same gates, starting doses, targets and next steps as hf.foundational-therapy and hf.titration (they open
+// this pathway), read as one plan for the hf-medicines pathway: for each pillar what can be done today and the
+// dose, what stops it, and which results are missing.
+export type GdmtItem = {
+  key: string; label: string;
+  med: { id: string; code: string; name: string; dose: number | null; line: string; target: string | null; pct: number | null } | null;
+  state: "start" | "increase" | "target" | "blocked" | "needs" | "wait" | "held" | "declined" | "no-step";
+  change: { kind: "start"; code: string; dose: number; frequency: string; label: string } | { kind: "increase"; medicationId: string; from: number; to: number; label: string } | null;
+  why: string; unlock: string | null; needs: string[];
+};
+export function gdmtPlan(s: PatientState): { phenotype: "HFrEF" | "HFpEF"; congested: string | null; items: GdmtItem[] } | null {
+  const phen = hfPhenotype(s);
+  if (!phen) return null;
+  const exam = s.resolved("congestion").current;
+  const congested = exam && ["Moderate", "Severe"].includes(exam.value_text ?? "") && daysBetween(exam.effective_at, s.today) <= 14 ? `${exam.value_text} congestion on ${fmtDay(exam.effective_at)}` : null;
+  const ndhp = live(s).some((m) => m.tags.includes("ndhp-ccb"));
+  const items: GdmtItem[] = [];
+  // "Potassium and creatinine after the last RAAS/MRA change" needs both results
+  const codesOf = (missing: string[]) => [...new Set(missing.flatMap((m) => (/^Potassium and creatinine/.test(m) ? ["potassium", "creatinine"] : [checkCode(m)])))];
+  for (const p of pillarsFor(s, "start")) {
+    const on = live(s).find((m) => m.status === "active" && p.tags.some((t) => m.tags.includes(t)));
+    const held = s.meds.find((m) => (m.status === "held" || m.status === "not_taking") && p.tags.some((t) => m.tags.includes(t)));
+    if (!on) {
+      if (held) { items.push({ key: p.key, label: p.label, med: { id: held.id, code: held.code, name: held.name, dose: held.doseValue, line: medLine(held), target: null, pct: null }, state: "held", change: null, why: held.status === "not_taking" ? "prescribed but not taken: review the reason with the patient" : "held: restart when the reason has passed", unlock: null, needs: [] }); continue; }
+      const barrier = [...p.tags, drugClassOf(p.start.code)].map((t) => activeBarrier(s, t)).find(Boolean);
+      if (barrier) { items.push({ key: p.key, label: p.label, med: null, state: "declined", change: null, why: `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}`, unlock: null, needs: [] }); continue; }
+      const gate = pillarGate(s, p.key, "start");
+      const def = MEDICATION[p.start.code];
+      if (gate.block) { items.push({ key: p.key, label: p.label, med: null, state: "blocked", change: null, why: `Not now: ${gate.block}`, unlock: gate.unlock ?? null, needs: [] }); continue; }
+      if (gate.missing.length) { items.push({ key: p.key, label: p.label, med: null, state: "needs", change: null, why: `Before starting ${def.name}: record ${gate.missing.join(", ")}`, unlock: null, needs: codesOf(gate.missing) }); continue; }
+      const freq = def.frequencies?.[0] ?? "OD";
+      items.push({ key: p.key, label: p.label, med: null, state: "start", change: { kind: "start", code: def.code, dose: p.start.dose, frequency: freq, label: `${def.name} ${doseLabel(def, p.start.dose)} ${freq}: start` },
+        why: `${phen === "HFrEF" ? "Foundational therapy for HFrEF" : "SGLT2i and MRA in HFpEF"} (ESC HF 2026, class I); starting dose ${doseLabel(def, p.start.dose)}`, unlock: null, needs: [] });
+      continue;
+    }
+    const def = MEDICATION[on.code];
+    const target = def ? targetDose(s, on.code, def.target) : undefined;
+    const ref = def ? hfDoseReference(on, target ?? null, def.unit) : null;
+    const pct = ref?.percent ?? null;
+    const med = { id: on.id, code: on.code, name: on.name, dose: on.doseValue, line: medLine(on), target: def && ref?.target ? `${doseLabel(def, ref.target, on.doseUnit)} ${ref.frequency}` : null, pct };
+    const base = { key: p.key, label: p.label, med };
+    // SGLT2 inhibitors are not titrated; HFpEF pillars have no uptitration rule here (as hf.titration)
+    if (pct != null && pct >= 100 || p.key === "sglt2" || phen !== "HFrEF") { items.push({ ...base, state: "target", change: null, why: on.doseValue != null && target && on.doseValue >= target ? "at target dose" : "continue", unlock: null, needs: [] }); continue; }
+    if (pct == null || !ref || on.doseValue == null || on.frequency !== ref.frequency) { items.push({ ...base, state: "needs", change: null, why: "Confirm dose, units, route and reference dosing frequency before titration", unlock: null, needs: [] }); continue; }
+    if (activeBarrier(s, "up:" + drugClassOf(on.code))) { items.push({ ...base, state: "declined", change: null, why: "no further increase: a reason is recorded", unlock: null, needs: [] }); continue; }
+    if (p.key === "bb" && ndhp) { items.push({ ...base, state: "blocked", change: null, why: "not increased on top of diltiazem / verapamil", unlock: null, needs: [] }); continue; }
+    if (congested) { items.push({ ...base, state: "blocked", change: null, why: `not while congested (${congested}): treat congestion first`, unlock: "when euvolaemic", needs: [] }); continue; }
+    const last = on.lastChange;
+    if (last && daysBetween(last.effective_at, s.today) < RECENT_CHANGE_DAYS) { items.push({ ...base, state: "wait", change: null, why: `changed ${fmtDay(last.effective_at)}: next step from ${fmtDay(addDaysIso(last.effective_at, RECENT_CHANGE_DAYS))} (every 1–2 weeks, ESC HF)`, unlock: null, needs: [] }); continue; }
+    const gate = pillarGate(s, p.key, "increase");
+    if (gate.block) { items.push({ ...base, state: "blocked", change: null, why: `not increased: ${gate.block}`, unlock: gate.unlock ?? null, needs: [] }); continue; }
+    if (gate.missing.length) { items.push({ ...base, state: "needs", change: null, why: `Before increasing: record ${gate.missing.join(", ")}`, unlock: null, needs: codesOf(gate.missing) }); continue; }
+    const next = def.doses.find((d) => d > on.doseValue! && d <= ref.target!);
+    if (next == null) { items.push({ ...base, state: "no-step", change: null, why: "no listed dose step toward the target", unlock: null, needs: [] }); continue; }
+    items.push({ ...base, state: "increase", change: { kind: "increase", medicationId: on.id, from: on.doseValue, to: next, label: `${on.name}: ${doseLabel(def, on.doseValue)} ${on.frequency} → ${doseLabel(def, next)} ${on.frequency}` },
+      why: `${pct}% of target ${doseLabel(def, ref.target)} ${ref.frequency}; uptitrate every 1–2 weeks to target or the maximally tolerated dose (ESC HF 2026, class I)`, unlock: null, needs: [] });
+  }
+  return { phenotype: phen, congested, items };
+}
+const addDaysIso = (at: string, days: number) => new Date(Date.parse(at) + days * 86400000).toISOString();
+
+// ---------- lipids: status against the ESC/EAS goal and the next step on the ladder (the lipids.ldl-goal alert and
+// the lipids pathway read the same result, 27 Oct 2026) ----------
+export type LipidStep = "start-statin" | "intensify" | "switch" | "ezetimibe" | "bempedoic" | "pcsk9" | "maximal";
+const STEP_START: Record<string, string> = { "start-statin": "atorvastatin", switch: "atorvastatin", ezetimibe: "ezetimibe", bempedoic: "bempedoic-acid", pcsk9: "evolocumab" };
+export function lipidStatus(s: PatientState, recheckDays = 365) {
+  const risk = lipidRisk(s);
+  if (!risk) return null;
+  // ESC/EAS 2019: statins are not recommended to be started in dialysis-dependent CKD without ASCVD (III A);
+  // continued if already taken
+  if (s.tags.has("dialysis") && !s.tags.has("ascvd") && !onTag(s, "statin").length) return null;
+  const ldl = recent(s, "ldl-c", recheckDays);
+  const statin = onTag(s, "statin")[0];
+  if (!ldl) return { kind: "due" as const, risk };
+  const v = ldl.value_num!;
+  const goal = risk.goal;
+  const lipidMeds = s.meds.filter((m) => m.tags.includes("lipid"));
+  // a lipid-lowering start or dose increase after this LDL-C: the result predates the change — recheck first
+  const changedAfter = lipidMeds
+    .filter((m) => m.status === "active")
+    .flatMap((m) => m.events.filter((e) => ["start", "restart", "increase"].includes(e.kind) && e.effective_at > ldl.effective_at).map((e) => ({ m, at: e.effective_at })))
+    .sort((x, y) => y.at.localeCompare(x.at))[0];
+  if (changedAfter && v >= goal) return { kind: "recheck" as const, risk, ldl: v, ldlId: ldl.id, ldlAt: ldl.effective_at, changedAt: changedAfter.at, changedName: changedAfter.m.name, changedLine: medLine(changedAfter.m) };
+  // reduction from baseline (ESC/EAS 2019: very high and high risk need ≥50% reduction as well as the goal):
+  // baseline = the last LDL-C before the first lipid-lowering start
+  const firstStart = lipidMeds.flatMap((m) => m.events.filter((e) => e.kind === "start").map((e) => e.effective_at)).sort()[0] ?? null;
+  const base = firstStart ? s.resolved("ldl-c").history.find((o) => o.effective_at <= firstStart && o.value_num != null) ?? null : null;
+  const reduction = base?.value_num ? Math.round((1 - v / base.value_num) * 100) : null;
+  const shortOfReduction = reduction != null && risk.reduction != null && reduction < Number(risk.reduction);
+  if (v < goal && !shortOfReduction) return { kind: "ok" as const, risk };
+  // next step on the ladder
+  const intolerant = has(s, "statin-intolerance");
+  let step: LipidStep, stepLabel: string;
+  if (!statin && !intolerant) { step = "start-statin"; stepLabel = "start high-intensity statin"; }
+  else if (statin && statinIntensity(statin) !== "high" && !intolerant) {
+    if (statin.code === "atorvastatin" || statin.code === "rosuvastatin") { step = "intensify"; stepLabel = `increase ${statin.name.toLowerCase()} to high intensity`; }
+    // simvastatin / pravastatin / fluvastatin cannot reach high intensity: change the statin
+    else { step = "switch"; stepLabel = `change ${statin.name.toLowerCase()} to a high-intensity statin (atorvastatin 40–80 mg or rosuvastatin 20–40 mg)`; }
+  } else if (!onTag(s, "ezetimibe").length) { step = "ezetimibe"; stepLabel = "add ezetimibe"; }
+  else if (intolerant && !live(s).some((m) => m.code === "bempedoic-acid")) { step = "bempedoic"; stepLabel = "add bempedoic acid"; }
+  else if (!onTag(s, "pcsk9").length) { step = "pcsk9"; stepLabel = "add a PCSK9 inhibitor (evolocumab, alirocumab or inclisiran)"; }
+  else { step = "maximal"; stepLabel = "review adherence; therapy already maximal"; }
+  return { kind: "above" as const, risk, ldl: v, ldlId: ldl.id, ldlAt: ldl.effective_at, goal, reduction, baseline: base ? { value: base.value_num!, at: base.effective_at } : null, step, stepLabel, statinId: statin?.id ?? null, intolerant };
+}
+
 // ---------- the rules ----------
 const RECENT_CHANGE_DAYS = 14; // ESC 2026: uptitrate every 1–2 weeks
 
@@ -320,7 +432,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           // the values that make the start safe come first: record them, then the suggestion offers the start
           action: gate.missing.length
             ? { type: "add-labs", codes: [...new Set(gate.missing.map(checkCode))], label: `Check ${gate.missing.map((m) => m.split(" (")[0].replace("Blood pressure", "BP").replace("Potassium", "K").replace("Heart rate", "HR")).join(" and ")} first` }
-            : { type: "start-med", code: p.start.code, dose: p.start.dose, label: `Start ${def.name}` },
+            // the start is decided in the HF medicines pathway with the other pillars (27 Oct 2026)
+            : { type: "wizard", wizard: "hf-medicines", startCode: p.start.code },
         });
       }
       // ARNI in place of ACEi/ARB
@@ -346,7 +459,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     title: "HF therapy uptitration opportunity",
     inputs: ["meds", "potassium", "egfr", "sbp", "hr", "lvef", "congestion", "conditions"],
     defaultParams: { min_days_since_change: RECENT_CHANGE_DAYS },
-    evidence: "2026 ESC HF guidelines: uptitrate foundational therapy at least every 1–2 weeks to target or maximally tolerated doses (class I).",
+    evidence: "2026 ESC HF guidelines (Recommendation Table 5): uptitration of foundational medical therapy at least every 1–2 weeks, guided by symptoms, vital signs and laboratory findings (class I, C); continuation at the highest tolerated doses (class I, C).",
     evaluate(s, p) {
       if (hfPhenotype(s) !== "HFrEF") return [];
       // not while congested (the congestion pathway comes first): the hf.congestion exam criterion
@@ -358,7 +471,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
         const def = MEDICATION[m.code];
         // the patient's own target (finerenone: by eGFR and indication, SmPC Kerendia 4.2)
         const target = def ? targetDose(s, m.code, def.target) : undefined;
-        if (!def || !target || m.doseValue == null || m.doseValue >= target) continue;
+        const ref = def ? hfDoseReference(m,target ?? null,def.unit) : null;
+        if (!def || !ref?.target || ref.percent == null || ref.percent >= 100 || m.doseValue == null || m.frequency !== ref.frequency) continue;
         const key = m.tags.includes("bb") ? "bb" : m.tags.includes("mra") ? "mra" : m.tags.includes("raas") ? "raas" : null;
         if (!key) continue;
         // a beta-blocker is not uptitrated on top of diltiazem / verapamil (the label contraindication row comes first)
@@ -367,18 +481,20 @@ export const GUIDELINE_RULES: RuleDef[] = [
         if (last && daysBetween(last.effective_at, s.today) < Number(p.min_days_since_change)) continue;
         const gate = pillarGate(s, key, "increase");
         if (gate.block || gate.missing.length) continue;
-        const next = def.doses.find((d) => d > m.doseValue! && d <= target);
+        const next = def.doses.find((d) => d > m.doseValue! && d <= ref.target!);
         if (next == null) continue;
         out.push({
           key: "titrate-" + m.id,
-          signature: `${m.id}:${m.doseValue}`,
-          severity: "blue",
-          title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} → ${doseLabel(def, next)}`,
-          detail: `Target ${doseLabel(def, target)} · ${Math.round((m.doseValue / target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
-          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
+          signature: `${m.id}:${m.doseValue}:${m.frequency}:${m.doseUnit}:${m.route}`,
+          // ESC HF 2026 Recommendation Table 5: uptitration of FMT at least every 1–2 weeks is class I (C) — a
+          // management decision on the overview, not an opportunity in "To consider" (27 Oct 2026)
+          severity: "orange",
+          title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} ${m.frequency} → ${doseLabel(def, next)} ${m.frequency}`,
+          detail: `Target ${doseLabel(def, ref.target)} ${ref.frequency} · ${ref.percent}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
+          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: `${doseLabel(def, ref.target)} ${ref.frequency}` }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
             src("ESC HF 2026 · uptitrate every 1–2 weeks to target/maximally tolerated dose · Class I")),
           missing: [],
-          action: { type: "titrate", medicationId: m.id, dose: next, direction: "increase", label: `Increase to ${doseLabel(def, next)}` },
+          action: { type: "wizard", wizard: "hf-medicines", medicationId: m.id, direction: "increase" },
         });
       }
       return out;
@@ -433,69 +549,36 @@ export const GUIDELINE_RULES: RuleDef[] = [
     defaultParams: { recheck_days: 365 },
     evidence: "ESC/EAS dyslipidaemia (2019 goals, 2025 focused update): very high risk LDL-C <1.4 mmol/L and ≥50% reduction; high risk <1.8 mmol/L. Stepwise: high-intensity statin → ezetimibe → PCSK9 mAb/inclisiran; bempedoic acid if statin not tolerated.",
     evaluate(s, p) {
-      const risk = lipidRisk(s);
-      if (!risk) return [];
-      // ESC/EAS 2019: statins are not recommended to be started in dialysis-dependent CKD without ASCVD (III A);
-      // continued if already taken
-      if (s.tags.has("dialysis") && !s.tags.has("ascvd") && !onTag(s, "statin").length) return [];
-      const ldl = recent(s, "ldl-c", Number(p.recheck_days));
-      const statin = onTag(s, "statin")[0];
-      if (!ldl)
+      const st = lipidStatus(s, Number(p.recheck_days));
+      if (!st || st.kind === "ok") return [];
+      const { risk } = st;
+      if (st.kind === "due")
         return [{
           key: "ldl-due", signature: cur(s, "ldl-c")?.id ?? "never", severity: "yellow",
           title: "Lipid profile due", detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · no LDL-C in 12 months`,
           facts: facts(fact(s, "ldl-c"), src("ESC/EAS · reassess LDL-C to confirm goal attainment")), missing: [],
           action: { type: "add-labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"], label: "Add lipid profile" },
         }];
-      const v = ldl.value_num!;
-      const goal = risk.goal;
-      const lipidMeds = s.meds.filter((m) => m.tags.includes("lipid"));
-      // a lipid-lowering start or dose increase after this LDL-C: the result predates the change — recheck first
-      const changedAfter = lipidMeds
-        .filter((m) => m.status === "active")
-        .flatMap((m) => m.events.filter((e) => ["start", "restart", "increase"].includes(e.kind) && e.effective_at > ldl.effective_at).map((e) => ({ m, at: e.effective_at })))
-        .sort((x, y) => y.at.localeCompare(x.at))[0];
-      if (changedAfter && v >= goal)
+      if (st.kind === "recheck")
         return [{
-          key: "ldl-goal", signature: `recheck:${ldl.id}:${changedAfter.at}`, severity: "yellow",
-          title: `Recheck LDL-C: ${changedAfter.m.name} changed after the last result`,
-          detail: `LDL-C ${formatNumber(v, 2)} mmol/L on ${fmtDay(ldl.effective_at)} was measured before the change on ${fmtDay(changedAfter.at)}; judge the next step on a new result`,
-          facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${goal} mmol/L and ≥${risk.reduction}% reduction` }, { label: "Therapy", value: medLine(changedAfter.m) }, src("ESC/EAS dyslipidaemia · reassess LDL-C after a change of therapy")),
+          key: "ldl-goal", signature: `recheck:${st.ldlId}:${st.changedAt}`, severity: "yellow",
+          title: `Recheck LDL-C: ${st.changedName} changed after the last result`,
+          detail: `LDL-C ${formatNumber(st.ldl, 2)} mmol/L on ${fmtDay(st.ldlAt)} was measured before the change on ${fmtDay(st.changedAt)}; judge the next step on a new result`,
+          facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${risk.goal} mmol/L and ≥${risk.reduction}% reduction` }, { label: "Therapy", value: st.changedLine }, src("ESC/EAS dyslipidaemia · reassess LDL-C after a change of therapy")),
           missing: [], action: { type: "add-labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"], label: "Add lipid profile" },
         }];
-      // reduction from baseline (ESC/EAS 2019: very high and high risk need ≥50% reduction as well as the goal):
-      // baseline = the last LDL-C before the first lipid-lowering start
-      const firstStart = lipidMeds.flatMap((m) => m.events.filter((e) => e.kind === "start").map((e) => e.effective_at)).sort()[0] ?? null;
-      const base = firstStart ? s.resolved("ldl-c").history.find((o) => o.effective_at <= firstStart && o.value_num != null) ?? null : null;
-      const reduction = base?.value_num ? Math.round((1 - v / base.value_num) * 100) : null;
-      const shortOfReduction = reduction != null && risk.reduction != null && reduction < Number(risk.reduction);
-      if (v < goal && !shortOfReduction) return [];
-      // next step on the ladder
-      let action: Finding["action"];
-      let step: string;
-      const intolerant = has(s, "statin-intolerance");
-      if (!statin && !intolerant) { step = "start high-intensity statin"; action = { type: "start-med", code: "atorvastatin", dose: 40, label: "Start atorvastatin 40 mg" }; }
-      else if (statin && statinIntensity(statin) !== "high" && !intolerant) {
-        if (statin.code === "atorvastatin" || statin.code === "rosuvastatin") {
-          const next = statin.code === "rosuvastatin" ? 20 : 40;
-          step = `increase ${statin.name.toLowerCase()} to high intensity`;
-          action = { type: "titrate", medicationId: statin.id, dose: next, direction: "increase", label: `Increase to ${next} mg` };
-        } else {
-          // simvastatin / pravastatin / fluvastatin cannot reach high intensity: change the statin
-          step = `change ${statin.name.toLowerCase()} to a high-intensity statin (atorvastatin 40–80 mg or rosuvastatin 20–40 mg)`;
-          action = { type: "start-med", code: "atorvastatin", dose: 40, label: "Change to atorvastatin 40 mg" };
-        }
-      } else if (!onTag(s, "ezetimibe").length) { step = "add ezetimibe"; action = { type: "start-med", code: "ezetimibe", dose: 10, label: "Add ezetimibe 10 mg" }; }
-      else if (intolerant && !live(s).some((m) => m.code === "bempedoic-acid")) { step = "add bempedoic acid"; action = { type: "start-med", code: "bempedoic-acid", dose: 180, label: "Add bempedoic acid" }; }
-      else if (!onTag(s, "pcsk9").length) { step = "add a PCSK9 inhibitor (evolocumab, alirocumab or inclisiran)"; action = { type: "start-med", code: "evolocumab", dose: 140, label: "Add PCSK9 therapy" }; }
-      else { step = "review adherence; therapy already maximal"; action = { type: "add-plan", template: "lipids" }; }
+      const v = st.ldl, goal = risk.goal;
+      // the next step is decided in the lipids pathway, with the same ladder and the statin dose rules (27 Oct 2026)
+      const action: Finding["action"] = st.step === "maximal" ? { type: "add-plan", template: "lipids" }
+        : st.step === "intensify" ? { type: "wizard", wizard: "lipids", medicationId: st.statinId!, direction: "increase" }
+        : { type: "wizard", wizard: "lipids", startCode: STEP_START[st.step] };
       return [{
-        key: "ldl-goal", signature: `${ldl.id}:${live(s).filter((m) => m.tags.includes("lipid")).map((m) => m.code + m.doseValue).join(",")}`,
+        key: "ldl-goal", signature: `${st.ldlId}:${live(s).filter((m) => m.tags.includes("lipid")).map((m) => m.code + m.doseValue).join(",")}`,
         severity: "orange",
-        title: v >= goal ? `LDL-C ${formatNumber(v, 2)} mmol/L above goal <${goal}` : `LDL-C ${formatNumber(v, 2)} mmol/L: at goal but only ${reduction}% below baseline (goal ≥${risk.reduction}%)`,
-        detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · next step: ${step}` + (risk.recentAcs ? " · a second vascular event within 2 years on maximum statin: goal <1.0 may be considered (IIb)" : ""),
+        title: v >= goal ? `LDL-C ${formatNumber(v, 2)} mmol/L above goal <${goal}` : `LDL-C ${formatNumber(v, 2)} mmol/L: at goal but only ${st.reduction}% below baseline (goal ≥${risk.reduction}%)`,
+        detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · next step: ${st.stepLabel}` + (risk.recentAcs ? " · a second vascular event within 2 years on maximum statin: goal <1.0 may be considered (IIb)" : ""),
         facts: facts(fact(s, "ldl-c"), { label: "Goal", value: `<${goal} mmol/L and ≥${risk.reduction}% reduction` },
-          ...(base ? [{ label: "Baseline LDL-C (before treatment)", value: `${formatNumber(base.value_num!, 2)} mmol/L · ${reduction}% reduction`, date: base.effective_at }] : []),
+          ...(st.baseline ? [{ label: "Baseline LDL-C (before treatment)", value: `${formatNumber(st.baseline.value, 2)} mmol/L · ${st.reduction}% reduction`, date: st.baseline.at }] : []),
           ...live(s).filter((m) => m.tags.includes("lipid")).map((m) => ({ label: "Therapy", value: medLine(m) })),
           src("ESC/EAS dyslipidaemia 2019/2025 · LDL-C goals · Class I")),
         missing: [], action,
@@ -598,7 +681,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       if (needSglt2 && !onTag(s, "sglt2").length && !(egfr != null && egfr < 20) && !isHF(s) && !sglt2UrinaryHold(s))
         out.push({ key: "dm-sglt2", signature: "sglt2", severity: "orange", title: "T2DM with ASCVD/CKD: SGLT2 inhibitor not prescribed",
           detail: "Cardiorenal protection independent of HbA1c", facts: facts(fact(s, "egfr", 180), fact(s, "hba1c", 365), src("ESC diabetes & CVD 2023 · Class I")), missing: egfr == null ? ["eGFR"] : [],
-          action: { type: "start-med", code: "empagliflozin", dose: 10, label: "Start empagliflozin 10 mg" } });
+          action: { type: "wizard", wizard: "diabetes", startCode: "empagliflozin" } });
       // GLP-1 RA for every guideline indication in T2DM: established ASCVD (ESC 2023, class I) and
       // CKD (ESC-ERA CVD–CKD 2026 §5.5.4, FLOW: fewer kidney and CV events). Ahmed, 30 Sep 2026.
       // FLOW excluded dialysis: on dialysis the CKD indication does not apply (ASCVD still does)
@@ -609,7 +692,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
           title: `T2DM with ${[s.tags.has("ascvd") ? "ASCVD" : null, ckd ? "CKD" : null].filter(Boolean).join(" and ")}: GLP-1 RA with proven benefit not prescribed`,
           detail: s.tags.has("ascvd") ? "Semaglutide, liraglutide or dulaglutide · reduces MACE independent of HbA1c" : "Semaglutide reduces kidney failure, CV death and MACE in T2DM with CKD (FLOW)",
           facts: facts(fact(s, "hba1c", 365), fact(s, "egfr", 180), fact(s, "uacr", 365), fact(s, "weight", 365), src(s.tags.has("ascvd") ? "ESC diabetes & CVD 2023 · Class I" : "ESC-ERA CVD–CKD 2026 · §5.5.4 (class pending review)")), missing: [],
-          action: { type: "start-med", code: "semaglutide", dose: 0.25, label: "Start semaglutide 0.25 mg weekly" } });
+          action: { type: "wizard", wizard: "diabetes", startCode: "semaglutide" } });
       return out;
     },
   },
@@ -648,7 +731,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       if (egfr == null || uacr == null || egfr < Number(p.egfr_min) || uacr < Number(p.uacr_min) || (k != null && k > 4.8)) return [];
       return [{ key: "finerenone", signature: `${cur(s, "uacr")?.id}`, severity: "blue", title: `T2DM + albuminuric CKD (UACR ${formatNumber(uacr, 1)} mg/mmol): consider finerenone`,
         detail: `eGFR ${Math.round(egfr)} · start ${egfr < 60 ? "10" : "20"} mg OD · recheck K at 4 weeks`, facts: facts(fact(s, "egfr", 180), fact(s, "uacr", 365), fact(s, "potassium", 90), src("ESC 2023 / ESC-ERA 2026 · Class I")), missing: k == null ? ["Potassium"] : [],
-        action: { type: "start-med", code: "finerenone", dose: egfr < 60 ? 10 : 20, label: "Start finerenone" } }];
+        action: { type: "wizard", wizard: "diabetes", startCode: "finerenone" } }];
     },
   },
   {
@@ -692,9 +775,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           ...(!vkaOnly && cr == null ? ["Recent creatinine before a DOAC dose"] : []),
           ...(!vkaOnly && wt == null ? ["Current weight before a DOAC dose"] : []),
         ],
-        action: vkaOnly ? { type: "start-med", code: "warfarin", label: "Start warfarin (INR-guided)" }
-          : !apx || apx.dose == null ? { type: "wizard", wizard: "af-care" }
-          : { type: "start-med", code: "apixaban", dose: apx.dose, label: `Start apixaban ${apx.dose} mg` },
+        // decided in AF-CARE with the label dose (the same apixaban dose function) — 27 Oct 2026
+        action: { type: "wizard", wizard: "af-care", startCode: vkaOnly ? "warfarin" : "apixaban" },
         ...(vkaOnly ? { detail: `${c.items.map((i) => i.label).join(" · ")} · ${s.tags.has("mechanical-valve") ? "mechanical valve" : "moderate–severe mitral stenosis"}: VKA, not a DOAC` } : {}) }];
     },
   },
@@ -753,7 +835,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
           title: `${m.name} ${doseLabel(def, m.doseValue)}: label dose is ${doseLabel(def, right)}`, detail: why,
           facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), crcl ? { label: "CrCl (Cockcroft-Gault)", value: `${Math.round(crcl)} mL/min` } : null, src("ESC AF 2024 / EHRA DOAC guide")),
           missing: [cr == null && "Creatinine", wt == null && "Weight"].filter(Boolean) as string[],
-          action: { type: "titrate", medicationId: m.id, dose: right, direction: right > m.doseValue ? "increase" : "decrease", label: `Change to ${doseLabel(def, right)}` } });
+          // decided in AF-CARE, which reads the same label-dose check (27 Oct 2026)
+          action: { type: "wizard", wizard: "af-care", medicationId: m.id, ...(right > m.doseValue ? { direction: "increase" as const } : {}) } });
       }
       return out;
     },

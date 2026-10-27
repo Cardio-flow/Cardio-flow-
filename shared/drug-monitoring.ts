@@ -63,6 +63,14 @@ export const DRUG_MONITORING: MonSchedule[] = [
     ],
   },
   {
+    // ACEi / ARB / ARNI in heart failure (27 Oct 2026, HF medicines pathway): the ESC practical guidance interval;
+    // the product labels ask for potassium and renal monitoring without a fixed interval
+    drugs: ["raas"],
+    checks: [
+      { id: "raas-k", what: "Potassium and creatinine", target: { lab: ["potassium", "creatinine"] }, on: "change", after: [14], when: (c) => c.hf, schedule: "1–2 weeks after a start or dose increase (heart failure)", source: "ESC HF 2021 practical guidance on ACEi / ARB / ARNI" },
+    ],
+  },
+  {
     drugs: ["eplerenone"],
     checks: [
       { id: "eplerenone-k", what: "Potassium", target: { lab: ["potassium"] }, on: "change", after: [7, 30], schedule: "within the first week and at one month after a start or dose change", source: "SmPC eplerenone (Inspra) 4.2" },

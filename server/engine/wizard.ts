@@ -36,7 +36,7 @@ import { LIVE_MED, addCondition, addPlanAction, medicationEvent, recordBarrier, 
 import { latestStudy, loadState, series, type PatientState } from "../kernel/state.js";
 import { recentRaasStart } from "./rules.js";
 import { acsIndex, arcHbr, indexEvent } from "./cad-profile.js";
-import { cha2ds2va, doacDoseCheck } from "./guidelines.js";
+import { cha2ds2va, doacDoseCheck, gdmtPlan, lipidStatus } from "./guidelines.js";
 import { deviceStatus } from "./rhythm-profile.js";
 import { latestValveEcho } from "./valve-profile.js";
 import { historyCode } from "../../shared/history.js";
@@ -271,7 +271,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     if(syncope.standing)base.facts.push({label:"Standing BP report",value:syncope.standing.result,date:syncope.standing.at});
     for(const concern of syncope.urgent)base.facts.push({label:"Recorded concern",value:concern,tone:"red"});
   }
-  return { ...base, pregnancy:pregnancyProfile(s), pericardial, medicationReview: wizardId === "medication-monitoring" ? medicationReviewContext(s) : undefined, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
+  return { ...base, hfMeds: wizardId === "hf-medicines" ? gdmtPlan(s) : undefined, lipids: wizardId === "lipids" || wizardId === "acs-discharge" ? lipidContext(s) : undefined, pregnancy:pregnancyProfile(s), pericardial, medicationReview: wizardId === "medication-monitoring" ? medicationReviewContext(s) : undefined, aorta, syncope, glycaemicTarget: dmt ? { value: dmt.value, label: dmt.label } : null, notices, evidenceKey:evidenceKey(s), lab:labResults(s), hypertension, values, renal, dx, planned, plannedActions, structural, profile: { ...profile, sex: s.patient.sex }, coronary, afProcedures, cabgAt: cabg ? localDay(cabg.performed_at) : null, af, device, valve, cmp, ph, ccsTest };
 }
 
 export async function getWizard(tx: Q, patientId: string, wizardId: string) {
@@ -291,6 +291,17 @@ export async function getWizard(tx: Q, patientId: string, wizardId: string) {
   const context = wizardContext(s, wizardId);
   await addScreens(tx, patientId, wizardId, context);
   return { context, draft: draft ?? null, episode };
+}
+
+// the lipid status the LDL-C alert uses, as the lipids pathway reads it
+function lipidContext(s: PatientState): WizardContext["lipids"] {
+  const st = lipidStatus(s);
+  if (!st) return null;
+  const base = { category: st.risk.category, why: st.risk.why, goal: st.risk.goal, reductionGoal: st.risk.reduction ?? null, ldl: null, ldlAt: null, reduction: null, baseline: null, step: null, stepLabel: null, recheck: false, intolerant: false };
+  if (st.kind === "due") return base;
+  if (st.kind === "ok") return { ...base, ldl: s.resolved("ldl-c").current?.value_num ?? null };
+  if (st.kind === "recheck") return { ...base, ldl: st.ldl, ldlAt: st.ldlAt, recheck: true };
+  return { ...base, ldl: st.ldl, ldlAt: st.ldlAt, reduction: st.reduction, baseline: st.baseline?.value ?? null, step: st.step, stepLabel: st.stepLabel, intolerant: st.intolerant };
 }
 
 // safety screens the clinician answered before: today's fill the question (as from the record), older ones are offered
@@ -466,7 +477,7 @@ export async function completeWizard(
   for (const item of outcome.filter((i) => i.kind === "start")) {
     if (item.kind !== "start") continue;
     if (s.meds.some((m) => m.code === item.code && (m.status === "active" || m.status === "held"))) continue;
-    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId, decisionId, reason: startWhy[item.code] });
+    const r = await startMedication(tx, actor, patientId, { code: item.code, doseValue: item.doseValue, frequency: item.frequency, route: MEDICATION[item.code]?.routes?.[0] ?? "PO", indication: item.indication, effectiveAt: at, contextId: input.contextId, decisionId, reason: startWhy[item.code] });
     changed.push(...r.changed);
   }
   const medByRef = async (ref: string | undefined) => {

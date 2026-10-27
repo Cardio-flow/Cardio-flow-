@@ -70,7 +70,7 @@ test("'not taking' replaces the start suggestion with one not-taking alert; 'tak
   const nt = a.find((x) => x.rule_id === "meds.not-taking");
   assert.equal(nt.severity, "orange");
   assert.equal(nt.title, "Bisoprolol prescribed but not taken: side effect");
-  assert.ok(!a.some((x) => x.action?.type === "start-med" && x.action.code === "bisoprolol"), "no 'start a beta-blocker' while one is prescribed");
+  assert.ok(!a.some((x) => (x.action?.startCode ?? x.action?.code) === "bisoprolol"), "no 'start a beta-blocker' while one is prescribed");
   assert.ok(!a.some((x) => x.rule_id === "hf.titration" && x.title.includes("Bisoprolol")), "no uptitration of a drug not taken");
   const pillar = (await tx((q) => summary(q, pid, "sandbox"))).targets.hf!.pillars.find((p: any) => p.key === "bb")!;
   assert.match(pillar.med!, /\(not taking\)/);
@@ -85,34 +85,34 @@ test("'not taking' replaces the start suggestion with one not-taking alert; 'tak
 
 test("intolerance recorded once silences the class until it is removed", async () => {
   const pid = await hfPatient();
-  const sg = (await att(pid)).find((x) => x.action?.type === "start-med" && x.action.code === "dapagliflozin");
+  const sg = (await att(pid)).find((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin");
   assert.ok(sg, "SGLT2i suggested");
   await post(`/patients/${pid}/recommendations/${sg.id}/decline`, { outcome: "declined", reason: "Recurrent genital infection", category: "intolerance", also: sg.also.map((x: any) => x.id) });
   let s = await tx((q) => summary(q, pid, "sandbox"));
-  assert.ok(!s.attention.some((x: any) => x.action?.type === "start-med" && x.action.code === "dapagliflozin"));
+  assert.ok(!s.attention.some((x: any) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin"));
   assert.deepEqual(s.barriers.map((b: any) => [b.cls, b.reason, b.detail, b.active]), [["sglt2", "Intolerance / side effect", "Recurrent genital infection", true]]);
   const pillar = s.targets.hf!.pillars.find((p: any) => p.key === "sglt2")!;
   assert.equal(pillar.state, "blocked");
   assert.match(pillar.note!, /Not given: intolerance \/ side effect \(Recurrent genital infection\)/);
   // a new visit does not bring a lasting reason back
   await tx(async (q) => { await K.startVisit(q, doc, pid, { reasons: ["HF follow-up"], service: "HF clinic", startedAt: new Date(Date.now() + 60000).toISOString() }); await reassess(q, pid, "sandbox"); });
-  assert.ok(!(await att(pid)).some((x) => x.action?.code === "dapagliflozin"));
+  assert.ok(!(await att(pid)).some((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin"));
   const d = (await db.query(`SELECT reason, outcome FROM cf.decision WHERE recommendation_id=$1`, [sg.id])).rows[0] as any;
   assert.equal(d.reason, "Intolerance / side effect: Recurrent genital infection");
   // removed → the suggestion returns
   await post(`/patients/${pid}/barriers/sglt2/clear`, {});
   s = await tx((q) => summary(q, pid, "sandbox"));
-  assert.ok(s.attention.some((x: any) => x.action?.type === "start-med" && x.action.code === "dapagliflozin"));
+  assert.ok(s.attention.some((x: any) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin"));
   assert.deepEqual(s.barriers, []);
 });
 
 test("'patient declines' lasts until the next visit; a dose-increase reason only stops uptitration", async () => {
   const pid = await hfPatient();
-  const sg = (await att(pid)).find((x) => x.action?.code === "dapagliflozin");
+  const sg = (await att(pid)).find((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin");
   await post(`/patients/${pid}/recommendations/${sg.id}/decline`, { outcome: "deferred", reason: "Wants to think about it", category: "declined" });
-  assert.ok(!(await att(pid)).some((x) => x.action?.code === "dapagliflozin"));
+  assert.ok(!(await att(pid)).some((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin"));
   await tx(async (q) => { await K.startVisit(q, doc, pid, { reasons: ["HF follow-up"], service: "HF clinic", startedAt: new Date(Date.now() + 60000).toISOString() }); await reassess(q, pid, "sandbox", ["contexts"]); });
-  assert.ok((await att(pid)).some((x) => x.action?.code === "dapagliflozin"), "back at the next visit");
+  assert.ok((await att(pid)).some((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin"), "back at the next visit");
 
   const up = (await att(pid)).find((x) => x.rule_id === "hf.titration" && x.title.startsWith("Uptitrate Bisoprolol"));
   assert.ok(up, "bisoprolol uptitration suggested");
@@ -127,7 +127,7 @@ test("a reason category is refused on a non-medicine suggestion; 'other' needs a
   const pid = await hfPatient();
   const iron = (await att(pid)).find((x) => x.rule_id === "hf.iron-deficiency");
   await assert.rejects(post(`/patients/${pid}/recommendations/${iron.id}/decline`, { outcome: "declined", reason: "x", category: "cost" }), /medicine suggestions only/);
-  const sg = (await att(pid)).find((x) => x.action?.code === "dapagliflozin");
+  const sg = (await att(pid)).find((x) => (x.action?.startCode ?? x.action?.code) === "dapagliflozin");
   await assert.rejects(post(`/patients/${pid}/recommendations/${sg.id}/decline`, { outcome: "declined", reason: "", category: "other" }), /400/);
 });
 

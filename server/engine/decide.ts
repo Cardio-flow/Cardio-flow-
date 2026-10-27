@@ -25,8 +25,8 @@ import { isAssumed } from "../../shared/decision-assume.js";
 import { MEASURES } from "../../shared/catalog.js";
 import { fmtDay, fmtTime } from "../../shared/clinical.js";
 import { ironInputs } from "../../shared/wizards-iron.js";
-import { getWizard } from "./wizard.js";
-import { safetyHits } from "./med-safety.js";
+import { getWizard, startChecksState } from "./wizard.js";
+import { preStartCheck, safetyHits } from "./med-safety.js";
 import { loadState } from "../kernel/state.js";
 import { RENAL_DEFAULTS } from "./renal-trend.js";
 import { doseLabel, MEDICATION } from "../../shared/catalog.js";
@@ -115,17 +115,35 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
   const questions = all.map(q => ({id:q.id,label:q.label,help:q.help ?? null,type:q.type,exclusive:q.exclusive ?? [],options:q.type === "dose" ? doseChoices(ctx,q).options : optionsFor(q,ctx)}));
   const needData = decisionDataNeeded(wizardId,ctx,answers).map((n) => ({ ...n, label: MEASURES[n.code]?.display ?? n.code, last: ctx.values?.[n.code] ? { value: ctx.values[n.code].value, at: ctx.values[n.code].at } : null }));
   // the plan as it stands (complete once the open questions are answered)
-  const plan = prioritiseDecision(potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates)).map((o) => ({
+  const outcome = potassiumFirst(wizardId,ctx) ? [] : buildOutcome(wizardId, answers, ctx, dueDates);
+  const plan = prioritiseDecision(outcome).map((o) => ({
     kind: o.kind, label: o.label, routine: routineDecisionItem(o), decision: o.kind === "note" && !!o.decision,
+    // the medicine a change acts on, so the overview can say an alert about it is covered by this decision
+    ...(o.kind === "medication" ? { medicationId: o.medicationId } : o.kind === "start" ? { code: o.code } : {}),
     ...(o.kind === "plan" ? { title: o.title, dueDate: o.dueDate, category: o.category } : {}),
   }));
   const s = await loadState(tx, patientId);
+  // a labelled start waiting for a result (eGFR / potassium): the result is asked for, never assumed (27 Oct 2026)
+  for (const o of outcome) if (o.kind === "note" && o.needs) for (const code of o.needs)
+    if (!needData.some((n) => n.code === code)) needData.push({ code, why: o.label, label: MEASURES[code]?.display ?? code, last: ctx.values?.[code] ? { value: ctx.values[code].value, at: ctx.values[code].at } : null } as (typeof needData)[number]);
+  // the same pre-start medicine check Confirm runs, shown in the decision before Confirm (27 Oct 2026 audit):
+  // a contraindication or duplicate is a blocker with its reason; a caution is listed with the medicines
+  const startChecks: { title: string; source: string; tone: "warn" }[] = [];
+  const afterStarts = startChecksState(s, outcome);
+  for (const o of outcome) {
+    if (o.kind !== "start" || !MEDICATION[o.code] || s.meds.some((m) => m.code === o.code && (m.status === "active" || m.status === "held"))) continue;
+    for (const h of preStartCheck(afterStarts, o.code, MEDICATION[o.code])) {
+      if (h.severity === "red" || h.requiresReview) blockers.push(`${MEDICATION[o.code].name}: ${h.title}. Choose another option, or open the full pathway and record why it is started anyway.`);
+      else startChecks.push({ title: `${MEDICATION[o.code].name}: ${h.title}`, source: h.source, tone: "warn" });
+    }
+  }
   const ids = MED_REVIEW[wizardId] ?? [];
   const medReview = [
     ...(CURRENT[wizardId] ? currentLine(ctx, CURRENT[wizardId]) : []),
     ...(ids.length ? [...safetyHits(s, "condition"), ...safetyHits(s, "interaction")].filter(({ row }) => ids.includes(row.id)).map(({ row, hit }) => ({ title: row.title(hit), source: row.source, tone: "warn" as const })) : []),
     ...(wizardId === "renal-function" ? renalKeep(ctx, answers) : []),
     ...(wizardId === "af-care" ? doacLines(ctx) : []),
+    ...startChecks,
   ];
   // a pathway that continues into another (e.g. bleeding → antithrombotic plan) is recorded in the pathway,
   // where both parts are confirmed together
@@ -135,6 +153,8 @@ export async function previewDecision(tx: Q, patientId: string, wizardId: string
     joined, today: ctx.today, evidenceKey: evidenceKey(s), questions, blockers,
     wizard: wizardId, title: def.title, note: def.note, source: def.sourceShort ?? def.source ?? null,
     answers, suggested, reasons, needed, needData, plan, medReview, assumed: assumedIds,
+    // the pathway's own reminder points (e.g. HF medicines: what stops each pillar and when it unlocks)
+    reminders: def.checks ? def.checks(answers, ctx) : [],
     ready: !needed.length && !needData.length && !blockers.length,
   };
 }

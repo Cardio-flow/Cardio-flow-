@@ -1,3 +1,4 @@
+import { eplerenoneStart } from "./start-doses.js";
 import { statinUp } from "./start-doses.js";
 // Coronary pathways (coronary module, 4 Oct 2026). Content only; the one wizard engine renders them.
 //
@@ -408,7 +409,12 @@ CORONARY_WIZARDS["acs-discharge"].outcome = (a: Answers, ctx: WizardContext): Ou
     ({ kind: "plan", category, title, dueDate, completesOn, label: "", medicationId });
   for (const v of pick("start")) {
     const m = ACS_MEDS[v];
-    if (m && !ctx.meds.some((x) => x.code === m.code)) out.push({ kind: "start", code: m.code, doseValue: m.dose, frequency: m.frequency, indication: "cad", label: `${m.label}: start` });
+    // the MRA start follows the label's potassium / eGFR limits (shared start doses, 27 Oct 2026 audit)
+    if (v === "mra" && m && !ctx.meds.some((x) => x.code === m.code)) {
+      const st = eplerenoneStart(ctx.values?.egfr?.value ?? null, ctx.values?.potassium?.value ?? null);
+      const needs = ["egfr", "potassium"].filter((code) => ctx.values?.[code]?.value == null);
+      out.push(typeof st === "string" ? { kind: "note", label: st, decision: true, ...(needs.length ? { needs } : {}) } : { kind: "start", code: st.code, doseValue: st.dose, frequency: "OD", indication: "cad", label: `Eplerenone ${st.dose} mg once daily: start — ${st.why}` });
+    } else if (m && !ctx.meds.some((x) => x.code === m.code)) out.push({ kind: "start", code: m.code, doseValue: m.dose, frequency: m.frequency, indication: "cad", label: `${m.label}: start` });
     if (v === "intensify") out.push(...statinUp(ctx));
   }
   const prevent = pick("prevent");

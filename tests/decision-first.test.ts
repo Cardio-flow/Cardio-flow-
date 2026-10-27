@@ -133,14 +133,18 @@ test("the follow-up visit is assumed none and shown; a pregnancy keeps lab pathw
 import { startItem, statinUp } from "../shared/start-doses.js";
 test("starts carry the label dose: SGLT2i 10 mg, finerenone by eGFR, metformin, spironolactone by eGFR; refused below the label limit", () => {
   const c = (egfr: number, k = 4.5, meds: WizardMed[] = []) => ctx(k, meds, { values: { egfr: { value: egfr, at: "x", prev: null }, potassium: { value: k, at: "x", prev: null } } } as any);
-  assert.match((startItem("sglt2", c(45), "hf", "sglt2") as any).label, /^Empagliflozin 10 mg once daily: start/);
+  // one source with the HF alert engine (27 Oct 2026): dapagliflozin from eGFR 25, empagliflozin at 20–24
+  assert.match((startItem("sglt2", c(45), "hf", "sglt2") as any).label, /^Dapagliflozin 10 mg once daily: start/);
+  assert.match((startItem("sglt2", c(22), "hf", "sglt2") as any).label, /^Empagliflozin 10 mg once daily: start/);
   assert.equal((startItem("sglt2", c(18), "hf", "sglt2") as any).kind, "note");
   assert.equal(startItem("sglt2", c(45, 4.5, [med("e", "empagliflozin", "Empagliflozin", 10, ["sglt2"])]), "hf", "sglt2"), null, "already on one");
   assert.equal((startItem("finerenone", c(70), "ckd") as any).doseValue, 20);
   assert.equal((startItem("finerenone", c(40), "ckd") as any).doseValue, 10);
   assert.equal((startItem("finerenone", c(40, 5.2), "ckd") as any).kind, "note");
-  assert.equal((startItem("mra", c(40), "hf") as any).doseValue, 12.5);
+  assert.equal((startItem("mra", c(40), "hf") as any).doseValue, 25, "label start 25 mg (Aldactone SmPC)");
   assert.equal((startItem("mra", c(70), "hf") as any).doseValue, 25);
+  assert.equal((startItem("mra", c(29), "hf") as any).kind, "note", "not below eGFR 30");
+  assert.deepEqual((startItem("mra", ctx(4.5, [], { values: { potassium: { value: 4.5, at: "x", prev: null } } } as any), "hf") as any).needs, ["egfr"], "a missing eGFR is asked for");
   assert.match((startItem("metformin", c(40), "dm") as any).label, /maximum 1000 mg\/day/);
 });
 test("missing eGFR prevents an SGLT2 start; statin intensity uses the known dose", () => {
@@ -154,10 +158,10 @@ test("missing eGFR prevents an SGLT2 start; statin intensity uses the known dose
   const rosu = med("r", "rosuvastatin", "Rosuvastatin", 20, ["statin"]);
   assert.equal(statinUp(ctx(4.5, [rosu], { values: { egfr: { value: 25, at: "x", prev: null } } } as any))[0].kind, "note", "rosuvastatin 40 mg not with eGFR <30");
 });
-test("diabetes above target on metformin with HF: empagliflozin 10 mg is started and counts as the glucose step", () => {
+test("diabetes above target on metformin with HF: dapagliflozin 10 mg is started and counts as the glucose step", () => {
   const met = med("mt", "metformin", "Metformin", 1000, ["metformin"]);
   const c = ctx(4.5, [met], { dx: ["t2dm", "dm", "hf", "hfref"], values: { hba1c: { value: 8.4, at: "x", prev: null }, egfr: { value: 60, at: "x", prev: null } }, glycaemicTarget: { value: 7, label: "<7%" } } as any);
   const { out } = decide("diabetes", c);
-  assert.ok(out.some((o: any) => o.kind === "start" && o.code === "empagliflozin" && o.doseValue === 10), out.map((o) => o.label).join(" | "));
+  assert.ok(out.some((o: any) => o.kind === "start" && o.code === "dapagliflozin" && o.doseValue === 10), out.map((o) => o.label).join(" | "));
   assert.ok(!out.some((o) => /Start an SGLT2 inhibitor:/.test(o.label)), "no undosed plan item");
 });

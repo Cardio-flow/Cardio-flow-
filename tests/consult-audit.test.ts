@@ -11,7 +11,7 @@ import * as K from "../server/kernel/clinical.js";
 import { summary } from "../server/kernel/views.js";
 import { reassess } from "../server/engine/engine.js";
 import { previewDecision } from "../server/engine/decide.js";
-import { completeWizard } from "../server/engine/wizard.js";
+import { completeWizard, getWizard } from "../server/engine/wizard.js";
 import { today, nowIso, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 import type { WizardContext } from "../shared/wizards.js";
@@ -198,6 +198,15 @@ test("HF comparison is identical across views and brief keeps the resolved forma
         alreadyTaking: true,
       });
   });
+  const ctx = (await tx(q => getWizard(q,id,"hf-medicines"))).context;
+  assert.equal(ctx.hfMeds!.items.find(i=>i.key==="raas")!.state,"target");
+  const bb = ctx.hfMeds!.items.find(i=>i.key==="bb")!;
+  assert.equal(bb.med!.pct,50);
+  assert.equal(bb.state,"needs");
+  assert.equal(bb.change,null,"OD carvedilol requires regimen clarification before titrating");
+  const preview = await tx(q=>previewDecision(q,id,"hf-medicines"));
+  assert.ok(!preview.plan.some(x=>x.kind==="medication" && /Ramipril/.test(x.label)));
+  await tx(q => reassess(q,id,"production"));
   const s = await tx((q) => summary(q, id));
   assert.equal(
     s.targets.hf!.pillars.find((p) => p.key === "raas")!.percentOfTarget,
@@ -207,6 +216,7 @@ test("HF comparison is identical across views and brief keeps the resolved forma
     s.targets.hf!.pillars.find((p) => p.key === "bb")!.percentOfTarget,
     50,
   );
+  assert.ok(!s.attention.some((a:any)=>a.rule_id === "hf.titration" && /Ramipril/.test(a.title)));
   const html = render(s);
   assert.match(html, /EF 35% \(formal/);
   assert.ok(!html.includes("35% → 55%"));

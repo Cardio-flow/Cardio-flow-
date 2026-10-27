@@ -2464,3 +2464,5 @@ details.reg-sec[open] > summary::before { content: "▾"; }
   .cx-vitals { gap:12px; }
   .cx-vitals b { font-size:18px; }
 }
+/* a proposed start the medicine check stops (27 Oct): said in the card, before Confirm */
+.cx-blocker{margin:8px 0;padding:8px 12px;border-radius:10px;background:var(--red-bg,#fdecec);color:var(--red-ink,#9b1c1c);font-size:13.5px;line-height:1.4}

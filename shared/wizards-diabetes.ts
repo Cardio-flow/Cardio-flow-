@@ -82,7 +82,7 @@ export const DIABETES_WIZARDS: Record<string, WizardDef> = {
           {
             id: "lower", label: "If above target, add or intensify", type: "multi", required: true,
             options: [
-              { value: "no-change", label: "No change needed" },
+              { value: "no-change", label: "No additional glucose-lowering step beyond the changes above" },
               { value: "metformin", label: `Metformin: ${b("metformin")}`, hint: "eGFR ≥30 · maximum 1000 mg/day with eGFR 30–44", unless: ["metformin"], },
               { value: "tirzepatide", label: `Tirzepatide: ${b("tirzepatide")}`, hint: "Largest HbA1c and weight reduction; HFpEF with obesity", unless: ["glp1"], },
               { value: "switch-tirzepatide", label: `Switch the GLP-1 RA to tirzepatide (${brand("tirzepatide")})`, hint: "If more HbA1c or weight lowering is needed", requires: ["glp1"],

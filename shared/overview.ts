@@ -27,6 +27,8 @@ export const problemOfRule = (ruleId: string): string => {
   if (ruleId.startsWith("aorta.")) return "aorta";
   if (ruleId === "event.pericarditis") return "pericardial";
   if (ruleId === "event.syncope") return "syncope";
+  // an event rule belongs where its pathway belongs (27 Oct 2026 audit: ICD shocks were filed under "Other alerts")
+  if (ruleId.startsWith("event.") && problemOfWizard(ruleId.slice(6)) !== "other") return problemOfWizard(ruleId.slice(6));
   if (
     ["safety.inr", "safety.digoxin", "event.amiodarone-thyroid"].includes(
       ruleId,
@@ -99,6 +101,7 @@ export const problemOfWizard = (id: string): string => {
     "ph-lhd-lung": "ph",
     "ph-suspected": "ph",
     "medication-monitoring": "medication",
+    "hf-medicines": "hf",
   };
   if (named[id]) return named[id];
   if (/^(htn-|rdn-|after-rdn)/.test(id)) return "bp";

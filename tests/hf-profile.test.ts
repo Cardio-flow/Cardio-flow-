@@ -61,7 +61,7 @@ test("LVEF improved to ≥50%: panel keeps the four HFrEF pillars; new starts fo
   assert.equal(s.hf.improved.lowest, 30);
   assert.equal(s.hf.typeLabel, "HF with improved LVEF (was 30%)");
   assert.deepEqual(s.hf.pillars.map((p: any) => p.key), ["raas", "bb", "mra", "sglt2"]);
-  const starts = s.attention.filter((a: any) => a.rule_id === "hf.foundational-therapy").map((a: any) => a.action?.code);
+  const starts = s.attention.filter((a: any) => a.rule_id === "hf.foundational-therapy").map((a: any) => a.action?.startCode ?? a.action?.code);
   assert.ok(starts.includes("dapagliflozin") || starts.some((c: string) => /gliflozin/.test(c)), "SGLT2i suggested");
   assert.ok(!starts.includes("bisoprolol"), "no new beta-blocker start for improved LVEF");
 });
