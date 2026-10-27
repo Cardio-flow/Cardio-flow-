@@ -179,7 +179,7 @@ const pillarsFor = (s: PatientState, use: "panel" | "start" = "panel"): Pillar[]
   return [
     { key: "raas", label: "ARNI / ACE inhibitor / ARB", tags: ["raas"], start: { code: "sacubitril-valsartan", dose: 24 } },
     { key: "bb", label: "Beta-blocker", tags: ["bb"], start: { code: "bisoprolol", dose: 1.25 } },
-    { key: "mra", label: "MRA", tags: ["mra"], start: pick(spironolactoneStart(egfr), { code: "spironolactone", dose: 12.5 }) },
+    { key: "mra", label: "MRA", tags: ["mra"], start: pick(spironolactoneStart(egfr, val(s, "creatinine", 90)), { code: "spironolactone", dose: 25 }) },
     sglt2,
   ];
 };

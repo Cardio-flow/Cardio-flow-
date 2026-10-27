@@ -141,9 +141,9 @@ test("starts carry the label dose: SGLT2i 10 mg, finerenone by eGFR, metformin, 
   assert.equal((startItem("finerenone", c(70), "ckd") as any).doseValue, 20);
   assert.equal((startItem("finerenone", c(40), "ckd") as any).doseValue, 10);
   assert.equal((startItem("finerenone", c(40, 5.2), "ckd") as any).kind, "note");
-  assert.equal((startItem("mra", c(40), "hf") as any).doseValue, 12.5);
+  assert.equal((startItem("mra", c(40), "hf") as any).doseValue, 25, "label start 25 mg (Aldactone SmPC)");
   assert.equal((startItem("mra", c(70), "hf") as any).doseValue, 25);
-  assert.equal((startItem("mra", c(47), "hf") as any).doseValue, 12.5, "unified cut-off <50 (NEEDS_REVIEW)");
+  assert.equal((startItem("mra", c(29), "hf") as any).kind, "note", "not below eGFR 30");
   assert.deepEqual((startItem("mra", ctx(4.5, [], { values: { potassium: { value: 4.5, at: "x", prev: null } } } as any), "hf") as any).needs, ["egfr"], "a missing eGFR is asked for");
   assert.match((startItem("metformin", c(40), "dm") as any).label, /maximum 1000 mg\/day/);
 });

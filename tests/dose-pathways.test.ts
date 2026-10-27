@@ -32,7 +32,8 @@ const recs = async (pid: string) => ((await db.query(`SELECT rule_id, title, act
 
 test("one source of starting doses: alerts and pathways give the same drug and dose", () => {
   assert.deepEqual([sglt2Start(45), sglt2Start(22), sglt2Start(18)].map((d) => (typeof d === "string" ? "no" : `${d.code} ${d.dose}`)), ["dapagliflozin 10", "empagliflozin 10", "no"]);
-  assert.deepEqual([spironolactoneStart(70), spironolactoneStart(47), spironolactoneStart(29)].map((d) => (typeof d === "string" ? "no" : d.dose)), [25, 12.5, "no"]);
+  // Aldactone SmPC 4.2: 25 mg once daily; no eGFR-based 12.5 mg start; not with creatinine >221 µmol/L (2.5 mg/dL); not below eGFR 30
+  assert.deepEqual([spironolactoneStart(70), spironolactoneStart(47), spironolactoneStart(35, 230), spironolactoneStart(29)].map((d) => (typeof d === "string" ? "no" : d.dose)), [25, 25, "no", "no"]);
   assert.deepEqual([finerenoneStart(70), finerenoneStart(40), finerenoneStart(24)].map((d) => (typeof d === "string" ? "no" : d.dose)), [20, 10, "no"]);
 });
 

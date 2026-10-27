@@ -20,15 +20,16 @@ export function sglt2Start(egfr: number | null): Dose | string {
     ? { code: "empagliflozin", dose: 10, why: `eGFR ${Math.round(egfr)} 20–24: empagliflozin 10 mg (dapagliflozin not started below 25; Jardiance / Forxiga SmPC)` }
     : { code: "dapagliflozin", dose: 10, why: "label dose, no titration (Forxiga SmPC; ESC HF)" };
 }
-// spironolactone 25 mg; 12.5 mg with eGFR 30–49; not below eGFR 30 (ESC HF practical guidance on MRA).
-// NEEDS_REVIEW (27 Oct 2026): the alert engine used <45 and the pathways <50 for the 12.5 mg start; unified on
-// the more cautious <50 until Ahmed confirms the cut-off.
-export const MRA_HALF_DOSE_BELOW_EGFR = 50;
-export function spironolactoneStart(egfr: number | null): Dose | string {
+// Spironolactone in heart failure (27 Oct 2026, Ahmed: "use the latest guidelines"). Aldactone UK SmPC 4.2: start
+// 25 mg once daily if potassium ≤5.0 and creatinine ≤2.5 mg/dL (221 µmol/L); 25 mg every other day if 25 mg daily
+// is not tolerated; then 50 mg daily as indicated. The label has no eGFR-based 12.5 mg start: the earlier
+// 12.5 mg below eGFR 45 / 50 had no verified source and is removed. Not started below eGFR 30 (ESC HF practical
+// guidance, as the HF alert gate). The ESC 2026 dose table (Table 11) could not be retrieved to cross-check.
+export const SPIRONOLACTONE_MAX_CREATININE = 221; // µmol/L = 2.5 mg/dL (Aldactone SmPC 4.2)
+export function spironolactoneStart(egfr: number | null, creatinine: number | null = null): Dose | string {
   if (egfr != null && egfr < 30) return `eGFR ${Math.round(egfr)} <30: an MRA is not started (ESC HF practical guidance)`;
-  return egfr != null && egfr < MRA_HALF_DOSE_BELOW_EGFR
-    ? { code: "spironolactone", dose: 12.5, why: `eGFR ${Math.round(egfr)} 30–${MRA_HALF_DOSE_BELOW_EGFR - 1}: 12.5 mg starting dose` }
-    : { code: "spironolactone", dose: 25, why: "25 mg starting dose" };
+  if (creatinine != null && creatinine > SPIRONOLACTONE_MAX_CREATININE) return `Creatinine ${Math.round(creatinine)} µmol/L >221 (2.5 mg/dL): spironolactone is not started (Aldactone SmPC)`;
+  return { code: "spironolactone", dose: 25, why: "25 mg once daily (Aldactone SmPC; 25 mg every other day if not tolerated)" };
 }
 // eplerenone after MI with LVEF ≤40% (Inspra SmPC 4.2/4.3): 25 mg once daily; not started with K >5.0 or eGFR <30
 export function eplerenoneStart(egfr: number | null, k: number | null): Dose | string {
@@ -72,13 +73,13 @@ export const START: Record<string, (c: WizardContext) => Start | string> = {
   gliclazide: () => ({ code: "gliclazide", dose: 30, frequency: "OD", why: "SmPC starting dose with breakfast; hypoglycaemia advice" }),
   // ESC HF 2021 diuretic table: furosemide starting dose 20–40 mg
   loop: () => ({ code: "furosemide", dose: 40, frequency: "OD", why: "within the ESC HF 2021 starting range 20–40 mg; adjust to weight and congestion" }),
-  // ESC HF practical guidance on MRA: spironolactone 25 mg (12.5 mg with eGFR 30–49); not below eGFR 30 or with K >5.0
+  // spironolactone 25 mg once daily (Aldactone SmPC); not with K >5.0, creatinine >221 µmol/L or eGFR <30
   mra: (c) => {
     const e = v(c, "egfr"), k = v(c, "potassium");
     if (e == null || k == null) return "Record eGFR and potassium before starting an MRA (ESC HF practical guidance)";
     if (k != null && k > 5.0) return `K ${k} >5.0: an MRA is not started (ESC HF practical guidance)`;
-    const st = spironolactoneStart(e);
-    return typeof st === "string" ? st : { ...st, frequency: "OD", why: `${st.why}; potassium and creatinine at 1 and 4 weeks (ESC HF practical guidance)` };
+    const st = spironolactoneStart(e, v(c, "creatinine"));
+    return typeof st === "string" ? st : { ...st, frequency: "OD", why: `${st.why}; potassium and creatinine at 1 week, then monthly for 3 months (SmPC)` };
   },
   // pantoprazole 40 mg once daily with combined antithrombotic therapy (ESC ACS 2023; label dose)
   ppi: () => ({ code: "pantoprazole", dose: 40, frequency: "OD", why: "gastroprotection with antithrombotic therapy (ESC 2023; label dose)" }),
