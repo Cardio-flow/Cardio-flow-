@@ -11,11 +11,11 @@
 // detail) stays one tap away at the end. No new clinical logic here: everything shown comes from the summary
 // and the decision preview the alert cards already used.
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronDown, AlertTriangle } from "lucide-react";
+import { Info, ChevronDown, AlertTriangle } from "lucide-react";
 import { api } from "../api";
 import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { PlanTasks } from "./PlanTasks";
-import { problemOfRule } from "../../shared/overview";
+import { overviewCounts, problemOfRule } from "../../shared/overview";
 import { fmtDay } from "../../shared/clinical";
 import { ActionButton } from "./Summary";
 import { DismissPanel, buildProblems, RESULT_PROBLEM, TITLES } from "./Today";
@@ -42,8 +42,8 @@ function brief(s: any): string | null {
   const h = s.header ?? {};
   const dx = (h.diagnoses ?? []) as any[];
   const hf = dx.find((d) => d.family === "Heart failure");
-  const lvef = (s.timeline?.lanes ?? []).find((l: any) => l.code === "lvef")?.points ?? [];
-  const course = lvef.length >= 2 ? `, LVEF ${lvef[0].text}% → ${lvef[lvef.length - 1].text}%` : lvef.length === 1 ? `, LVEF ${lvef[0].text}%` : "";
+  const current=s.currentLvef;
+  const course=current ? `, EF ${current.value}${current.high != null ? `–${current.high}` : ""}% (${current.quality}, ${fmtDay(current.at)})` : "";
   const first = hf ? `${hf.label.replace(/(\s*·\s*EF)?\s*[\d–-]+%$/, "")}${course}` : dx.find((d) => d.family !== "Comorbidity" && !d.riskFactor)?.label ?? null;
   const extra = [h.ihd?.label?.replace(/^IHD · /, "IHD: "), ...((h.structural?.items ?? []) as string[])].filter(Boolean).slice(0, 2);
   const s1 = first ? `${first}${extra.length ? `; ${extra.join("; ")}` : ""}.` : extra.length ? `${extra.join("; ")}.` : "";
@@ -55,6 +55,19 @@ function brief(s: any): string | null {
   return out || null;
 }
 
+type ProposalItem={kind:string;label:string;routine?:boolean};
+export function ProposalPlan({plan}:{plan:ProposalItem[]}) {
+  const routine=plan.filter(x=>x.routine && !["start","medication"].includes(x.kind));
+  const main=plan.filter(x=>!routine.includes(x));
+  const list=(items:ProposalItem[])=><ul className="cx-changes">{items.map((x,i)=><li key={i}>{x.label.replace(/^[^:]{3,60}\?:\s*/, "")}</li>)}</ul>;
+  return <section aria-label="This will be recorded">{list(main)}{routine.length>0 && <details className="cx-routine-plan"><summary>{routine.length} routine actions included</summary>{list(routine)}</details>}</section>;
+}
+function openRecord(section:string) {
+  const record=document.getElementById("cx-meds") as HTMLDetailsElement|null;
+  if(record)record.open=true;
+  requestAnimationFrame(()=>{const el=document.getElementById(section);el?.scrollIntoView({block:"start"});el?.focus({preventScroll:true});});
+}
+
 // ---------- a decision ----------
 function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = false, results = [], prob = null }: { a: any; n: number; s: any; open(o: Open): void; done(m?: string, r?: any): void; tasks?: any[]; extra?: any[]; compact?: boolean; results?: string[]; prob?: any }) {
   // after the first three, a decision shows as one line (headline, what is still needed, its buttons) and opens in place
@@ -62,7 +75,8 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
   // an alert that is itself an open task shows as the task (with its due date and evidence)
   const ownTask = a.action?.type === "plan" ? ((s.plan ?? []) as any[]).find((p) => p.id === a.action.planId) ?? null : null;
   const allTasks = ownTask ? [ownTask, ...tasks.filter((t) => t.id !== ownTask.id)] : tasks;
-  const wizard = decides(a) ? (a.action.wizard as string) : null;
+  const wizardRec=decides(a) ? a : extra.find(decides);
+  const wizard = wizardRec?.action.wizard as string | undefined;
   const [p, setP] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -72,13 +86,14 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
   useEffect(() => {
     if (!wizard) return;
     let live = true;
+    setP(null);
     api(`/patients/${patientId}/decisions/${wizard}/preview`, { body: { answers: {}, dueDates: {} } }).then((r) => live && setP(r), () => live && setP(false));
     return () => { live = false; };
-  }, [patientId, wizard, a.id]);
+  }, [patientId, wizard, a.id, s]);
   const home = homeOf(a, s);
-  const plan = (p?.plan ?? []) as { kind: string; label: string }[];
+  const plan = (p?.plan ?? []) as { kind: string; label: string; routine?: boolean }[];
   const firstMed = plan.find((x) => x.kind === "medication" || x.kind === "start");
-  const headline = firstMed ? firstMed.label.split(" — ")[0].split(": start")[0] + (firstMed.kind === "start" ? ": start" : "") : a.title;
+  const headline = firstMed && a.severity !== "red" ? firstMed.label.split(" — ")[0].split(": start")[0] + (firstMed.kind === "start" ? ": start" : "") : a.title;
   const why = [...new Set(((p?.reasons ?? []) as any[]).filter((r) => r.source === "guideline" && r.why).flatMap((r) => (r.why as string).split(" · ")))].filter((w, i, all) => !all.slice(0, i).some((x) => x.slice(0, 40) === w.slice(0, 40))).slice(0, 2);
   const links = ((a.links ?? []) as string[]).slice(0, 3);
   const asks = ((s.ask ?? []) as any[]).filter((q) => (ASK_FOR[home] ?? []).includes(q.key)).map((q) => `${q.ask} — ${q.why}`);
@@ -90,7 +105,7 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
     if (!p || busy) return;
     setBusy(true); setError("");
     try {
-      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers: p.answers, dueDates: {}, evidenceKey: p.evidenceKey, recommendationId: a.id } });
+      const r = await api(`/patients/${patientId}/wizards/${wizard}/complete`, { body: { answers: p.answers, dueDates: {}, evidenceKey: p.evidenceKey, recommendationId: wizardRec?.id } });
       done(`${p.title} recorded`, r);
     } catch (e) { setError((e as Error).message); setBusy(false); }
   }
@@ -103,17 +118,9 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
           {headline !== a.title && <span className="cx-problem">{a.title}</span>}
         </div>
         <h3 className="cx-headline">{headline}</h3>
+        {wizard && wizardRec !== a && !ownTask && <div className="cx-actions"><ActionButton a={a} open={open} /></div>}
         {wizard && p === null && <div className="cx-loading" aria-busy="true">Working out the decision…</div>}
-        {more && plan.length > 0 && (
-          <ul className="cx-changes" aria-label="This will be recorded">
-            {plan.slice(0, 5).map((x, i) => {
-              // "What will you do?: Continue …" → "Continue …" (the pathway's question is not part of the decision)
-              const label = x.label.replace(/^[^:]{3,60}\?:\s*/, "");
-              const [what, how] = label.includes(" · ") ? [label.slice(0, label.lastIndexOf(" · ")), label.slice(label.lastIndexOf(" · ") + 3)] : label.split(" — ");
-              return <li key={i}><b>{what}</b>{how && <span>{how}</span>}</li>;
-            })}
-          </ul>
-        )}
+        {more && plan.length > 0 && <ProposalPlan plan={plan} />}
         {/* where the problem stands against its goal (the tile it replaces) */}
         {more && prob && (prob.stats?.length > 0 || prob.goal || prob.therapy) && (
           <section className="cx-goal" aria-label={prob.label}>
@@ -122,16 +129,13 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
           </section>
         )}
         {more && results.length > 0 && <div className="cx-results"><b>Results:</b> {results.join(" · ")}</div>}
-        {more && (why.length > 0 || (!plan.length && a.detail)) && (
-          <p className="cx-why"><b>Why.</b> {why.length ? why.join(" · ") : a.detail}</p>
-        )}
-        {more && links.length > 0 && <ul className="cx-links">{links.map((l, i) => <li key={i}>{l}</li>)}</ul>}
-        {more && checks.length > 0 && (
-          <div className="cx-checks">
-            <div className="cx-checks-h">Before you confirm</div>
-            {checks.slice(0, 4).map((c, i) => <label key={i} className="cx-check"><input type="checkbox" /><span>{c}</span></label>)}
-          </div>
-        )}
+        {more && data.length > 0 && <div className="cx-needed">{data.join(" · ")}</div>}
+        {more && (why.length > 0 || a.detail || links.length > 0 || checks.length > 0) && <details className="cx-rationale">
+          <summary>Why & reminders</summary>
+          <p className="cx-why">{why.length ? why.join(" · ") : a.detail}</p>
+          {links.length > 0 && <ul className="cx-links">{links.map((l,i)=><li key={i}>{l}</li>)}</ul>}
+          {checks.length > 0 && <ul className="cx-checks">{checks.map((c,i)=><li key={i}>{c}</li>)}</ul>}
+        </details>}
         {p && !p.ready && (p.needed?.length > 0) && !panel && <div className="cx-needed">To decide: <b>{(p.needed as any[]).map((q) => q.last ? `${q.label} (last ${fmtDay(q.last.at)}: ${q.last.label})` : q.label).join(" · ")}</b></div>}
         {(more || allTasks.some((t) => t.clinicalContext?.urgent || t.awaitingReview)) && allTasks.length > 0 && <div className="cx-tasks"><PlanTasks tasks={allTasks} open={open} today={s.today} /></div>}
         {more && extra.length > 0 && (
@@ -142,26 +146,26 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
         )}
         {error && <div className="error-box" role="alert">{error}</div>}
         {/* the decision answered in place: the questions the record cannot answer, then Apply (as the old cards) */}
-        {panel && wizard && <div className="cx-panel-inline"><DecisionPanel key={a.id} a={a} patientId={patientId} open={open} done={done} /></div>}
+        {panel && wizard && <div className="cx-panel-inline"><DecisionPanel key={wizardRec.id} a={wizardRec} patientId={patientId} open={open} done={done} /></div>}
         {dismiss ? (
           <DismissPanel a={a} patientId={patientId} done={done} onCancel={() => setDismiss(false)} />
         ) : (
           <div className="cx-actions">
             {wizard ? (
-              ready ? (
+              ready && more ? (
                 <>
                   <button className="btn primary" disabled={busy} onClick={confirm}>{busy ? "Recording…" : "Confirm"}</button>
-                  <button className="btn secondary" aria-expanded={panel} onClick={() => setPanel(!panel)}>{panel ? "Close decision" : wizard === "pregnancy-plan" ? "Review pregnancy care" : wizard === "diabetes" ? "Review diabetes care" : "Review plan"}</button>
+                  <button className="btn secondary" aria-expanded={panel} onClick={() => {setMore(true); setPanel(!panel);}}>{panel ? "Close decision" : wizard === "pregnancy-plan" ? "Review pregnancy care" : wizard === "diabetes" ? "Review diabetes care" : "Review plan"}</button>
                 </>
               ) : (
-                <button className="btn primary" disabled={p === null} aria-expanded={panel} onClick={() => setPanel(!panel)}>
+                <button className="btn primary" disabled={p === null} aria-expanded={panel} onClick={() => {setMore(true); setPanel(!panel);}}>
                   {panel ? "Close decision" : wizard === "pregnancy-plan" ? "Review pregnancy care" : wizard === "diabetes" ? "Review diabetes care" : "Review plan"}
                 </button>
               )
             ) : ownTask ? null : (
               <ActionButton a={a} open={open} />
             )}
-            {wizard && <button className="btn secondary" onClick={() => open({ kind: "wizard", wizard, recommendationId: a.id } as Open)}>Other options</button>}
+            {wizard && <button className="btn secondary" onClick={() => open({ kind: "wizard", wizard, recommendationId: wizardRec?.id } as Open)}>Other options</button>}
             {!more && <button className="btn ghost" aria-expanded={false} onClick={() => setMore(true)}>Details{extra.length ? ` · ${extra.length + 1} items` : ""}</button>}
             <button className="btn ghost cx-notnow" onClick={() => setDismiss(true)}>Not now</button>
           </div>
@@ -194,16 +198,16 @@ function Pillars({ s }: { s: any }) {
       <div className="cx-sec-h"><h2>Heart failure medicines · {on} of {ps.length} on</h2><span>Each says what unlocks it</span></div>
       <div className="cx-pillars">
         {ps.map((p) => {
-          const pct = p.state === "target" ? 100 : p.percentOfTarget ?? (p.state === "on" ? 50 : 0);
+          const pct = p.percentOfTarget ?? null;
           const color = p.state === "target" ? "#0E7C66" : p.state === "on" ? "#1F4FD8" : "#B54708";
-          const state = p.state === "target" ? "At target" : p.state === "on" ? `${p.med ?? "On"}${p.percentOfTarget != null ? ` · ${p.percentOfTarget}%` : ""}` : p.block ? `Not now · ${p.block}` : p.state === "held" ? `Held${p.med ? ` · ${p.med}` : ""}` : "Not started";
+          const state = p.state === "target" ? "At target" : p.state === "on" ? `${p.med ?? "On"}${p.percentOfTarget != null ? ` · ${p.percentOfTarget}%` : " · dose comparison unavailable"}` : p.block ? `Not now · ${p.block}` : p.state === "held" ? `Held${p.med ? ` · ${p.med}` : ""}` : "Not started";
           const unlock = p.block ? p.unlock : p.increaseBlock ? `Up-titrate ${p.increaseUnlock ?? ""} (${p.increaseBlock})` : p.state === "target" ? "Keep" : p.state === "on" ? "Up-titrate towards target" : "Start when appropriate";
           return (
             <div key={p.key} className="cx-pillar">
               <div className="cx-pillar-h">
-                <svg width="34" height="34" viewBox="0 0 36 36" role="img" aria-label={`${pct}% of target`}>
+                <svg width="34" height="34" viewBox="0 0 36 36" role="img" aria-label={pct == null ? "Dose comparison unavailable" : `${pct}% of target`}>
                   <circle cx="18" cy="18" r="14" fill="none" stroke="#EEF1F5" strokeWidth="5" />
-                  <circle cx="18" cy="18" r="14" fill="none" stroke={color} strokeWidth="5" strokeDasharray={`${(pct / 100) * 88} 88`} strokeLinecap="round" transform="rotate(-90 18 18)" />
+                  <circle cx="18" cy="18" r="14" fill="none" stroke={color} strokeWidth="5" strokeDasharray={`${(Math.min(pct ?? 0,100) / 100) * 88} 88`} strokeLinecap="round" transform="rotate(-90 18 18)" />
                 </svg>
                 <b>{p.label.split(" (")[0].replace("ARNI / ACE inhibitor / ARB", "ARNI / ACEi / ARB")}</b>
               </div>
@@ -237,35 +241,35 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
   const other = ((s.abnormal?.items ?? []) as any[]).filter((x) => !lanes.some((l) => l.code === x.code));
   const meds = ((s.medications?.groups ?? []) as any[]).flatMap((g) => g.meds);
   const next = (s.upcoming ?? [])[0];
-  const since = (s.story ?? []).find((l: any) => l.key === "since");
   return (
-    <aside className="cx-rail" aria-label="Since the last visit">
-      <section className="cx-panel">
-        <h2 className="cx-ph">{since?.label ?? "Latest"}</h2>
+    <aside className="cx-rail" aria-label="Current results and medicines">
+      <section className="cx-panel cx-key-results">
+        <h2 className="cx-ph">Latest results</h2>
         <div className="cx-vitals pulse-vitals">
           {/* systolic and diastolic are paired only when measured together (17 Oct audit: never today's SBP with an old DBP) */}
           {v.sbp && v.dbp && v.dbp.at === v.sbp.at ? <span><b>{Math.round(v.sbp.value)}/{Math.round(v.dbp.value)}</b> BP</span> : <span><b>{v.sbp ? Math.round(v.sbp.value) : "—"}</b> SBP</span>}
           <span><b>{v.hr ? Math.round(v.hr.value) : "—"}</b> HR</span>
           <span><b className={v.weight ? "" : "muted"}>{v.weight ? v.weight.value : "—"}</b> weight</span>
         </div>
-        {lanes.map((l) => {
+        <div className="cx-trends">{lanes.map((l) => {
           const pts = l.points as any[];
-          const last = pts[pts.length - 1], first = pts[0];
+          const last = l.current ?? pts[pts.length - 1], first = pts[0];
+          const latest=pts[pts.length-1], differs=last.id && latest.id!==last.id;
           const good = l.code === "lvef" ? last.value >= first.value : !abn.has(l.code);
           const color = good ? "#0E7C66" : "#B42318";
-          const pct = first.value ? Math.round(((last.value - first.value) / first.value) * 100) : 0;
+          const pct = first.value ? Math.round(((last.value - first.value) / first.value) * 100) : null;
           return (
             <div key={l.code} className="cx-trend">
               <span>{l.label.replace(" %", "")}</span>
               <Spark values={pts.map((x) => x.value)} color={color} />
-              <span className="cx-trend-v"><b>{last.text ?? last.value}</b><i style={{ color }}>{pts.length > 1 ? (l.code === "lvef" ? `from ${first.text ?? first.value}` : `${pct >= 0 ? "+" : ""}${pct}% from ${first.text ?? first.value}`) : fmtDay(last.at)}</i></span>
+              <span className="cx-trend-v"><b>{last.text ?? last.value} <small>{l.unit}</small></b><i style={{ color }}>{pct != null && !differs ? `${pct >= 0 ? "+" : ""}${pct}% from ${first.text ?? first.value}` : "Used for decisions"}</i><small>{differs ? `${last.quality} · ${fmtDay(last.at,{year:true})}` : `${fmtDay(first.at,{year:true})} → ${fmtDay(last.at,{year:true})}`}</small>{differs && <small>Latest {latest.quality}: {latest.text} {l.unit} · {fmtDay(latest.at)}. {last.reason}</small>}</span>
             </div>
           );
-        })}
+        })}</div>
         {other.length > 0 && <a className="cx-also-link" href="#cx-standing">{other.length} other abnormal result{other.length === 1 ? "" : "s"} · by problem below</a>}
       </section>
       {meds.length > 0 && (
-        <section className="cx-panel">
+        <section className="cx-panel cx-rail-medicines">
           <div className="cx-ph-row"><h2 className="cx-ph">Medicines · {meds.length}</h2><a href="#cx-meds" className="small" onClick={() => { const d = document.getElementById("cx-meds") as HTMLDetailsElement | null; if (d) d.open = true; }}>Details</a></div>
           {meds.map((m: any) => (
             <div key={m.id} className="cx-med"><b>{m.name}</b><span>{m.dose} {m.frequency}{m.status === "held" ? " · held" : ""}</span></div>
@@ -374,7 +378,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const groups = new Map<string, any[]>();
   for (const a of ranked.filter((x) => x.severity !== "blue")) { const k = homeOf(a, s); groups.set(k, [...(groups.get(k) ?? []), a]); }
   // the card leads with the problem's decision (a pathway the engine can decide), its other alerts listed inside
-  const ordered = [...groups.values()].map((g) => [...g.filter(decides), ...g.filter((x) => !decides(x))]);
+  const ordered = [...groups.values()];
   const top = ordered.map((g) => g[0]);
   const extraOf = ordered.map((g) => g.slice(1));
   const rest = ranked.filter((x) => x.severity === "blue");
@@ -387,26 +391,37 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const resultsOf = (k: string) => ((s.abnormal?.items ?? []) as any[]).filter((r) => RESULT_PROBLEM[r.code] === k && !laneCodes.has(r.code)).map((r) => `${r.label} ${r.text}${r.note ? ` (${r.note})` : ""}`);
   const cardKeys = new Set(top.map((a) => homeOf(a, s)));
   const text = brief(s);
+  const counts=overviewCounts(s.attention ?? [],s.plan ?? []);
+  const outstanding=pending.filter(p=>p.awaitingReview || p.dueDate && p.dueDate<=s.today);
   const problems = (() => { try { return buildProblems(s); } catch { return []; } })();
   // a problem with nothing to say beyond "on track" folds into one line; the rest are listed
   const quiet = (p: any) => p.assessment === "met" && !p.need.length && !tileTasks(p.key).length && !((s.abnormal?.items ?? []) as any[]).some((r: any) => RESULT_PROBLEM[r.code] === p.key);
   const onTrack = problems.filter((p: any) => quiet(p) && !cardKeys.has(p.key));
   // a problem with a decision card speaks there (its results in the card); the others are listed
   const standing = problems.filter((p: any) => !quiet(p) && !cardKeys.has(p.key));
+  const represented=new Set([...cardKeys,...standing.map((p:any)=>p.key),...onTrack.map((p:any)=>p.key)]);
+  const orphanTasks=managementTasks.filter(p=>!represented.has(p.clinicalContext?.problem ?? "other") && !onEpisode.has(p.id));
   return (
     <div className="cx">
       {text && <p className="cx-brief">{text}</p>}
+      <nav className="cx-shortcuts" aria-label="Overview sections">
+        <a className="btn secondary small" href="#att">Decisions</a>
+        <button className="btn secondary small" onClick={()=>openRecord("cx-results-record")}>Results</button>
+        <button className="btn secondary small" onClick={()=>openRecord("cx-medications-record")}>Medicines</button>
+        <button className="btn secondary small" onClick={()=>openRecord("cx-plan-record")}>Plan</button>
+      </nav>
       <div className="cx-grid">
         <div className="cx-main" id="att">
           {slots.episodes}
-          <div className="cx-sec-h cx-today"><div className="cx-today-t"><h2 id="att-h">Today</h2><span>for this patient</span></div><span>{top.length ? `${top.length} decision${top.length === 1 ? "" : "s"}${rest.length ? ` · ${rest.length} to consider below` : ""}` : "Nothing needs a decision"}</span></div>
-          {top.length === 0 && <div className="cx-clear"><Check size={20} /> Nothing needs a decision today. Every plan item is on track.</div>}
-          {top.map((a, i) => <DecisionCard key={a.id} a={a} n={i + 1} s={s} open={open} done={done} tasks={topTasks[i]} extra={extraOf[i]} compact={i >= 3} results={resultsOf(homeOf(a, s))} prob={problems.find((p: any) => p.key === homeOf(a, s)) ?? null} />)}
+          <div className="cx-sec-h cx-today"><div className="cx-today-t"><h2 id="att-h">Today</h2><span>for this patient</span></div><span>{`${counts.decisions} decisions · ${outstanding.length} tasks due / awaiting review`}</span></div>
+          {top.length === 0 && <div className="cx-clear"><Info size={20} /> {outstanding.length > 0 ? `${outstanding.length} tasks need completion or review.` : "Review recorded data and follow-up to complete the assessment."}</div>}
+          {top.map((a, i) => <DecisionCard key={a.id} a={a} n={i + 1} s={s} open={open} done={done} tasks={topTasks[i]} extra={extraOf[i]} compact={i >= 3 && a.severity !== "red"} results={resultsOf(homeOf(a, s))} prob={problems.find((p: any) => p.key === homeOf(a, s)) ?? null} />)}
           {rest.length > 0 && (
             <FoldLine dot="#B54708" title={`To consider · ${rest.length}`} sub={rest.slice(0, 3).map((a) => a.title.split(":")[0]).join(" · ")}>
               {rest.map((a) => <Row key={a.id} a={a} s={s} open={open} done={done} />)}
             </FoldLine>
           )}
+          {orphanTasks.length>0 && <section aria-label="Outstanding work"><PlanTasks tasks={orphanTasks} open={open} today={s.today}/></section>}
           <Standing s={s} open={open} problems={standing} tasksOf={tileTasks} />
           <Pillars s={s} />
           <Lifeline s={s} />
@@ -422,7 +437,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
             </FoldLine>
           )}
           <FoldLine id="cx-meds" className="cx-record" dot="#13294B" title="The record" sub="Medicines, plan and all results">
-            <div className="stack">{slots.meds}{slots.plan}{slots.results}{slots.dismissed}</div>
+            <div className="stack"><section id="cx-medications-record" tabIndex={-1}>{slots.meds}</section><section id="cx-plan-record" tabIndex={-1}>{slots.plan}</section><section id="cx-results-record" tabIndex={-1}>{slots.results}</section>{slots.dismissed}</div>
           </FoldLine>
           {slots.more && (
             <FoldLine className="module-detail" remember="cf.fold.more" dot="#5B6B7F" title="More detail" sub={slots.moreLabel ?? "Classification, procedures, devices and surveillance"}>

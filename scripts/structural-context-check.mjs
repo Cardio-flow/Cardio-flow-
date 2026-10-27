@@ -469,6 +469,9 @@ try {
     .getByRole("button", { name: /TEER: mitral \/ tricuspid selection/ })
     .click();
   await radio("TEER valve", "Tricuspid");
+  // TAVI stability is no longer silently reused as a TEER safety assessment.
+  // Inspect the full preparation requirements regardless of unanswered safety.
+  await steps();
   await page
     .getByRole("radiogroup", {
       name: "Tricuspid candidates: RHC / PVR",

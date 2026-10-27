@@ -1,3 +1,4 @@
+import { hfDoseReference } from "../../shared/hf-dose-reference.js";
 import { LAB_LIMITS } from "../../shared/lab-review.js";
 import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
 import { urgentBp } from "./hypertension-rules.js";
@@ -263,7 +264,10 @@ export function fmtStatus(s: PatientState) {
       const barrier = !on && !held ? [...p.tags, drugClassOf(p.start.code)].map((t) => activeBarrier(s, t)).find(Boolean) : null;
       const def = on ? MEDICATION[on.code] : null;
       const target = def ? targetDose(s, def.code, def.target) : undefined;
-      const pct = on && target && on.doseValue != null ? Math.round((on.doseValue / target) * 100) : null;
+      const renal=cur(s,"egfr");
+      const missingRenal=on?.code === "finerenone" && (renal?.status !== "final" || renal.value_num == null || daysBetween(renal.effective_at,s.today)<0 || daysBetween(renal.effective_at,s.today)>365);
+      const comparison=on && def ? hfDoseReference(on,missingRenal ? null : target ?? null,def.unit) : null;
+      const pct=comparison?.percent ?? null;
       const gate = pillarGate(s, p.key, "start");
       return {
         key: p.key,
@@ -271,7 +275,7 @@ export function fmtStatus(s: PatientState) {
         state: on ? (pct != null && pct >= 100 ? "target" : "on") : held ? "held" : gate.block || barrier ? "blocked" : "missing",
         med: on ? medLine(on) : held ? medLine(held) + (held.status === "not_taking" ? " (not taking)" : " (held)") : null,
         percentOfTarget: pct,
-        target: on && def && target ? doseLabel(def, target, on.doseUnit) : null,
+        target: def && comparison?.target != null ? `${doseLabel(def, comparison.target, def.unit)} ${comparison.frequency}` : null,
         note: !on && barrier ? `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}` : !on && gate.block ? `Not now: ${gate.block}` : null,
         block: !on && !barrier && gate.block ? gate.block : null,
         unlock: !on && !barrier && gate.block ? gate.unlock ?? null : null,

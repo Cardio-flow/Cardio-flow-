@@ -598,6 +598,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const res = results(s);
   return {
     header: head,
+    currentLvef: (()=>{ const r=s.resolved("lvef"), o=r.current; return o?.value_num != null ? {value:o.value_num,high:o.value_high,at:o.effective_at,quality:o.quality,source:o.source,reason:r.reason,id:o.id} : null; })(),
     // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
     story: storyView(s),
     chronology: chronologyView(s, cardiacEvents(s)),

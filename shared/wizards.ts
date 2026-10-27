@@ -1,3 +1,4 @@
+import { withMedicationMonitoring } from "./pathway-monitoring.js";
 import { validDate } from "./dates.js";
 import { PREGNANCY_WIZARDS } from "./wizards-pregnancy.js";
 import type { PregnancyContext } from "./pregnancy.js";
@@ -963,7 +964,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
   }
   // pathways that compute their own items (dates from the index event, linked medicines)
   const extra = WIZARDS[wizardId]?.outcome?.(answers, ctx) ?? [];
-  const items = [...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")];
+  const items = withMedicationMonitoring([...extra.filter((i) => i.kind === "start"), ...out, ...extra.filter((i) => i.kind !== "start")],ctx);
   const aorta = wizardId === "aorta-plan";
   const htn = wizardId === "pregnancy-plan" || wizardId === "pericarditis" || wizardId === "medication-monitoring" || aorta || wizardId.endsWith("-result") || ["htn-review", "htn-resistance", "htn-secondary", "rdn-plan", "after-rdn"].includes(wizardId);
   const seen = new Set<string>();
@@ -972,7 +973,7 @@ export function buildOutcome(wizardId: string, answers: Answers, ctx: WizardCont
     const proposedDate = dueDates[item.title] ?? item.dueDate;
     const date = validDate(proposedDate) ? proposedDate : "";
     const target = item.completesOn ?? { type: "manual" };
-    const existing = htn && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
+    const existing = (htn || !!item.medicationRef) && !/annual/i.test(item.title) ? ctx.plannedActions?.find(p => {
       if (!p.dueDate || p.dueDate < ctx.today || p.dueDate > date || p.category !== item.category) return false;
       if (p.completesOn.type !== target.type) return false;
       // Sequential drug monitoring is tied to its own timepoint; an earlier test

@@ -25,13 +25,13 @@ after(async () => db.close());
 
 const d = (wizard: string, answers: Record<string, unknown>, day: string) => ({ wizard, answers, at: `${day}T07:00:00.000Z`, day });
 
-test("carry-forward rule: same pathway any day, related 'stable today' only the same day, invalid values skipped", () => {
+test("carry-forward rule: same pathway only; different clinical screens are not interchangeable", () => {
   const today = "2026-10-25";
   let c = carriedScreens("hyperkalaemia", [d("hyperkalaemia", { ecg: "none", symptoms: ["none"] }, "2026-10-20")], today);
   assert.equal(c.ecg.value, "none");
   assert.equal(c.ecg.today, false, "an older answer is offered, not filled");
   c = carriedScreens("tavi-plan", [d("after-af-ablation", { safety: "stable" }, today)], today);
-  assert.deepEqual([c.safety.value, c.safety.today, c.safety.wizard], ["stable", true, "after-af-ablation"]);
+  assert.equal(c.safety, undefined, "same option string does not establish equivalent clinical meaning");
   c = carriedScreens("tavi-plan", [d("after-af-ablation", { safety: "stable" }, "2026-10-24")], today);
   assert.equal(c.safety, undefined, "another pathway's stability from yesterday is not carried");
   // rdn-plan has stable / concern: an "urgent" from elsewhere is not one of its answers
