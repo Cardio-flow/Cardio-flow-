@@ -28,7 +28,7 @@ export const HFMEDS_WIZARDS: Record<string, WizardDef> = {
     id: "hf-medicines",
     title: "HF medicines: start and titrate",
     shortTitle: "HF medicines",
-    tone: "blue",
+    tone: "orange",
     episode: false,
     note: "Each pillar is read from the record: what can be started or increased today with its dose, what stops it and which results are missing. Nothing changes until you confirm; the label's checks and the next titration visit are booked.",
     source: "ESC HF 2026 (foundational therapy, uptitration every 1–2 weeks, class I) · product labels (SmPC) for starting doses and monitoring",

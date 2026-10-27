@@ -453,7 +453,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     title: "HF therapy uptitration opportunity",
     inputs: ["meds", "potassium", "egfr", "sbp", "hr", "lvef", "congestion", "conditions"],
     defaultParams: { min_days_since_change: RECENT_CHANGE_DAYS },
-    evidence: "2026 ESC HF guidelines: uptitrate foundational therapy at least every 1–2 weeks to target or maximally tolerated doses (class I).",
+    evidence: "2026 ESC HF guidelines (Recommendation Table 5): uptitration of foundational medical therapy at least every 1–2 weeks, guided by symptoms, vital signs and laboratory findings (class I, C); continuation at the highest tolerated doses (class I, C).",
     evaluate(s, p) {
       if (hfPhenotype(s) !== "HFrEF") return [];
       // not while congested (the congestion pathway comes first): the hf.congestion exam criterion
@@ -479,7 +479,9 @@ export const GUIDELINE_RULES: RuleDef[] = [
         out.push({
           key: "titrate-" + m.id,
           signature: `${m.id}:${m.doseValue}`,
-          severity: "blue",
+          // ESC HF 2026 Recommendation Table 5: uptitration of FMT at least every 1–2 weeks is class I (C) — a
+          // management decision on the overview, not an opportunity in "To consider" (27 Oct 2026)
+          severity: "orange",
           title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} → ${doseLabel(def, next)}`,
           detail: `Target ${doseLabel(def, target)} · ${Math.round((m.doseValue / target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
           facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
