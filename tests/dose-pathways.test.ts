@@ -49,7 +49,7 @@ test("HFrEF: the HF medicines pathway proposes every safe start and next dose st
   const p = await tx((q) => previewDecision(q, pid, "hf-medicines"));
   assert.equal(p.ready, true);
   const meds = p.plan.filter((x: any) => x.kind === "start" || x.kind === "medication").map((x: any) => x.label.split(" — ")[0]).sort();
-  assert.deepEqual(meds, ["Bisoprolol: 2.5 mg → 3.75 mg", "Dapagliflozin 10 mg OD: start", "Sacubitril/valsartan: 49/51 mg → 97/103 mg", "Spironolactone 25 mg OD: start"]);
+  assert.deepEqual(meds, ["Bisoprolol: 2.5 mg OD → 3.75 mg OD", "Dapagliflozin 10 mg OD: start", "Sacubitril/valsartan: 49/51 mg BID → 97/103 mg BID", "Spironolactone 25 mg OD: start"]);
   const plans = p.plan.filter((x: any) => x.kind === "plan").map((x: any) => `${x.title} ${x.dueDate}`);
   assert.ok(plans.includes(`Potassium and creatinine 1 week after the HF medicine change ${addDays(T, 7)}`), plans.join(" | "));
   assert.ok(plans.includes(`Potassium and creatinine 2 weeks after the HF medicine change ${addDays(T, 14)}`));

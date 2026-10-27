@@ -1,3 +1,4 @@
+import { hfDoseReference } from "../../shared/hf-dose-reference.js";
 import { LAB_LIMITS } from "../../shared/lab-review.js";
 import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
 import { urgentBp } from "./hypertension-rules.js";
@@ -268,7 +269,10 @@ export function fmtStatus(s: PatientState) {
       const barrier = !on && !held ? [...p.tags, drugClassOf(p.start.code)].map((t) => activeBarrier(s, t)).find(Boolean) : null;
       const def = on ? MEDICATION[on.code] : null;
       const target = def ? targetDose(s, def.code, def.target) : undefined;
-      const pct = on && target && on.doseValue != null ? Math.round((on.doseValue / target) * 100) : null;
+      const renal=cur(s,"egfr");
+      const missingRenal=on?.code === "finerenone" && (renal?.status !== "final" || renal.value_num == null || daysBetween(renal.effective_at,s.today)<0 || daysBetween(renal.effective_at,s.today)>365);
+      const comparison=on && def ? hfDoseReference(on,missingRenal ? null : target ?? null,def.unit) : null;
+      const pct=comparison?.percent ?? null;
       const gate = pillarGate(s, p.key, "start");
       return {
         key: p.key,
@@ -276,7 +280,7 @@ export function fmtStatus(s: PatientState) {
         state: on ? (pct != null && pct >= 100 ? "target" : "on") : held ? "held" : gate.block || barrier ? "blocked" : "missing",
         med: on ? medLine(on) : held ? medLine(held) + (held.status === "not_taking" ? " (not taking)" : " (held)") : null,
         percentOfTarget: pct,
-        target: on && def && target ? doseLabel(def, target, on.doseUnit) : null,
+        target: def && comparison?.target != null ? `${doseLabel(def, comparison.target, def.unit)} ${comparison.frequency}` : null,
         note: !on && barrier ? `Not given: ${BARRIER_LABEL[barrier.category].toLowerCase()}${barrier.detail ? ` (${barrier.detail})` : ""}` : !on && gate.block ? `Not now: ${gate.block}` : null,
         block: !on && !barrier && gate.block ? gate.block : null,
         unlock: !on && !barrier && gate.block ? gate.unlock ?? null : null,
@@ -326,11 +330,13 @@ export function gdmtPlan(s: PatientState): { phenotype: "HFrEF" | "HFpEF"; conge
     }
     const def = MEDICATION[on.code];
     const target = def ? targetDose(s, on.code, def.target) : undefined;
-    const pct = target && on.doseValue != null ? Math.round((on.doseValue / target) * 100) : null;
-    const med = { id: on.id, code: on.code, name: on.name, dose: on.doseValue, line: medLine(on), target: def && target ? doseLabel(def, target, on.doseUnit) : null, pct };
+    const ref = def ? hfDoseReference(on, target ?? null, def.unit) : null;
+    const pct = ref?.percent ?? null;
+    const med = { id: on.id, code: on.code, name: on.name, dose: on.doseValue, line: medLine(on), target: def && ref?.target ? `${doseLabel(def, ref.target, on.doseUnit)} ${ref.frequency}` : null, pct };
     const base = { key: p.key, label: p.label, med };
     // SGLT2 inhibitors are not titrated; HFpEF pillars have no uptitration rule here (as hf.titration)
-    if (!target || on.doseValue == null || on.doseValue >= target || p.key === "sglt2" || phen !== "HFrEF") { items.push({ ...base, state: "target", change: null, why: on.doseValue != null && target && on.doseValue >= target ? "at target dose" : "continue", unlock: null, needs: [] }); continue; }
+    if (pct != null && pct >= 100 || p.key === "sglt2" || phen !== "HFrEF") { items.push({ ...base, state: "target", change: null, why: on.doseValue != null && target && on.doseValue >= target ? "at target dose" : "continue", unlock: null, needs: [] }); continue; }
+    if (pct == null || !ref || on.doseValue == null || on.frequency !== ref.frequency) { items.push({ ...base, state: "needs", change: null, why: "Confirm dose, units, route and reference dosing frequency before titration", unlock: null, needs: [] }); continue; }
     if (activeBarrier(s, "up:" + drugClassOf(on.code))) { items.push({ ...base, state: "declined", change: null, why: "no further increase: a reason is recorded", unlock: null, needs: [] }); continue; }
     if (p.key === "bb" && ndhp) { items.push({ ...base, state: "blocked", change: null, why: "not increased on top of diltiazem / verapamil", unlock: null, needs: [] }); continue; }
     if (congested) { items.push({ ...base, state: "blocked", change: null, why: `not while congested (${congested}): treat congestion first`, unlock: "when euvolaemic", needs: [] }); continue; }
@@ -339,10 +345,10 @@ export function gdmtPlan(s: PatientState): { phenotype: "HFrEF" | "HFpEF"; conge
     const gate = pillarGate(s, p.key, "increase");
     if (gate.block) { items.push({ ...base, state: "blocked", change: null, why: `not increased: ${gate.block}`, unlock: gate.unlock ?? null, needs: [] }); continue; }
     if (gate.missing.length) { items.push({ ...base, state: "needs", change: null, why: `Before increasing: record ${gate.missing.join(", ")}`, unlock: null, needs: codesOf(gate.missing) }); continue; }
-    const next = def.doses.find((d) => d > on.doseValue! && d <= target);
+    const next = def.doses.find((d) => d > on.doseValue! && d <= ref.target!);
     if (next == null) { items.push({ ...base, state: "no-step", change: null, why: "no listed dose step toward the target", unlock: null, needs: [] }); continue; }
-    items.push({ ...base, state: "increase", change: { kind: "increase", medicationId: on.id, from: on.doseValue, to: next, label: `${on.name}: ${doseLabel(def, on.doseValue)} → ${doseLabel(def, next)}` },
-      why: `${pct}% of target ${doseLabel(def, target)}; uptitrate every 1–2 weeks to target or the maximally tolerated dose (ESC HF 2026, class I)`, unlock: null, needs: [] });
+    items.push({ ...base, state: "increase", change: { kind: "increase", medicationId: on.id, from: on.doseValue, to: next, label: `${on.name}: ${doseLabel(def, on.doseValue)} ${on.frequency} → ${doseLabel(def, next)} ${on.frequency}` },
+      why: `${pct}% of target ${doseLabel(def, ref.target)} ${ref.frequency}; uptitrate every 1–2 weeks to target or the maximally tolerated dose (ESC HF 2026, class I)`, unlock: null, needs: [] });
   }
   return { phenotype: phen, congested, items };
 }
@@ -465,7 +471,8 @@ export const GUIDELINE_RULES: RuleDef[] = [
         const def = MEDICATION[m.code];
         // the patient's own target (finerenone: by eGFR and indication, SmPC Kerendia 4.2)
         const target = def ? targetDose(s, m.code, def.target) : undefined;
-        if (!def || !target || m.doseValue == null || m.doseValue >= target) continue;
+        const ref = def ? hfDoseReference(m,target ?? null,def.unit) : null;
+        if (!def || !ref?.target || ref.percent == null || ref.percent >= 100 || m.doseValue == null || m.frequency !== ref.frequency) continue;
         const key = m.tags.includes("bb") ? "bb" : m.tags.includes("mra") ? "mra" : m.tags.includes("raas") ? "raas" : null;
         if (!key) continue;
         // a beta-blocker is not uptitrated on top of diltiazem / verapamil (the label contraindication row comes first)
@@ -474,17 +481,17 @@ export const GUIDELINE_RULES: RuleDef[] = [
         if (last && daysBetween(last.effective_at, s.today) < Number(p.min_days_since_change)) continue;
         const gate = pillarGate(s, key, "increase");
         if (gate.block || gate.missing.length) continue;
-        const next = def.doses.find((d) => d > m.doseValue! && d <= target);
+        const next = def.doses.find((d) => d > m.doseValue! && d <= ref.target!);
         if (next == null) continue;
         out.push({
           key: "titrate-" + m.id,
-          signature: `${m.id}:${m.doseValue}`,
+          signature: `${m.id}:${m.doseValue}:${m.frequency}:${m.doseUnit}:${m.route}`,
           // ESC HF 2026 Recommendation Table 5: uptitration of FMT at least every 1–2 weeks is class I (C) — a
           // management decision on the overview, not an opportunity in "To consider" (27 Oct 2026)
           severity: "orange",
-          title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} → ${doseLabel(def, next)}`,
-          detail: `Target ${doseLabel(def, target)} · ${Math.round((m.doseValue / target) * 100)}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
-          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: doseLabel(def, target) }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
+          title: `Uptitrate ${m.name}: ${doseLabel(def, m.doseValue)} ${m.frequency} → ${doseLabel(def, next)} ${m.frequency}`,
+          detail: `Target ${doseLabel(def, ref.target)} ${ref.frequency} · ${ref.percent}% of target · last change ${last ? fmtDay(last.effective_at, { year: true }) : "—"}`,
+          facts: facts({ label: "Current", value: medLine(m) }, { label: "Target", value: `${doseLabel(def, ref.target)} ${ref.frequency}` }, fact(s, "sbp", 60), fact(s, "hr", 60), fact(s, "potassium", 60), fact(s, "egfr", 60),
             src("ESC HF 2026 · uptitrate every 1–2 weeks to target/maximally tolerated dose · Class I")),
           missing: [],
           action: { type: "wizard", wizard: "hf-medicines", medicationId: m.id, direction: "increase" },

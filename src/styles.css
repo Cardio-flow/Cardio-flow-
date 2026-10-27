@@ -2296,7 +2296,7 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .cx-sec-h h2 { margin: 0; font-family: var(--font-brand); font-size: 18px; font-weight: 700; color: var(--cx-ink); }
 .cx-sec-h > span { font-size: 13.5px; color: var(--cx-muted); }
 .cx-today h2 { font-size: 22px; }
-.cx-clear { display: flex; gap: 10px; align-items: center; padding: 18px 20px; border-radius: 16px; background: #EAF7F3; color: var(--cx-teal); font-weight: 600; }
+.cx-clear { display: flex; gap: 10px; align-items: center; padding: 18px 20px; border-radius: 16px; background: #F4F6F9; color: var(--cx-body); font-weight: 600; }
 /* a decision */
 .cx-dec { background: #fff; border: 1px solid var(--cx-line); border-radius: 18px; display: grid; grid-template-columns: 60px minmax(0, 1fr); overflow: hidden; scroll-margin-top: 90px; }
 .cx-dec:focus-visible { outline: 3px solid #9DB4F5; outline-offset: 2px; }
@@ -2439,5 +2439,30 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 /* safety screen answered before: one tap to say it is unchanged (25 Oct) */
 .decision-same{align-self:flex-start;margin:4px 0;border:1px dashed var(--line,#cfd6e0);color:var(--ink-2,#3a4a63)}
 .screen-src{margin:2px 0 6px}
+
+/* Audit: quick access, complete proposals and dated clinical facts. */
+.cx-shortcuts { display:flex; gap:8px; flex-wrap:wrap; }
+.cx-shortcuts .btn { text-decoration:none; }
+.cx-rationale { font-size:13px; color:var(--cx-body); }
+.cx-rationale > summary,.cx-routine-plan > summary { cursor:pointer; font-weight:700; padding:8px 0; }
+.cx-rationale .cx-checks { padding-left:28px; }
+.cx-changes li { overflow-wrap:anywhere; }
+.cx-trend-v small { font-size:11px; font-weight:500; color:var(--cx-muted); }
+.cx-trend-v i { white-space:normal; }
+.cx-trend { grid-template-columns:76px minmax(35px,1fr) 145px; }
+#cx-results-record,#cx-medications-record,#cx-plan-record { scroll-margin-top:calc(var(--topbar-h,64px) + 12px); }
+@media(max-width:1180px) {
+  .cx-rail { display:contents; }
+  .cx-key-results { grid-row:1; min-width:0; padding:12px; }
+  .cx-main { grid-row:2; }
+  .cx-trends { display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; }
+  .cx-trend { flex:0 0 225px; display:grid; grid-template-columns:70px 1fr; padding:8px; background:var(--cx-soft); border:0; border-radius:10px; scroll-snap-align:start; }
+  .cx-trend > span:first-child { grid-column:1 / -1; }
+  .cx-trend-v { min-width:0; }
+  .cx-shortcuts { position:sticky; top:var(--topbar-h,64px); z-index:5; background:var(--surface,#fff); padding:6px; border:1px solid var(--cx-line); border-radius:12px; gap:4px; }
+  .cx-shortcuts .btn { flex:1; min-width:0; padding:0 8px; font-size:12px; }
+  .cx-vitals { gap:12px; }
+  .cx-vitals b { font-size:18px; }
+}
 /* a proposed start the medicine check stops (27 Oct): said in the card, before Confirm */
 .cx-blocker{margin:8px 0;padding:8px 12px;border-radius:10px;background:var(--red-bg,#fdecec);color:var(--red-ink,#9b1c1c);font-size:13.5px;line-height:1.4}

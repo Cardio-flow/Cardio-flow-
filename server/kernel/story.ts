@@ -186,10 +186,12 @@ export function timeline(s: PatientState) {
   };
   const lanes = LANES.map((code) => {
     const all = finals(s, code).filter((o) => o.effective_at >= from);
+    const resolved=s.resolved(code), selected=resolved.current;
     return {
       code, label: code === "lvef" ? "LVEF %" : MEASURES[code]?.display ?? code, unit: MEASURES[code]?.unit ?? "",
       ref: ref[code],
-      points: all.map((o) => ({ id: o.id, at: o.effective_at, value: o.value_num!, high: o.value_high ?? null, text: valueText(code, o.value_num!, o.value_high), source: o.source,
+      current: selected?.value_num != null ? {id:selected.id,value:selected.value_num,text:valueText(code,selected.value_num,selected.value_high),at:selected.effective_at,quality:selected.quality,source:selected.source,reason:resolved.reason} : null,
+      points: all.map((o) => ({ id: o.id, at: o.effective_at, value: o.value_num!, high: o.value_high ?? null, text: valueText(code, o.value_num!, o.value_high), source: o.source, quality:o.quality,
         flag: code === "lvef" ? (o.value_num! < 50 ? "low" : null) : flagFor(o.value_num!, refOf(s, code)) })),
     };
   }).filter((l) => l.points.length >= 2);

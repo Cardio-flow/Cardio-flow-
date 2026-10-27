@@ -15,10 +15,9 @@ export const CURRENT_SCREENS: Record<string,string[]> = {
 };
 
 // Carry-forward (25 Oct 2026, Ahmed agreed): a safety screen is never assumed, but one the clinician already
-// answered is not asked blind again. Today's answer (this pathway, or the same "stable today" screen in a related
-// pathway) is filled in with its source and time and stays changeable; an older answer of this pathway is only
+// answered is not asked blind again. Today's answer in this same pathway is filled
+// with its source and time and stays changeable; an older answer of this pathway is only
 // offered ("Same as 10 Oct: Stable"), never filled, because "today" findings must be confirmed today.
-const STABLE_TODAY = ["af-ablation-plan", "after-af-ablation", "after-laao", "tavi-plan", "teer-plan", "other-structural-plan", "after-structural", "rdn-plan", "after-rdn", "htn-review"];
 export type ScreenDecision = { wizard: string | null; answers: Record<string, unknown>; at: string; day: string };
 export type CarriedScreen = { value: string | string[]; at: string; wizard: string; today: boolean };
 // decisions newest first; only "acted" decisions belong here (a declined alert answered nothing)
@@ -30,10 +29,15 @@ export function carriedScreens(wizardId: string, decisions: ScreenDecision[], to
     for (const d of decisions) {
       if (!d.wizard) continue;
       const same = d.wizard === wizardId;
-      // a related pathway's "stable today" counts only on the same day
-      const related = !same && id === "safety" && STABLE_TODAY.includes(wizardId) && STABLE_TODAY.includes(d.wizard) && d.day === today;
-      const v = same ? d.answers[id] : related ? d.answers.safety : undefined;
-      if (!fits(v)) continue;
+      // Shared option strings are not equivalent assessments: outpatient stability
+      // does not establish pregnancy exclusion or uncomplicated procedure recovery.
+      // A newer concern also invalidates older reassurance, even when its option
+      // is not part of this pathway's vocabulary.
+      if (!same && id === "safety" && CURRENT_SCREENS[d.wizard]?.includes("safety") && d.answers.safety != null && d.answers.safety !== "stable") break;
+      if (!same) continue;
+      const v = d.answers[id];
+      if (v == null) continue;
+      if (!fits(v)) break;
       out[id] = { value: v, at: d.at, wizard: d.wizard, today: d.day === today };
       break;
     }
