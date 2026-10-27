@@ -2466,3 +2466,14 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 }
 /* a proposed start the medicine check stops (27 Oct): said in the card, before Confirm */
 .cx-blocker{margin:8px 0;padding:8px 12px;border-radius:10px;background:var(--red-bg,#fdecec);color:var(--red-ink,#9b1c1c);font-size:13.5px;line-height:1.4}
+
+.cx-consultation{border:1px solid var(--line);background:linear-gradient(120deg,#f0f6ff,#f5faf8);border-radius:16px;padding:14px;display:grid;gap:10px;margin:16px 0}
+.cx-priority-counts{display:flex;flex-wrap:wrap;gap:8px}
+.cx-priority-counts a,.cx-priority-counts button,.cx-next-checkpoint{font:inherit;font-size:13px;color:var(--ink);text-align:left;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:white;text-decoration:none;cursor:pointer}
+.cx-priority-counts .urgent{background:#fff0ec;color:#a62e20;border-color:#e8b6ad}
+.cx-connected,.cx-gaps{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.cx-connected{color:var(--blue);text-decoration:none}
+.cx-next-checkpoint{width:100%;background:transparent;border:0;padding:0;overflow-wrap:anywhere}
+.cx-decision-state{font-size:12px;font-weight:700;color:var(--cx-muted);margin-bottom:6px}
+@media(prefers-reduced-motion:no-preference){.cx-consultation{animation:cx-priority-enter .2s ease-out}@keyframes cx-priority-enter{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}}
+.cx-stage-heading{font-size:13px;font-weight:750;color:var(--cx-muted);margin:18px 0 10px}

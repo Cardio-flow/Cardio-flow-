@@ -9,9 +9,13 @@ import { MEASURES, formatNumber } from "../../shared/catalog.js";
 import { daysBetween, flagFor, fmtDay } from "../../shared/clinical.js";
 import { creatinineTrend } from "./renal-trend.js";
 
-const finals = (s: PatientState, code: string) =>
-  s.observations.filter((o) => o.code === code && o.status === "final" && o.value_num != null).sort((a, b) => a.effective_at.localeCompare(b.effective_at));
-const latest = (s: PatientState, code: string) => { const f = finals(s, code); return f[f.length - 1] ?? null; };
+// Links must use the same clinician-selected / verified value as treatment decisions.
+const latest = (s: PatientState, code: string) => s.resolved(code).current;
+const finals = (s: PatientState, code: string) => {
+  const current=latest(s,code);
+  return current ? s.resolved(code).history.filter(o=>o.status==='final' && o.value_num!=null && o.effective_at<=current.effective_at)
+    .sort((a,b)=>a.effective_at.localeCompare(b.effective_at)) : [];
+};
 const live = (s: PatientState, tags: string[]) => s.meds.filter((m) => m.status === "active" && m.tags.some((t) => tags.includes(t)));
 const names = (ms: { name: string }[]) => ms.map((m) => m.name).join(", ");
 const MON = (at: string) => fmtDay(at, { year: true }).replace(/^\d+ /, "");

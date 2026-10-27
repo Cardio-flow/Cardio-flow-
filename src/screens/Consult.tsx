@@ -1,3 +1,4 @@
+import { consultationPriorities } from "../../shared/consultation.js";
 // "Consult" overview (25 Oct 2026, Ahmed: "stunning, premium and creative … many distractions"; approved mockup).
 // The overview reads like a consultant's handover:
 //   1. one sentence about the patient,
@@ -15,7 +16,7 @@ import { Info, ChevronDown, AlertTriangle } from "lucide-react";
 import { api } from "../api";
 import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { PlanTasks } from "./PlanTasks";
-import { overviewCounts, problemOfRule } from "../../shared/overview";
+import { problemOfRule } from "../../shared/overview";
 import { fmtDay } from "../../shared/clinical";
 import { ActionButton } from "./Summary";
 import { DismissPanel, buildProblems, RESULT_PROBLEM, TITLES } from "./Today";
@@ -104,6 +105,7 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
   // medicines this decision already stops, changes or starts: an alert about them has no second button
   const actedOn = new Set(((p?.plan ?? []) as any[]).flatMap((x) => [x.medicationId, x.code].filter(Boolean)));
   const ready = !!p && p.ready && !p.joined;
+  const decisionState = p ? p.blockers?.length ? "Resolve safety checks first" : p.needData?.length || p.needed?.length ? "Information needed before deciding" : p.joined ? "Linked decision required" : "Proposed plan — review and confirm" : null;
   async function confirm() {
     if (!p || busy) return;
     setBusy(true); setError("");
@@ -120,6 +122,7 @@ function DecisionCard({ a, n, s, open, done, tasks = [], extra = [], compact = f
           <span className={`cx-tag t-${toneOf(a.severity)}`}>{a.severity === "red" && <AlertTriangle size={13} />}{TAG[home] ?? TAG.other}</span>
           {headline !== a.title && <span className="cx-problem">{a.title}</span>}
         </div>
+        {decisionState && <div className="cx-decision-state">{decisionState}</div>}
         <h3 className="cx-headline">{headline}</h3>
         {wizard && wizardRec !== a && !ownTask && <div className="cx-actions"><ActionButton a={a} open={open} /></div>}
         {wizard && p === null && <div className="cx-loading" aria-busy="true">Working out the decision…</div>}
@@ -378,13 +381,16 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const managementTasks = pending.filter((p) => !isRoutinePlan(p));
   const planAlerted = new Set(live.filter((a) => a.action?.type === "plan").map((a) => a.action.planId as string));
   const tasksFor = (key: string) => managementTasks.filter((p) => (p.clinicalContext?.problem ?? "other") === key && (!onEpisode.has(p.id) || p.clinicalContext?.urgent) && !planAlerted.has(p.id));
+  const consultation=s.consultation ?? consultationPriorities(s.attention ?? [],s.plan ?? [],s.today);
   const ranked = live.filter((a) => !routine.includes(a)).sort((x, y) => SEV[x.severity] - SEV[y.severity] || Number(decides(y)) - Number(decides(x)));
   // one card per problem with a decision (red, orange or yellow), most urgent first; the problem's other alerts sit
   // inside its card; suggestions to consider (blue) fold into "Also to review"
   const groups = new Map<string, any[]>();
   for (const a of ranked.filter((x) => x.severity !== "blue")) { const k = homeOf(a, s); groups.set(k, [...(groups.get(k) ?? []), a]); }
   // the card leads with the problem's decision (a pathway the engine can decide), its other alerts listed inside
-  const ordered = [...groups.values()];
+  const stage=(a:any)=>a.severity === "red" ? 0 : consultation.clarifyIds.includes(a.id) ? 1 : a.action?.type === "plan" ? 3 : 2;
+  const stageLabels=["Urgent findings", "Information needed", "Management decisions", "Follow-through"];
+  const ordered = [...groups.values()].sort((a,b)=>stage(a[0])-stage(b[0]));
   const top = ordered.map((g) => g[0]);
   const extraOf = ordered.map((g) => g.slice(1));
   const rest = ranked.filter((x) => x.severity === "blue");
@@ -397,7 +403,6 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const resultsOf = (k: string) => ((s.abnormal?.items ?? []) as any[]).filter((r) => RESULT_PROBLEM[r.code] === k && !laneCodes.has(r.code)).map((r) => `${r.label} ${r.text}${r.note ? ` (${r.note})` : ""}`);
   const cardKeys = new Set(top.map((a) => homeOf(a, s)));
   const text = brief(s);
-  const counts=overviewCounts(s.attention ?? [],s.plan ?? []);
   const outstanding=pending.filter(p=>p.awaitingReview || p.dueDate && p.dueDate<=s.today);
   const problems = (() => { try { return buildProblems(s); } catch { return []; } })();
   // a problem with nothing to say beyond "on track" folds into one line; the rest are listed
@@ -416,12 +421,24 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
         <button className="btn secondary small" onClick={()=>openRecord("cx-medications-record")}>Medicines</button>
         <button className="btn secondary small" onClick={()=>openRecord("cx-plan-record")}>Plan</button>
       </nav>
+      <section className="cx-consultation" aria-label="Consultation priorities">
+        <div className="cx-priority-counts">
+          {consultation.counts.urgent>0 && <a href="#att" className="urgent">{consultation.counts.urgent} urgent</a>}
+          <a href="#att">{consultation.counts.decisions} problems to review</a>
+          {consultation.counts.clarify>0 && <a href="#att">{consultation.counts.clarify} need information</a>}
+          {(consultation.counts.review>0 || consultation.counts.due>0) && <button onClick={()=>openRecord("cx-plan-record")}>{consultation.counts.review} to review · {consultation.counts.due} due</button>}
+        </div>
+        {consultation.connected.map((c:any)=><a className="cx-connected" href="#att" key={c.label}>{c.label}</a>)}
+        {consultation.reconciliation.length>0 && <button className="cx-next-checkpoint" onClick={()=>openRecord("cx-medications-record")}><b>Medication reconciliation · {consultation.reconciliation.length}</b> {consultation.reconciliation.map((m:any)=>m.label).join(" · ")}</button>}
+        {consultation.gaps.length>0 && <details className="cx-gaps"><summary>Missing information · {consultation.gaps.length}</summary>{consultation.gaps.join(" · ")}</details>}
+        {consultation.next && <button className="cx-next-checkpoint" onClick={()=>openRecord("cx-plan-record")}><b>Next checkpoint</b> {consultation.next.title} · {fmtDay(consultation.next.dueDate)}</button>}
+      </section>
       <div className="cx-grid">
         <div className="cx-main" id="att">
           {slots.episodes}
-          <div className="cx-sec-h cx-today"><div className="cx-today-t"><h2 id="att-h">Today</h2><span>for this patient</span></div><span>{`${counts.decisions} decisions · ${outstanding.length} tasks due / awaiting review`}</span></div>
+          <div className="cx-sec-h cx-today"><div className="cx-today-t"><h2 id="att-h">Today</h2></div></div>
           {top.length === 0 && <div className="cx-clear"><Info size={20} /> {outstanding.length > 0 ? `${outstanding.length} tasks need completion or review.` : "Review recorded data and follow-up to complete the assessment."}</div>}
-          {top.map((a, i) => <DecisionCard key={a.id} a={a} n={i + 1} s={s} open={open} done={done} tasks={topTasks[i]} extra={extraOf[i]} compact={i >= 3 && a.severity !== "red"} results={resultsOf(homeOf(a, s))} prob={problems.find((p: any) => p.key === homeOf(a, s)) ?? null} />)}
+          {top.map((a, i) => <section key={a.id} aria-label={stageLabels[stage(a)]}>{(i===0 || stage(top[i-1])!==stage(a)) && <h3 className="cx-stage-heading">{stageLabels[stage(a)]}</h3>}<DecisionCard a={a} n={i + 1} s={s} open={open} done={done} tasks={topTasks[i]} extra={extraOf[i]} compact={i >= 3 && a.severity !== "red"} results={resultsOf(homeOf(a, s))} prob={problems.find((p: any) => p.key === homeOf(a, s)) ?? null} /></section>)}
           {rest.length > 0 && (
             <FoldLine dot="#B54708" title={`To consider · ${rest.length}`} sub={rest.slice(0, 3).map((a) => a.title.split(":")[0]).join(" · ")}>
               {/* one review per pathway: later rows of the same pathway (e.g. three HF dose steps) point to the first */}

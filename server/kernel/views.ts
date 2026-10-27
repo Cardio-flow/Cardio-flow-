@@ -1,3 +1,4 @@
+import { consultationPriorities } from "../../shared/consultation.js";
 import { isRoutinePlan } from "../../shared/routine.js";
 import { planContext } from "../engine/plan-context.js";
 import { overviewCounts } from "../../shared/overview.js";
@@ -600,6 +601,7 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
   const goals = targets(s);
   const res = results(s);
   return {
+    consultation: consultationPriorities(attention, plan, s.today, s.meds),
     header: head,
     currentLvef: (()=>{ const r=s.resolved("lvef"), o=r.current; return o?.value_num != null ? {value:o.value_num,high:o.value_high,at:o.effective_at,quality:o.quality,source:o.source,reason:r.reason,id:o.id} : null; })(),
     // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
