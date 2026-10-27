@@ -2439,3 +2439,5 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 /* safety screen answered before: one tap to say it is unchanged (25 Oct) */
 .decision-same{align-self:flex-start;margin:4px 0;border:1px dashed var(--line,#cfd6e0);color:var(--ink-2,#3a4a63)}
 .screen-src{margin:2px 0 6px}
+/* a proposed start the medicine check stops (27 Oct): said in the card, before Confirm */
+.cx-blocker{margin:8px 0;padding:8px 12px;border-radius:10px;background:var(--red-bg,#fdecec);color:var(--red-ink,#9b1c1c);font-size:13.5px;line-height:1.4}

@@ -31,12 +31,14 @@ test("duplicate drug suggestions are shown once, with the others carried as 'als
   // Khalid (synthetic): HFpEF + T2DM + CKD → SGLT2i from HF and diabetes rules, finerenone from HF and cardiorenal rules
   const pid = await byName("Khalid Al-Rashidi");
   const s = await tx((q) => summary(q, pid, "sandbox"));
-  const starts = s.attention.filter((a: any) => a.action?.type === "start-med");
-  const classes = starts.map((a: any) => a.action.code);
+  // a start is either direct or decided in a pathway (startCode, 27 Oct 2026)
+  const code = (a: any) => a.action?.startCode ?? a.action?.code;
+  const starts = s.attention.filter((a: any) => a.action?.type === "start-med" || a.action?.startCode);
+  const classes = starts.map(code);
   assert.equal(new Set(classes).size, classes.length, "no drug suggested twice");
-  const mra = starts.find((a: any) => a.action.code === "finerenone");
+  const mra = starts.find((a: any) => code(a) === "finerenone");
   assert.ok(mra.also.length >= 1, "finerenone card carries the second rule");
-  const glp = starts.find((a: any) => a.action.code === "semaglutide");
+  const glp = starts.find((a: any) => code(a) === "semaglutide");
   assert.ok(glp.also.some((x: any) => x.rule_id === "metabolic.obesity" || x.rule_id === "metabolic.diabetes-cv-protection"));
   // worklist counts the merged card once
   const { worklist } = await import("../server/kernel/views.js");
@@ -59,7 +61,7 @@ test("overview answers the five questions from the record", async () => {
 
 test("'Not now' closes a merged suggestion together with the ones it carries, with the reason", async () => {
   const pid = await byName("Khalid Al-Rashidi");
-  const card = (await tx((q) => summary(q, pid, "sandbox"))).attention.find((a: any) => a.action?.code === "finerenone");
+  const card = (await tx((q) => summary(q, pid, "sandbox"))).attention.find((a: any) => (a.action?.startCode ?? a.action?.code) === "finerenone");
   const app = createApp(db);
   const server = app.listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;

@@ -23,7 +23,8 @@ const radio = async (label, name) => {
   const g = page.getByRole("radiogroup", { name: label, exact: true });
   const b = page.getByRole("button", { name: "Change details", exact: true });
   await g.or(b).first().waitFor();
-  if (!(await g.count())) await b.last().click();
+  // this walkthrough drives the step-by-step questions: leave the decision view whenever it is shown
+  if (await b.count() && await b.last().isVisible()) await b.last().click();
   await g.getByRole("radio", { name, exact: true }).click();
 };
 const next = async () => {

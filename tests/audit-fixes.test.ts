@@ -37,7 +37,8 @@ test("HFrEF without a blood pressure: the ARNI card asks for BP and K first, the
     await reassess(q, pid, "production");
   });
   raas = (await recs(pid, "hf.foundational-therapy")).find((r) => /ARNI/.test(r.title));
-  assert.equal(raas.action.type, "start-med");
+  // the start is decided in the HF medicines pathway (27 Oct 2026)
+  assert.deepEqual([raas.action.type, raas.action.wizard, raas.action.startCode], ["wizard", "hf-medicines", "sacubitril-valsartan"]);
   await tx(async (q) => {
     await K.recordObservations(q, doc, pid, { effectiveAt: at(T, "08"), items: [{ code: "creatinine", value: 150 }] });
     await reassess(q, pid, "production");

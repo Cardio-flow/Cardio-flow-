@@ -1060,7 +1060,9 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
         const act = rec && (typeof rec.action === "string" ? JSON.parse(rec.action) : rec.action);
         let cls: string | null = null, drug: string | null = null;
         if (act?.type === "start-med") (cls = drugClassOf(act.code)), (drug = act.code);
-        if (act?.type === "titrate") {
+        // a start or increase decided in a pathway (HF medicines, lipids, diabetes, AF-CARE; 27 Oct 2026)
+        if (act?.type === "wizard" && act.startCode) (cls = drugClassOf(act.startCode)), (drug = act.startCode);
+        if (act?.type === "titrate" || (act?.type === "wizard" && act.medicationId && act.direction === "increase")) {
           const m = (await tx.query(`SELECT drug FROM cf.medication m WHERE id=$1 AND patient_id=$2 AND ${K.LIVE_MED}`, [act.medicationId, id])).rows[0] as any;
           if (m) (cls = "up:" + drugClassOf(m.drug)), (drug = m.drug);
         }

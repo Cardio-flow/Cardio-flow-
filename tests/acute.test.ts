@@ -37,7 +37,7 @@ test("every pathway is well formed: plan categories, required questions, recheck
   assert.ok(Object.keys(WIZARDS).length >= 15);
   for (const w of Object.values(WIZARDS)) {
     for (const q of w.steps.flatMap((s) => s.questions)) {
-      if (q.optionsFrom) assert.equal(q.optionsFrom,"medicationChecks",`${w.id}.${q.id} has a supported dynamic option source`);
+      if (q.optionsFrom) assert.ok(["medicationChecks", "hfChanges"].includes(q.optionsFrom),`${w.id}.${q.id} has a supported dynamic option source`);
       else if (q.type !== "dose" && q.type !== "date") assert.ok(q.options?.length, `${w.id}.${q.id} has options`);
       for (const o of q.options ?? []) for (const p of o.effects?.plan ?? []) assert.ok(cats.includes(p.category), `${w.id}.${o.value} category ${p.category}`);
     }

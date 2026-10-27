@@ -30,6 +30,9 @@ export async function activeRuleVersions(tx: Q, siteMode: "sandbox" | "productio
 // reports not taking a prescribed drug of that class (the not-taking alert speaks instead).
 export function suppressed(s: PatientState, f: Finding) {
   const a = f.action as any;
+  // a dose pathway opened by a start / increase alert is suppressed by the same recorded reasons
+  if (a.type === "wizard" && a.startCode) return suppressed(s, { ...f, action: { type: "start-med", code: a.startCode } as any });
+  if (a.type === "wizard" && a.medicationId && a.direction === "increase") return suppressed(s, { ...f, action: { type: "titrate", medicationId: a.medicationId, direction: "increase" } as any });
   if (a.type === "start-med") {
     const cls = drugClassOf(a.code);
     return !!activeBarrier(s, cls) || s.meds.some((m) => m.status === "not_taking" && drugClassOf(m.code) === cls);

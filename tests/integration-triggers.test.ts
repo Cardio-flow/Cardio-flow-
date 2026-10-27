@@ -93,7 +93,14 @@ test("new weight and creatinine update the AF anticoagulant dose suggestion", as
   const updated = await active(id, "af.anticoagulation");
   assert.equal(updated.length, 1);
   const action = typeof updated[0].action === "string" ? JSON.parse(updated[0].action) : updated[0].action;
-  assert.equal(action.dose, 2.5);
+  // the start is decided in AF-CARE (27 Oct 2026), whose apixaban dose now reads the new weight and creatinine
+  assert.deepEqual([action.type, action.wizard, action.startCode], ["wizard", "af-care", "apixaban"]);
+  assert.ok(!updated[0].missing.length, "nothing missing for the dose");
+  const { getWizard } = await import("../server/engine/wizard.js");
+  const { buildOutcome } = await import("../shared/wizards.js");
+  const ctx = (await db.transaction((tx) => getWizard(tx, id, "af-care"))).context;
+  const start = buildOutcome("af-care", { oac: "apixaban" }, ctx).find((o) => o.kind === "start") as any;
+  assert.equal(start?.doseValue, 2.5);
 });
 
 test("AF on warfarin opens the switching pathway instead of a direct DOAC start", async () => {

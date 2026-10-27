@@ -10,7 +10,7 @@ import { createApp } from "../server/app.js";
 import * as K from "../server/kernel/clinical.js";
 import { loadState } from "../server/kernel/state.js";
 import { completeWizard, getWizard, wizardStartCheck } from "../server/engine/wizard.js";
-import { today, type Actor } from "../server/kernel/base.js";
+import { nowIso, today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 import { WIZARDS, buildOutcome } from "../shared/wizards.js";
 import { JOIN, joinFor } from "../shared/wizard-prefill.js";
@@ -59,6 +59,8 @@ test("every pathway closes with a summary; the generic one carries findings, fol
 test("a medicine started by a pathway with a red pre-start hit needs a reason (409 without), recorded with the start", async () => {
   const pid = await newPatient(["cad-ccs", "t2dm"]);
   await start(pid, "clarithromycin", 500, "BID", "infection");
+  // eplerenone is dosed only with potassium and eGFR on record (Inspra SmPC; 27 Oct 2026)
+  await tx((q) => K.recordObservations(q, doc, pid, { effectiveAt: nowIso(), items: [{ code: "potassium", value: 4.3 }, { code: "creatinine", value: 85 }] }));
   const answers = { type: "nstemi", revasc: "complete", lvef: "le40", start: ["mra"], prevent: ["none"], followup: ["none"], review: "none" };
   const hits = await tx((q) => wizardStartCheck(q, pid, "acs-discharge", answers));
   assert.ok(hits.eplerenone.some((h) => h.severity === "red"), "eplerenone with a strong CYP3A4 inhibitor");

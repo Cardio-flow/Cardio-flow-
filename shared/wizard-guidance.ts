@@ -164,6 +164,29 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
         : is(a,"actions","continue") ? S("7", "Suggested follow-up after mild potassium elevation; adjust to the clinical course") : null)];
     },
   },
+  // HF medicines (27 Oct 2026): every change the engine allows today, each with its own reason
+  "hf-medicines": {
+    changes: (_a, c) => {
+      const ch = (c.hfMeds?.items ?? []).filter((i) => i.change);
+      return ch.length ? ch.map((i) => S(`${i.change!.kind}-${i.key}`, i.why)) : [S("none", c.hfMeds?.congested ? "Treat congestion first; no start or increase now" : "Nothing can be started or increased today: see the reasons per medicine")];
+    },
+    next: (a, c) => {
+      const below = (c.hfMeds?.items ?? []).some((i) => ["start", "increase", "wait"].includes(i.state) || (i.med?.pct != null && i.med.pct < 100 && i.key !== "sglt2"));
+      const changing = ((a.changes as string[] | undefined) ?? []).some((v) => v !== "none");
+      return [changing || below ? S("14", "Uptitrate every 1–2 weeks to the target or maximally tolerated dose (ESC HF 2026, class I)") : S("none", "All pillars at target or not increasing")];
+    },
+  },
+  // lipids (27 Oct 2026): the next step of the same ladder as the LDL-C alert
+  lipids: {
+    step: (_a, c) => {
+      const l = c.lipids;
+      if (!l) return [];
+      if (l.recheck || l.ldl == null) return [S("adherence", "No current LDL-C on the present therapy: recheck before changing (ESC/EAS)")];
+      if (!l.step) return [S("none", `LDL-C at goal (<${l.goal} mmol/L)`)];
+      if (l.step === "maximal") return [S("adherence", "Therapy already maximal on the ladder: review adherence and recheck")];
+      return [S(l.step, `LDL-C ${l.ldl} mmol/L, goal <${l.goal} (${l.category} risk: ${l.why})${l.reduction != null ? `, ${l.reduction}% below baseline (goal ≥${l.reductionGoal}%)` : ""}: ${l.stepLabel} (ESC/EAS, class I)`)];
+    },
+  },
   "iv-iron": {
     decision: (_a, c) => {
       const f = val(c, "ferritin"), t = val(c, "tsat"), ef = val(c, "lvef");
@@ -460,6 +483,8 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const out = [
         t2 && !on(c, "sglt2") && (hf || ckd || ascvd) && (egfr == null || egfr >= 20) && S("sglt2", `${hf ? "HF" : ckd ? "CKD" : "ASCVD"}: SGLT2 inhibitor regardless of HbA1c (ESC 2023 CVD-DM, I A)`),
         t2 && !on(c, "glp1") && ascvd && S("glp1", "ASCVD: GLP-1 RA with proven CV benefit regardless of HbA1c (ESC 2023, I A)"),
+        // CKD without ASCVD (not on dialysis): semaglutide, FLOW — the same indication as the GLP-1 alert (Ahmed 30 Sep 2026)
+        t2 && !on(c, "glp1") && !ascvd && ckd && !dx(c, "dialysis") && S("glp1", "T2DM with CKD: semaglutide reduces kidney failure, CV death and MACE (FLOW; ESC-ERA CVD–CKD 2026 §5.5.4)"),
         t2 && !onCode(c, "finerenone") && on(c, "raas") && uacr != null && uacr >= 3 && (egfr == null || egfr >= 25) && (k == null || k <= 4.8) && S("finerenone", `UACR ${uacr} mg/mmol on a RAAS inhibitor: finerenone (ESC 2023, I A)`),
       ].filter(Boolean) as Suggestion[];
       return out.length ? out : [S("covered", "No additional protective drug selected from the recorded indications and contraindications")];
@@ -1106,7 +1131,10 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const sc = c.af?.score ?? null;
       const valve = dx(c, "mechanical-valve", "ms-significant");
       if (on(c, "doac") && valve) return [S("doac-to-vka", "DOAC with a mechanical valve or moderate–severe MS: contraindicated — switch to a VKA (ESC/EACTS 2025, III)")];
-      if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated: continue, check the dose")];
+      // the DOAC label-dose engine (the same check as the DOAC dose alert): a dose that differs is changed here
+      const wrong = (c.af?.doac ?? []).find((d) => d.dose != null && d.dose !== d.right);
+      if (on(c, "doac") && wrong) return [S("label-dose", `${wrong.code[0].toUpperCase() + wrong.code.slice(1)} ${wrong.dose} mg → ${wrong.right} mg: the label AF dose (${wrong.why}; ESC AF 2024 / SmPC)`)];
+      if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated at the label dose: continue")];
       const cl = c.afProcedures?.closure, ab = c.afProcedures?.ablation;
       if (cl?.method === "Transcatheter occlusion" && !valve && !dx(c,"hcm","amyloid") && (!ab?.minimumOac || c.today >= ab.minimumOac)) return [S("laao", "Recorded transcatheter closure: review device-specific therapy, surveillance and other OAC indications (SCAI/HRS 2025)")];
       // HCM or cardiac amyloidosis: anticoagulation whatever the score (ESC cardiomyopathies 2023, I B)

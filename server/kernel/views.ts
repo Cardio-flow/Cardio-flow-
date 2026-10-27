@@ -37,6 +37,9 @@ const SEVERITY_ORDER = { red: 0, orange: 1, yellow: 2, blue: 3 } as const;
 // cardiorenal rules) are shown once: the most urgent card carries the others as "also".
 export function mergeKey(r: { action?: any }) {
   const a = typeof r.action === "string" ? JSON.parse(r.action) : r.action;
+  // a start decided in a pathway (HF medicines, diabetes, AF-CARE, lipids) merges with the same drug class
+  // suggested by another rule, as a direct start did (27 Oct 2026)
+  if (a?.type === "wizard" && a.startCode) return `start:${drugClassOf(a.startCode)}`;
   if (a?.type !== "start-med") return null;
   return `start:${drugClassOf(a.code)}`;
 }

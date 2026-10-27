@@ -28,6 +28,8 @@ import { SYNCOPE_WIZARDS } from "./wizards-syncope.js";
 import type { MedicationReviewContext } from "./medication-review.js";
 import { MEDICATION_WIZARDS } from "./wizards-medication.js";
 import { IRON_WIZARDS } from "./wizards-iron.js";
+import { HFMEDS_WIZARDS, type HfMedsContext } from "./wizards-hfmeds.js";
+import { LIPID_WIZARDS, type LipidContext } from "./wizards-lipids.js";
 import { suggest } from "./wizard-guidance.js";
 import { startItem } from "./start-doses.js";
 
@@ -61,7 +63,7 @@ export type Question = {
   help?: string;
   type: "multi" | "single" | "dose" | "date";
   options?: Option[];
-  optionsFrom?: "medicationChecks";
+  optionsFrom?: "medicationChecks" | "hfChanges";
   // dose questions pick a new dose for the medication tagged with `medTag`
   medTag?: string;
   direction?: "lower" | "any";
@@ -124,6 +126,10 @@ export type WizardContext = {
   detected: Record<string, string[]>; // questionId -> auto-detected option values
   // safety screens answered before (shared/decision-assume.ts carriedScreens): today's are filled, older offered
   screens?: Record<string, { value: string | string[]; at: string; wizard: string; title: string; label: string; today: boolean }>;
+  // HF medicines pathway: each pillar's state, dose change and gate from the HF alert engine (server gdmtPlan)
+  hfMeds?: HfMedsContext | null;
+  // lipids pathway: goal, LDL-C, reduction and the next ESC/EAS step (server lipidStatus, as the LDL-C alert)
+  lipids?: LipidContext | null;
   trend?: { code: string; label: string; unit: string; points: { date: string; value: number }[] };
   // who the patient is, for pathways whose summary depends on it (age, known CVD, CV risk factors)
   profile?: { age: number; cvd: boolean; riskFactors: boolean; sex?: "Male" | "Female" };
@@ -644,6 +650,8 @@ export const WIZARDS: Record<string, WizardDef> = {
     ],
   },
   ...ACUTE_WIZARDS,
+  ...HFMEDS_WIZARDS,
+  ...LIPID_WIZARDS,
   ...DIABETES_WIZARDS,
   ...LAB_WIZARDS,
   ...GENERAL_WIZARDS,
@@ -733,7 +741,12 @@ export const RELEVANT_TAGS: Record<string, string[]> = {
 };
 
 // Options that fit this patient's current medicines.
-export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[] }): Option[] {
+export function optionsFor(q: Question, ctx: Pick<WizardContext, "meds" | "medicationReview"> & { dx?: string[]; hfMeds?: WizardContext["hfMeds"] }): Option[] {
+  // HF medicines: the changes the engine allows today, labelled with this patient's drug and dose
+  if (q.optionsFrom === "hfChanges") {
+    const items = new Map((ctx.hfMeds?.items ?? []).filter((i) => i.change).map((i) => [`${i.change!.kind}-${i.key}`, i.change!.label]));
+    return (q.options ?? []).filter((o) => o.value === "none" || items.has(o.value)).map((o) => ({ ...o, label: items.get(o.value) ?? o.label }));
+  }
   if (q.optionsFrom === "medicationChecks") return (ctx.medicationReview?.checks ?? []).map(check=>({value:check.id,label:check.codes ? `Blood tests · ${check.codes.map(code=>MEASURES[code]?.short ?? code).join(", ")}` : check.title}));
   const tags = new Set(ctx.meds.flatMap((m) => m.tags));
   const dx = new Set(ctx.dx ?? []);
@@ -795,7 +808,8 @@ export type OutcomeItem =
   | { kind: "start"; code: string; doseValue: number; frequency: string; indication: string; label: string }
   // a diagnosis the pathway confirms (added, or its detail updated, keeping its onset)
   | { kind: "condition"; code: string; attributes: Record<string, unknown>; label: string }
-  | { kind: "note"; label: string; decision?: boolean }
+  // needs: measure codes the decision is waiting for (a start the label doses from eGFR / K): shown as "record this"
+  | { kind: "note"; label: string; decision?: boolean; needs?: string[] }
   // why a drug class is not given (recorded once, reused by every rule, as from an alert card)
   | { kind: "barrier"; drugClass: string; category: "contraindication" | "declined"; label: string };
 

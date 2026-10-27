@@ -15,6 +15,9 @@ const need = (ctx: WizardContext, code: string, days: number, why: string) =>
   ctx.values?.[code] && fresh(ctx, ctx.values[code].at, days) ? [] : [{ code, days, why }];
 const NEEDS: Record<string, (ctx: WizardContext, a: Answers) => { code: string; days: number; why: string }[]> = {
   "iv-iron": (ctx, a) => (a.decision === "give" ? ironNeeds(ctx) : []),
+  // HF medicines: when nothing can change until a result is recorded, the result is what the decision needs
+  // (with other changes possible, the missing result is a reminder beside them); 60 days as the HF gates
+  "hf-medicines": (ctx) => (ctx.hfMeds?.items.some((i) => i.change) ? [] : (ctx.hfMeds?.items ?? []).filter((i) => i.state === "needs").flatMap((i) => i.needs.map((code) => ({ code, days: 60, why: i.why })))).filter((n, i, all) => all.findIndex((x) => x.code === n.code) === i),
   "anaemia-result": (ctx, a) => (Array.isArray(a.actions) && a.actions.includes("iv") ? ironNeeds(ctx) : []),
   "renal-function": (ctx) => need(ctx, "potassium", 30, "decides whether the MRA/RAAS doses can stay"),
   hyperkalaemia: (ctx) => [...need(ctx, "potassium", 30, "the potassium result being treated"), ...need(ctx, "creatinine", 30, "renal function with the potassium")],

@@ -9,6 +9,7 @@ import { loadState } from "../server/kernel/state.js";
 import { reassess } from "../server/engine/engine.js";
 import { completeWizard, getWizard } from "../server/engine/wizard.js";
 import { suggest } from "../shared/wizard-guidance.js";
+import { buildOutcome } from "../shared/wizards.js";
 import { summary } from "../server/kernel/views.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
@@ -189,6 +190,11 @@ test("LVEF ≤40% after NSTEMI with diabetes: beta-blocker, ACE inhibitor and MR
   for (const v of ["statin", "bb", "acei", "mra"]) assert.ok(st.includes(v), v);
   assert.ok(suggest("acs-discharge", "followup", { lvef: "le40" }, ctx).some((x) => x.value === "echo"));
 
+  // eplerenone follows its label (27 Oct 2026): without potassium and eGFR it is not started, and they are asked for
+  const noLabs = buildOutcome("acs-discharge", { type: "nstemi", revasc: "complete", lvef: "le40", start: ["mra"] }, ctx);
+  assert.ok(noLabs.some((o) => o.kind === "note" && o.needs?.includes("potassium") && o.needs.includes("egfr")));
+  assert.ok(!noLabs.some((o) => o.kind === "start" && o.code === "eplerenone"));
+  await tx(async (q) => { await K.recordObservations(q, doc, pid, { effectiveAt: at(addDays(T, -1)), items: [{ code: "potassium", value: 4.4 }, { code: "creatinine", value: 80 }] }); await reassess(q, pid, "sandbox"); });
   await run(pid, "acs-discharge", { type: "nstemi", revasc: "complete", lvef: "le40", start: ["statin", "bb", "acei", "mra"], prevent: ["rehab", "flu"], followup: ["lipids", "echo"], review: "clinic-14" });
   const s = await loadState(db, pid);
   const live = s.meds.filter((m) => m.status === "active").map((m) => `${m.code} ${m.doseValue} ${m.frequency}`).sort();

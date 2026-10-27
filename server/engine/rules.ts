@@ -41,7 +41,8 @@ export type Finding = {
   facts: Fact[];
   missing: string[];
   action:
-    | { type: "wizard"; wizard: string }
+    // startCode / medicationId: the drug class a dose pathway acts on (hf-medicines), for barrier suppression
+    | { type: "wizard"; wizard: string; startCode?: string; medicationId?: string; direction?: "increase" }
     | { type: "plan"; planId: string }
     | { type: "add-plan"; template: string; medicationId?: string }
     | { type: "tab"; tab: string }
