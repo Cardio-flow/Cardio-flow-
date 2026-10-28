@@ -655,6 +655,7 @@ export const PLAN_TEMPLATES: { id: string; category: string; title: string; comp
   { id: "lead-review", category: "referral", title: "Device lead review (EP)", completesOn: { type: "manual" }, offsets: [0, 7, 14] },
   { id: "device-referral", category: "referral", title: "EP referral for ICD/CRT", completesOn: { type: "manual" }, offsets: [14, 28, 56] },
   { id: "heart-team", category: "referral", title: "Heart Team discussion (mitral TEER)", completesOn: { type: "manual" }, offsets: [14, 28] },
+  { id: "coronary-heart-team", category: "referral", title: "Heart Team review: left main / multivessel CAD (CABG or PCI)", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "advanced-hf", category: "referral", title: "Advanced HF centre consultation", completesOn: { type: "manual" }, offsets: [7, 14, 28] },
   { id: "rehab", category: "referral", title: "Cardiac rehabilitation referral", completesOn: { type: "manual" }, offsets: [7, 14] },
   { id: "lipids", category: "monitoring", title: "Lipid profile", completesOn: { type: "lab", codes: ["ldl-c"] }, offsets: [42, 84] },

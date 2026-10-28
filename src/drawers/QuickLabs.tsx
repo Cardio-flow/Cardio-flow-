@@ -9,6 +9,7 @@ import {
   formatNumber,
 } from "../../shared/catalog";
 import { egfrCkdEpi2021, flagFor, fmtDay } from "../../shared/clinical";
+import { defaultUln } from "../../shared/lab-review";
 
 export function QuickLabs({
   patientId,
@@ -429,7 +430,7 @@ export function QuickLabs({
                       className="input num"
                       inputMode="decimal"
                       aria-label={`${def.display} upper reference limit`}
-                      placeholder="From lab report"
+                      placeholder={defaultUln(code, sum?.header?.sex) != null ? `Lab default ${defaultUln(code, sum?.header?.sex)}` : "From lab report"}
                       value={limits[code] ?? ""}
                       onChange={(e) =>
                         setLimits({ ...limits, [code]: e.target.value })

@@ -9,6 +9,19 @@ export const LAB_LIMITS = {
   ckReview: 4,
   ckStop: 10,
 };
+// The upper reference limits printed on the Mubarak Al-Kabeer laboratory reports (adult, by sex), used when
+// a result was entered without the report's own limit (28 Oct 2026, Ahmed: "you already have the normal limits
+// in the lab results, no need to ask every time"). A limit entered with the result always wins.
+export const LAB_REPORT_ULN: Record<string, { Male: number; Female: number }> = {
+  alt: { Male: 50, Female: 35 },
+  ast: { Male: 50, Female: 35 },
+  alp: { Male: 120, Female: 120 },
+  bilirubin: { Male: 21, Female: 21 },
+  ggt: { Male: 55, Female: 38 },
+  urate: { Male: 428, Female: 357 },
+};
+export const defaultUln = (code: string, sex: string | null | undefined) =>
+  LAB_REPORT_ULN[code]?.[sex === "Female" ? "Female" : "Male"] ?? null;
 export type LabResult = {
   id: string;
   value: number;

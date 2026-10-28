@@ -20,6 +20,7 @@ import type { Q } from "../db/db.js";
 import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, doseLabel, drugClassOf, MEDICATION, formatNumber, formatRange } from "../../shared/catalog.js";
 import { hfDoseProgress } from "../engine/medication-progress.js";
 import { ageOn, bmi, daysBetween, fmtDay, localDay, planStatusView } from "../../shared/clinical.js";
+import { cathExtent } from "../../shared/studies.js";
 import { historicalLabel } from "../../shared/procedures.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
@@ -199,8 +200,16 @@ export function ihdSummary(s: PatientState) {
   const y = (e: CardiacEvent) => (YEAR(e.when) ? ` ${YEAR(e.when)}` : "");
   const mis = ev.filter((e) => e.kind === "mi"), pcis = ev.filter((e) => e.kind === "pci"), cabgs = ev.filter((e) => e.kind === "cabg");
   const lower = (t: string) => t.replace(/^(Anterior|Inferior|Lateral|Posterior) /, (m) => m.toLowerCase());
+  // the latest angiogram's extent of disease, with an unmet surgical decision (28 Oct 2026)
+  const cath = [...s.studies].filter((x) => x.kind === "cath").sort((a, b) => a.performed_at.localeCompare(b.performed_at)).pop();
+  const ext = cath ? cathExtent(cath.attributes ?? {}) : null;
+  const revascAfter = !!cath && s.procedures.some((p) => (p.kind === "cabg" || p.kind === "pci") && localDay(p.performed_at) >= localDay(cath.performed_at));
+  const declined = !!cath && !revascAfter && (cath.attributes?.outcome === "CABG declined by patient" ||
+    s.contexts.some((c) => c.kind === "admission" && (c.summary as any)?.destination === "Left against medical advice" && localDay(c.started_at) <= localDay(cath.performed_at) && localDay(c.ended_at ?? s.today) >= localDay(cath.performed_at)));
+  const anatomy = ext && !revascAfter ? `${ext.short} (cath ${cath!.performed_at.slice(0, 4)})${declined ? ", CABG declined" : cath!.attributes?.outcome === "Referred for CABG" ? ", for CABG" : ""}` : null;
   const parts = [
     conds.some((c) => c.code === "cad-ccs") && !ev.length ? "chronic coronary syndrome" : null,
+    anatomy,
     // in date order: MIs, interventions by name and year (more than three PCIs as a count with the span), CABG
     ...(pcis.length > 3
       ? [...mis.map((e) => `${lower(e.short)}${y(e)}`), `PCI ×${pcis.length} (${YEAR(pcis[0].when) ?? "?"}–${YEAR(pcis[pcis.length - 1].when) ?? "?"})`, ...cabgs.map((e) => `CABG${y(e)}`)]

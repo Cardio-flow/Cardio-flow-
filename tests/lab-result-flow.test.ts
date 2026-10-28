@@ -332,7 +332,7 @@ test("iron and vitamin D medication suggestions respect treatment phase and requ
     ),
   );
 });
-test("normal follow-up resolves prior liver recommendation and missing limits cannot change a statin", async () => {
+test("normal follow-up resolves prior liver recommendation; a missing limit uses the laboratory's printed limit", async () => {
   const id = await patient();
   await statin(id);
   await labs(id, [{ code: "alt", value: 120, referenceHigh: 40 }]);
@@ -343,20 +343,11 @@ test("normal follow-up resolves prior liver recommendation and missing limits ca
   assert.equal(suggest("liver-result", "actions", {}, c)[0].value, "continue");
   await labs(id, [{ code: "alt", value: 20, referenceHigh: 40 }]);
   assert.equal((await rule(id, "lab.liver-enzymes")).length, 0);
+  // 28 Oct 2026: a result entered without its report limit is read against the laboratory's printed limit
+  // (Mubarak Al-Kabeer reports), so the statin decision is available without re-entering the limit
   await labs(id, [{ code: "alt", value: 500 }]);
-  await assert.rejects(
-    tx((q) =>
-      completeWizard(q, actor, id, "liver-result", {
-        answers: {
-          redflags: ["none"],
-          report: "checked",
-          actions: ["hold"],
-          recheck: "28",
-        },
-      }),
-    ),
-    /actual liver reference/,
-  );
+  c = (await getWizard(db, id, "liver-result")).context;
+  assert.equal(suggest("liver-result", "actions", {}, c)[0].value, "hold");
 });
 
 test("new HF diagnosis reopens anaemia's unified iron decision; statin pre-start checks use verified actual limits", async () => {

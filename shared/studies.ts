@@ -208,7 +208,7 @@ export const STUDIES: StudyDef[] = [
       { key: "lcx", label: "LCx", type: "choice", required: true, options: STENOSIS },
       { key: "rca", label: "RCA", type: "choice", required: true, options: STENOSIS },
       { key: "grafts", label: "Bypass grafts", type: "choice", options: ["No grafts", "All patent", "Diseased", "Occluded"] },
-      { key: "outcome", label: "Outcome", type: "choice", required: true, options: ["Medical therapy", "PCI performed", "Referred for CABG", "Heart team discussion", "Not stated"] },
+      { key: "outcome", label: "Outcome", type: "choice", required: true, options: ["Medical therapy", "PCI performed", "Referred for CABG", "CABG declined by patient", "Heart team discussion", "Not stated"] },
     ],
   },
   {
@@ -297,6 +297,17 @@ export function obstructiveCad(kind: string, a: Record<string, any>): string | n
   }
   if (kind === "ccta" && ["3", "4A", "4B", "5"].includes(a.cadrads)) return `CAD-RADS ${a.cadrads}${a.vessels?.length ? ` (${a.vessels.join(", ")})` : ""}`;
   return null;
+}
+
+// The extent of coronary disease at angiography (28 Oct 2026, Ahmed: a cath showing left main + 3-vessel
+// disease referred for CABG, which the patient refused, was missing from the overview). Anatomy only:
+// left main ≥50%, other vessels ≥70% or occluded, as obstructiveCad.
+export function cathExtent(a: Record<string, any>) {
+  const lm = !!a.lm && (SIG.includes(a.lm) || a.lm === "50–69%");
+  const vessels = (["lad", "lcx", "rca"] as const).filter((k) => SIG.includes(a[k])).map((k) => ({ lad: "LAD", lcx: "LCx", rca: "RCA" })[k]);
+  if (!lm && !vessels.length) return null;
+  const text = lm ? (vessels.length ? `Left main + ${vessels.length}-vessel disease` : "Left main disease") : `${vessels.length}-vessel disease`;
+  return { lm, vessels, text: `${text} (${[lm ? "LM" : null, ...vessels].filter(Boolean).join(", ")})`, short: text, prognostic: lm || vessels.length >= 3 };
 }
 
 // One line for lists, the journey and notes.

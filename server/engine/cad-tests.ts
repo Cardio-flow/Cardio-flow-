@@ -2,7 +2,7 @@
 // guideline's own (ESC CCS 2024, Rec. Table 14; shared/ccs-tests.ts).
 import { localDay } from "../../shared/clinical.js";
 import { ccsTestRisk, CCS_TEST_KINDS, ruleOutCapable } from "../../shared/ccs-tests.js";
-import { STUDY_LABEL, obstructiveCad, studySummary } from "../../shared/studies.js";
+import { STUDY_LABEL, cathExtent, obstructiveCad, studySummary } from "../../shared/studies.js";
 import type { PatientState } from "../kernel/state.js";
 import type { RuleDef } from "./rules.js";
 
@@ -81,6 +81,54 @@ export const CAD_TEST_RULES: RuleDef[] = [
         detail: t.why,
         facts: [{ label: "Test", value: `${t.label}${t.summary ? ` · ${t.summary}` : ""}`, date: t.at }, { label: "Guideline", value: "ESC CCS 2024" }],
         missing: [], action: { type: "wizard", wizard: "ccs-test-result" },
+      }];
+    },
+  },
+{
+    // 28 Oct 2026 (Ahmed: "CA came MVD for CABG, not done as the patient refused, and nothing in the overview")
+    id: "cad.cath-revascularisation",
+    kind: "clinical",
+    title: "Left main / multivessel disease at angiography: revascularisation decision",
+    inputs: ["studies", "procedures", "contexts", "plan"],
+    defaultParams: {},
+    evidence:
+      "2024 ESC CCS: significant left main stenosis — CABG recommended over medical therapy alone to improve survival (Rec. Table 22, I A); multivessel disease — revascularisation to reduce cardiovascular death and MI, CABG preferred in complex multivessel disease or diabetes (I A); PCI an alternative in left main/multivessel disease of low–intermediate anatomical complexity (I A); Heart Team decision with the patient's preference (I C). Shown until a CABG or PCI is recorded after the angiogram, or a Heart Team decision for medical therapy is recorded as the angiography outcome.",
+    evaluate(s) {
+      const cath = [...s.studies].filter((x) => x.kind === "cath").sort((a, b) => a.performed_at.localeCompare(b.performed_at)).pop();
+      if (!cath) return [];
+      const a = cath.attributes ?? {};
+      const ext = cathExtent(a);
+      const day = localDay(cath.performed_at);
+      const outcome = String(a.outcome ?? "");
+      if (!ext || outcome === "Medical therapy" || outcome === "PCI performed") return [];
+      if (!ext.prognostic && !["Referred for CABG", "CABG declined by patient", "Heart team discussion"].includes(outcome)) return [];
+      if (s.procedures.some((p) => (p.kind === "cabg" || p.kind === "pci") && localDay(p.performed_at) >= day)) return [];
+      // the patient's refusal: recorded as the outcome, or the admission of the angiogram ended against medical advice
+      const lama = s.contexts.find((c) => c.kind === "admission" && (c.summary as any)?.destination === "Left against medical advice" &&
+        localDay(c.started_at) <= day && localDay(c.ended_at ?? s.today) >= day);
+      const declined = outcome === "CABG declined by patient" || !!lama;
+      const booked = s.plan.find((p) => p.status === "planned" && /heart team|cabg|cardiac surg/i.test(p.title));
+      const what = ext.short;
+      const title = declined
+        ? `${what}: patient declined CABG — re-discuss surgery; Heart Team for PCI if still declined`
+        : outcome === "Referred for CABG"
+          ? `${what}: referred for CABG — surgery not yet recorded`
+          : `${what} at angiography: revascularisation decision (Heart Team)`;
+      const detail = declined
+        ? "CABG improves survival in left main and multivessel disease (ESC CCS 2024, I A). Re-discuss surgery with the patient and family and record the answer; if CABG is still declined, Heart Team review for PCI as the alternative revascularisation. Meanwhile full anti-anginal therapy and secondary prevention (LDL-C, BP, antiplatelet), and early review for any angina."
+        : outcome === "Referred for CABG"
+          ? "Book the surgical review/operation and track it to completion; if surgery is not done, record why (patient declined, unsuitable) so the Heart Team can consider PCI."
+          : "Left main ≥50% or 3-vessel disease: revascularisation improves prognosis (ESC CCS 2024, I A). Decide CABG vs PCI with the Heart Team and the patient.";
+      const facts: { label: string; value: string; date?: string }[] = [
+        { label: "Angiography", value: ext.text, date: day },
+        { label: "Outcome", value: outcome || "Not stated" },
+      ];
+      if (lama) facts.push({ label: "Discharge", value: "Left against medical advice", date: localDay(lama.ended_at ?? lama.started_at) });
+      if (booked) facts.push({ label: "Booked", value: booked.title, date: booked.due_date ? String(booked.due_date).slice(0, 10) : undefined });
+      return [{
+        key: declined ? "declined" : "pending", signature: `${cath.id}:${declined ? "declined" : outcome}:${booked?.id ?? ""}`,
+        severity: booked ? "yellow" : "orange", title, detail, facts, missing: [],
+        action: booked ? { type: "tab", tab: "plan" } : { type: "add-plan", template: "coronary-heart-team" },
       }];
     },
   },

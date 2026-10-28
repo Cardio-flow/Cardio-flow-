@@ -12,6 +12,7 @@ import { MEASURES, formatNumber, formatRange } from "../../shared/catalog.js";
 import { daysBetween, flagFor, fmtDay } from "../../shared/clinical.js";
 import { creatinineTrend } from "../engine/renal-trend.js";
 import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy.js";
+import { defaultUln } from "../../shared/lab-review.js";
 import { DIAGNOSIS } from "../../shared/catalog.js";
 import { RISK_FACTOR_CODES, attributesText } from "../../shared/history.js";
 
@@ -54,6 +55,7 @@ export function story(s: PatientState) {
   const lastVisit = [...s.contexts].filter((c) => c.kind === "clinic_visit" && c.status === "closed" && c.ended_at).sort((a, b) => b.ended_at!.localeCompare(a.ended_at!))[0];
   const anchor = adm?.ended_at ?? lastVisit?.ended_at ?? new Date(Date.parse(s.today) - 182 * 864e5).toISOString();
   const up: string[] = [], down: string[] = [];
+  const WORSE: Record<string, "up" | "down" | "range"> = { creatinine: "up", "nt-probnp": "up", "ldl-c": "up", hba1c: "up", haemoglobin: "down", potassium: "range", sodium: "range", magnesium: "range" };
   const NAME: Record<string, string> = { creatinine: "creatinine", potassium: "potassium", sodium: "sodium", haemoglobin: "Hb", "nt-probnp": "NT-proBNP", magnesium: "magnesium", "ldl-c": "LDL-C", hba1c: "HbA1c" };
   for (const code of Object.keys(NAME)) {
     const all = finals(s, code);
@@ -64,6 +66,10 @@ export function story(s: PatientState) {
     const p = pct(before.value_num!, now.value_num!);
     const flag = flagFor(now.value_num!, refOf(s, code));
     if (p == null || p === 0 || (!flag && Math.abs(p) < 20)) continue;
+    // only a move in the harmful direction is news (28 Oct 2026, Ahmed: a falling creatinine is not a problem):
+    // creatinine, NT-proBNP, LDL-C and HbA1c when they rise, Hb when it falls; electrolytes when now out of range
+    const harmful = WORSE[code] === "up" ? p > 0 : WORSE[code] === "down" ? p < 0 : !!flag;
+    if (!harmful) continue;
     (p > 0 ? up : down).push(NAME[code]);
   }
   const list = (x: string[]) => (x.length > 1 ? `${x.slice(0, -1).join(", ")} and ${x[x.length - 1]}` : x[0]);
@@ -108,7 +114,9 @@ export function chronology(s: PatientState, cardiac: CardiacEv[]) {
     const said = c.reasons.join(" ").toLowerCase();
     const events = ((c.summary as any)?.events ?? []).filter((e: string) => e !== "None" && !said.includes(e.toLowerCase()) && !(e === "Infection" && /infection|sepsis/.test(said)));
     const changed = changedIn(s, c.started_at, c.ended_at ?? s.today);
-    items.push({ at: c.started_at, when: MONY(c.started_at), tone: "bad", text: `Admitted${c.ended_at ? ` ${Math.max(1, Math.round((Date.parse(c.ended_at) - Date.parse(c.started_at)) / 864e5))} days` : " now"}: ${c.reasons.join(", ")}${events.length ? ` · ${events.join(", ").toLowerCase()}` : ""}${changed.length ? ` · ${changed.join(", ")}` : ""}` });
+    const nDays = c.ended_at ? Math.max(1, Math.round((Date.parse(c.ended_at) - Date.parse(c.started_at)) / 864e5)) : 0;
+    const lama = (c.summary as any)?.destination === "Left against medical advice" ? " · left against medical advice" : "";
+    items.push({ at: c.started_at, when: MONY(c.started_at), tone: "bad", text: `Admitted${c.ended_at ? ` ${nDays} day${nDays === 1 ? "" : "s"}` : " now"}: ${c.reasons.join(", ")}${events.length ? ` · ${events.join(", ").toLowerCase()}` : ""}${changed.length ? ` · ${changed.join(", ")}` : ""}${lama}` });
   }
   // cardiac medicines stopped or held outside an admission
   const inAdm = (at: string) => s.contexts.some((c) => c.kind === "admission" && at >= c.started_at && at <= new Date(Date.parse(c.ended_at ?? s.today) + 3 * 864e5).toISOString());
@@ -225,7 +233,9 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
     const hbCut = preg && r.code === "haemoglobin" ? pregnancyHaemoglobinCutoff((preg.attributes as any)?.edd, String(r.current.at).slice(0, 10)) : null;
     let flag: "high" | "low" | null = preg && r.code === "haemoglobin" ? (hbCut != null && v < hbCut ? "low" : null) : flagFor(v, refOf(s, r.code));
     let note: string | null = null;
-    const uln = r.current.referenceHigh as number | null;
+    const uln = (r.current.referenceHigh as number | null) ?? defaultUln(r.code, s.patient.sex);
+    // a low creatinine or urea is not a problem to list (28 Oct 2026, Ahmed)
+    if (flag === "low" && (r.code === "creatinine" || r.code === "urea")) flag = null;
     if (!flag && uln && v > uln) { flag = "high"; note = `${formatNumber(v / uln, 1)}× ULN`; }
     // ESC HF 2023 iron deficiency: ferritin <100 µg/L, or 100–299 with TSAT <20%
     if (!flag && isHf && r.code === "tsat" && v < 20) { flag = "low"; note = "iron deficiency (ESC HF)"; }

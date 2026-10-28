@@ -1,5 +1,5 @@
 import type { PatientState } from "../kernel/state.js";
-import type { LabReview } from "../../shared/lab-review.js";
+import { defaultUln, type LabReview } from "../../shared/lab-review.js";
 export function labResults(s: PatientState): LabReview {
   const out: LabReview = {};
   for (const code of [
@@ -25,7 +25,7 @@ export function labResults(s: PatientState): LabReview {
         id: o.id,
         value: o.value_num,
         at: o.effective_at,
-        referenceHigh: o.reference_high ?? null,
+        referenceHigh: o.reference_high ?? defaultUln(code, s.patient.sex),
       };
   }
   return out;

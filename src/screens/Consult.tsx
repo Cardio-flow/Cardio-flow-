@@ -45,8 +45,11 @@ function brief(s: any): string | null {
   const hf = dx.find((d) => d.family === "Heart failure");
   const current=s.currentLvef;
   const course=current ? `, EF ${current.value}${current.high != null ? `–${current.high}` : ""}% (${current.quality}, ${fmtDay(current.at)})` : "";
-  const first = hf ? `${hf.label.replace(/(\s*·\s*EF)?\s*[\d–-]+%$/, "")}${course}` : dx.find((d) => d.family !== "Comorbidity" && !d.riskFactor)?.label ?? null;
-  const extra = [h.ihd?.label?.replace(/^IHD · /, "IHD: "), ...((h.structural?.items ?? []) as string[])].filter(Boolean).slice(0, 2);
+  // coronary diagnoses are said once, in the IHD line (28 Oct 2026: "Chronic coronary syndrome; IHD: chronic coronary syndrome")
+  const ihd = h.ihd?.label ? String(h.ihd.label).replace(/^IHD · /, "IHD: ") : null;
+  const other = dx.find((d) => d.family !== "Comorbidity" && !d.riskFactor && !(ihd && d.family === "Coronary"))?.label ?? null;
+  const first = hf ? `${hf.label.replace(/(\s*·\s*EF)?\s*[\d–-]+%$/, "")}${course}` : ihd ?? other;
+  const extra = [hf ? ihd : ihd ? other : null, ...((h.structural?.items ?? []) as string[])].filter(Boolean).slice(0, 2);
   const s1 = first ? `${first}${extra.length ? `; ${extra.join("; ")}` : ""}.` : extra.length ? `${extra.join("; ")}.` : "";
   const since = (s.story ?? []).find((l: any) => l.key === "since");
   const adm = [...((s.chronology?.items ?? []) as any[])].reverse().find((i) => /^Admitted/.test(i.text));
@@ -273,7 +276,19 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
             </div>
           );
         })}</div>
-        {other.length > 0 && <a className="cx-also-link" href="#cx-standing">{other.length} other abnormal result{other.length === 1 ? "" : "s"} · by problem below</a>}
+        {/* every other abnormal latest result in the strip itself (28 Oct 2026, Ahmed: an LDL above goal was not in the lab strip) */}
+        {other.length > 0 && (
+          <div className="cx-abn-list">
+            {other.map((x: any) => (
+              <div key={x.code} className={`cx-abn ${x.flag}`}>
+                <span>{x.label}</span>
+                <b>{x.text} <small>{x.unit}</small></b>
+                <i>{x.note ?? (x.flag === "high" ? "high" : "low")}{x.previous ? ` · was ${x.previous.text}` : ""} · {fmtDay(x.at, { year: true })}</i>
+              </div>
+            ))}
+            <a className="cx-also-link" href="#cx-standing">By problem below</a>
+          </div>
+        )}
       </section>
       {meds.length > 0 && (
         <section className="cx-panel cx-rail-medicines">
