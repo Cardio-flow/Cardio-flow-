@@ -1,3 +1,4 @@
+import {openPatientView} from "./patient-navigation.mjs";
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic browser regression for compact dates, medication summaries and reserved notifications.
 import { chromium } from '@playwright/test';
@@ -66,7 +67,7 @@ try {
   await page.getByRole('button', { name: 'Save 1 result', exact: true }).click();
   await labs.waitFor({ state: 'hidden' });
   if (await page.getByRole('button', {name:'Continue data entry',exact:true}).isVisible()) await page.getByRole('button', {name:'Continue data entry',exact:true}).click();
-  await page.getByRole('link', { name: 'Medications', exact: true }).click();
+  await openPatientView(page, "Medications");
   await page.getByRole('button', { name: 'Add several', exact: true }).click();
   let batch = page.getByRole('dialog', { name: 'Add medicines', exact: true });
   await noticeClearOf('.drawer');

@@ -131,24 +131,25 @@ export function problemReasoning(s: PatientState) {
 
 // since the last visit (or discharge): what was planned then, and whether it happened
 export function sinceLastVisit(s: PatientState) {
-  const ctx = [...s.contexts].filter((c) => c.status === "closed" && c.ended_at && (c.kind === "clinic_visit" || c.kind === "admission"))
+  const ctx = [...s.contexts].filter((c) => c.status === "closed" && c.ended_at && !c.summary?.historical && (c.kind === "clinic_visit" || c.kind === "admission"))
     .sort((a, b) => b.ended_at!.localeCompare(a.ended_at!))[0];
   if (!ctx) return null;
-  const items = s.plan.filter((p) => p.source_context_id === ctx.id && p.status !== "cancelled" && p.status !== "superseded").map((p) => {
-    const done = p.status === "completed";
+  const items = s.plan.filter((p) => (p.source_context_id === ctx.id || p.context_refs?.includes(ctx.id)) && p.status !== "cancelled" && p.status !== "superseded").map((p) => {
+    const awaitingReview = p.status === "completed" && p.progress === "performed";
+    const done = p.status === "completed" && !awaitingReview;
     const late = done && p.due_date && p.completed_at ? daysBetween(p.due_date, localDay(p.completed_at)) : null;
     const overdue = !done && p.due_date && p.due_date < s.today ? daysBetween(p.due_date, s.today) : null;
-    const state: "done" | "late" | "missed" | "pending" = done ? (late != null && late > 7 ? "late" : "done") : overdue != null ? "missed" : "pending";
+    const state: "done" | "late" | "missed" | "pending" | "review" = awaitingReview ? "review" : done ? (late != null && late > 7 ? "late" : "done") : overdue != null ? "missed" : "pending";
     return {
       id: p.id, title: p.title, state,
-      note: state === "late" ? `done ${fmtDay(p.completed_at!)}, ${Math.round(late! / 7)} week${Math.round(late! / 7) === 1 ? "" : "s"} late`
+      note: state === "review" ? "Result received · awaiting clinical review" : state === "late" ? `done ${fmtDay(p.completed_at!)}, ${Math.round(late! / 7)} week${Math.round(late! / 7) === 1 ? "" : "s"} late`
         : state === "done" ? `done${p.completed_at ? ` ${fmtDay(p.completed_at)}` : ""}`
         : state === "missed" ? `due ${fmtDay(p.due_date!)}: not done (${overdue! >= 14 ? `${Math.round(overdue! / 7)} weeks` : `${overdue} days`})`
         : p.due_date ? `due ${fmtDay(p.due_date)}` : "no date",
     };
   });
   if (!items.length) return null;
-  const order = { missed: 0, late: 1, pending: 2, done: 3 } as const;
+  const order = { review: 0, missed: 1, late: 2, pending: 3, done: 4 } as const;
   items.sort((a, b) => order[a.state] - order[b.state]);
   return { since: ctx.ended_at, label: ctx.kind === "admission" ? `Since discharge · ${fmtDay(ctx.ended_at!, { year: true })}` : `Since the last visit · ${fmtDay(ctx.ended_at!, { year: true })}`, items };
 }

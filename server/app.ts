@@ -309,7 +309,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
       const schema = req.params.scope === "past-admission"
         ? z.object({startedOn:z.union([isoDate,z.literal("")]),endedOn:z.union([isoDate,z.literal("")]),location:z.string().max(80),reasons:strings,source:z.string().max(160),narrative:z.string().max(4000),note:z.string().max(64000),events:strings,dischargeStatus:z.string().max(120),destination:z.string().max(120),reportedLabs:z.string().max(4000),reportedMedications:z.string().max(4000)}).strict()
         : req.params.scope === "admission-entry"
-        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120).optional(),bed:z.string().max(40).optional(),conf:z.record(z.string().max(60),z.enum(["unchanged","changed","unknown"]))}).strict()
+        ? z.object({narrative:z.string().max(4000),reasons:strings,hfChoice:z.enum(["", "yes", "no"]),route:z.string().max(120),symptoms:strings,loc:z.string().max(120).optional(),bed:z.string().max(40).optional(),conf:z.record(z.string().max(60),z.enum(["","unchanged","changed","unknown"])),admissionDate:z.union([isoDate,z.literal("")]).optional(),reviewMode:z.literal("explicit").optional()}).strict()
         : z.object({vit:shortValues.refine(v => Object.keys(v).every(k => ["sbp","dbp","hr","weight"].includes(k))),hfa:shortValues.refine(v => Object.keys(v).every(k => ["kccq","6mwd","dry-weight"].includes(k))),nyha:z.string().max(20),cong:z.string().max(60),baselineValues:z.record(z.string(),z.string().max(60)).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional(),baseline:z.record(z.string(),uuidS.nullable()).refine(v=>Object.keys(v).every(k=>ASSESSMENT_CODES.includes(k as any))).optional()}).strict();
       input.answers = schema.parse(input.answers);
     }
@@ -899,7 +899,7 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
   }));
   app.get("/api/patients/:id/contexts/:cid/note", route(async (req, res) => {
     const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), draftNote(tx, id, uuidS.parse(req.params.cid)))));
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), draftNote(tx, id, uuidS.parse(req.params.cid), {preferSaved:true}))));
   }));
 
   app.get("/api/patients/:id/documents", route(async (req, res) => {

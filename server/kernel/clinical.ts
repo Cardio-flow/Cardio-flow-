@@ -1196,6 +1196,7 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
     const planned = (await tx.query(`SELECT id,title,status,category,due_date::text AS "dueDate",completes_on AS "completesOn" FROM cf.plan_action WHERE patient_id=$1 AND status='planned'`, [patientId])).rows as any[];
     const existing = input.reuseClinicFollowUp !== false && p.category === "follow_up" && p.completesOn?.type === "visit" && existingClinicReview(planned, p.title, p.dueDate, localDay(input.endedAt));
     if (existing) {
+      await tx.query(`UPDATE cf.plan_action SET context_refs=ARRAY(SELECT DISTINCT unnest(context_refs || $2::uuid[])),version=version+1,updated_at=now() WHERE id=$1 AND NOT ($3::uuid=ANY(context_refs))`, [existing.id,[contextId],contextId]);
       await audit(tx, actor, "reuse-discharge-follow-up", "plan_action", existing.id, patientId, { contextId, requestedTitle: p.title, requestedDueDate: p.dueDate });
       continue;
     }
@@ -1209,6 +1210,21 @@ export async function discharge(tx: Q, actor: Actor, patientId: string, contextI
   });
   if (died)
     await recordStatus(tx, actor, patientId, { kind: "vital", status: "died", effectiveOn: isoDay(new Date(input.endedAt)), place: "in_hospital", causeGroup: input.causeGroup, contextId });
+  // Freeze the confirmed discharge record in the existing context. Later patient
+  // changes must not regenerate this document with a new regimen or new results.
+  const dischargeState = await loadState(tx, patientId);
+  const { draftNote } = await import("./notes.js");
+  const finalNote = input.note?.trim() ? {text:input.note} : await draftNote(tx, patientId, contextId);
+  const dischargeSnapshot = {
+    at: input.endedAt,
+    diagnoses: dischargeState.conditions.map(c => ({id:c.id,code:c.code,display:c.display,status:c.status,attributes:c.attributes})),
+    medicines: dischargeState.meds.filter(m => m.status !== "stopped").map(m => ({id:m.id,code:m.code,name:m.name,status:m.status,doseValue:m.doseValue,doseUnit:m.doseUnit,frequency:m.frequency,route:m.route,indication:m.indication})),
+    results: [...new Set(dischargeState.observations.map(o => o.code))]
+      .map(code => dischargeState.resolved(code).current).filter(Boolean),
+    plan: dischargeState.plan.filter(p => p.status === "planned" || p.status === "completed" && p.progress === "performed").map(p => ({id:p.id,title:p.title,dueDate:p.due_date,status:p.status,progress:p.progress,owner:p.owner,completesOn:p.completes_on})),
+  };
+  await tx.query(`UPDATE cf.care_context SET summary=summary || $2::jsonb WHERE id=$1`,
+    [contextId, JSON.stringify({note: finalNote.text, dischargeSnapshot})]);
   await audit(tx, actor, "discharge", "care_context", contextId, patientId, { outcome: died ? "died" : "alive", los });
   return changed;
 }
@@ -1299,6 +1315,11 @@ export async function closeVisit(tx: Q, actor: Actor, patientId: string, context
   if (ctx.kind !== "clinic_visit") throw new ApiError(409, "An admission is closed by its discharge");
   await tx.query(`UPDATE cf.care_context SET status='closed', ended_at=$2, version=version+1, summary=summary || $3 WHERE id=$1`, [contextId, nowIso(), JSON.stringify({ note: input.note ?? "", ...(input.narrative !== undefined ? { narrative: input.narrative } : {}) })]);
   await tx.query(`UPDATE cf.wizard_draft SET status='completed',updated_at=now() WHERE patient_id=$1 AND (wizard=$2 OR wizard=$3) AND status='draft'`, [patientId, `visit:${contextId}`, `entry:${actor.id}:assessment:${contextId}`]);
+  if (!input.note?.trim()) {
+    const { draftNote } = await import("./notes.js");
+    const generated = await draftNote(tx, patientId, contextId);
+    await tx.query(`UPDATE cf.care_context SET summary=summary || $2::jsonb WHERE id=$1`, [contextId, JSON.stringify({note: generated.text})]);
+  }
   await audit(tx, actor, "close-visit", "care_context", contextId, patientId);
   return ["contexts"] as Changed;
 }

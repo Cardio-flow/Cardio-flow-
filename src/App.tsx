@@ -126,18 +126,19 @@ function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Sess
             <Users size={18} />
             Patients
           </Link>
+
+        </nav>
+        <nav className="nav" aria-label="Other workspaces">
+          <div className="nav-label">OTHER WORK</div>
           <Link to="/registries" aria-current={section === "registries" ? "page" : undefined}>
             <BarChart3 size={18} />
             Registries
           </Link>
-        </nav>
-        <nav className="nav" aria-label="Administration">
-          <div className="nav-label">ADMIN</div>
-          <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}><LockKeyhole size={18} />Patient administration</Link>
-          <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
+          {session.role === "admin" && <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}><LockKeyhole size={18} />Patient administration</Link>}
+          {session.role !== "clinician" && <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
             <ShieldCheck size={18} />
             Rule governance
-          </Link>
+          </Link>}
         </nav>
         <div className="me">
           <div className="avatar">{initials(session.name)}</div>
@@ -184,22 +185,15 @@ function Shell({ session, site, hosted, refreshSite, onLogout }: { session: Sess
             <Users size={20} />
             <span>Patients</span>
           </Link>
-          <Link to="/registries" aria-current={section === "registries" ? "page" : undefined}>
-            <BarChart3 size={20} />
-            <span>Registries</span>
-          </Link>
-          <Link to="/governance" aria-current={section === "governance" ? "page" : undefined}>
-            <ShieldCheck size={20} />
-            <span>Rules</span>
-          </Link>
-          <Link to="/administration" aria-current={section === "administration" ? "page" : undefined}>
-            <LockKeyhole size={20} />
-            <span>Admin</span>
-          </Link>
-          <button onClick={signOut} disabled={loggingOut} aria-label="Sign out">
-            <LogOut size={20} />
-            <span>Sign out</span>
-          </button>
+          <details className="phone-tools">
+            <summary><ListChecks size={20} /><span>More</span></summary>
+            <div className="phone-tools-menu" onClick={e=>{const details=e.currentTarget.closest("details");if(details)details.open=false;}} onKeyDown={e=>{if(e.key === "Escape"){e.preventDefault();const details=e.currentTarget.closest("details");if(details){details.open=false;details.querySelector("summary")?.focus();}}}}>
+              <Link to="/registries"><BarChart3 size={18} />Registries</Link>
+              {session.role !== "clinician" && <Link to="/governance"><ShieldCheck size={18} />Rule governance</Link>}
+              {session.role === "admin" && <Link to="/administration"><LockKeyhole size={18} />Patient administration</Link>}
+              <button onClick={signOut} disabled={loggingOut}><LogOut size={18} />Sign out</button>
+            </div>
+          </details>
         </nav>
         <Suspense fallback={<main className="page" role="status">Loading workspace…</main>}>
         {patientMatch ? (

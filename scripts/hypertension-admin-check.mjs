@@ -1,3 +1,4 @@
+import {openPatientView,openPhoneTools} from "./patient-navigation.mjs";
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -221,7 +222,7 @@ try {
       (p) => p.title === "Renal denervation (RDN)" && p.status === "planned",
     ),
   );
-  await page.getByRole("link", { name: "Investigations", exact: true }).click();
+  await openPatientView(page, "Investigations");
   await page.getByRole("button", { name: "Add procedure", exact: true }).click();
   await page.getByRole("button", { name: /^Renal denervation/ }).click();
   await date("Procedure date", T);
@@ -272,9 +273,7 @@ try {
   await api(`/patients/${pat.id}/visits/${v.id}/close`, {
     note: "Synthetic visit",
   });
-  await page
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(page, "Admissions & visits");
   const edit = page.getByRole("button", { name: "Edit visit", exact: true });
   await edit.waitFor();
   const rect = await edit.boundingBox();
@@ -300,13 +299,12 @@ try {
   await radio("Reason for removal", "Duplicate entry");
   await page.getByRole("button", { name: "Delete visit", exact: true }).click();
   await continueAfterEntry(page);
-  await page
-    .locator(".phone-nav")
-    .getByRole("link", { name: "Admin", exact: true })
-    .click();
+  assert.equal(await page.locator('.phone-nav').getByRole('link',{name:'Patient administration',exact:true}).count(),0);
+  await page.goto(base+'/administration');
   await page.getByRole("heading", { name: "Administrator access required" }).waitFor();
   await page.getByText("Your account is signed in as clinician.", { exact: false }).waitFor();
   await noOverflow();
+  await openPhoneTools(page);
   await page
     .locator(".phone-nav")
     .getByRole("button", { name: "Sign out", exact: true })
@@ -314,10 +312,8 @@ try {
   await page.getByText("Rule Administrator", { exact: true }).click();
   await page.getByRole("heading", { name: "Worklist", exact: true }).waitFor();
   csrf = (await api("/session")).csrf;
-  await page
-    .locator(".phone-nav")
-    .getByRole("link", { name: "Admin", exact: true })
-    .click();
+  await openPhoneTools(page);
+  await page.locator('.phone-nav').getByRole('link',{name:'Patient administration',exact:true}).click();
   await page.getByRole("heading", { name: /^(Set administration PIN|Unlock administration)$/ }).waitFor();
   if (await page.getByRole("heading", { name: "Set administration PIN" }).isVisible()) {
     await page.getByLabel("PIN", { exact: true }).fill("739204");

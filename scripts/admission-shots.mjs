@@ -1,3 +1,4 @@
+import {openPatientView} from "./patient-navigation.mjs";
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic admission → pathway → decision → plan → discharge walkthrough.
 import { chromium, expect } from "@playwright/test";
@@ -52,9 +53,7 @@ try {
     items: [{ code: "potassium", value: 5.8 }, { code: "creatinine", value: 110 }],
   });
   await p.goto(`http://127.0.0.1:4310/patients/${pat.id}`);
-  await p
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(p, "Admissions & visits");
   await p
     .getByRole("heading", { name: "Admissions & visits", exact: true })
     .waitFor();
@@ -180,7 +179,7 @@ try {
     ).length !== 1
   )
     throw Error("Discharge duplicated clinic follow-up");
-  await p.getByRole("link", { name: "Investigations", exact: true }).click();
+  await openPatientView(p, "Investigations");
   const potassiumRow = p.getByRole("row").filter({ has: p.getByText("Potassium", { exact: true }) });
   await potassiumRow.getByRole("button", { name: "Correct", exact: true }).click();
   await p.getByRole("radio", { name: "The value was wrong", exact: true }).click();

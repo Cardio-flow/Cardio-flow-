@@ -9,7 +9,9 @@ import {
   Route,
   FileText,
   Pencil,
+  Pill,
 } from "lucide-react";
+import { PATIENT_SECTIONS, RECORD_VIEWS, patientSection } from "../../shared/patient-sections";
 import { useData, setSampleMode } from "../api";
 import { Drawer, DrawerWorkspace, Link, Tag, initials, useToast } from "../ui";
 import { SummaryTab, ActionButton, WhyPanel } from "./Summary";
@@ -105,20 +107,6 @@ export type Open =
   | { kind: "result-correct"; result: any }
   | { kind: "void"; what: string; path: string };
 
-const TABS = [
-  ["summary", "Overview"],
-  ["visits", "Admissions & visits"],
-  ["history", "History"],
-  ["journey", "Journey"],
-  ["medications", "Medications"],
-  ["investigations", "Investigations"],
-  ["plan", "Plan & follow-up"],
-  ["registries", "Registries"],
-] as const;
-// phones (19 Oct 2026, audit: eight tabs scrolled sideways): short labels, Journey and Registries under "More"
-const SHORT: Record<string, string> = { summary: "Overview", visits: "Visits", history: "Hx", journey: "Journey", medications: "Meds", investigations: "Tests", plan: "Plan", registries: "Registries" };
-const MORE_TABS = new Set(["journey", "registries"]);
-
 export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const { data: s, error, reload } = useData<any>(`/patients/${id}/summary`);
   const [open, setOpen] = useState<Open | null>(null);
@@ -181,7 +169,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   );
   // phones: the diagnosis and risk lines fold to two lines each; a tap shows everything (19 Oct 2026)
   const [linesOpen, setLinesOpen] = useState(false);
-  const [moreTabs, setMoreTabs] = useState(false);
+
   const [linesOverflow, setLinesOverflow] = useState(false);
   const linesRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -206,6 +194,8 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
       </main>
     );
   if (!s) return <main className="page" aria-busy="true" />;
+  const section = patientSection(tab);
+  const recordView = tab === "record" ? "history" : tab;
   const h = s.header;
   // diagnoses only: risk factors (hypertension, diabetes, dyslipidaemia, obesity, CKD) have their own row
   const dxOnly = h.diagnoses.filter((d: any) => !d.riskFactor);
@@ -303,6 +293,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                 <span className="lbl">Pathways</span>
               </button>
             )}
+            <Link className="btn secondary" to={`/patients/${id}/medications`} aria-label="Open medications"><Pill size={18} /><span className="lbl">Medicines</span></Link>
             {tab !== "investigations" && (<button
               className="btn secondary"
               onClick={() => setOpen({ kind: "labs" })}
@@ -405,7 +396,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           </button>}
         </div>
         <nav
-          className="tabs"
+          className="tabs patient-primary"
           aria-label="Patient sections"
           ref={(el) => {
             // keep the current tab visible when the bar scrolls sideways (phones), without moving the page
@@ -415,23 +406,21 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                 a.offsetLeft - el.clientWidth / 2 + a.clientWidth / 2;
           }}
         >
-          {TABS.map(([key, label]) => (
+          {PATIENT_SECTIONS.map(([key, label, short]) => (
             <Link
               key={key}
-              className={MORE_TABS.has(key) && !moreTabs && tab !== key ? "tab-more-item" : undefined}
               to={`/patients/${id}${key === "summary" ? "" : "/" + key}`}
-              aria-current={tab === key ? "page" : undefined}
+              aria-current={section === key ? "page" : undefined}
               aria-label={label}
             >
               <span className="tl-long">{label}</span>
-              <span className="tl-short" aria-hidden="true">{SHORT[key]}</span>
+              <span className="tl-short" aria-hidden="true">{short}</span>
               {/* one number everywhere: the alerts, red when any needs action now (19 Oct audit) */}
               {key === "summary" && s.attention.length > 0 && (
                 <span className={`n${redCount > 0 ? "" : " calm"}`} aria-hidden="true" title={`${s.attention.length} alerts${redCount ? `, ${redCount} to act on now` : ""}`}>{s.attention.length}</span>
               )}
             </Link>
           ))}
-          {!moreTabs && !MORE_TABS.has(tab) && <button type="button" className="tab-more" aria-label="More sections" onClick={() => setMoreTabs(true)}>More</button>}
           <button
             className="tab-action"
             onClick={() => setOpen({ kind: "documents" })}
@@ -441,6 +430,14 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
           </button>
         </nav>
       </section>
+      {section === "record" && <nav className="patient-subnav" aria-label="Clinical record views">
+        {RECORD_VIEWS.map(([key, label]) => <Link key={key} to={`/patients/${id}/${key}`} aria-current={recordView === key ? "page" : undefined}>{label}</Link>)}
+        <Link className="secondary-view" to={`/patients/${id}/registries`} aria-current={tab === "registries" ? "page" : undefined}>Registry mapping</Link>
+      </nav>}
+      {section === "visits" && <nav className="patient-subnav" aria-label="Visits and journey views">
+        <Link to={`/patients/${id}/visits`} aria-current={tab === "visits" ? "page" : undefined}>Admissions &amp; visits</Link>
+        <Link to={`/patients/${id}/journey`} aria-current={tab === "journey" ? "page" : undefined}>Journey</Link>
+      </nav>}
       {s.attention.some((a: any) => a.rule_status !== "PUBLISHED") &&
         tab === "summary" && (
           <div className="sandbox-banner">
@@ -449,8 +446,8 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             for testing only and never on a production site.
           </div>
         )}
-      {tab === "summary" && <SummaryTab s={s} open={setOpen} done={done} />}
-      {tab === "history" && (
+      {section === "summary" && <SummaryTab s={s} open={setOpen} done={done} />}
+      {recordView === "history" && (
         <HistoryTab id={id} version={version} open={setOpen} />
       )}
       {tab === "journey" && <JourneyTab id={id} version={version} />}

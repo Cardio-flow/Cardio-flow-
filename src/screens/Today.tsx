@@ -374,7 +374,7 @@ function Reasoning({ r }: { r?: { checked: { mark: string; text: string }[]; cha
 // what was planned at the last visit or discharge, and whether it happened (20 Oct 2026)
 function FollowUp({ f }: { f: any }) {
   if (!f?.items?.length) return null;
-  const LABEL: Record<string, string> = { missed: "Not done", late: "Done late", pending: "Planned", done: "Done" };
+  const LABEL: Record<string, string> = { missed: "Not done", late: "Done late", pending: "Planned", done: "Done", review: "Awaiting review" };
   return (
     <section className="followup" aria-label="Since the last visit">
       <span className="rs-h">{f.label}</span>
