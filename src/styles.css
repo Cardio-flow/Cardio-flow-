@@ -2419,7 +2419,7 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .cx-fold-body .cx-probs { margin-top: 4px; }
 @media (max-width: 640px) { .cx-probs { grid-template-columns: minmax(0, 1fr); } }
 .cx-also-link { display: block; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--cx-red); }
-.cx-abn-list { margin-top: 10px; display: grid; gap: 6px; }
+.cx-abn-list { margin: 10px 0 4px; display: grid; gap: 6px; }
 .cx-abn { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; padding: 7px 10px; border-radius: 10px; background: color-mix(in srgb, var(--cx-red) 7%, transparent); }
 .cx-abn > span { font-size: 13px; font-weight: 600; }
 .cx-abn > b { font-size: 14px; text-align: right; color: var(--cx-red); }

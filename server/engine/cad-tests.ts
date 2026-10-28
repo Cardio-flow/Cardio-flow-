@@ -26,9 +26,15 @@ export const CAD_TEST_RULES: RuleDef[] = [
       const c = s.conditions.find((x) => x.code === "cad-suspected");
       if (!c) return [];
       if (s.conditions.some((x) => ["cad-ccs", "prior-mi", "prior-pci", "prior-cabg", "acs-stemi", "acs-nstemi"].includes(x.code))) return [];
+      // coronary artery ectasia is a coronary finding, not a question to rule out (28 Oct 2026, Ahmed: a patient with
+      // ectatic vessels was labelled "rule out IHD"): ask to replace the working diagnosis, never "choose the first test"
+      const ectasia = s.conditions.find((x) => x.code === "coronary-ectasia" && x.status === "active");
+      if (ectasia)
+        return [{ key: "ectasia", signature: `${c.id}:${ectasia.id}`, severity: "yellow", title: "Coronary artery ectasia recorded: resolve \"Suspected IHD (to rule out)\"", detail: "The angiographic finding is coronary artery ectasia; resolve the working diagnosis from the header, or change it to chronic coronary syndrome if there is also obstructive disease or ischaemia.", facts: [{ label: "Coronary finding", value: `Coronary artery ectasia${(ectasia.attributes as any)?.vessels?.length ? ` · ${(ectasia.attributes as any).vessels.join(", ")}` : ""}` }], missing: [], action: { type: "edit-dx", code: "cad-suspected", label: "Resolve" } }];
       const since = c.onset ? String(c.onset).slice(0, 10) : localDay(c.recorded_at);
       const t = latestCcsTest(s);
-      const cath = [...s.studies].reverse().find((x) => x.kind === "cath" && localDay(x.performed_at) >= since);
+      // a working diagnosis brought in from history (no onset): an angiogram from the last 12 months counts too
+      const cath = [...s.studies].reverse().find((x) => x.kind === "cath" && (localDay(x.performed_at) >= since || (!c.onset && (Date.parse(s.today) - Date.parse(x.performed_at)) / 864e5 <= 365)));
       // a working diagnosis brought in from history has no onset: a test from the last 12 months already counts
       // (20 Oct 2026, real case imported with last year's stress test)
       const recentBefore = !!t && !c.onset && (Date.parse(s.today) - Date.parse(t.at)) / 864e5 <= 365;

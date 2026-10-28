@@ -261,6 +261,19 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
           <span><b>{v.hr ? Math.round(v.hr.value) : "—"}</b> HR</span>
           <span><b className={v.weight ? "" : "muted"}>{v.weight ? v.weight.value : "—"}</b> weight</span>
         </div>
+        {/* every abnormal latest result first, in the strip itself (28 Oct 2026, Ahmed: the strip showed normal
+            trends and hid the abnormal ones; the "by problem below" link jumped to an unrelated section) */}
+        {other.length > 0 && (
+          <div className="cx-abn-list">
+            {other.map((x: any) => (
+              <div key={x.code} className={`cx-abn ${x.flag}`}>
+                <span>{x.label}</span>
+                <b>{x.text} <small>{x.unit}</small></b>
+                <i>{x.note ?? (x.flag === "high" ? "high" : "low")}{x.previous ? ` · was ${x.previous.text}` : ""} · {fmtDay(x.at, { year: true })}</i>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="cx-trends">{lanes.map((l) => {
           const pts = l.points as any[];
           const last = l.current ?? pts[pts.length - 1], first = pts[0];
@@ -276,19 +289,6 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
             </div>
           );
         })}</div>
-        {/* every other abnormal latest result in the strip itself (28 Oct 2026, Ahmed: an LDL above goal was not in the lab strip) */}
-        {other.length > 0 && (
-          <div className="cx-abn-list">
-            {other.map((x: any) => (
-              <div key={x.code} className={`cx-abn ${x.flag}`}>
-                <span>{x.label}</span>
-                <b>{x.text} <small>{x.unit}</small></b>
-                <i>{x.note ?? (x.flag === "high" ? "high" : "low")}{x.previous ? ` · was ${x.previous.text}` : ""} · {fmtDay(x.at, { year: true })}</i>
-              </div>
-            ))}
-            <a className="cx-also-link" href="#cx-standing">By problem below</a>
-          </div>
-        )}
       </section>
       {meds.length > 0 && (
         <section className="cx-panel cx-rail-medicines">
@@ -439,7 +439,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
       <section className="cx-consultation" aria-label="Consultation priorities">
         <div className="cx-priority-counts">
           {consultation.counts.urgent>0 && <a href="#att" className="urgent">{consultation.counts.urgent} urgent</a>}
-          <a href="#att">{consultation.counts.decisions} problems to review</a>
+          <a href="#att">{consultation.counts.decisions} problem{consultation.counts.decisions === 1 ? "" : "s"} to review</a>
           {consultation.counts.clarify>0 && <a href="#att">{consultation.counts.clarify} need information</a>}
           {(consultation.counts.review>0 || consultation.counts.due>0) && <button onClick={()=>openRecord("cx-plan-record")}>{consultation.counts.review} to review · {consultation.counts.due} due</button>}
         </div>

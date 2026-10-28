@@ -118,3 +118,18 @@ test("an LDL above goal is an abnormal result", async () => {
   });
   assert.ok(s.abnormal.items.some((x: any) => x.code === "ldl-c" && /goal/.test(x.note)), JSON.stringify(s.abnormal.items));
 });
+
+test("coronary ectasia is not a diagnosis to rule out; a recent angiogram counts for an imported suspected IHD", async () => {
+  const cath0 = { kind: "cath", date: "2026-05-10", findings: { lm: "None", lad: "<50%", lcx: "None", rca: "None", outcome: "Medical therapy" } };
+  const { id } = await load({
+    patient: { sex: "Male", age: 60 },
+    conditions: [{ code: "coronary-ectasia", attributes: { vessels: ["LAD", "RCA"] } }, { code: "cad-suspected" }],
+    studies: [cath0],
+  });
+  const r = (await active(id)).filter((x) => x.rule_id === "cad.suspected-workup");
+  assert.equal(r.length, 1);
+  assert.match(r[0].title, /Coronary artery ectasia recorded: resolve/);
+  const { id: id2 } = await load({ patient: { sex: "Male", age: 60 }, conditions: [{ code: "cad-suspected" }], studies: [cath0] });
+  const r2 = (await active(id2)).filter((x) => x.rule_id === "cad.suspected-workup");
+  assert.match(r2[0]?.title ?? "", /no obstructive disease on angiography — rule it out/);
+});
