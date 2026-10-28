@@ -1,3 +1,4 @@
+import {openPatientView} from "./patient-navigation.mjs";
 // Synthetic-only lab and medication overview walkthrough, phone + desktop.
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -185,7 +186,7 @@ try {
   await expect(hist.locator("li")).toHaveCount(7);
   await phoneShot(hist, "04-phone-medication-history");
   await noOverflow();
-  await page.getByRole("link", { name: "Medications", exact: true }).click();
+  await openPatientView(page, "Medications");
   await expect(
     page.getByRole("region", { name: "Medication history" }),
   ).toBeVisible();
@@ -229,7 +230,7 @@ try {
     path: `${out}/05-desktop-overview.png`,
     fullPage: true,
   });
-  await page.getByRole("link", { name: "Investigations", exact: true }).click();
+  await openPatientView(page, "Investigations");
   const creatinineRow = page.locator("table.data tr").filter({ has: page.getByRole("cell", { name: "Creatinine", exact: true }) });
   await expect(creatinineRow).toContainText("+25.0%");
   await expect(creatinineRow).toContainText("100");

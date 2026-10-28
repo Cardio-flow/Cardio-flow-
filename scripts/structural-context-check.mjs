@@ -1,3 +1,4 @@
+import {openPatientView} from "./patient-navigation.mjs";
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Synthetic browser regression: encounter corrections, navigation and structural decisions.
 import { chromium, expect } from "@playwright/test";
@@ -89,9 +90,7 @@ try {
     reasons: ["Routine cardiology"],
   });
   await page.goto(`${base}/patients/${pat.id}`);
-  await page
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(page, "Admissions & visits");
   await page.getByRole("button", { name: "Edit visit", exact: true }).click();
   await page
     .getByLabel("Clinic location", { exact: true })
@@ -113,9 +112,7 @@ try {
     note: "Original synthetic note",
   });
   await page.reload();
-  await page
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(page, "Admissions & visits");
   await page.getByRole("button", { name: "Edit visit", exact: true }).click();
   await page
     .getByLabel("Clinic note", { exact: true })
@@ -145,9 +142,7 @@ try {
     reasons: ["Other"],
   });
   await page.reload();
-  await page
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(page, "Admissions & visits");
   await page
     .getByRole("button", { name: "Edit admission", exact: true })
     .click();
@@ -166,9 +161,7 @@ try {
     plan: [],
   });
   await page.reload();
-  await page
-    .getByRole("link", { name: "Admissions & visits", exact: true })
-    .click();
+  await openPatientView(page, "Admissions & visits");
   await page
     .getByRole("button", { name: "Edit admission", exact: true })
     .click();
@@ -319,7 +312,7 @@ try {
     measures: { ava: 0.8, "av-vmax": 4.3, "av-mg": 45 },
   });
   await page.reload();
-  await page.getByRole("link", { name: "Investigations", exact: true }).click();
+  await openPatientView(page, "Investigations");
   await page.getByRole("button", { name: "Add study", exact: true }).click();
   await page
     .getByRole("button", { name: /Structural intervention imaging/ })

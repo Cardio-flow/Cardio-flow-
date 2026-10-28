@@ -6,6 +6,9 @@ This branch is a clean rebuild. The previous implementation is preserved at git 
 
 ## What works
 
+- **Four patient sections:** Overview; Visits & journey; Clinical record (history, medicines, investigations); Plan & follow-up. Common clinical actions remain directly accessible; existing patient links remain valid.
+- **Short admission and connected follow-up:** admission date/reason first, optional background review, no implicit reconfirmation. Clinic visits show the previous completed encounter's plan, including shared bookings and results awaiting review.
+- **Saved discharge record:** new discharges retain their confirmed medicines, selected results, plan and generated/edited summary. Later treatment changes do not rewrite that saved document.
 - **Worklist:** who needs attention now, ranked by alert severity and overdue plans, with filters.
 - **Patient Summary:** needs attention (each alert has *Why?* and one action), what changed since discharge or the last visit, the active plan with live status, medications grouped by purpose, latest results with trends, LVEF with source quality, upcoming items.
 - **Journey:** admissions, labs, Echo, medication changes, decisions and completed tasks in one timeline, with planned items after *Today*. Selecting an admission shows its medication changes, its plan and the discharge summary.

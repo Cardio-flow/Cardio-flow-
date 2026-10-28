@@ -1,3 +1,4 @@
+import {openPatientView} from "./patient-navigation.mjs";
 import {continueAfterEntry} from "./continue-after-entry.mjs";
 // Screenshot walkthrough of the HF slice (local sandbox). Usage: node scripts/shots.mjs [outDir]
 import { chromium } from "@playwright/test";
@@ -98,12 +99,12 @@ await step("labs", async () => {
   await p.getByText(/^Reviewed ·/).waitFor();
 });
 await step("tabs", async () => {
-  await p.getByRole("link", { name: "Journey" }).click();
+  await openPatientView(p, "Journey");
   await p.getByRole("heading", { name: "Journey" }).waitFor();
   await shot("11-journey", true);
-  await p.getByRole("link", { name: "Medications" }).click();
+  await openPatientView(p, "Medications");
   await shot("12-medications", true);
-  await p.getByRole("link", { name: "Investigations" }).click();
+  await openPatientView(p, "Investigations");
   await shot("13-investigations", true);
   await p.getByRole("link", { name: "Plan & follow-up" }).click();
   await shot("14-plan", true);
@@ -130,7 +131,7 @@ await step("visit", async () => {
   await p.getByText("Visit closed").waitFor();
 });
 await step("meds", async () => {
-  await p.getByRole("link", { name: "Medications" }).click();
+  await openPatientView(p, "Medications");
   await p.getByRole("button", { name: "Change" }).first().click();
   await shot("19-med-action");
   await p.keyboard.press("Escape");

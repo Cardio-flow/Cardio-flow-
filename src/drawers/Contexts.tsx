@@ -3,11 +3,12 @@ import { BedDouble, LogOut, Stethoscope, FileText } from "lucide-react";
 import {EntryDraftStatus} from "../EntryDraftStatus";
 import {bpPairNeedsReview, type AssessmentAnswers} from "../../shared/assessment-entry";
 import {useEntryDraft} from "../useEntryDraft";
+import { admissionConfirmations } from "../../shared/patient-sections";
 import { api, useData } from "../api";
 import { Drawer, DateInput, navigate, MultiChoice, Segmented, SevChip, SingleChoice, Tag } from "../ui";
 import { ADMISSION_REASONS, ADMISSION_ROUTES, CAUSE_GROUPS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, HF_REASONS, IN_HOSPITAL_EVENTS, SYMPTOMS, readmissionBand } from "../../shared/encounters";
 import { FINDINGS, PLAN_TEMPLATES, formatNumber } from "../../shared/catalog";
-import { addDays, daysBetween, fmtDay, localDay } from "../../shared/clinical";
+import { addDays, atClinicalDay, daysBetween, fmtDay, localDay } from "../../shared/clinical";
 import { ActionButton } from "../screens/Summary";
 const OUTSTANDING: [string, "declined" | "deferred", string][] = [
   ["Done", "declined", "Already done or managed elsewhere: settled at discharge"],
@@ -29,15 +30,16 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
   }
   const [reasons, setReasons] = useState<string[]>([]);
   const [hfChoice, setHfChoice] = useState<string>("");
-  const [route, setRoute] = useState<string>("Emergency department");
+  const [route, setRoute] = useState<string>("");
+  const [admissionDate, setAdmissionDate] = useState(summary.today);
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const { data: jr } = useData<any>(`/patients/${patientId}/journey`);
-  const lastDischarge = jr?.contexts.filter((c: any) => c.kind === "admission" && c.status === "closed" && c.endedAt).sort((a: any, b: any) => (a.endedAt < b.endedAt ? 1 : -1))[0];
-  const readmitDays = lastDischarge ? daysBetween(lastDischarge.endedAt, summary.today) : null;
+  const lastDischarge = jr?.contexts.filter((c: any) => c.kind === "admission" && c.status === "closed" && c.endedAt && localDay(c.endedAt) <= admissionDate).sort((a: any, b: any) => (a.endedAt < b.endedAt ? 1 : -1))[0];
+  const readmitDays = lastDischarge ? daysBetween(lastDischarge.endedAt, admissionDate) : null;
   const hfAuto = reasons.some((r) => HF_REASONS.includes(r));
   const hfRelated = hfChoice ? hfChoice === "yes" : hfAuto;
   const meds = summary.medications.groups.flatMap((g: any) => g.meds);
-  const [conf, setConf] = useState<Record<string, string>>(() => Object.fromEntries([...summary.header.diagnoses.map((d: any) => [d.id, "unchanged"]), ...meds.map((m: any) => [m.id, "unchanged"])]));
+  const [conf, setConf] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [openAdmissionId,setOpenAdmissionId] = useState<string | null>(null);
@@ -47,16 +49,13 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       await entry.flush();
       const r = await api(`/patients/${patientId}/admissions`, {
         body: {
-          startedAt: new Date().toISOString(), draftVersion: entry.getVersion(),
+          startedAt: atClinicalDay(new Date().toISOString(), admissionDate), draftVersion: entry.getVersion(),
           reasons,
-          route,
+          route: route || null,
           symptoms,
           hfRelated,
           narrative,
-          confirmations: [
-            ...summary.header.diagnoses.map((d: any) => ({ kind: "condition", id: d.id, answer: conf[d.id] })),
-            ...meds.map((m: any) => ({ kind: "medication", id: m.id, answer: conf[m.id] })),
-          ],
+          confirmations: admissionConfirmations(summary.header.diagnoses, meds, conf),
         },
       });
       entry.complete();
@@ -67,25 +66,25 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
       else {setError((e as Error).message); if((e as any).code === "admission_open") setOpenAdmissionId((e as any).details?.contextId ?? "open");}
     }
   }
-  const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,conf}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "Emergency department");setSymptoms(d.symptoms ?? []);setConf({...conf,...(d.conf ?? {})});});
+  const entry = useEntryDraft(patientId, "admission-entry", {narrative,reasons,hfChoice,route,symptoms,conf,admissionDate,reviewMode:"explicit"}, d => {setNarrative(d.narrative ?? "");setReasons(d.reasons ?? []);setHfChoice(d.hfChoice ?? "");setRoute(d.route ?? "");setSymptoms(d.symptoms ?? []);setAdmissionDate(d.admissionDate ?? summary.today);setConf(d.reviewMode === "explicit" ? d.conf ?? {} : {});});
   const opts = [{ value: "unchanged", label: "Confirmed" }, { value: "changed", label: "Changed" }, { value: "unknown", label: "Unknown today" }];
   return (
     <Drawer
       title="Start admission"
-      subtitle="Known history is brought forward for confirmation, never copied as today's data"
+      subtitle="Reason and date first. The existing record stays linked; review only what needs updating."
       icon={<BedDouble size={22} />}
       onClose={close}
       footer={
         <span className="end">
           <button className="btn ghost" style={{ color: "var(--ink-3)" }} onClick={close}>Cancel</button>
-          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !!openAdmissionId || !reasons.length || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
+          <button className="btn primary" disabled={!entry.loaded || !!entry.conflict || !!openAdmissionId || !reasons.length || !admissionDate || busy} onClick={save}>{busy ? "Saving…" : "Admit"}</button>
         </span>
       }
     >
       <fieldset className="drawer-body" disabled={!entry.loaded || busy} style={{border:0,margin:0}}>
         <EntryDraftStatus draft={entry} showStatus onDiscard={()=>{entry.complete();onClose();}} />
         {error && !entry.conflict && <div className="error-box" role="alert">{error}{openAdmissionId && <button type="button" className="btn secondary small" onClick={()=>{entry.complete();onDone();navigate(`/patients/${patientId}/visits`);}}>View existing admission</button>}</div>}
-        <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>
+        <label className="field"><span>Admission date</span><DateInput className="input" aria-label="Admission date" max={summary.today} value={admissionDate} onChange={e=>setAdmissionDate(e.target.value)} /></label>
         {readmitDays != null && (
           <div className={`infobox ${readmitDays <= 30 ? "warn" : ""}`}>
             Previous discharge {fmtDay(lastDischarge.endedAt, { year: true })}: this is a readmission after {readmitDays} days ({readmissionBand(readmitDays)}).
@@ -95,6 +94,8 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
           <div className="label">Reason for admission</div>
           <MultiChoice options={ADMISSION_REASONS.map((r) => ({ value: r, label: r }))} value={reasons} onChange={setReasons} />
         </div>
+        <details className="encounter-details"><summary>Presenting symptoms and additional details (optional)</summary>
+        <label className="field"><span>Admission narrative</span><textarea aria-label="Admission narrative" className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>
         <div className="row wrap" style={{ gap: 24 }}>
           <div className="q">
             <div className="label" style={{ fontSize: 15 }}>HF-related admission</div>
@@ -109,19 +110,20 @@ export function Admission({ patientId, summary, onClose, onDone }: { patientId: 
           <div className="label" style={{ fontSize: 15 }}>Presenting symptoms</div>
           <MultiChoice options={SYMPTOMS.map((r) => ({ value: r, label: r }))} value={symptoms} onChange={setSymptoms} />
         </div>
-        <div className="q">
-          <div className="label">Previously recorded</div>
-          <div className="help">Confirm what still applies. Weight, vitals and labs are never carried forward as today's values.</div>
+        </details>
+        <details className="encounter-details">
+          <summary>Previously recorded · {summary.header.diagnoses.length} diagnoses · {meds.length} medicines</summary>
+          <p className="help">Already linked to this patient. Review only relevant or changed information. Nothing is marked confirmed unless you select it; old results remain dated.</p>
           {[...summary.header.diagnoses.map((d: any) => ({ id: d.id, label: d.label, kind: "Diagnosis" })), ...meds.map((m: any) => ({ id: m.id, label: `${m.name} ${m.dose} ${m.frequency}`, kind: "Medication" }))].map((x) => (
             <div key={x.id} className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 8 }}>
               <span>
                 <span className="small muted" style={{ fontWeight: 700, marginRight: 8 }}>{x.kind}</span>
                 <b>{x.label}</b>
               </span>
-              <Segmented label={x.label} options={opts} value={conf[x.id]} onChange={(v) => setConf({ ...conf, [x.id]: v })} />
+              <Segmented label={x.label} options={opts} value={conf[x.id] ?? ""} onChange={(v) => setConf({ ...conf, [x.id]: conf[x.id] === v ? "" : v })} />
             </div>
           ))}
-        </div>
+        </details>
       </fieldset>
     </Drawer>
   );
@@ -135,6 +137,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
   const currentSummary = review?.summary ?? summary;
   const { data: jr } = useData<any>(`/patients/${patientId}/journey`);
   const hf = currentSummary.header.diagnoses.some((d: any) => /HF/.test(d.label));
+  const dischargeTitle = (t: {id:string;title:string}) => !hf && t.id === "hf-clinic" ? "Clinic review" : t.title;
   const [outcome, setOutcome] = useState<"alive" | "died">("alive");
   const [status, setStatus] = useState<string>("");
   const [destination, setDestination] = useState<string>("Home");
@@ -149,7 +152,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
     const base: Record<string, number | null> = hf ? { ...HF_DEFAULT } : { "hf-clinic": 14 };
     for (const id of Object.keys(base)) {
       const t = PLAN_TEMPLATES.find((x) => x.id === id);
-      if (t && booked(t.title, base[id]!)) base[id] = null;
+      if (t && booked(dischargeTitle(t), base[id]!)) base[id] = null;
     }
     return base;
   });
@@ -243,7 +246,7 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
         .filter(([, d]) => d != null)
         .map(([id, d]) => {
           const t = PLAN_TEMPLATES.find((x) => x.id === id)!;
-          return { category: t.category, title: t.title, dueDate: typeof d === "string" ? d : addDays(today, d!), completesOn: t.completesOn };
+          return { category: t.category, title: dischargeTitle(t), dueDate: typeof d === "string" ? d : addDays(today, d!), completesOn: t.completesOn };
         });
       const died = outcome === "died";
       const r = await api(`/patients/${patientId}/admissions/${contextId}/discharge`, {
@@ -390,17 +393,17 @@ export function Discharge({ patientId, summary, contextId, onClose, onDone }: { 
             const on = picked[t.id] != null;
             return (
               <div key={t.id} className="row wrap" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", paddingBottom: 8 }}>
-                <button type="button" className="choice" aria-pressed={on} onClick={() => setPicked({ ...picked, [t.id]: on ? null : t.offsets[0] })}>{t.title}</button>
-                {!on && (() => { const existing = booked(t.title, status === "Still congested" && t.id === "hf-clinic" ? 7 : 14); return existing ? <span className="help">Already booked · {existing.title}{existing.dueDate ? ` · ${fmtDay(existing.dueDate, { weekday: true })}` : ""}</span> : null; })()}
+                <button type="button" className="choice" aria-pressed={on} onClick={() => setPicked({ ...picked, [t.id]: on ? null : t.offsets[0] })}>{dischargeTitle(t)}</button>
+                {!on && (() => { const existing = booked(dischargeTitle(t), status === "Still congested" && t.id === "hf-clinic" ? 7 : 14); return existing ? <span className="help">Already booked · {existing.title}{existing.dueDate ? ` · ${fmtDay(existing.dueDate, { weekday: true })}` : ""}</span> : null; })()}
                 {on && (
                   <div className="col discharge-date">
                   <Segmented
-                    label={`${t.title} date`}
+                    label={`${dischargeTitle(t)} date`}
                     options={[...new Set([...(HF_DEFAULT[t.id] != null ? [HF_DEFAULT[t.id]] : []), ...t.offsets])].sort((a, b) => a - b).map((d) => ({ value: String(d), label: fmtDay(addDays(today, d), { weekday: true }) }))}
                     value={String(picked[t.id])}
                     onChange={(v) => setPicked({ ...picked, [t.id]: Number(v) })}
                   />
-                  <label className="manual-date"><span>Manual date</span><DateInput className="input" min={today} aria-label={`${t.title} exact date`} value={typeof picked[t.id] === "string" ? String(picked[t.id]) : addDays(today, Number(picked[t.id]))} onChange={e => setPicked(p => ({...p,[t.id]:e.target.value}))} /></label>
+                  <label className="manual-date"><span>Manual date</span><DateInput className="input" min={today} aria-label={`${dischargeTitle(t)} exact date`} value={typeof picked[t.id] === "string" ? String(picked[t.id]) : addDays(today, Number(picked[t.id]))} onChange={e => setPicked(p => ({...p,[t.id]:e.target.value}))} /></label>
                   </div>
                 )}
               </div>
@@ -427,7 +430,7 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   const [step, setStep] = useState(contextId ? 1 : 0);
   // resuming an open visit keeps the reasons chosen when it was started
   const resumed = contextId && summary.header.openContext?.id === contextId ? summary.header.openContext : null;
-  const [reasons, setReasons] = useState<string[]>(resumed?.reasons?.length ? resumed.reasons : summary.header.where.startsWith("Post-discharge") ? ["Heart failure", "Post-discharge"] : []);
+  const [reasons, setReasons] = useState<string[]>(resumed?.reasons?.length ? resumed.reasons : summary.header.where.startsWith("Post-discharge") ? [...(summary.hf ? ["Heart failure"] : []), "Post-discharge"] : []);
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [vit, setVit] = useState<Record<string, string>>({});
   const [nyha, setNyha] = useState<string>("");
@@ -494,7 +497,6 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
   }, [step, visitId, patientId, active, draftLoaded]);
   const assessment = useEntryDraft(patientId, visitId ? `assessment:${visitId}` : null, {vit,hfa,nyha,cong,baseline:measurementBaseline,baselineValues:measurementValues}, (d,meta) => {setVit(d.vit ?? {});setHfa(d.hfa ?? {});setNyha(d.nyha ?? "");setCong(d.cong ?? "");setMeasurementBaseline(d.baseline ?? {});setMeasurementValues(d.baselineValues ?? {});setAlready(Object.entries(meta?.latestAnswers?.baseline ?? {}).filter(([,id])=>!!id).map(([code])=>code));});
   const needsBpReview=bpPairNeedsReview({vit,hfa,nyha,cong,baselineValues:measurementValues});
-  const previous = summary.plan;
   async function start() {
     setBusy(true);
     try {
@@ -584,27 +586,9 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
         {noteDraft.conflict?.kind !== "closed" && <EntryDraftStatus draft={assessment} onDiscard={discardVisit} onViewClosed={viewSavedVisit} />}
         {step < 3 && !narrativeOpen && <button type="button" className="btn ghost small" onClick={()=>setNarrativeOpen(true)}>Add narrative</button>}
         {step < 3 && narrativeOpen && <label className="field"><span>Visit narrative</span><textarea aria-label="Visit narrative" disabled={!noteDraft.loaded || busy} className="input" rows={3} maxLength={4000} value={narrative} onChange={e => setNarrative(e.target.value)} /></label>}
+        {step < 3 && <PreviousPlan summary={live} open={open} expanded={step === 0} />}
         {step === 0 && (
           <>
-            <div className="q">
-              <div className="label">Since last review</div>
-              <div className="plan-list">
-                {previous.length === 0 && <div className="help">No earlier plan.</div>}
-                {previous.map((p: any) => (
-                  <div key={p.id} className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line-2)", padding: "8px 0" }}>
-                    <b>{p.title}</b>
-                    <Tag sev={VIEW_SEV[p.view]}>{VIEW_LABEL(p, summary.today)}</Tag>
-                  </div>
-                ))}
-              </div>
-              <div className="row wrap" style={{ gap: 8 }}>
-                {summary.changes.items.slice(0, 6).map((c: any, i: number) => (
-                  <span key={i} className="chip outline">
-                    {c.label}: {c.kind === "value" ? `${c.before} → ${c.after}` : c.text}
-                  </span>
-                ))}
-              </div>
-            </div>
             <div className="q">
               <div className="label">Reason for visit</div>
               <div className="help">Pick every problem addressed today. One visit produces one integrated plan.</div>
@@ -751,4 +735,17 @@ export function ClinicVisit({ patientId, summary, contextId, onClose, onDone, op
       </div>
     </Drawer>
   );
+}
+
+// The previous encounter's actual plan, including reused bookings and results
+// still awaiting review. It is not reconstructed from today's problem list.
+function PreviousPlan({ summary, open, expanded }: {summary:any; open(o:Open):void; expanded:boolean}) {
+  const previous = summary.followUp;
+  const labels: Record<string,string> = {review:"Awaiting review",missed:"Overdue",late:"Done late",pending:"Planned",done:"Done"};
+  return <details className="encounter-details previous-plan" open={expanded}>
+    <summary>{previous?.label ?? "Previous plan and interval changes"}{previous?.items?.length ? ` · ${previous.items.length} action${previous.items.length === 1 ? "" : "s"}` : ""}</summary>
+    {!previous?.items?.length && <p className="help">No plan linked to a previous completed admission or visit. The current plan remains available under Decisions &amp; plan.</p>}
+    {(previous?.items ?? []).map((p:any)=><div key={p.id} className="previous-plan-row"><div><b>{p.title}</b><span className="small">{labels[p.state] ?? p.state} · {p.note}</span></div>{p.state !== "done" && p.state !== "late" && <button type="button" className="btn secondary small" onClick={()=>open({kind:"plan-item",planId:p.id})}>Review task</button>}</div>)}
+    {(summary.changes?.items ?? []).length>0 && <div className="row wrap">{summary.changes.items.slice(0,4).map((c:any,i:number)=><span className="chip outline" key={i}>{c.label}: {c.kind === "value" ? `${c.before} → ${c.after}` : c.text}</span>)}</div>}
+  </details>;
 }

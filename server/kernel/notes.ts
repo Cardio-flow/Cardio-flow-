@@ -7,7 +7,7 @@ import { ApiError } from "./base.js";
 import { loadState } from "./state.js";
 import { diagnosisLines, planView } from "./views.js";
 
-export async function draftNote(tx: Q, patientId: string, contextId: string) {
+export async function draftNote(tx: Q, patientId: string, contextId: string, opts: {preferSaved?: boolean} = {}) {
   const s = await loadState(tx, patientId);
   const c = s.contexts.find((x) => x.id === contextId);
   if (!c) throw new ApiError(404, "Visit or admission not found");
@@ -36,6 +36,8 @@ export async function draftNote(tx: Q, patientId: string, contextId: string) {
     if(sm.reportedMedications) lines.push("Medicines at discharge (historical):\n"+sm.reportedMedications);
     return {title,text:lines.join("\n"),evidenceKey:evidenceKey(s)};
   }
+  if (opts.preferSaved && c.status === "closed" && sm.note?.trim())
+    return {title, text: sm.note as string, evidenceKey:evidenceKey(s)};
   if (c.kind === "admission") {
     const r = sm.readmission;
     const facts = [

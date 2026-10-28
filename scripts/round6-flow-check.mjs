@@ -1,9 +1,10 @@
+import {openAdmissionDetails} from "./patient-navigation.mjs";
 import fs from "node:fs";
 import { chromium, expect } from "@playwright/test";
 const root = process.argv[2] ?? "screenshots/round6-flow",
   out = root + "/screens";
 fs.mkdirSync(out, { recursive: true });
-const b = await chromium.launch(),
+const b = await chromium.launch(process.env.CHROMIUM ? {executablePath:process.env.CHROMIUM} : {}),
   p = await b.newPage({ viewport: { width: 390, height: 1100 } });
 p.setDefaultTimeout(8000);
 const results = [],
@@ -233,7 +234,7 @@ try {
     async () => {
       const x = await create("admission opened elsewhere");
       await go(x);
-      await p.getByRole("button", { name: "Admit", exact: true }).click();
+      await p.getByRole("button", { name: "Admit", exact: true }).click();await openAdmissionDetails(p);
       await expect(
         p.getByLabel("Admission narrative", { exact: true }),
       ).toBeEnabled();
@@ -307,7 +308,7 @@ try {
     async () => {
       const x = await create("admission confirmation race");
       await go(x);
-      await p.getByRole("button", { name: "Admit", exact: true }).click();
+      await p.getByRole("button", { name: "Admit", exact: true }).click();await openAdmissionDetails(p);
       await expect(
         p.getByLabel("Admission narrative", { exact: true }),
       ).toBeEnabled();
