@@ -12,3 +12,8 @@ export async function openAdmissionDetails(page) {
   await details.waitFor({state:"visible"});
   if(!await details.evaluate(el=>el.open)) await details.locator("summary").click();
 }
+
+export async function openPhoneTools(page) {
+  const tools=page.locator('.phone-tools');
+  if(await tools.locator('summary').isVisible() && !await tools.evaluate(el=>el.open)) await tools.locator('summary').click();
+}
