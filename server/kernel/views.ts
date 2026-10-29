@@ -204,8 +204,7 @@ export function ihdSummary(s: PatientState) {
   const cath = [...s.studies].filter((x) => x.kind === "cath").sort((a, b) => a.performed_at.localeCompare(b.performed_at)).pop();
   const ext = cath ? cathExtent(cath.attributes ?? {}) : null;
   const revascAfter = !!cath && s.procedures.some((p) => (p.kind === "cabg" || p.kind === "pci") && localDay(p.performed_at) >= localDay(cath.performed_at));
-  const declined = !!cath && !revascAfter && (cath.attributes?.outcome === "CABG declined by patient" ||
-    s.contexts.some((c) => c.kind === "admission" && (c.summary as any)?.destination === "Left against medical advice" && localDay(c.started_at) <= localDay(cath.performed_at) && localDay(c.ended_at ?? s.today) >= localDay(cath.performed_at)));
+  const declined = !!cath && !revascAfter && cath.attributes?.outcome === "CABG declined by patient";
   const anatomy = ext && !revascAfter ? `${ext.short} (cath ${cath!.performed_at.slice(0, 4)})${declined ? ", CABG declined" : cath!.attributes?.outcome === "Referred for CABG" ? ", for CABG" : ""}` : null;
   const parts = [
     conds.some((c) => c.code === "cad-ccs") && !ev.length ? "chronic coronary syndrome" : null,

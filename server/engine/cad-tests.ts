@@ -2,7 +2,7 @@
 // guideline's own (ESC CCS 2024, Rec. Table 14; shared/ccs-tests.ts).
 import { localDay } from "../../shared/clinical.js";
 import { ccsTestRisk, CCS_TEST_KINDS, ruleOutCapable } from "../../shared/ccs-tests.js";
-import { STUDY_LABEL, cathExtent, obstructiveCad, studySummary } from "../../shared/studies.js";
+import { STUDY_LABEL, cathExtent, coronaryAnatomyComplete, obstructiveCad, studySummary } from "../../shared/studies.js";
 import type { PatientState } from "../kernel/state.js";
 import type { RuleDef } from "./rules.js";
 
@@ -42,6 +42,8 @@ export const CAD_TEST_RULES: RuleDef[] = [
       if (tested) {
         const decided = s.pathwaysDone["ccs-test-result"] && localDay(s.pathwaysDone["ccs-test-result"]) >= (t?.at ?? since);
         // a coronary angiogram without obstructive disease, or a negative imaging test: ask to rule it out
+        if (cath && !coronaryAnatomyComplete(cath.attributes ?? {}) && !obstructiveCad('cath',cath.attributes ?? {}))
+          return [{key:'incomplete',signature:cath.id,severity:'yellow',title:'Coronary angiography: anatomy incomplete — review the report',detail:'Missing or not-assessed vessels do not exclude obstructive disease. Complete the existing report before resolving the working diagnosis.',facts:[{label:'Angiography',value:'Incomplete anatomy',date:localDay(cath.performed_at)}],missing:['Coronary anatomy'],action:{type:'tab',tab:'investigations'}}];
         if (cath && !obstructiveCad("cath", cath.attributes ?? {}) && (!t || localDay(cath.performed_at) >= t.at))
           return [{ key: "negative", signature: cath.id, severity: "yellow", title: "Suspected IHD: no obstructive disease on angiography — rule it out?", detail: "Resolve the working diagnosis from the header, or consider ANOCA/INOCA testing if angina persists.", facts: [{ label: "Angiography", value: "No obstructive coronary disease", date: localDay(cath.performed_at) }], missing: [], action: { type: "edit-dx", code: "cad-suspected", label: "Rule out" } }];
         if (t && t.risk === "negative" && t.at >= since && ruleOutCapable(t.kind, s.studies.find((x) => x.id === t.id)?.attributes ?? {}) && !decided)
@@ -112,7 +114,7 @@ export const CAD_TEST_RULES: RuleDef[] = [
       // the patient's refusal: recorded as the outcome, or the admission of the angiogram ended against medical advice
       const lama = s.contexts.find((c) => c.kind === "admission" && (c.summary as any)?.destination === "Left against medical advice" &&
         localDay(c.started_at) <= day && localDay(c.ended_at ?? s.today) >= day);
-      const declined = outcome === "CABG declined by patient" || !!lama;
+      const declined = outcome === "CABG declined by patient";
       const booked = s.plan.find((p) => p.status === "planned" && /heart team|cabg|cardiac surg/i.test(p.title));
       const what = ext.short;
       const title = declined
