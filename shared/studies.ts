@@ -284,6 +284,9 @@ export function cleanStudy(kind: string, values: Record<string, unknown>) {
 // ≥50% (CAD-RADS 3 or more) on CT.
 export const SIGNIFICANT_STENOSIS = ["70–99%", "Severe (not quantified)", "Occluded"];
 const SIG = SIGNIFICANT_STENOSIS;
+export function coronaryAnatomyComplete(a: Record<string, any>) {
+  return ['lm','lad','lcx','rca'].every(k => STENOSIS.includes(a[k]) && a[k] !== 'Not assessed');
+}
 export function obstructiveCad(kind: string, a: Record<string, any>): string | null {
   if (kind === "cath") {
     const vessels = [
@@ -343,7 +346,7 @@ export function studySummary(kind: string, a: Record<string, any>): string {
       return [a.lvef != null ? `LVEF ${a.lvef}%` : null, a.rvef != null ? `RVEF ${a.rvef}%` : null, a.lge && a.lge !== "None" ? `LGE ${a.lge.toLowerCase()}` : a.lge === "None" ? "no LGE" : null, a.impression].filter(Boolean).join(" · ");
     case "cath": {
       const obs = obstructiveCad("cath", a);
-      return [obs ?? "No obstructive coronary disease", a.outcome].filter(Boolean).join(" · ");
+      return [obs ?? (coronaryAnatomyComplete(a) ? "No obstructive coronary disease" : "Coronary anatomy incomplete"), a.outcome].filter(Boolean).join(" · ");
     }
     case "device_check": {
       const shocks = Number(a.shocks) > 0 ? `${a.shocks} shock${Number(a.shocks) === 1 ? "" : "s"}` : (a.therapies ?? []).includes("Shock") ? "shock" : null;

@@ -50,17 +50,16 @@ export function story(s: PatientState) {
   }
   void traj; // the LVEF course is in the chronology
   // the turning point is in the chronology; "since" counts from it
-  const adm = lastAdmission(s);
-  // since: the direction of what moved (the values are in the problem cards)
-  const lastVisit = [...s.contexts].filter((c) => c.kind === "clinic_visit" && c.status === "closed" && c.ended_at).sort((a, b) => b.ended_at!.localeCompare(a.ended_at!))[0];
-  const anchor = adm?.ended_at ?? lastVisit?.ended_at ?? new Date(Date.parse(s.today) - 182 * 864e5).toISOString();
+  const completed = [...s.contexts].filter(c=>c.status==='closed' && c.ended_at && c.ended_at.slice(0,10)<=s.today && ['admission','clinic_visit'].includes(c.kind)).sort((a,b)=>b.ended_at!.localeCompare(a.ended_at!));
+  const reference = completed.find(c=>!c.summary?.historical) ?? completed.find(c=>c.kind==='admission');
+  const anchor = reference?.ended_at ?? new Date(Date.parse(s.today) - 182 * 864e5).toISOString();
   const up: string[] = [], down: string[] = [];
   const WORSE: Record<string, "up" | "down" | "range"> = { creatinine: "up", "nt-probnp": "up", "ldl-c": "up", hba1c: "up", haemoglobin: "down", potassium: "range", sodium: "range", magnesium: "range" };
   const NAME: Record<string, string> = { creatinine: "creatinine", potassium: "potassium", sodium: "sodium", haemoglobin: "Hb", "nt-probnp": "NT-proBNP", magnesium: "magnesium", "ldl-c": "LDL-C", hba1c: "HbA1c" };
   for (const code of Object.keys(NAME)) {
     const all = finals(s, code);
-    const now = all[all.length - 1];
-    if (!now || now.effective_at <= anchor) continue;
+    const now = s.resolved(code).current;
+    if (!now || now.status !== "final" || now.value_num == null || now.effective_at <= anchor) continue;
     const before = [...all].reverse().find((o) => o.effective_at <= anchor);
     if (!before) continue;
     const p = pct(before.value_num!, now.value_num!);
@@ -68,13 +67,15 @@ export function story(s: PatientState) {
     if (p == null || p === 0 || (!flag && Math.abs(p) < 20)) continue;
     // only a move in the harmful direction is news (28 Oct 2026, Ahmed: a falling creatinine is not a problem):
     // creatinine, NT-proBNP, LDL-C and HbA1c when they rise, Hb when it falls; electrolytes when now out of range
-    const harmful = WORSE[code] === "up" ? p > 0 : WORSE[code] === "down" ? p < 0 : !!flag;
+    const ref=refOf(s,code);
+    const distance=(v:number)=>Math.max(ref?.low != null ? ref.low-v : 0, ref?.high != null ? v-ref.high : 0, 0);
+    const harmful = WORSE[code] === "up" ? p > 0 : WORSE[code] === "down" ? p < 0 : !!flag && (flag !== flagFor(before.value_num!, ref) || distance(now.value_num!) > distance(before.value_num!));
     if (!harmful) continue;
     (p > 0 ? up : down).push(NAME[code]);
   }
   const list = (x: string[]) => (x.length > 1 ? `${x.slice(0, -1).join(", ")} and ${x[x.length - 1]}` : x[0]);
   if (up.length || down.length)
-    lines.push({ key: "since", label: adm ? "Since discharge" : lastVisit ? "Since the last visit" : "Recently", tone: "warn",
+    lines.push({ key: "since", label: reference?.kind === "admission" ? "Since discharge" : reference ? "Since the last visit" : "Recently", tone: "warn",
       text: [up.length ? `${list(up)} rose` : null, down.length ? `${list(down)} fell` : null].filter(Boolean).join("; ") });
   return lines;
 }

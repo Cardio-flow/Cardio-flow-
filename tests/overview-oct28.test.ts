@@ -41,7 +41,7 @@ test("left main + 3-vessel disease, CABG declined (left against medical advice):
   const { id, s } = await load({
     patient: { sex: "Male", age: 67 },
     conditions: [{ code: "cad-ccs" }],
-    studies: [{ kind: "cath", date: "2026-09-16", findings: { ...cath, outcome: "Referred for CABG" } }],
+    studies: [{ kind: "cath", date: "2026-09-16", findings: { ...cath, outcome: "CABG declined by patient" } }],
     admissions: [{ startedOn: "2026-09-15", endedOn: "2026-09-16", reasons: ["Elective procedure"], events: ["Coronary angiography"], destination: "Left against medical advice" }],
   });
   const r = (await active(id)).find((x) => x.rule_id === "cad.cath-revascularisation");

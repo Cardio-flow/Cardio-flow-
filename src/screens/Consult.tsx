@@ -55,6 +55,7 @@ function brief(s: any): string | null {
   const adm = [...((s.chronology?.items ?? []) as any[])].reverse().find((i) => /^Admitted/.test(i.text));
   const reasons = adm ? adm.text.replace(/^Admitted[^:]*:\s*/, "").split(" · ")[0].toLowerCase() : "";
   const s2 = since ? `${adm && /discharge/i.test(since.label) ? `Since the ${adm.when} admission (${reasons})` : since.label}, ${since.text}.` : "";
+  if (!course && !extra.length && !since) return null; // the diagnosis is already in the header
   const out = `${s1} ${s2}`.trim();
   return out || null;
 }
@@ -253,7 +254,7 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
   const next = (s.upcoming ?? [])[0];
   return (
     <aside className="cx-rail" aria-label="Current results and medicines">
-      <section className="cx-panel cx-key-results">
+      {(Object.values(v).some((x:any)=>x.value!=null) || lanes.some(l=>l.current || l.points?.length) || other.length>0) && <section className="cx-panel cx-key-results">
         <h2 className="cx-ph">Latest results</h2>
         <div className="cx-vitals pulse-vitals">
           {/* systolic and diastolic are paired only when measured together (17 Oct audit: never today's SBP with an old DBP) */}
@@ -289,7 +290,7 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
             </div>
           );
         })}</div>
-      </section>
+      </section>}
       {meds.length > 0 && (
         <section className="cx-panel cx-rail-medicines">
           <div className="cx-ph-row"><h2 className="cx-ph">Medicines · {meds.length}</h2><a href="#cx-meds" className="small" onClick={() => { const d = document.getElementById("cx-meds") as HTMLDetailsElement | null; if (d) d.open = true; }}>Details</a></div>
@@ -436,7 +437,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
         <button className="btn secondary small" onClick={()=>openRecord("cx-medications-record")}>Medicines</button>
         <button className="btn secondary small" onClick={()=>openRecord("cx-plan-record")}>Plan</button>
       </nav>
-      <section className="cx-consultation" aria-label="Consultation priorities">
+      {(Object.values(consultation.counts).some((n:any)=>n>0) || consultation.next || consultation.reconciliation.length>0) && <section className="cx-consultation" aria-label="Consultation priorities">
         <div className="cx-priority-counts">
           {consultation.counts.urgent>0 && <a href="#att" className="urgent">{consultation.counts.urgent} urgent</a>}
           <a href="#att">{consultation.counts.decisions} problem{consultation.counts.decisions === 1 ? "" : "s"} to review</a>
@@ -447,7 +448,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
         {consultation.reconciliation.length>0 && <button className="cx-next-checkpoint" onClick={()=>openRecord("cx-medications-record")}><b>Medication reconciliation · {consultation.reconciliation.length}</b> {consultation.reconciliation.map((m:any)=>m.label).join(" · ")}</button>}
         {consultation.gaps.length>0 && <details className="cx-gaps"><summary>Missing information · {consultation.gaps.length}</summary>{consultation.gaps.join(" · ")}</details>}
         {consultation.next && <button className="cx-next-checkpoint" onClick={()=>openRecord("cx-plan-record")}><b>Next checkpoint</b> {consultation.next.title} · {fmtDay(consultation.next.dueDate)}</button>}
-      </section>
+      </section>}
       <div className="cx-grid">
         <div className="cx-main" id="att">
           {slots.episodes}
