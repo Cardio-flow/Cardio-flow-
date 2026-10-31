@@ -75,8 +75,8 @@ try {
   await page.goto(base + path);
   await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
   const alt = page
-    .locator(".cx-abn")
-    .filter({ has: page.locator("span", { hasText: /^ALT$/ }) });
+    .locator(".cx-result-card")
+    .filter({ has: page.locator(".cx-result-title b", { hasText: /^ALT$/ }) });
   await expect(alt).toContainText("+300.0%");
   await expect(alt).toContainText("01 Oct 2026");
   const notice = page
@@ -85,8 +85,8 @@ try {
   await expect(notice).toContainText("Latest ALT: 40");
   await expect(notice).toContainText("Used for decisions: 80");
   const tsat = page
-    .locator(".cx-abn")
-    .filter({ has: page.locator("span", { hasText: /^TSAT$/ }) });
+    .locator(".cx-result-card")
+    .filter({ has: page.locator(".cx-result-title b", { hasText: /^TSAT$/ }) });
   await expect(tsat).toContainText("review iron studies");
   await expect(tsat).not.toContainText("iron deficiency (ESC HF)");
   for (const width of [320, 390, 1440]) {
