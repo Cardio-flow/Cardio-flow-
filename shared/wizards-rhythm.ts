@@ -22,6 +22,7 @@
 // CardioFlow never doses acute drugs: rate-control and antiarrhythmic choices become plan items;
 // only apixaban is started from here, at the label dose computed from age, weight and creatinine.
 import { addDays, apixabanAfDose, fmtDay, localDay } from "./clinical.js";
+import { AF_DOAC_FREQUENCY, afDoacNeedsChange, afDoacRegimen } from "./doac-regimen.js";
 import type { Answers, Assessment, OutcomeItem, WizardContext, WizardDef } from "./wizards.js";
 
 const REVIEW = [
@@ -257,9 +258,9 @@ RHYTHM_WIZARDS["af-care"].outcome = (a: Answers, ctx: WizardContext): OutcomeIte
     else out.push(plan("medication", "Start apixaban: record weight and creatinine for the label dose"));
   }
   if (a.oac === "label-dose") {
-    const wrong = (ctx.af?.doac ?? []).find((d) => d.dose != null && d.dose !== d.right);
+    const wrong = (ctx.af?.doac ?? []).find(afDoacNeedsChange);
     const m = wrong && ctx.meds.find((x) => x.code === wrong.code && x.tags.includes("doac"));
-    if (wrong && m) out.push({ kind: "medication", medicationId: m.id, event: wrong.right > wrong.dose! ? "increase" : "decrease", doseValue: wrong.right, label: `${m.name}: ${wrong.dose} mg → ${wrong.right} mg — label AF dose (${wrong.why})` });
+    if (wrong && m) out.push({ kind: "medication", medicationId: m.id, event: wrong.right === wrong.dose ? "continue" : wrong.right > wrong.dose! ? "increase" : "decrease", doseValue: wrong.right === wrong.dose ? null : wrong.right, frequency: AF_DOAC_FREQUENCY[wrong.code], label: `${m.name}: ${afDoacRegimen(wrong)} → ${afDoacRegimen(wrong, true)} — label AF regimen (${wrong.why})` });
     else out.push({ kind: "note", label: "The current DOAC dose matches the label dose, or the record lacks the weight / creatinine to check it", decision: true });
   }
   if (a.oac === "other-doac") out.push(plan("medication", "Start a DOAC at the label dose (renal function, age, weight)"));
@@ -318,7 +319,7 @@ RHYTHM_WIZARDS["af-care"].assess = (a: Answers, ctx: WizardContext): Assessment 
   if (cmpOac && !onOac && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push("HCM or cardiac amyloidosis with AF: oral anticoagulation is recommended whatever the CHA₂DS₂-VA score (I B).");
   else if (score != null && score >= 2 && !onOac && !closureReview && !["apixaban", "other-doac"].includes(String(a.oac))) rec.push(`CHA₂DS₂-VA ${score}: oral anticoagulation is recommended (I), a DOAC in preference to warfarin.`);
   if (score === 1 && !onOac && !closureReview && a.oac !== "apixaban" && a.oac !== "other-doac") rec.push("CHA₂DS₂-VA 1: oral anticoagulation should be considered (IIa).");
-  for (const d of af?.doac ?? []) if (d.dose != null && d.dose !== d.right) rec.push(`${d.code[0].toUpperCase() + d.code.slice(1)} ${d.dose} mg: the label dose is ${d.right} mg (${d.why}).`);
+  for (const d of af?.doac ?? []) if (afDoacNeedsChange(d)) rec.push(`${d.code[0].toUpperCase() + d.code.slice(1)} ${afDoacRegimen(d)}: the label regimen is ${afDoacRegimen(d, true)} (${d.why}).`);
   if (ctx.afProcedures?.closure?.method !== "Transcatheter occlusion" && ctx.meds.some((m) => m.code === "aspirin") && !(ctx.dx ?? []).some((x) => ["cad", "pad", "ascvd"].includes(x)) && !pick(a, "bleed").includes("stop-asa")) rec.push("Aspirin is not used for stroke prevention in AF (III).");
   if (hr != null && hr >= 110 && !pick(a, "rate").length) rec.push(`Heart rate ${hr} bpm: lenient rate control targets a resting rate <110 bpm.`);
   if (lvef != null && lvef <= 40 && pick(a, "rate").includes("ccb")) rec.push("LVEF ≤40%: diltiazem and verapamil are avoided; beta-blocker and/or digoxin.");

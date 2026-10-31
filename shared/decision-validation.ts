@@ -1,4 +1,5 @@
 import { resistantMraEligible } from "./hypertension.js";
+import { exposureChange } from "./medication-exposure.js";
 import { addDays } from "./clinical.js";
 import { WIZARDS, buildOutcome, doseChoices, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 
@@ -12,10 +13,12 @@ export function decisionBlocker(id: string, a: Answers, c: WizardContext, dates:
   }
   const out = buildOutcome(id,a,c,dates);
   for (const o of out) {
-    if(o.kind !== "medication" || !["increase","decrease"].includes(o.event)) continue;
+    if(o.kind !== "medication" || !(["increase","decrease"].includes(o.event) || o.event === "continue" && o.frequency)) continue;
     const m = c.meds.find(m=>m.id === o.medicationId);
     if(!m || m.status && m.status !== "active" || m.doseValue == null || !m.frequency)
       return "Confirm the active medicine, current dose and frequency before changing its dose";
+    if(o.frequency && exposureChange(m.doseValue, m.frequency, o.doseValue ?? m.doseValue, o.frequency) === "unknown")
+      return "Confirm the current dosing frequency before selecting a new regimen; daily exposure cannot be compared";
   }
   if(id === "htn-resistance" && a.treatment === "mra" && !resistantMraEligible(a,c)) return "Confirm resistant hypertension, current eGFR ≥30 and K ≤4.5, adherence and maximally tolerated doses before adding spironolactone";
   if(id !== "hyperkalaemia") return null;

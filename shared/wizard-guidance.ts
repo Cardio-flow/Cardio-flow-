@@ -1,4 +1,5 @@
 import { resistantMraEligible } from "./hypertension.js";
+import { afDoacNeedsChange, afDoacRegimen } from "./doac-regimen.js";
 import { pregnancySuggestions } from "./wizards-pregnancy.js";
 import { pericardialSuggestions } from "./wizards-pericardial.js";
 import { aortaUrgent } from "./wizards-aorta.js";
@@ -1132,9 +1133,9 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const valve = dx(c, "mechanical-valve", "ms-significant");
       if (on(c, "doac") && valve) return [S("doac-to-vka", "DOAC with a mechanical valve or moderate–severe MS: contraindicated — switch to a VKA (ESC/EACTS 2025, III)")];
       // the DOAC label-dose engine (the same check as the DOAC dose alert): a dose that differs is changed here
-      const wrong = (c.af?.doac ?? []).find((d) => d.dose != null && d.dose !== d.right);
-      if (on(c, "doac") && wrong) return [S("label-dose", `${wrong.code[0].toUpperCase() + wrong.code.slice(1)} ${wrong.dose} mg → ${wrong.right} mg: the label AF dose (${wrong.why}; ESC AF 2024 / SmPC)`)];
-      if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Already anticoagulated at the label dose: continue")];
+      const wrong = (c.af?.doac ?? []).find(afDoacNeedsChange);
+      if (on(c, "doac") && wrong) return [S("label-dose", `${wrong.code[0].toUpperCase() + wrong.code.slice(1)} ${afDoacRegimen(wrong)} → ${afDoacRegimen(wrong, true)}: the label AF regimen (${wrong.why}; ESC AF 2024 / SmPC)`)];
+      if (on(c, "oac")) return [on(c, "vka") && !valve ? S("vka-to-doac", "No mechanical valve or moderate–severe MS: a DOAC is preferred to warfarin (ESC AF 2024, I A)") : S("continue", "Anticoagulation recorded: review the prescribed regimen and monitoring")];
       const cl = c.afProcedures?.closure, ab = c.afProcedures?.ablation;
       if (cl?.method === "Transcatheter occlusion" && !valve && !dx(c,"hcm","amyloid") && (!ab?.minimumOac || c.today >= ab.minimumOac)) return [S("laao", "Recorded transcatheter closure: review device-specific therapy, surveillance and other OAC indications (SCAI/HRS 2025)")];
       // HCM or cardiac amyloidosis: anticoagulation whatever the score (ESC cardiomyopathies 2023, I B)
