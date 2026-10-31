@@ -2426,6 +2426,9 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .cx-abn > b small { font-weight: 500; color: var(--cx-muted); }
 .cx-abn > i { grid-column: 1 / -1; font-style: normal; font-size: 12px; color: var(--cx-muted); }
 .cx-abn-list .cx-also-link { margin-top: 2px; }
+.cx-lab-notices { display: grid; gap: 6px; margin-top: 10px; }
+.cx-lab-notice { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #A66A00 8%, transparent); font-size: 12px; overflow-wrap: anywhere; }
+.cx-lab-notice span { color: var(--cx-muted); }
 .cx-needed { font-size: 13.5px; color: var(--cx-amber); }
 .cx-needed b { color: #7A3E00; }
 .cx-tasks { border-top: 1px solid #EEF1F5; padding-top: 10px; }

@@ -9,7 +9,9 @@ const out=process.argv[2] || '/tmp/cardio-all-pathways';fs.mkdirSync(out,{recurs
 const b=await chromium.launch(process.env.CHROMIUM?{executablePath:process.env.CHROMIUM}:{});
 const page=await b.newPage({viewport:{width:390,height:844}});page.setDefaultTimeout(15000);
 await page.emulateMedia({reducedMotion:'reduce'});
-const errors=[];page.on('pageerror',e=>errors.push(e.message));let csrf='';
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+page.on('console', message => { if (message.type() === 'error' && /same key|unique.*key/i.test(message.text())) errors.push(message.text()); });
+let csrf='';
 const api=(path,body)=>page.evaluate(async({path,body,csrf})=>{
  const r=await fetch('/api'+path,body?{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(body)}:{});
  const j=await r.json();if(!r.ok)throw Error(path+': '+JSON.stringify(j));return j;

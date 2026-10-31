@@ -227,7 +227,7 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
   const flagged: any[] = [], normal: { code: string; text: string }[] = [];
   const byCode = Object.fromEntries(results.map((r) => [r.code, r]));
   for (const r of results) {
-    if (r.current?.value == null) continue;
+    if (r.current?.value == null || r.current.status !== "final") continue;
     const v = r.current.value as number;
     // in pregnancy Hb is read against the trimester cut-off (WHO 2024, as the anaemia rule), eGFR never
     const preg = s.conditions.find((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
@@ -239,7 +239,11 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
     if (flag === "low" && (r.code === "creatinine" || r.code === "urea")) flag = null;
     if (!flag && uln && v > uln) { flag = "high"; note = `${formatNumber(v / uln, 1)}× ULN`; }
     // ESC HF 2023 iron deficiency: ferritin <100 µg/L, or 100–299 with TSAT <20%
-    if (!flag && isHf && r.code === "tsat" && v < 20) { flag = "low"; note = "iron deficiency (ESC HF)"; }
+    if (!flag && isHf && r.code === "tsat" && v < 20) {
+      const ferritin = byCode.ferritin?.current;
+      flag = "low";
+      note = ferritin?.status === "final" && ferritin.value != null && ferritin.value < 300 ? "iron deficiency (ESC HF)" : "low TSAT; review iron studies";
+    }
     if (!flag && isHf && r.code === "ferritin" && v < 100) { flag = "low"; note = "iron deficiency (ESC HF)"; }
     // ESC HF: NT-proBNP ≥125 pg/mL is above the non-acute rule-out
     if (!flag && r.code === "nt-probnp" && v >= 125) { flag = "high"; note = "≥125 (ESC)"; }
@@ -249,14 +253,13 @@ export function abnormal(s: PatientState, results: any[], goals: { ldl?: { goal:
     const pregnant = s.conditions.some((c) => c.code === "pregnancy-care" && (c.attributes as any)?.phase === "Pregnant");
     // eGFR is its own row in the kidney card (20 Oct 2026: impaired eGFR was not visible); never in pregnancy
     if (r.code === "egfr" && pregnant) continue;
-    void byCode;
     const text = `${formatRange(v, r.current.valueHigh, r.decimals)}`;
     if (!flag) { normal.push({ code: r.code, text: `${r.label} ${text}` }); continue; }
     flagged.push({
       code: r.code, label: r.label, display: r.display, value: v, text, unit: r.unit, at: r.current.at, flag, note,
-      previous: r.trend?.previous ? { value: r.trend.previous.value, text: formatNumber(r.trend.previous.value, r.decimals), at: r.trend.previous.at } : null,
-      percent: r.trend?.percent != null ? Math.round(r.trend.percent) : null,
-      series: (r.displaySeries ?? []).map((p: any) => p.value),
+      previous: r.currentTrend?.previous ? { value: r.currentTrend.previous.value, text: formatNumber(r.currentTrend.previous.value, r.decimals), at: r.currentTrend.previous.at } : null,
+      percent: r.currentTrend?.percent ?? null,
+      series: (r.currentSeries ?? []).map((p: any) => p.value),
     });
   }
   // the most recent first, then by the size of the change

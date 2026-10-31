@@ -461,8 +461,8 @@ export function WizardDrawer({
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {ctx?.facts.map((f) => (
-              <div key={f.label} className="card" style={{ padding: 12, borderRadius: 12 }}>
+            {ctx?.facts.map((f, i) => (
+              <div key={`${i}:${f.label}`} className="card" style={{ padding: 12, borderRadius: 12 }}>
                 <div className="small" style={{ fontWeight: 700, color: "var(--ink-4)" }}>{f.label.replace(" (CKD-EPI 2021)", "")}</div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: f.tone === "orange" ? "var(--orange-ink)" : undefined }}>
                   {f.value.split(" ")[0]} <span className="small muted" style={{ fontWeight: 600 }}>{f.value.split(" ").slice(1).join(" ")}</span>
@@ -533,7 +533,7 @@ export function WizardDrawer({
               {assessment && (assessment.rows.length > 0 || assessment.recommendations.length > 0) && (
                 <details className="dec-assess">
                   <summary>{assessment.heading}</summary>
-                  <dl>{assessment.rows.map((r) => <div key={r.label} className={r.tone ? `tone-${r.tone}` : ""}><dt>{r.label}</dt><dd>{r.value}</dd></div>)}</dl>
+                  <dl>{assessment.rows.map((r, i) => <div key={`${i}:${r.label}`} className={r.tone ? `tone-${r.tone}` : ""}><dt>{r.label}</dt><dd>{r.value}</dd></div>)}</dl>
                   {assessment.recommendations.length > 0 && <ol>{assessment.recommendations.map((t, i) => <li key={i}>{t}</li>)}</ol>}
                 </details>
               )}
@@ -576,8 +576,8 @@ export function WizardDrawer({
             <section className="assess" aria-label={assessment.heading}>
               <h3>{assessment.heading}</h3>
               <dl>
-                {assessment.rows.map((r) => (
-                  <div key={r.label} className={r.tone ? `tone-${r.tone}` : ""}>
+                {assessment.rows.map((r, i) => (
+                  <div key={`${i}:${r.label}`} className={r.tone ? `tone-${r.tone}` : ""}>
                     <dt>{r.label}</dt>
                     <dd>{r.value}</dd>
                   </div>

@@ -52,6 +52,7 @@ export const oacIndication = (s: PatientState) =>
   s.tags.has("af") ? "AF / flutter" : s.tags.has("mechanical-valve") ? "mechanical valve"
   : latestStudy(s, "echo")?.findings.includes("LV thrombus") ? "LV thrombus" : null;
 
+const ECHO_FACT_INPUTS = ["lvef", "av-vmax", "av-mg", "ava", "lvesd", "spap", "nyha"];
 const echoFacts = (s: PatientState) => {
   const f = (code: string, label: string, unit: string, d = 0) => { const o = s.resolved(code).current; return o?.value_num != null ? { label, value: `${formatNumber(o.value_num, d)} ${unit}`, date: o.effective_at } : null; };
   const nyha = s.resolved("nyha").current;
@@ -100,7 +101,7 @@ export const VALVE_RULES: RuleDef[] = [
     id: "valve.severe-heart-team",
     kind: "clinical",
     title: "Severe valve disease without a Heart Team decision",
-    inputs: ["studies", "conditions", "pathways", "plan", "procedures"],
+    inputs: ["studies", "conditions", "pathways", "plan", "procedures", ...ECHO_FACT_INPUTS],
     defaultParams: {},
     evidence: "2025 ESC/EACTS valvular heart disease guidelines: the decision on intervention, its timing and mode is taken by the Heart Team, including lifetime management (I C); TR: Heart Team evaluation (I C).",
     evaluate(s) {
@@ -125,7 +126,7 @@ export const VALVE_RULES: RuleDef[] = [
     id: "valve.intervention-trigger",
     kind: "clinical",
     title: "Severe valve disease with a class I intervention trigger",
-    inputs: ["studies", "conditions", "lvef", "lvesd", "nyha", "height", "weight", "contexts", "plan", "procedures"],
+    inputs: ["studies", "conditions", ...ECHO_FACT_INPUTS, "height", "weight", "contexts", "plan", "procedures"],
     defaultParams: { asLvef: 50, arLvef: 50, arLvesd: 50, arLvesdi: 25, mrLvef: 60, mrLvesd: 40, mrLvesdi: 20 },
     evidence: "2025 ESC/EACTS valvular heart disease guidelines (class I): intervention in symptomatic severe AS and in asymptomatic severe AS with LVEF <50%; surgery in severe AR when symptomatic or with LVEF ≤50%, LVESD >50 mm or LVESDi >25 mm/m² (I B); surgery in severe primary MR when symptomatic or with LVESD ≥40 mm, LVESDi ≥20 mm/m² (new) or LVEF ≤60%. Read in the guideline summaries: Rev Esp Cardiol 2025 (AR), Eur Heart J Suppl 2026 (primary MR), EJPC 2026 comparison review (AS). Symptoms: NYHA ≥II, or dyspnoea, chest pain or syncope at the latest visit; LVESDi from LVESD and the Mosteller body-surface area.",
     evaluate(s, p) {
