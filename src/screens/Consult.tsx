@@ -18,6 +18,7 @@ import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { PlanTasks } from "./PlanTasks";
 import { problemOfRule } from "../../shared/overview";
 import { fmtDay } from "../../shared/clinical";
+import { trendPercent } from "../lab-trend";
 import { ActionButton } from "./Summary";
 import { DismissPanel, buildProblems, RESULT_PROBLEM, TITLES } from "./Today";
 import { DecisionPanel } from "./Decision";
@@ -250,18 +251,19 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
   const lanes = ((s.timeline?.lanes ?? []) as any[]);
   const abn = new Set(((s.abnormal?.items ?? []) as any[]).map((x) => x.code));
   const other = ((s.abnormal?.items ?? []) as any[]).filter((x) => !lanes.some((l) => l.code === x.code));
+  const resultNotices = ((s.results ?? []) as any[]).filter(r => r.latest?.status === "preliminary" || (r.latest?.id && r.current?.id && r.latest.id !== r.current.id));
   const meds = ((s.medications?.groups ?? []) as any[]).flatMap((g) => g.meds);
   const next = (s.upcoming ?? [])[0];
   return (
     <aside className="cx-rail" aria-label="Current results and medicines">
-      {(Object.values(v).some((x:any)=>x.value!=null) || lanes.some(l=>l.current || l.points?.length) || other.length>0) && <section className="cx-panel cx-key-results">
+      {(Object.values(v).some((x:any)=>x.value!=null) || lanes.some(l=>l.current || l.points?.length) || other.length>0 || resultNotices.length>0) && <section className="cx-panel cx-key-results">
         <h2 className="cx-ph">Latest results</h2>
-        <div className="cx-vitals pulse-vitals">
+        {Object.values(v).some((x: any) => x.value != null) && <div className="cx-vitals pulse-vitals">
           {/* systolic and diastolic are paired only when measured together (17 Oct audit: never today's SBP with an old DBP) */}
-          {v.sbp && v.dbp && v.dbp.at === v.sbp.at ? <span><b>{Math.round(v.sbp.value)}/{Math.round(v.dbp.value)}</b> BP</span> : <span><b>{v.sbp ? Math.round(v.sbp.value) : "—"}</b> SBP</span>}
-          <span><b>{v.hr ? Math.round(v.hr.value) : "—"}</b> HR</span>
-          <span><b className={v.weight ? "" : "muted"}>{v.weight ? v.weight.value : "—"}</b> weight</span>
-        </div>
+          {v.sbp && v.dbp && v.dbp.at === v.sbp.at ? <span><b>{Math.round(v.sbp.value)}/{Math.round(v.dbp.value)}</b> BP</span> : <>{v.sbp && <span><b>{Math.round(v.sbp.value)}</b> SBP</span>}{v.dbp && <span><b>{Math.round(v.dbp.value)}</b> DBP</span>}</>}
+          {v.hr && <span><b>{Math.round(v.hr.value)}</b> HR</span>}
+          {v.weight && <span><b>{v.weight.value}</b> weight</span>}
+        </div>}
         {/* every abnormal latest result first, in the strip itself (28 Oct 2026, Ahmed: the strip showed normal
             trends and hid the abnormal ones; the "by problem below" link jumped to an unrelated section) */}
         {other.length > 0 && (
@@ -270,7 +272,8 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
               <div key={x.code} className={`cx-abn ${x.flag}`}>
                 <span>{x.label}</span>
                 <b>{x.text} <small>{x.unit}</small></b>
-                <i>{x.note ?? (x.flag === "high" ? "high" : "low")}{x.previous ? ` · was ${x.previous.text}` : ""} · {fmtDay(x.at, { year: true })}</i>
+                <i>{x.note ?? (x.flag === "high" ? "high" : "low")} · {fmtDay(x.at, { year: true })}</i>
+                {x.previous && <i>{trendPercent(x.percent)}{x.percent != null ? " · " : ""}was {x.previous.text} {x.unit} · {fmtDay(x.previous.at, { year: true })}</i>}
               </div>
             ))}
           </div>
@@ -290,6 +293,13 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
             </div>
           );
         })}</div>
+        {resultNotices.length > 0 && <div className="cx-lab-notices">{resultNotices.map(r => (
+          <div key={r.code} className="cx-lab-notice">
+            <b>Latest {r.label}: {r.latest.value} {r.unit}</b>
+            <span>{r.latest.status === "preliminary" ? "Preliminary · awaiting verification" : "A different result is selected"} · {fmtDay(r.latest.at, { year: true })}</span>
+            {r.current.id !== r.latest.id && <span>Used for decisions: {r.current.value} {r.unit} · {fmtDay(r.current.at, { year: true })}</span>}
+          </div>
+        ))}</div>}
       </section>}
       {meds.length > 0 && (
         <section className="cx-panel cx-rail-medicines">
@@ -347,11 +357,7 @@ function Standing({ s, open, problems, tasksOf }: { s: any; open(o: Open): void;
   const keys = new Set(problems.map((p) => p.key));
   const home = (code: string) => { const k = RESULT_PROBLEM[code]; return k && keys.has(k) ? k : null; };
   const status = (p: any) => p.assessment === "above" ? (p.key === "bp" && s.pregnancy?.phase === "Pregnant" ? "Above pregnancy target" : "Above target") : p.assessment === "incomplete" ? "Incomplete reading" : p.need.length ? "Needs data" : p.assessment === "met" ? "On track" : p.assessment === "review" ? "To review" : "";
-  return (
-    <section className="cx-sec" aria-label="Where things stand" id="cx-standing">
-      <div className="cx-sec-h"><h2>Where things stand</h2><span>Each problem against its goal</span></div>
-      <div className="cx-probs">
-        {problems.map((p) => {
+  const cards = problems.map((p) => {
           const abn = items.filter((r) => home(r.code) === p.key).map((r) => `${r.label} ${r.text}`);
           const ok = normal.filter((r) => home(r.code) === p.key).map((r) => r.text);
           const st = status(p);
@@ -375,7 +381,13 @@ function Standing({ s, open, problems, tasksOf }: { s: any; open(o: Open): void;
               )}
             </section>
           );
-        })}
+        }).filter(Boolean);
+  if (!cards.length) return null;
+  return (
+    <section className="cx-sec" aria-label="Where things stand" id="cx-standing">
+      <div className="cx-sec-h"><h2>Where things stand</h2><span>Each problem against its goal</span></div>
+      <div className="cx-probs">
+        {cards}
       </div>
     </section>
   );
@@ -440,7 +452,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
       {(Object.values(consultation.counts).some((n:any)=>n>0) || consultation.next || consultation.reconciliation.length>0) && <section className="cx-consultation" aria-label="Consultation priorities">
         <div className="cx-priority-counts">
           {consultation.counts.urgent>0 && <a href="#att" className="urgent">{consultation.counts.urgent} urgent</a>}
-          <a href="#att">{consultation.counts.decisions} problem{consultation.counts.decisions === 1 ? "" : "s"} to review</a>
+          {consultation.counts.decisions > 0 && <a href="#att">{consultation.counts.decisions} problem{consultation.counts.decisions === 1 ? "" : "s"} to review</a>}
           {consultation.counts.clarify>0 && <a href="#att">{consultation.counts.clarify} need information</a>}
           {(consultation.counts.review>0 || consultation.counts.due>0) && <button onClick={()=>openRecord("cx-plan-record")}>{consultation.counts.review} to review · {consultation.counts.due} due</button>}
         </div>

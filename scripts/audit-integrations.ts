@@ -16,7 +16,8 @@ for (const rule of RULES) {
   if (!rule.inputs.length) problems.push(`Rule has no inputs: ${rule.id}`);
   const body = rule.evaluate.toString();
   const directMeasures = [...body.matchAll(/\.resolved\(["']([^"']+)["']\)/g)].map((match) => match[1]);
-  const helperMeasures = [...body.matchAll(/\b(?:within|series|recent|fact)\(\s*s\s*,\s*["']([^"']+)["']/g)].map((match) => match[1]);
+  const helperMeasures = [...body.matchAll(/\b(?:within|series|recent|fact|cur)\(\s*s\s*,\s*["']([^"']+)["']/g)].map((match) => match[1]);
+  if (/\bhfPhenotype\(\s*s\s*\)/.test(body)) helperMeasures.push("lvef");
   for (const measure of new Set([...directMeasures, ...helperMeasures]))
     if (!rule.inputs.includes(measure) && !rule.inputs.includes("observations"))
       problems.push(`Missing result trigger: ${rule.id} reads ${measure}`);

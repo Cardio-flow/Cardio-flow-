@@ -24,6 +24,15 @@ const probes: { name: string; item: (index: number) => ObsInput }[] = [
   { name: "magnesium", item: (index) => ({ code: "magnesium", value: 0.6 + index / 1000 }) },
   { name: "uacr", item: (index) => ({ code: "uacr", value: 100 + index }) },
   { name: "hba1c", item: (index) => ({ code: "hba1c", value: 8.5 + index / 100 }) },
+  { name: "lvef-reduced", item: () => ({ code: "lvef", value: 35 }) },
+  { name: "lvef-preserved", item: () => ({ code: "lvef", value: 55 }) },
+  { name: "bradycardia", item: () => ({ code: "hr", value: 42 }) },
+  { name: "hypotension", item: () => ({ code: "sbp", value: 85 }) },
+  { name: "diastolic-bp", item: () => ({ code: "dbp", value: 110 }) },
+  { name: "weight", item: (index) => ({ code: "weight", value: 100 + index }) },
+  { name: "height", item: () => ({ code: "height", value: 155 }) },
+  { name: "glucose-low", item: () => ({ code: "glucose", value: 2.8 }) },
+  { name: "glucose-high", item: () => ({ code: "glucose", value: 22 }) },
 ];
 const current = async (id: string) => (await db.query<{
   rule_id: string; fingerprint: string; title: string; detail: string; facts: unknown; missing: unknown; action: unknown;

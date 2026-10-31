@@ -504,7 +504,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "hf.iron-deficiency",
     kind: "clinical",
     title: "Iron deficiency in heart failure",
-    inputs: ["ferritin", "tsat", "haemoglobin", "weight", "conditions", "meds"],
+    inputs: ["ferritin", "tsat", "haemoglobin", "weight", "conditions", "meds", "lvef"],
     defaultParams: { ferritin_low: 100, ferritin_mid: 300, tsat_low: 20, screen_days: 365 },
     evidence: "ESC HF (2023 focused update, retained 2026): screen all HF patients for iron deficiency; ID = ferritin <100 ng/mL or 100–299 with TSAT <20%; IV iron in symptomatic HFrEF.",
     evaluate(s, p) {

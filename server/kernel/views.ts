@@ -467,6 +467,11 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
       const previous = latest.status === "final" && latest.value_num != null ? comparable.find((o) => o.effective_at < latest.effective_at) ?? null : null;
       const delta = previous ? latest.value_num! - previous.value_num! : null;
       const percent = previous && previous.value_num !== 0 ? delta! / Math.abs(previous.value_num!) * 100 : null;
+      // Latest-result history and the selected decision value can have different endpoints.
+      const currentComparable = r.history.filter(o => o.status === "final" && o.value_num != null && o.unit === r.current!.unit && o.effective_at <= r.current!.effective_at);
+      const currentPrevious = r.current.status === "final" && r.current.value_num != null ? currentComparable.find(o => o.effective_at < r.current!.effective_at) ?? null : null;
+      const currentDelta = currentPrevious ? r.current.value_num! - currentPrevious.value_num! : null;
+      const currentPercent = currentPrevious && currentPrevious.value_num !== 0 ? currentDelta! / Math.abs(currentPrevious.value_num!) * 100 : null;
       return {
         code,
         label: def?.short ?? code,
@@ -474,7 +479,7 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
         unit: def?.unit ?? "",
         decimals: def?.decimals ?? 0,
         ref: def?.ref ?? null,
-        current: { id: r.current.id, value: r.current.value_num, valueHigh: r.current.value_high ?? null, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, quality: r.current.quality, source: r.current.source },
+        current: { id: r.current.id, value: r.current.value_num, valueHigh: r.current.value_high ?? null, referenceHigh:r.current.reference_high ?? null, at: r.current.effective_at, status: r.current.status, quality: r.current.quality, source: r.current.source },
         reason: r.reason,
         latestId: r.latest?.id,
         latest: { id: latest.id, value: latest.value_num, valueHigh: latest.value_high ?? null, referenceHigh:latest.reference_high ?? null, at: latest.effective_at, status: latest.status, source: latest.source },
@@ -482,6 +487,8 @@ export function results(s: PatientState, codes = KEY_RESULTS) {
           direction: delta == null ? null : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
           note: latest.status === "preliminary" ? "Awaiting verification" : !previous ? "First comparable result" : percent == null ? "Previous result was zero" : null },
         displaySeries: latest.status === "final" ? comparable.slice(0, 6).reverse().map((o) => ({ value: o.value_num, at: o.effective_at })) : [],
+        currentTrend: { previous: currentPrevious ? { id: currentPrevious.id, value: currentPrevious.value_num, at: currentPrevious.effective_at } : null, delta: currentDelta, percent: currentPercent },
+        currentSeries: r.current.status === "final" ? currentComparable.slice(0, 6).reverse().map(o => ({ value: o.value_num, at: o.effective_at })) : [],
         series: r.history.slice(0, 6).reverse().map((o) => ({ id: o.id, value: o.value_num, valueHigh: o.value_high ?? null, referenceHigh:o.reference_high ?? null, at: o.effective_at, status: o.status, quality: o.quality })),
       };
     })
