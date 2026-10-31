@@ -146,9 +146,11 @@ try {
   // the Consult overview (25 Oct 2026): a result with a trend is in the rail; all results and the medicines are
   // in "The record"
   const allResults = async () => { await section("Results"); if (!(await labs.count())) await page.locator("#cx-meds").evaluate((d) => (d.open = true)); };
-  const abnCr = page.locator(".cx-trend").filter({ hasText: "Creatinine" });
-  await expect(abnCr).toContainText("+25%");
-  await expect(abnCr).toContainText("from 100");
+  const showAllLabTrends = page.getByRole("button", { name: /^Show all \d+ results$/ });
+  if (await showAllLabTrends.count()) await showAllLabTrends.click();
+  const abnCr = page.locator('[data-result-code="creatinine"]');
+  await expect(abnCr).toContainText("+25.0%");
+  await expect(abnCr).toContainText("was 100");
   await allResults();
   await expect(labs.locator('[data-lab-code="nt-probnp"]')).toContainText(
     "-40.0%",

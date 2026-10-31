@@ -51,6 +51,7 @@ jobs:
           node scripts/consult-audit-check.mjs screenshots/consult-audit
           node scripts/refinement-oct29-check.mjs screenshots/refinement-oct29
           node scripts/refinement-oct31-check.mjs screenshots/refinement-oct31
+          node scripts/all-lab-trends-check.mjs screenshots/all-lab-trends
       - uses: actions/upload-artifact@v4
         if: always()
         with:

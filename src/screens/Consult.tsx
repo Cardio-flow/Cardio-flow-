@@ -19,6 +19,7 @@ import { PlanTasks } from "./PlanTasks";
 import { problemOfRule } from "../../shared/overview";
 import { fmtDay } from "../../shared/clinical";
 import { trendPercent } from "../lab-trend";
+import { formatNumber, formatRange } from "../../shared/catalog";
 import { ActionButton } from "./Summary";
 import { DismissPanel, buildProblems, RESULT_PROBLEM, TITLES } from "./Today";
 import { DecisionPanel } from "./Decision";
@@ -246,17 +247,63 @@ function Lifeline({ s }: { s: any }) {
   );
 }
 
+// All laboratory measures share the same verified endpoint, comparison and visual treatment.
+function LabTrendCards({ results, abnormal }: { results: any[]; abnormal: any[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const flags = new Map(abnormal.map(r => [r.code, r]));
+  const needsNotice = (r: any) => r.current.status !== "final" || (r.latest?.id && r.latest.id !== r.current.id);
+  const important = (r: any) => flags.has(r.code) || needsNotice(r);
+  const ordered = [...results].sort((a, b) => Number(flags.has(b.code)) - Number(flags.has(a.code)) || Number(!!needsNotice(b)) - Number(!!needsNotice(a)) || String(b.current.at).localeCompare(String(a.current.at)));
+  // Keep every abnormal result and every selected/preliminary exception in view.
+  const initialCount = Math.max(6, ordered.filter(important).length);
+  const shown = showAll ? ordered : ordered.slice(0, initialCount);
+  if (!ordered.length) return null;
+  return (
+    <div className="cx-lab-trends">
+      <div className="cx-result-grid" id="cx-result-grid">
+        {shown.map(r => {
+          const current = r.current, previous = r.currentTrend?.previous;
+          const verified = current.status === "final";
+          const change = verified ? trendPercent(r.currentTrend?.percent) : null;
+          const delta = r.currentTrend?.delta;
+          const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+          const flag = flags.get(r.code);
+          const points = (r.currentSeries ?? []).map((p: any) => p.value);
+          const differs = r.latest?.id && current.id !== r.latest.id;
+          return (
+            <article className={`cx-result-card${flag ? " is-abnormal" : ""}`} data-result-code={r.code} key={r.code} aria-label={`Lab trend: ${r.display}`}>
+              <div className="cx-result-title"><b>{r.label}</b>{flag && <span>{flag.note ?? (flag.flag === "high" ? "High" : "Low")}</span>}</div>
+              <div className="cx-result-value"><b>{formatRange(current.value, current.valueHigh, r.decimals)}</b><small>{r.unit}</small></div>
+              <small className="cx-result-date">{fmtDay(current.at, { year: true })}</small>
+              {points.length >= 2 && <Spark values={points} color={flag ? "#A45A16" : "#2169AE"} />}
+              <div className="cx-result-change">
+                {change ? <b>{arrow} {change}</b> : <span>{!verified ? "Awaiting verification" : previous ? "Percentage unavailable: previous result was zero" : "First comparable result"}</span>}
+                {previous && <small>was {formatNumber(previous.value, r.decimals)} {r.unit} · {fmtDay(previous.at, { year: true })}</small>}
+              </div>
+              {differs && <div className="cx-lab-notice">
+                <b>Latest {r.label}: {formatRange(r.latest.value, r.latest.valueHigh, r.decimals)} {r.unit}</b>
+                <span>{r.latest.status === "preliminary" ? "Preliminary · awaiting verification" : "A different result is selected"} · {fmtDay(r.latest.at, { year: true })}</span>
+                <span>Used for decisions: {formatRange(current.value, current.valueHigh, r.decimals)} {r.unit} · {fmtDay(current.at, { year: true })}</span>
+              </div>}
+            </article>
+          );
+        })}
+      </div>
+      {ordered.length > initialCount && <button type="button" className="btn ghost small cx-result-more" aria-expanded={showAll} aria-controls="cx-result-grid" onClick={() => setShowAll(value => !value)}>{showAll ? "Show fewer results" : `Show all ${ordered.length} results`}</button>}
+    </div>
+  );
+}
+
 function Rail({ s, open }: { s: any; open(o: Open): void }) {
   const v = Object.fromEntries(((s.vitals ?? []) as any[]).map((x) => [x.code, x]));
   const lanes = ((s.timeline?.lanes ?? []) as any[]);
-  const abn = new Set(((s.abnormal?.items ?? []) as any[]).map((x) => x.code));
-  const other = ((s.abnormal?.items ?? []) as any[]).filter((x) => !lanes.some((l) => l.code === x.code));
-  const resultNotices = ((s.results ?? []) as any[]).filter(r => r.latest?.status === "preliminary" || (r.latest?.id && r.current?.id && r.latest.id !== r.current.id));
+  const labResults = ((s.results ?? []) as any[]).filter(r => !(s.pregnancy?.phase === "Pregnant" && r.code === "egfr"));
+  const efLanes = lanes.filter(l => l.code === "lvef");
   const meds = ((s.medications?.groups ?? []) as any[]).flatMap((g) => g.meds);
   const next = (s.upcoming ?? [])[0];
   return (
     <aside className="cx-rail" aria-label="Current results and medicines">
-      {(Object.values(v).some((x:any)=>x.value!=null) || lanes.some(l=>l.current || l.points?.length) || other.length>0 || resultNotices.length>0) && <section className="cx-panel cx-key-results">
+      {(Object.values(v).some((x:any)=>x.value!=null) || efLanes.some(l=>l.current || l.points?.length) || labResults.length>0) && <section className="cx-panel cx-key-results">
         <h2 className="cx-ph">Latest results</h2>
         {Object.values(v).some((x: any) => x.value != null) && <div className="cx-vitals pulse-vitals">
           {/* systolic and diastolic are paired only when measured together (17 Oct audit: never today's SBP with an old DBP) */}
@@ -264,25 +311,12 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
           {v.hr && <span><b>{Math.round(v.hr.value)}</b> HR</span>}
           {v.weight && <span><b>{v.weight.value}</b> weight</span>}
         </div>}
-        {/* every abnormal latest result first, in the strip itself (28 Oct 2026, Ahmed: the strip showed normal
-            trends and hid the abnormal ones; the "by problem below" link jumped to an unrelated section) */}
-        {other.length > 0 && (
-          <div className="cx-abn-list">
-            {other.map((x: any) => (
-              <div key={x.code} className={`cx-abn ${x.flag}`}>
-                <span>{x.label}</span>
-                <b>{x.text} <small>{x.unit}</small></b>
-                <i>{x.note ?? (x.flag === "high" ? "high" : "low")} · {fmtDay(x.at, { year: true })}</i>
-                {x.previous && <i>{trendPercent(x.percent)}{x.percent != null ? " · " : ""}was {x.previous.text} {x.unit} · {fmtDay(x.previous.at, { year: true })}</i>}
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="cx-trends">{lanes.map((l) => {
+        <LabTrendCards results={labResults} abnormal={s.abnormal?.items ?? []} />
+        <div className="cx-trends">{efLanes.map((l) => {
           const pts = l.points as any[];
           const last = l.current ?? pts[pts.length - 1], first = pts[0];
           const latest=pts[pts.length-1], differs=last.id && latest.id!==last.id;
-          const good = l.code === "lvef" ? last.value >= first.value : !abn.has(l.code);
+          const good = last.value >= first.value;
           const color = good ? "#0E7C66" : "#B42318";
           const pct = first.value ? Math.round(((last.value - first.value) / first.value) * 100) : null;
           return (
@@ -293,13 +327,6 @@ function Rail({ s, open }: { s: any; open(o: Open): void }) {
             </div>
           );
         })}</div>
-        {resultNotices.length > 0 && <div className="cx-lab-notices">{resultNotices.map(r => (
-          <div key={r.code} className="cx-lab-notice">
-            <b>Latest {r.label}: {r.latest.value} {r.unit}</b>
-            <span>{r.latest.status === "preliminary" ? "Preliminary · awaiting verification" : "A different result is selected"} · {fmtDay(r.latest.at, { year: true })}</span>
-            {r.current.id !== r.latest.id && <span>Used for decisions: {r.current.value} {r.unit} · {fmtDay(r.current.at, { year: true })}</span>}
-          </div>
-        ))}</div>}
       </section>}
       {meds.length > 0 && (
         <section className="cx-panel cx-rail-medicines">
