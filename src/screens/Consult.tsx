@@ -271,7 +271,7 @@ function LabTrendCards({ results, abnormal }: { results: any[]; abnormal: any[] 
           const points = (r.currentSeries ?? []).map((p: any) => p.value);
           const differs = r.latest?.id && current.id !== r.latest.id;
           return (
-            <article className={`cx-result-card${flag ? " is-abnormal" : ""}`} data-result-code={r.code} key={r.code} aria-label={r.display}>
+            <article className={`cx-result-card${flag ? " is-abnormal" : ""}`} data-result-code={r.code} key={r.code} aria-label={`Lab trend: ${r.display}`}>
               <div className="cx-result-title"><b>{r.label}</b>{flag && <span>{flag.note ?? (flag.flag === "high" ? "High" : "Low")}</span>}</div>
               <div className="cx-result-value"><b>{formatRange(current.value, current.valueHigh, r.decimals)}</b><small>{r.unit}</small></div>
               <small className="cx-result-date">{fmtDay(current.at, { year: true })}</small>

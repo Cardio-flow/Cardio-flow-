@@ -151,6 +151,9 @@ try {
       }),
     );
   await page.screenshot({ path: `${out}/compact-lab-trends-390.png` });
+  await page.getByRole("button", { name: "Add labs", exact: true }).first().click();
+  await expect(page.getByLabel("Creatinine", { exact: true })).toHaveCount(1);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   // More than six abnormal results must remain visible without expansion.
   await api(path + "/observations", {
     effectiveAt: "2026-07-22T06:00:00Z",
