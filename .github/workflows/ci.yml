@@ -52,6 +52,7 @@ jobs:
           node scripts/refinement-oct29-check.mjs screenshots/refinement-oct29
           node scripts/refinement-oct31-check.mjs screenshots/refinement-oct31
           node scripts/all-lab-trends-check.mjs screenshots/all-lab-trends
+          node scripts/pathway-safety-round2-check.mjs screenshots/pathway-safety-round2
       - uses: actions/upload-artifact@v4
         if: always()
         with:

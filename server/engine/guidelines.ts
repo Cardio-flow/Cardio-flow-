@@ -1,4 +1,5 @@
 import { hfDoseReference } from "../../shared/hf-dose-reference.js";
+import { AF_DOAC_FREQUENCY, afDoacMatches } from "../../shared/doac-regimen.js";
 import { LAB_LIMITS } from "../../shared/lab-review.js";
 import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
 import { urgentBp } from "./hypertension-rules.js";
@@ -192,7 +193,7 @@ const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood p
 const urosepsis = (s: PatientState) => s.contexts.find((c) => c.kind === "admission" && c.reasons.includes("Sepsis / urinary infection") && daysBetween(c.started_at, s.today) <= 365) ?? null;
 const sglt2UrinaryHold = (s: PatientState) => has(s, "recurrent-uti") || !!urosepsis(s);
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; unlock?: string; missing: string[] } {
-  const k = val(s, "potassium", 60), egfr = val(s, "egfr", 60), sbp = val(s, "sbp", 60), hr = val(s, "hr", 60);
+  const k = bpResult(s, "potassium", 60)?.value_num ?? null, egfr = bpResult(s, "egfr", 60)?.value_num ?? null, sbp = bpResult(s, "sbp", 60)?.value_num ?? null, hr = bpResult(s, "hr", 60)?.value_num ?? null;
   const missing: string[] = [];
   // symptomatic hypotension on the problem list, or on midodrine (20 Oct 2026, real case): no start or
   // increase is suggested — the clinician re-introduces therapy step by step and records it
@@ -212,7 +213,7 @@ function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): {
         .flatMap((m) => m.events.filter((e) => ["start", "restart", "increase"].includes(e.kind)).map((e) => e.effective_at))
         .sort()
         .pop();
-      const after = (code: string) => !!last && s.observations.some((o) => o.code === code && o.status !== "entered_in_error" && o.value_num != null && o.effective_at > last);
+      const after = (code: string) => { const o = bpResult(s, code, 60); return !!last && !!o && o.effective_at > last; };
       if (last && (!after("potassium") || !after("creatinine"))) missing.push(`Potassium and creatinine after the last RAAS/MRA change (${fmtDay(last)})`);
     }
   }
@@ -364,7 +365,7 @@ export function lipidStatus(s: PatientState, recheckDays = 365) {
   // ESC/EAS 2019: statins are not recommended to be started in dialysis-dependent CKD without ASCVD (III A);
   // continued if already taken
   if (s.tags.has("dialysis") && !s.tags.has("ascvd") && !onTag(s, "statin").length) return null;
-  const ldl = recent(s, "ldl-c", recheckDays);
+  const ldl = bpResult(s, "ldl-c", recheckDays);
   const statin = onTag(s, "statin")[0];
   if (!ldl) return { kind: "due" as const, risk };
   const v = ldl.value_num!;
@@ -379,7 +380,7 @@ export function lipidStatus(s: PatientState, recheckDays = 365) {
   // reduction from baseline (ESC/EAS 2019: very high and high risk need ≥50% reduction as well as the goal):
   // baseline = the last LDL-C before the first lipid-lowering start
   const firstStart = lipidMeds.flatMap((m) => m.events.filter((e) => e.kind === "start").map((e) => e.effective_at)).sort()[0] ?? null;
-  const base = firstStart ? s.resolved("ldl-c").history.find((o) => o.effective_at <= firstStart && o.value_num != null) ?? null : null;
+  const base = firstStart ? s.resolved("ldl-c").history.find((o) => o.status === "final" && o.unit === ldl.unit && o.effective_at <= firstStart && o.value_num != null) ?? null : null;
   const reduction = base?.value_num ? Math.round((1 - v / base.value_num) * 100) : null;
   const shortOfReduction = reduction != null && risk.reduction != null && reduction < Number(risk.reduction);
   if (v < goal && !shortOfReduction) return { kind: "ok" as const, risk };
@@ -406,7 +407,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "hf.foundational-therapy",
     kind: "clinical",
     title: "HF foundational medical therapy gaps",
-    inputs: ["lvef", "conditions", "meds", "potassium", "egfr", "sbp", "hr"],
+    inputs: ["lvef", "conditions", "meds", "potassium", "creatinine", "egfr", "sbp", "hr"],
     defaultParams: {},
     evidence: "2026 ESC HF guidelines: foundational medical therapy (class I). HFrEF (LVEF <50%): beta-blocker, ARNI/ACEi/ARB, MRA, SGLT2i. HFpEF (LVEF ≥50%): SGLT2i and MRA.",
     evaluate(s) {
@@ -457,7 +458,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     id: "hf.titration",
     kind: "clinical",
     title: "HF therapy uptitration opportunity",
-    inputs: ["meds", "potassium", "egfr", "sbp", "hr", "lvef", "congestion", "conditions"],
+    inputs: ["meds", "potassium", "creatinine", "egfr", "sbp", "hr", "lvef", "congestion", "conditions"],
     defaultParams: { min_days_since_change: RECENT_CHANGE_DAYS },
     evidence: "2026 ESC HF guidelines (Recommendation Table 5): uptitration of foundational medical therapy at least every 1–2 weeks, guided by symptoms, vital signs and laboratory findings (class I, C); continuation at the highest tolerated doses (class I, C).",
     evaluate(s, p) {
@@ -555,7 +556,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
       if (st.kind === "due")
         return [{
           key: "ldl-due", signature: cur(s, "ldl-c")?.id ?? "never", severity: "yellow",
-          title: "Lipid profile due", detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · no LDL-C in 12 months`,
+          title: "Lipid profile due", detail: `${risk.category[0].toUpperCase() + risk.category.slice(1)} risk (${risk.why}) · no verified LDL-C in 12 months`,
           facts: facts(fact(s, "ldl-c"), src("ESC/EAS · reassess LDL-C to confirm goal attainment")), missing: [],
           action: { type: "add-labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"], label: "Add lipid profile" },
         }];
@@ -814,7 +815,7 @@ export const GUIDELINE_RULES: RuleDef[] = [
     title: "DOAC dose appropriateness",
     inputs: ["meds", "creatinine", "weight"],
     defaultParams: {},
-    evidence: "2024 ESC AF / EHRA practical guide: apixaban 2.5 mg BID only if ≥2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L; rivaroxaban 15 mg if CrCl 15–49; edoxaban 30 mg if CrCl 15–50 or weight ≤60 kg; dabigatran 110 mg if age ≥80.",
+    evidence: "2024 ESC AF / EHRA practical guide and EU SmPC 4.2: apixaban and dabigatran twice daily; rivaroxaban and edoxaban once daily for AF. Apixaban 2.5 mg BID with ≥2 of age ≥80, weight ≤60 kg, creatinine ≥133 µmol/L or CrCl 15–29; rivaroxaban 15 mg if CrCl 15–49; edoxaban 30 mg if CrCl 15–50 or weight ≤60 kg; dabigatran 110 mg if age ≥80.",
     evaluate(s) {
       const out: Finding[] = [];
       const cr = bpResult(s, "creatinine", 180)?.value_num ?? null, wt = bpResult(s, "weight", 365)?.value_num ?? null, age = s.patient.age;
@@ -829,10 +830,12 @@ export const GUIDELINE_RULES: RuleDef[] = [
           facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), src("ESC AF 2024 / EHRA DOAC guide; DOAC SmPC 4.2")),
           missing: need.map((x) => (x === "weight" ? "Current weight" : "Verified recent creatinine")), action: { type: "add-labs", codes: need, label: `Add ${need.join(" and ")}` } });
       for (const { med: m, right, why } of doacDoseCheck(s)) {
-        if (m.doseValue == null || m.doseValue === right) continue;
+        const frequency = AF_DOAC_FREQUENCY[m.code];
+        // Missing regimen fields have their existing medication-reconciliation action.
+        if (m.doseValue == null || !m.frequency || afDoacMatches({ code: m.code, dose: m.doseValue, frequency: m.frequency, right, why })) continue;
         const def = MEDICATION[m.code];
-        out.push({ key: "doac-" + m.id, signature: `${m.id}:${m.doseValue}:${right}`, severity: "orange",
-          title: `${m.name} ${doseLabel(def, m.doseValue)}: label dose is ${doseLabel(def, right)}`, detail: why,
+        out.push({ key: "doac-" + m.id, signature: `${m.id}:${m.doseValue}:${m.frequency}:${right}:${frequency}:${m.events.at(-1)?.id}`, severity: "orange",
+          title: `${m.name} ${doseLabel(def, m.doseValue)} ${m.frequency}: label regimen is ${doseLabel(def, right)} ${frequency}`, detail: why,
           facts: facts({ label: "Age", value: `${age} y` }, fact(s, "weight", 365), fact(s, "creatinine", 180), crcl ? { label: "CrCl (Cockcroft-Gault)", value: `${Math.round(crcl)} mL/min` } : null, src("ESC AF 2024 / EHRA DOAC guide")),
           missing: [cr == null && "Creatinine", wt == null && "Weight"].filter(Boolean) as string[],
           // decided in AF-CARE, which reads the same label-dose check (27 Oct 2026)

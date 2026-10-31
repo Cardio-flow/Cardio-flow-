@@ -153,7 +153,7 @@ export function wizardContext(s: PatientState, wizardId: string): WizardContext 
     score: sc.score, items: sc.items.map((i) => `${i.label} +${i.pts}`),
     pattern: (afc?.attributes?.pattern as string | undefined) ?? null,
     ecgRhythm: (ecg?.attributes?.rhythm as string | undefined) ?? null, ecgRate: (ecg?.attributes?.rate as number | undefined) ?? null,
-    doac: doacDoseCheck(s).map((c) => ({ code: c.med.code, dose: c.med.doseValue, right: c.right, why: c.why })),
+    doac: doacDoseCheck(s).map((c) => ({ code: c.med.code, dose: c.med.doseValue, frequency: c.med.frequency, right: c.right, why: c.why })),
   } : null;
   const ablation = [...s.procedures].reverse().find(p => p.kind === "ablation" && (p.attributes.targets ?? []).some((t: string) => /^AF/.test(t)));
   const closure = [...s.procedures].reverse().find(p => p.kind === "laao" && p.attributes.result === "Implanted / completed");
@@ -503,8 +503,9 @@ export async function completeWizard(
       continue;
     }
     if (item.kind === "medication") {
+      const frequencyChanged = item.frequency && item.frequency !== ctx.meds.find(m => m.id === item.medicationId)?.frequency;
       changed.push(...(await medicationEvent(tx, actor, patientId, item.medicationId, {
-        kind: item.event, doseValue: item.doseValue, reason: def.title, effectiveAt: at, contextId: input.contextId, decisionId,
+        kind: item.event, doseValue: item.doseValue, frequency: item.frequency, reason: frequencyChanged ? `Frequency changed to ${item.frequency} — ${def.title}` : def.title, effectiveAt: at, contextId: input.contextId, decisionId,
       })));
     } else if (item.kind === "plan") {
       await addPlanAction(tx, actor, patientId, {

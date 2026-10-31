@@ -27,7 +27,7 @@ export function pregnancyOutcomeBlocker(
         item.kind === "start"
           ? item.code
           : item.kind === "medication" &&
-              ["increase", "decrease"].includes(item.event)
+              ["increase", "decrease", "continue"].includes(item.event)
             ? c.meds.find((m) => m.id === item.medicationId)?.code
             : null;
       return (
@@ -84,7 +84,7 @@ export function pregnancyOutcomeBlocker(
       item.kind === "start"
         ? item.code
         : item.kind === "medication" &&
-            ["increase", "decrease"].includes(item.event)
+            ["increase", "decrease", "continue"].includes(item.event)
           ? c.meds.find((m) => m.id === item.medicationId)?.code
           : null;
     if (!code) continue;
