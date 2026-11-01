@@ -1,4 +1,5 @@
 import { prioritiseDecision, routineDecisionItem } from "../../shared/decision-display.js";
+import { afDoacMatches, afDoacRegimen } from "../../shared/doac-regimen.js";
 import { decisionBlocker } from "../../shared/decision-validation.js";
 import { decisionDataNeeded, decisionQuestions } from "../../shared/decision-requirements.js";
 import { validatePregnancy, pregnancyOutcomeBlocker } from "../../shared/wizards-pregnancy.js";
@@ -188,8 +189,8 @@ function doacLines(ctx: WizardContext): Line[] {
   return (ctx.af?.doac ?? []).map((d) => {
     const m = ctx.meds.find((x) => x.code === d.code);
     const name = m?.name ?? d.code;
-    return d.dose === d.right
-      ? { title: `${name} ${d.dose} mg: label dose for this patient — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "keep" as const }
-      : { title: `${name} ${d.dose ?? "—"} mg: label dose is ${d.right} mg — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "warn" as const };
+    return afDoacMatches(d)
+      ? { title: `${name} ${afDoacRegimen(d)}: label dose and frequency for this patient — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "keep" as const }
+      : { title: `${name} ${afDoacRegimen(d)}: label regimen is ${afDoacRegimen(d, true)} — ${d.why}`, source: "ESC AF 2024 / EHRA DOAC guide; SmPC 4.2", tone: "warn" as const };
   });
 }

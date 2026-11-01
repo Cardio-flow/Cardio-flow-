@@ -1,10 +1,15 @@
 import { resistantMraEligible } from "./hypertension.js";
+import { exposureChange } from "./medication-exposure.js";
+import { diagnosisConflicts } from "./diagnosis-identity.js";
 import { addDays } from "./clinical.js";
 import { WIZARDS, buildOutcome, doseChoices, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 
 // Shared by both previews and the write boundary. Reminder text cannot substitute
 // for a decision-changing fact, and manually changed dates cannot defer emergency care.
 export function decisionBlocker(id: string, a: Answers, c: WizardContext, dates: Record<string,string> = {}): string | null {
+  const conflicts = diagnosisConflicts((c.dx ?? []).map(code=>({code})));
+  if (conflicts.some(group => id === 'hf-medicines' && group.some(c=>['hfref','hfmref','hfpef','hfimpef'].includes(c.code)) || id === 'diabetes' && group.some(c=>['t1dm','t2dm','dm-other','prediabetes'].includes(c.code))))
+    return 'Reconcile conflicting active diagnoses before confirming this treatment decision';
   for(const q of WIZARDS[id].steps.flatMap(st=>visibleQuestions(st,a)).filter(q=>q.type === "dose")) {
     if(a[q.id] == null || a[q.id] === "") continue;
     if(!doseChoices(c,q).options.some(o=>Number(o.value) === Number(a[q.id])))
@@ -12,10 +17,12 @@ export function decisionBlocker(id: string, a: Answers, c: WizardContext, dates:
   }
   const out = buildOutcome(id,a,c,dates);
   for (const o of out) {
-    if(o.kind !== "medication" || !["increase","decrease"].includes(o.event)) continue;
+    if(o.kind !== "medication" || !(["increase","decrease"].includes(o.event) || o.event === "continue" && o.frequency)) continue;
     const m = c.meds.find(m=>m.id === o.medicationId);
     if(!m || m.status && m.status !== "active" || m.doseValue == null || !m.frequency)
       return "Confirm the active medicine, current dose and frequency before changing its dose";
+    if(o.frequency && exposureChange(m.doseValue, m.frequency, o.doseValue ?? m.doseValue, o.frequency) === "unknown")
+      return "Confirm the current dosing frequency before selecting a new regimen; daily exposure cannot be compared";
   }
   if(id === "htn-resistance" && a.treatment === "mra" && !resistantMraEligible(a,c)) return "Confirm resistant hypertension, current eGFR ≥30 and K ≤4.5, adherence and maximally tolerated doses before adding spironolactone";
   if(id !== "hyperkalaemia") return null;

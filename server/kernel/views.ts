@@ -1,4 +1,5 @@
 import { consultationPriorities } from "../../shared/consultation.js";
+import { distinctConditions } from "../../shared/diagnosis-identity.js";
 import { isRoutinePlan } from "../../shared/routine.js";
 import { planContext } from "../engine/plan-context.js";
 import { overviewCounts } from "../../shared/overview.js";
@@ -119,7 +120,11 @@ export function header(s: PatientState) {
       attributes: c.attributes ?? {},
       riskFactor: RISK_FACTOR_CODES.has(c.code),
     })),
-    riskFactors: { ...riskRow(s), other: otherConditions(s) },
+    // Compact display only: unabridged diagnoses above remain available for editing/correction.
+    displayDiagnoses: distinctConditions(s.conditions).filter(c=>!DIAGNOSIS[c.code]?.hidden).map(c=>({id:c.logical_id,code:c.code,
+      label:DIAGNOSIS[c.code]?.tags.includes('hf') && ef?.value_num!=null ? `${c.display}${/\sEF$/.test(c.display)?'':' · EF'} ${formatRange(ef.value_num,ef.value_high,0)}%` : conditionLabel(c),
+      family:DIAGNOSIS[c.code]?.family ?? 'Other',onset:c.onset,attributes:c.attributes ?? {},riskFactor:RISK_FACTOR_CODES.has(c.code)})),
+    riskFactors: { ...riskRow({...s,conditions:distinctConditions(s.conditions)}), other: otherConditions(s) },
     // coronary disease as one line with its history (14 Oct 2026, Ahmed: "IHD post PCI" with numbers and dates)
     ihd: ihdSummary(s),
     // valve interventions, LAA closure, devices and ablations with their year (19 Oct 2026)
@@ -146,7 +151,7 @@ const YEAR = (when: string | null) => (when ? when.replace(/^[A-Z][a-z]{2} /, ""
 const PCI_DEV: Record<string, string> = { "Drug-eluting stent": "DES", "Drug-coated balloon": "DCB", "Balloon only": "POBA", "Bare-metal stent": "BMS" };
 export function cardiacEvents(s: PatientState): CardiacEvent[] {
   const out: CardiacEvent[] = [];
-  const conds = s.conditions.filter((c) => c.status === "active");
+  const conds = distinctConditions(s.conditions.filter((c) => c.status === "active"));
   for (const c of conds.filter((c) => ["acs-stemi", "acs-nstemi", "acs-ua", "prior-mi"].includes(c.code))) {
     const a = (c.attributes ?? {}) as Record<string, any>;
     const type = c.code === "prior-mi" ? (a.type && !["Unknown"].includes(a.type) ? a.type : "MI") : DIAGNOSIS[c.code].display;
@@ -166,8 +171,7 @@ export function cardiacEvents(s: PatientState): CardiacEvent[] {
     const detail = [stents, setting, a.reason ? `for ${String(a.reason).toLowerCase()}` : null, ...(a.complex ?? []).filter((x: string) => !/stents/.test(x)), ...(a.complications ?? [])].filter(Boolean).join(" · ");
     out.push({ at: p.performed_at, when: WHEN(p), group: "coronary", kind: "pci", title: `${name}${vessels ? ` ${vessels}` : ""}`, short: `${name}${vessels ? ` ${vessels}` : ""}`, detail, covers: [], ref: { type: "procedure", id: p.id } });
   }
-  const priorPci = conds.find((c) => c.code === "prior-pci");
-  if (priorPci && !pcis.length) {
+  for (const priorPci of conds.filter((c) => c.code === "prior-pci")) if (!pcis.length) {
     const v = ((priorPci.attributes as any)?.vessels ?? []).filter((x: string) => x !== "Unknown").join("/");
     out.push({ at: condAt(priorPci), when: condWhen(priorPci), group: "coronary", kind: "pci", title: `PCI${v ? ` ${v}` : ""}`, short: `PCI${v ? ` ${v}` : ""}`, detail: "", covers: [], ref: { type: "condition", id: priorPci.logical_id } });
   }
@@ -233,6 +237,7 @@ export function structuralSummary(s: PatientState) {
 // cardiomyopathy / PH first, IHD with its dated events, valve interventions and devices, the other cardiac
 // diagnoses with their detail; then risk factors; then other conditions with a brief history.
 export function diagnosisLines(s: PatientState) {
+  s = {...s, conditions:distinctConditions(s.conditions)};
   const ihd = ihdSummary(s), st = structuralSummary(s);
   const ef = s.resolved("lvef").current;
   const covered = new Set([...(ihd?.codes ?? []), ...(st?.covers ?? [])]);
@@ -262,7 +267,7 @@ export function diagnosisLines(s: PatientState) {
 // non-cardiac conditions with a brief history: onset, detail and the treatment for it
 const TREATS: Record<string, string[]> = { thyroid: ["levothyroxine", "carbimazole", "propylthiouracil"], anaemia: ["oral-iron", "iv-iron"], copd: ["inhaler"], aps: ["vka"], gout: ["allopurinol", "febuxostat"] };
 function otherConditions(s: PatientState) {
-  return s.conditions
+  return distinctConditions(s.conditions)
     .filter((c) => c.status === "active" && DIAGNOSIS[c.code]?.family === "Comorbidity" && !RISK_FACTOR_CODES.has(c.code) && !DIAGNOSIS[c.code]?.hidden)
     .sort((a, b) => (condAt(a) ?? "9999").localeCompare(condAt(b) ?? "9999"))
     .map((c) => {

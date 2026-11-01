@@ -1,4 +1,5 @@
 import { STUDY_LABEL, studySummary } from "../../shared/studies.js";
+import { distinctConditions } from "../../shared/diagnosis-identity.js";
 // Copy-ready documents built from confirmed data only (blueprint P1.11): a clinical summary for
 // the hospital record or a referral, the medication list with recent changes, and the patient
 // plan in English and Arabic. Nothing is invented: every line comes from the record, and the
@@ -43,7 +44,7 @@ function clinicalSummary(s: PatientState, attention: any[]): string {
   L.push(`Prepared ${fmtDay(s.today, { year: true })} from CardioFlow (confirmed data only)`);
   L.push("");
   L.push("Diagnoses:");
-  for (const c of s.conditions) {
+  for (const c of distinctConditions(s.conditions)) {
     const detail = attributesText(c.code, c.attributes);
     L.push(`- ${c.display}${detail ? ` (${detail})` : ""}${c.attributes?.onsetYear ? `, since ${c.attributes.onsetYear}` : ""}`);
   }

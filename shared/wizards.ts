@@ -143,7 +143,7 @@ export type WizardContext = {
   renal?: { baseline: number; current: number; rise: number; review: boolean; stop: boolean; mra: boolean; reviewCr: number; reviewE: number } | null;
   dx?: string[];
   // AF: CHA₂DS₂-VA, pattern, latest ECG rhythm/rate and the DOAC label-dose check (rhythm module)
-  af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string }[] } | null;
+  af?: { score: number; items: string[]; pattern: string | null; ecgRhythm: string | null; ecgRate: number | null; doac: { code: string; dose: number | null; right: number; why: string; frequency?: string | null }[] } | null;
   afProcedures?: {
     ablation: { id: string; day: string; result: string; energy?: string; minimumOac?: string } | null;
     closure: { id: string; day: string; method: string; device: string; regimen: string; reviewDate: string | null } | null;
@@ -802,7 +802,7 @@ export function doseChoices(ctx: WizardContext, q: Question) {
 }
 
 export type OutcomeItem =
-  | { kind: "medication"; medicationId: string; event: "increase" | "decrease" | "hold" | "stop"; doseValue: number | null; label: string }
+  | { kind: "medication"; medicationId: string; event: "increase" | "decrease" | "hold" | "stop" | "continue"; doseValue: number | null; frequency?: string; label: string }
   // medicationRef "code:<drug>" links a dated plan item to the current (or newly started) medicine
   | { kind: "plan"; category: string; title: string; dueDate: string; completesOn: Record<string, unknown>; label: string; medicationId?: string | null; medicationRef?: string }
   // a maintenance medicine started by the pathway (catalogue dose; never acute or loading doses)

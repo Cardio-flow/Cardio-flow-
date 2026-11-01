@@ -201,7 +201,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const dxOnly = h.diagnoses.filter((d: any) => !d.riskFactor);
   // header line: cardiac diagnoses only — coronary disease as one IHD line with its history, non-cardiac
   // conditions on the risk-factor line (14 Oct 2026, Ahmed)
-  const headDx = dxOnly.filter((d: any) => d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)) && !(h.structural && h.structural.covers.includes(d.code)));
+  const headDx = (h.displayDiagnoses ?? dxOnly).filter((d: any) => !d.riskFactor && d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)) && !(h.structural && h.structural.covers.includes(d.code)));
   const ctx = h.openContext;
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
   return (

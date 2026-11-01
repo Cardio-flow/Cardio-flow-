@@ -3,6 +3,7 @@
 // the DOAC label-dose check, rate- and rhythm-control medicines, the latest ECG and ambulatory ECG,
 // conduction disease, cardiac devices, ablations and cardioversions — each with its date.
 import { addCalendarMonths } from "../../shared/af.js";
+import { afDoacMatches, afDoacRegimen } from "../../shared/doac-regimen.js";
 import { DIAGNOSIS, MEDICATION, doseLabel } from "../../shared/catalog.js";
 import { attributesText } from "../../shared/history.js";
 import { addDays, daysBetween, localDay } from "../../shared/clinical.js";
@@ -103,8 +104,8 @@ export function rhythmProfile(s: PatientState) {
       const c = checks.find((x) => x.med.id === m.id);
       return {
         ...drugView(s, m),
-        doseCheck: c ? (c.right === m.doseValue ? "label dose" : `label dose ${doseLabel(MEDICATION[m.code], c.right)} (${c.why})`) : m.tags.includes("vka") ? "INR-guided" : null,
-        doseOk: c ? c.right === m.doseValue : null,
+        doseCheck: c ? (afDoacMatches({ ...c, code: m.code, dose: m.doseValue, frequency: m.frequency }) ? "label dose and frequency" : `label regimen ${afDoacRegimen({ code: m.code, dose: m.doseValue, frequency: m.frequency, right: c.right, why: c.why }, true)} (${c.why})`) : m.tags.includes("vka") ? "INR-guided" : null,
+        doseOk: c && m.doseValue != null && m.frequency ? afDoacMatches({ ...c, code: m.code, dose: m.doseValue, frequency: m.frequency }) : null,
       };
     }),
     rate: live(s).filter(RATE).map((m) => drugView(s, m)),

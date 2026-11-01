@@ -59,12 +59,14 @@ export function DiagnosisPicker({ value, onChange, risk = false, existing = [] }
           {one && !n && <em>pick one</em>}
         </div>
         <div className="dx-chips">
-          {codes.map((c) => (
-            <button key={c} type="button" className="dx-pick" aria-pressed={value.includes(c)} disabled={existing.includes(c)} title={existing.includes(c) ? "Already on the problem list" : undefined} onClick={() => toggle(c)}>
+          {codes.map((c) => {
+            const sibling = ONE_OF.find(group=>group.includes(c))?.find(code=>code!==c && existing.includes(code));
+            return <button key={c} type="button" className="dx-pick" aria-pressed={value.includes(c)} disabled={existing.includes(c) || !!sibling} title={sibling ? `${DIAGNOSIS[sibling].display} already recorded: use Change diagnosis` : existing.includes(c) ? "Already on the problem list" : undefined} onClick={() => toggle(c)}>
               {g.title === "Kidney" && c.startsWith("ckd") ? `CKD ${SHORT[c]}` : g.title === "Diabetes" && SHORT[c] ? SHORT[c] : DIAGNOSIS[c].display}
               {existing.includes(c) && " · recorded"}
+              {sibling && " · change existing"}
             </button>
-          ))}
+          })}
         </div>
       </div>
     );
