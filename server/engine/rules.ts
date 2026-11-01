@@ -1,4 +1,5 @@
 import { planContext } from "./plan-context.js";
+import { DIAGNOSIS_RULES } from "./diagnosis-rules.js";
 import { PREGNANCY_RULES } from "./pregnancy-rules.js";
 import { AORTA_RULES } from "./aorta-rules.js";
 import { SYNCOPE_RULES } from "./syncope-rules.js";
@@ -77,6 +78,7 @@ const day = (iso: string) => fmtDay(iso);
 
 import { RENAL_DEFAULTS, creatinineTrend } from "./renal-trend.js";
 export const RULES: RuleDef[] = [
+  ...DIAGNOSIS_RULES,
   ...PREGNANCY_RULES,
   ...AORTA_RULES, ...SYNCOPE_RULES,
   {
@@ -277,7 +279,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-10-31.pathway-safety2";
+export const RULESET = "2026-11-01.diagnosis-integrity1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

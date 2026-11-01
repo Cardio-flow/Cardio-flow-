@@ -10,6 +10,7 @@ import { DIAGNOSIS, MEASURES, MEDICATION } from "../../shared/catalog.js";
 import { STUDY } from "../../shared/studies.js";
 import { ADMISSION_REASONS, DISCHARGE_CONDITION, DISCHARGE_DESTINATION, IN_HOSPITAL_EVENTS } from "../../shared/encounters.js";
 import { ADMISSION_HISTORY_SOURCES } from "../../shared/admission-history.js";
+import { diagnosisConflicts } from "../../shared/diagnosis-identity.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 // a report that gives only the month ("echo 5/2026"): YYYY-MM, kept as the 15th and marked as month-only
@@ -59,6 +60,7 @@ export type CaseFile = z.infer<typeof caseSchema>;
 export function checkCase(c: CaseFile) {
   const problems: string[] = [];
   for (const x of c.conditions) if (!DIAGNOSIS[x.code]) problems.push(`Unknown diagnosis: ${x.code}`);
+  for (const group of diagnosisConflicts(c.conditions)) problems.push(`Conflicting diagnoses: ${group.map(x=>DIAGNOSIS[x.code]?.display ?? x.code).join(', ')} — choose one active type or stage and record previous diagnoses in the history`);
   for (const r of c.results) for (const i of r.items) if (!MEASURES[i.code]) problems.push(`Unknown result: ${i.code}`);
   for (const s of c.studies) if (!STUDY[s.kind]) problems.push(`Unknown study: ${s.kind}`);
   for (const m of c.medications) if (!MEDICATION[m.code]) problems.push(`Unknown medicine: ${m.code}`);

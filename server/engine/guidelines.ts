@@ -1,5 +1,6 @@
 import { hfDoseReference } from "../../shared/hf-dose-reference.js";
 import { AF_DOAC_FREQUENCY, afDoacMatches } from "../../shared/doac-regimen.js";
+import { diagnosisConflicts } from "../../shared/diagnosis-identity.js";
 import { LAB_LIMITS } from "../../shared/lab-review.js";
 import { hypertensionProfile, HTN_INPUTS } from "./hypertension-profile.js";
 import { urgentBp } from "./hypertension-rules.js";
@@ -193,6 +194,8 @@ const checkCode = (m: string) => (/^Potassium/.test(m) ? "potassium" : /^Blood p
 const urosepsis = (s: PatientState) => s.contexts.find((c) => c.kind === "admission" && c.reasons.includes("Sepsis / urinary infection") && daysBetween(c.started_at, s.today) <= 365) ?? null;
 const sglt2UrinaryHold = (s: PatientState) => has(s, "recurrent-uti") || !!urosepsis(s);
 function pillarGate(s: PatientState, key: string, mode: "start" | "increase"): { block?: string; unlock?: string; missing: string[] } {
+  if(diagnosisConflicts(s.conditions).some(group=>group.some(c=>['hfref','hfmref','hfpef','hfimpef'].includes(c.code))))
+    return {block:'Reconcile conflicting HF diagnoses before selecting treatment',missing:[]};
   const k = bpResult(s, "potassium", 60)?.value_num ?? null, egfr = bpResult(s, "egfr", 60)?.value_num ?? null, sbp = bpResult(s, "sbp", 60)?.value_num ?? null, hr = bpResult(s, "hr", 60)?.value_num ?? null;
   const missing: string[] = [];
   // symptomatic hypotension on the problem list, or on midodrine (20 Oct 2026, real case): no start or

@@ -1,11 +1,15 @@
 import { resistantMraEligible } from "./hypertension.js";
 import { exposureChange } from "./medication-exposure.js";
+import { diagnosisConflicts } from "./diagnosis-identity.js";
 import { addDays } from "./clinical.js";
 import { WIZARDS, buildOutcome, doseChoices, visibleQuestions, type Answers, type WizardContext } from "./wizards.js";
 
 // Shared by both previews and the write boundary. Reminder text cannot substitute
 // for a decision-changing fact, and manually changed dates cannot defer emergency care.
 export function decisionBlocker(id: string, a: Answers, c: WizardContext, dates: Record<string,string> = {}): string | null {
+  const conflicts = diagnosisConflicts((c.dx ?? []).map(code=>({code})));
+  if (conflicts.some(group => id === 'hf-medicines' && group.some(c=>['hfref','hfmref','hfpef','hfimpef'].includes(c.code)) || id === 'diabetes' && group.some(c=>['t1dm','t2dm','dm-other','prediabetes'].includes(c.code))))
+    return 'Reconcile conflicting active diagnoses before confirming this treatment decision';
   for(const q of WIZARDS[id].steps.flatMap(st=>visibleQuestions(st,a)).filter(q=>q.type === "dose")) {
     if(a[q.id] == null || a[q.id] === "") continue;
     if(!doseChoices(c,q).options.some(o=>Number(o.value) === Number(a[q.id])))

@@ -8,6 +8,8 @@ import { addDays, ageOn, daysBetween, egfrCkdEpi2021, fmtDay, isoDay, localDay }
 import { ApiError, audit, journeyEvent, liveContext, nowIso, patientInSite, today, uuid, type Actor } from "./base.js";
 import { civilIdBirthDate } from "../../shared/civil-id.js";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEM, MULTIPLE_ALLOWED, cleanAttributes, historyCode } from "../../shared/history.js";
+import { siblingsOf } from "../../shared/history.js";
+import { conditionIdentity } from "../../shared/diagnosis-identity.js";
 import { PH_SIGNS } from "../../shared/ph.js";
 import { ECHO_NUMBERS, ECHO_VALVES, MR_TYPES, STUDY, VALVE_GRADES, chamberFindings, cleanStudy, lvhFinding, rwmaFindings, studySummary, valveFindings, type Chambers, type Rwma } from "../../shared/studies.js";
 import { CIED_TYPE, PROSTHESIS_TYPE, PROCEDURE_LABEL, cleanProcedure, procedureSummary, type ProcedureKind } from "../../shared/procedures.js";
@@ -154,15 +156,8 @@ export async function addCondition(tx: Q, actor: Actor, patientId: string, input
   const def = DIAGNOSIS[input.code];
   if (!def) throw new ApiError(400, "Unknown diagnosis");
   const { onset, attributes } = onsetParts(input, input.code);
-  if (!MULTIPLE_ALLOWED.has(input.code)) {
-    const dup = (
-      await tx.query(
-        `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active'`,
-        [patientId, input.code],
-      )
-    ).rows[0];
-    if (dup) return { id: null, changed: [] as Changed };
-  }
+  const dup = await conditionCollision(tx, patientId, { ...input, onset, attributes });
+  if (dup) return { id: null, changed: [] as Changed };
   const id = uuid();
   await tx.query(
     `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by,attributes) VALUES($1,$1,1,$2,$3,$4,'active',$5,$6,$7,$8,$9)`,
@@ -171,12 +166,29 @@ export async function addCondition(tx: Q, actor: Actor, patientId: string, input
   return { id, changed: ["conditions"] as Changed };
 }
 
+// Serialise diagnosis writes per patient, including imports and pathway confirmation.
+// A conflicting phenotype is an explicit change, never a second active diagnosis.
+async function conditionCollision(tx: Q, patientId: string, candidate: {code:string;onset?:string|Date|null;attributes?:Record<string,unknown>|null;detail?:string|null}, except?:string) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
+  const active = (await tx.query(`SELECT * FROM (SELECT DISTINCT ON (logical_id) * FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id,version DESC) c WHERE status='active'`,[patientId])).rows
+    .filter((c:any)=>c.logical_id!==except).map((c:any)=>({...c,attributes:typeof c.attributes==='string'?JSON.parse(c.attributes):c.attributes}));
+  const sibling = active.find((c:any)=>siblingsOf(candidate.code).includes(c.code));
+  if(sibling)throw new ApiError(409, `${sibling.display} is already active: use Change diagnosis to record ${DIAGNOSIS[candidate.code].display}, or resolve the conflicting diagnosis first`);
+  const key=conditionIdentity(candidate);
+  return active.find((c:any)=>c.code===candidate.code && (!MULTIPLE_ALLOWED.has(candidate.code) || key && conditionIdentity(c)===key));
+}
+
 async function latestCondition(tx: Q, patientId: string, logicalId: string) {
   const cur = (await tx.query(`SELECT * FROM cf.condition WHERE logical_id=$1 AND patient_id=$2 ORDER BY version DESC LIMIT 1`, [logicalId, patientId])).rows[0];
   if (!cur) throw new ApiError(404, "Diagnosis not found");
   return cur;
 }
 export async function newConditionVersion(tx: Q, actor: Actor, cur: any, change: { status?: string; onset?: string | null; attributes?: Record<string, unknown> }) {
+  if ((change.status ?? cur.status) === 'active') {
+    const attributes = change.attributes ?? (typeof cur.attributes==='string' ? JSON.parse(cur.attributes) : cur.attributes);
+    const dup = await conditionCollision(tx,cur.patient_id,{...cur,onset:change.onset===undefined?cur.onset:change.onset,attributes},cur.logical_id);
+    if(dup)throw new ApiError(409,`${cur.display} is already recorded; resolve the duplicate diagnosis first`);
+  }
   await tx.query(
     `INSERT INTO cf.condition(id,logical_id,version,patient_id,code,display,status,onset,detail,context_id,recorded_by,attributes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [
@@ -187,12 +199,10 @@ export async function newConditionVersion(tx: Q, actor: Actor, cur: any, change:
 }
 
 export async function setConditionStatus(tx: Q, actor: Actor, patientId: string, logicalId: string, status: "resolved" | "entered_in_error" | "active") {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   const cur = await latestCondition(tx, patientId, logicalId);
-  if (status === "active" && cur.status !== "active" && !MULTIPLE_ALLOWED.has(cur.code)) {
-    const dup = (await tx.query(
-      `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) logical_id,code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active' AND logical_id<>$3`,
-      [patientId, cur.code, logicalId],
-    )).rows[0];
+  if (status === "active") {
+    const dup = await conditionCollision(tx, patientId, {...cur,attributes:typeof cur.attributes==='string'?JSON.parse(cur.attributes):cur.attributes},logicalId);
     if (dup) throw new ApiError(409, `${cur.display} is already active`);
   }
   await newConditionVersion(tx, actor, cur, { status });
@@ -207,23 +217,20 @@ export async function setConditionStatus(tx: Q, actor: Actor, patientId: string,
 // course stays visible. "error" (wrong pick): the old one is marked entered in error and the new one takes
 // its onset and the details that apply to it.
 export async function changeCondition(tx: Q, actor: Actor, patientId: string, logicalId: string, input: { code: string; mode: "changed" | "error" }) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   const cur = await latestCondition(tx, patientId, logicalId);
   if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be changed");
   if (!DIAGNOSIS[input.code]) throw new ApiError(400, "Unknown diagnosis");
   if (input.code === cur.code) throw new ApiError(400, "Choose a different diagnosis");
-  if (!MULTIPLE_ALLOWED.has(input.code)) {
-    const dup = (await tx.query(
-      `SELECT 1 FROM (SELECT DISTINCT ON (logical_id) code,status FROM cf.condition WHERE patient_id=$1 ORDER BY logical_id, version DESC) c WHERE code=$2 AND status='active'`,
-      [patientId, input.code],
-    )).rows[0];
-    if (dup) throw new ApiError(409, `${DIAGNOSIS[input.code].display} is already on the list: resolve or remove ${cur.display} instead`);
-  }
-  await setConditionStatus(tx, actor, patientId, logicalId, input.mode === "changed" ? "resolved" : "entered_in_error");
   const prevAttrs = (typeof cur.attributes === "string" ? JSON.parse(cur.attributes) : cur.attributes) ?? {};
   const keys = new Set((DIAGNOSIS_ATTRIBUTES[input.code] ?? []).map((f) => f.key));
   const carried = input.mode === "error" ? Object.fromEntries(Object.entries(prevAttrs).filter(([k]) => keys.has(k))) : {};
   const onset = input.mode === "error" && cur.onset ? String(cur.onset instanceof Date ? cur.onset.toISOString() : cur.onset).slice(0, 10) : input.mode === "changed" ? today() : null;
   const onsetYear = input.mode === "error" && !onset && prevAttrs.onsetYear != null ? Number(prevAttrs.onsetYear) : null;
+  const normalized = onsetParts({onset,onsetYear,attributes:carried},input.code);
+  const dup = await conditionCollision(tx,patientId,{code:input.code,...normalized},logicalId);
+  if(dup)throw new ApiError(409,`${DIAGNOSIS[input.code].display} is already on the list: resolve or remove ${cur.display} instead`);
+  await setConditionStatus(tx, actor, patientId, logicalId, input.mode === "changed" ? "resolved" : "entered_in_error");
   const r = await addCondition(tx, actor, patientId, { code: input.code, onset, onsetYear, attributes: carried });
   await journeyEvent(tx, actor, {
     patientId, occurredAt: nowIso(), kind: "condition-changed", category: "complication",
@@ -234,9 +241,15 @@ export async function changeCondition(tx: Q, actor: Actor, patientId: string, lo
 }
 
 export async function updateCondition(tx: Q, actor: Actor, patientId: string, logicalId: string, input: { onset?: string | null; onsetYear?: number | null; attributes?: Record<string, unknown> | null }) {
+  await tx.query(`SELECT id FROM cf.patient WHERE id=$1 FOR UPDATE`, [patientId]);
   const cur = await latestCondition(tx, patientId, logicalId);
   if (cur.status !== "active") throw new ApiError(409, "Only an active diagnosis can be updated");
   const { onset, attributes } = onsetParts(input, cur.code);
+  // Editing details must not create a duplicate event.
+  if (MULTIPLE_ALLOWED.has(cur.code)) {
+    const dup = await conditionCollision(tx, patientId, {...cur, onset, attributes},logicalId);
+    if (dup) throw new ApiError(409, `${cur.display} is already recorded with this date and detail`);
+  }
   await newConditionVersion(tx, actor, cur, { onset, attributes });
   return ["conditions"] as Changed;
 }
