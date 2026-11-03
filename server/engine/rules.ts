@@ -279,7 +279,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-11-01.diagnosis-integrity1";
+export const RULESET = "2026-11-03.overview-snapshot1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

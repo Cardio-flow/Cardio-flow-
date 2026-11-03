@@ -22,6 +22,7 @@ import { BARRIER_LABEL, DIAGNOSIS, LABS, MEASURES, PURPOSE_ORDER, classLabel, do
 import { hfDoseProgress } from "../engine/medication-progress.js";
 import { ageOn, bmi, daysBetween, fmtDay, localDay, planStatusView } from "../../shared/clinical.js";
 import { cathExtent } from "../../shared/studies.js";
+import { snapshot } from "./snapshot.js";
 import { historicalLabel } from "../../shared/procedures.js";
 import { ANSWER_LABEL, HISTORY_ITEMS, RISK_FACTOR_CODES, attributesText, historyCode } from "../../shared/history.js";
 import { activeBarrier, loadState, latestDischarge, openContext, series, type PatientState } from "./state.js";
@@ -627,6 +628,8 @@ export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "p
     // the overview as a story (20 Oct 2026): story, where things stand, one timeline, abnormal results once
     story: storyView(s),
     chronology: chronologyView(s, cardiacEvents(s)),
+    // 3 Nov 2026: the running problem and the latest investigation reports, at the top of the overview
+    snapshot: snapshot(s),
     standing: standingView(s),
     timeline: timelineView(s),
     // problem solving (20 Oct 2026, stage 2): reasoning per card, follow-through, what to ask and examine today

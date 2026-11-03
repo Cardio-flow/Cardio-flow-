@@ -234,7 +234,7 @@ function Pillars({ s }: { s: any }) {
   );
 }
 
-function Lifeline({ s }: { s: any }) {
+export function Lifeline({ s }: { s: any }) {
   const items = ((s.chronology?.items ?? []) as any[]).filter((i) => i.at);
   if (!items.length) return null;
   return (
@@ -421,6 +421,64 @@ function Standing({ s, open, problems, tasksOf }: { s: any; open(o: Open): void;
 }
 
 // ---------- the overview ----------
+// ---------- the snapshot (3 Nov 2026, Ahmed: "what is needed to be done, the story and the actual running problem …
+// keep it simple and to the point"): what is going on now, the to-do list, the latest test reports, the story ----------
+type TodoItem = { key: string; title: string; sub?: string; tone: string; go(): void };
+const TONE_DOT: Record<string, string> = { bad: "#B42318", warn: "#B54708", good: "#0E7C66", neutral: "#5B6B7F", red: "#B42318", orange: "#B54708", yellow: "#A16207", blue: "#1F4FD8" };
+function Snapshot({ s, todo }: { s: any; todo: TodoItem[] }) {
+  const now = (s.snapshot?.now ?? []) as any[];
+  const tests = (s.snapshot?.tests ?? []) as any[];
+  const story = ((s.chronology?.items ?? []) as any[]).filter((i) => i.at);
+  const [allStory, setAllStory] = useState(false);
+  const [allTodo, setAllTodo] = useState(false);
+  const storyShown = allStory ? story : story.slice(-6);
+  const todoShown = allTodo ? todo : todo.slice(0, 6);
+  if (!now.length && !todo.length && !tests.length && !story.length) return null;
+  return (
+    <section className="cx-snap" aria-label="At a glance">
+      {now.length > 0 && (
+        <div className="cx-snap-block cx-snap-now">
+          <h2>Now</h2>
+          <ul>{now.map((n) => <li key={n.key} className={`t-${n.tone}`}><span className="cx-dot" style={{ background: TONE_DOT[n.tone] }} aria-hidden="true" /><span><b>{n.text}</b>{n.sub && <small>{n.sub}</small>}</span></li>)}</ul>
+        </div>
+      )}
+      <div className="cx-snap-grid">
+        <div className="cx-snap-block">
+          <h2>To do{todo.length ? ` · ${todo.length}` : ""}</h2>
+          {todo.length === 0 ? <p className="cx-snap-empty">Nothing outstanding.</p> : (
+            <ol className="cx-snap-todo">
+              {todoShown.map((x) => <li key={x.key}><button type="button" onClick={x.go}><span className="cx-dot" style={{ background: TONE_DOT[x.tone] }} aria-hidden="true" /><span><b>{x.title}</b>{x.sub && <small>{x.sub}</small>}</span></button></li>)}
+            </ol>
+          )}
+          {todo.length > 6 && <button type="button" className="btn ghost small" onClick={() => setAllTodo(!allTodo)}>{allTodo ? "Show fewer" : `Show all ${todo.length}`}</button>}
+        </div>
+        <div className="cx-snap-block">
+          <h2>Latest tests</h2>
+          {tests.length === 0 ? <p className="cx-snap-empty">No investigation reports recorded.</p> : (
+            <ul className="cx-snap-tests">
+              {tests.map((x) => (
+                <li key={x.id} className={`t-${x.tone}`}>
+                  <div className="cx-snap-test-h"><b>{x.label}</b><span>{x.when}{x.recent && <i>recent</i>}</span></div>
+                  <div className={`cx-snap-test-r t-${x.tone}`}>{x.text}</div>
+                  {x.sub && <details><summary>Report</summary><p>{x.sub}</p></details>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      {story.length > 0 && (
+        <div className="cx-snap-block cx-snap-story">
+          <h2>The story</h2>
+          <ol className="cx-life">{storyShown.map((e, i) => <li key={i} className={e.tone === "bad" ? "bad" : e.tone === "good" ? "good" : ""}><b>{e.when}</b>{e.text}</li>)}</ol>
+          {story.length > 6 && <button type="button" className="btn ghost small" onClick={() => setAllStory(!allStory)}>{allStory ? "Latest only" : `Whole story · ${story.length}`}</button>}
+          {(s.chronology?.undated ?? []).length > 0 && <small className="cx-snap-undated">Date not recorded: {s.chronology.undated.join(", ")}</small>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void; done(m?: string, r?: any): void; slots: ConsultSlots }) {
   // tasks of an open complication episode live on its card, except urgent ones (21 Oct 2026: urgent follow-through
   // stays visible); routine tasks fold with the routine checks
@@ -467,9 +525,27 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const standing = problems.filter((p: any) => !quiet(p) && !cardKeys.has(p.key));
   const represented=new Set([...cardKeys,...standing.map((p:any)=>p.key),...onTrack.map((p:any)=>p.key)]);
   const orphanTasks=managementTasks.filter(p=>!represented.has(p.clinicalContext?.problem ?? "other") && !onEpisode.has(p.id));
+  const jump = (id: string) => { const el = document.querySelector<HTMLElement>(`[data-recommendation-id="${id}"]`); el?.scrollIntoView({ block: "center" }); el?.focus({ preventScroll: true }); };
+  const shownTasks = new Set<string>();
+  // the running problem's own work leads (a planned operation's pre-procedure pathway, a positive test's next step),
+  // after anything urgent; then the other decisions in their order, then open tasks by date
+  const RUNNING = /^(event\.pre-procedure|cad\.test-result|cad\.cath-revascularisation|cad\.acs)/;
+  const lead = (a: any) => (a.severity === "red" ? 0 : RUNNING.test(a.rule_id ?? "") || a.action?.wizard === "pre-procedure" ? 1 : 2);
+  const operation = /pre-?op|pre-?operative|surgery|surgical|operation|clearance|transplant/i;
+  const alertTitles = ordered.flat().map((a) => String(a.title));
+  const todo: TodoItem[] = [
+    // every decision, not only the first of each problem (the others sit inside that problem's card)
+    ...ordered.flat().map((a, i) => ({ a, i })).sort((x, y) => lead(x.a) - lead(y.a) || x.i - y.i).map(({ a }) => {
+      const card = ordered.find((g) => g.includes(a))![0];
+      return { key: a.id, title: a.title, sub: a.action?.wizard === "pre-procedure" ? "Pre-procedure pathway" : TAG[homeOf(a, s)], tone: a.severity, go: () => (document.querySelector(`[data-recommendation-id="${a.id}"]`) ? jump(a.id) : jump(card.id)) };
+    }),
+    ...[...managementTasks].filter((p) => !planAlerted.has(p.id) && !alertTitles.some((x) => x.includes(p.title))).sort((x, y) => Number(!operation.test(x.title)) - Number(!operation.test(y.title)) || (x.dueDate ?? "9").localeCompare(y.dueDate ?? "9")).filter((p) => !shownTasks.has(p.id) && shownTasks.add(p.id))
+      .map((p) => ({ key: p.id, title: p.title, sub: p.awaitingReview ? "Done — result to review" : p.dueDate ? `${p.dueDate < s.today ? "Overdue · " : ""}${fmtDay(p.dueDate, { year: p.dueDate.slice(0, 4) !== s.today.slice(0, 4) })}` : "No date set", tone: p.awaitingReview || (p.dueDate && p.dueDate < s.today) ? "orange" : "blue", go: () => open({ kind: "plan-item", planId: p.id } as Open) })),
+  ];
   return (
     <div className="cx">
       {text && <p className="cx-brief">{text}</p>}
+      <Snapshot s={s} todo={todo} />
       <nav className="cx-shortcuts" aria-label="Overview sections">
         <a className="btn secondary small" href="#att">Decisions</a>
         <button className="btn secondary small" onClick={()=>openRecord("cx-results-record")}>Results</button>
@@ -503,7 +579,6 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
           {orphanTasks.length>0 && <section aria-label="Outstanding work"><PlanTasks tasks={orphanTasks} open={open} today={s.today}/></section>}
           <Standing s={s} open={open} problems={standing} tasksOf={tileTasks} />
           <Pillars s={s} />
-          <Lifeline s={s} />
           {onTrack.length > 0 && (
             <FoldLine dot="#0E7C66" title={`On track · ${onTrack.map((p: any) => p.label.split(" · ")[0].toLowerCase()).join(", ")}`} sub={onTrack.flatMap((p: any) => p.stats.slice(0, 1).map((x: any) => `${x.label} ${x.value}`)).join(" · ")}>
               <div className="cx-probs">{onTrack.map((p: any) => <section key={p.key} className="cx-prob st-met" aria-label={p.label}><div className="cx-prob-h"><b>{p.label}</b><span className="cx-prob-st">On track</span></div>{p.stats.length > 0 && <div className="cx-prob-stats">{p.stats.map((x: any) => `${x.label} ${x.value}`).join(" · ")}</div>}{p.goal && <div className="cx-prob-sub">{p.goal}</div>}</section>)}</div>

@@ -14,6 +14,7 @@ import { checkHasShock } from "../../shared/studies.js";
 import { latestStudy, type PatientState } from "../kernel/state.js";
 import { cadEvents } from "./cad-profile.js";
 import { localDay } from "../../shared/clinical.js";
+import { isOperationPlan } from "../kernel/snapshot.js";
 
 // echo findings and grades that point at a prosthesis problem (valve module, slice 5): the
 // echocardiographer's own words and grades, on a position treated before that echo
@@ -148,7 +149,12 @@ export const EPISODE_RULES: RuleDef[] = [
     defaultParams: {},
     evidence: "2022 ESC non-cardiac surgery guidelines: stepwise assessment of surgical and patient risk, functional capacity, tests and peri-operative medicines.",
     evaluate(s) {
-      const t = trigger(s, "pre-procedure", /pre-?operative|pre-?procedure/i, null);
+      // 3 Nov 2026 (Ahmed: "patient is going for operation so the pre-procedure pathway… are priorities"): a planned
+      // operation in the plan (not one a pathway wrote) is an event too, not only a visit marked pre-operative
+      const visit = trigger(s, "pre-procedure", /pre-?operative|pre-?procedure/i, null);
+      const planned = s.plan.filter((p) => isOperationPlan(p) && p.category !== "procedure" && !(p.decision_refs ?? []).length && !handled(s, "pre-procedure", p.created_at))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+      const t = visit ?? (planned ? { at: planned.created_at, label: `Planned: ${planned.title}`, ref: planned.id } : null);
       return t ? [offer("pre-procedure", t, "Surgical and patient risk, functional capacity, tests, medicines around the procedure, then the cardiology conclusion.")] : [];
     },
   },

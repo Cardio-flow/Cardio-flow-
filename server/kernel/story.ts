@@ -15,6 +15,9 @@ import { pregnancyHaemoglobinCutoff } from "../../shared/pregnancy.js";
 import { defaultUln } from "../../shared/lab-review.js";
 import { DIAGNOSIS } from "../../shared/catalog.js";
 import { RISK_FACTOR_CODES, attributesText } from "../../shared/history.js";
+import { STUDY, studySummary } from "../../shared/studies.js";
+import { testTone } from "./snapshot.js";
+const STORY_STUDIES = new Set(["nuclear", "stress", "ccta", "cath", "cmr", "holter"]);
 
 type Tone = "good" | "bad" | "warn" | "neutral";
 const MON = (at: string) => fmtDay(at, { year: true }).replace(/^\d+ /, "");
@@ -109,6 +112,13 @@ export function chronology(s: PatientState, cardiac: CardiacEv[]) {
     if (!prev || Math.abs(o.value_num! - prev.value_num!) >= 10)
       items.push({ at: o.effective_at, when: MONY(o.effective_at), text: `LVEF ${valueText("lvef", o.value_num!, o.value_high)}%${prev ? (o.value_num! > prev.value_num! ? " (improved)" : " (fell)") : ""}`, tone: prev ? (o.value_num! > prev.value_num! ? "good" : "bad") : undefined });
   });
+  // investigation reports (3 Nov 2026: a recent stress MIBI was missing from the story); the echo is told by its LVEF
+  // a cath that led to PCI the same day is told by the PCI
+  const pciDays = new Set(s.procedures.filter((p) => p.kind === "pci").map((p) => p.performed_at.slice(0, 10)));
+  for (const st of s.studies.filter((st) => STORY_STUDIES.has(st.kind) && !(st.kind === "cath" && st.attributes?.outcome === "PCI performed" && pciDays.has(st.performed_at.slice(0, 10))))) {
+    const tone = testTone(st);
+    items.push({ at: st.performed_at, when: MONY(st.performed_at), text: `${STUDY[st.kind]?.short ?? st.kind}: ${studySummary(st.kind, st.attributes ?? {}).replace(/^(Adenosine|Regadenoson|Dipyridamole|Dobutamine|Exercise) MIBI · /, "$1 · ")}`, tone: tone === "bad" ? "bad" : tone === "good" ? "good" : undefined });
+  }
   // admissions
   for (const c of s.contexts.filter((c) => c.kind === "admission")) {
     // events already named in the reasons are not repeated ("Acute kidney injury" as reason and event)
