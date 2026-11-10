@@ -2245,3 +2245,50 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .cx-snap-tests details p { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
 .cx-snap-empty { margin: 0; font-size: 13px; color: var(--ink-4); }
 .cx-snap-undated { display: block; margin-top: 6px; color: var(--ink-4); font-size: 11.5px; }
+
+/* Registries as a whole (10 Nov 2026, phase 4) */
+.reg-page .reg > .seg, .reg-page .reg > [role="radiogroup"] { margin-top: 14px; }
+.reg-counts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-weight: 600; color: var(--ink-3); }
+.reg-counts b { font-size: 18px; margin-right: 4px; }
+.reg-enrol { gap: 10px; align-items: center; margin-bottom: 12px; }
+.reg-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.reg-in { font-weight: 700; color: var(--navy); }
+.reg-withdraw { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.reg-withdraw .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.reg-withdraw .chip { border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.reg-withdraw .chip[aria-pressed=true] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.reg-h { font-size: 15px; margin: 4px 0 2px; color: var(--navy); }
+.reg-fold { border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; background: var(--surface); }
+.reg-fold > summary { cursor: pointer; padding: 10px 12px; font-weight: 700; color: var(--navy); }
+.reg-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.reg-t { width: 100%; border-collapse: collapse; font-size: 13px; }
+.reg-t th { text-align: left; font-size: 11.5px; font-weight: 700; color: var(--ink-4); padding: 8px 10px; background: var(--surface-2); white-space: nowrap; }
+.reg-t td { padding: 7px 10px; border-top: 1px solid var(--line-2); font-weight: 600; vertical-align: top; font-variant-numeric: tabular-nums; }
+.reg-t td small { display: block; font-size: 11px; font-weight: 500; color: var(--ink-4); }
+.reg-t td:first-child { min-width: 150px; white-space: normal; }
+.reg-t td { white-space: nowrap; }
+.reg-codebook td { white-space: normal; }
+.reg-scroll, .reg-out, .reg-fold { min-width: 0; max-width: 100%; }
+.reg-out { overflow-x: auto; }
+@media (max-width: 640px) { .reg-t td:first-child { min-width: 120px; } .reg-t td, .reg-t th { padding: 6px 8px; } }
+.reg-t sup { font-size: 9px; margin-left: 2px; color: var(--ink-4); }
+.reg-t .reg-cat td:first-child { font-weight: 700; }
+.reg-t .reg-level td:first-child { padding-left: 24px; font-weight: 500; color: var(--ink-3); }
+.reg-outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; margin-top: 8px; }
+.reg-out-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.reg-km { width: 100%; height: auto; display: block; }
+.reg-km .reg-grid { stroke: var(--line); stroke-width: 1; }
+.reg-km .reg-axis { font-size: 10px; fill: var(--ink-4); font-weight: 600; }
+.reg-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; font-weight: 600; color: var(--ink-3); margin: 4px 0 8px; }
+.reg-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.reg-flag { border: 1px solid #fdd9b5; background: #fff8f1; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.reg-flag ul { margin: 6px 0 0; padding-left: 18px; }
+.reg-codebook .reg-values { max-width: 380px; font-size: 12px; color: var(--ink-3); }
+.reg-codebook code, .reg-flag code, .reg-export code { font-size: 12px; }
+.reg-exports { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; }
+.reg-export { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; font: inherit; }
+.reg-export:hover:not(:disabled) { border-color: var(--flow-blue); }
+.reg-export:disabled { opacity: 0.5; cursor: default; }
+.reg-export b { color: var(--navy); }
+.reg-export span { font-size: 12.5px; font-weight: 500; color: var(--ink-3); line-height: 1.45; }
+.reg-export code { color: var(--ink-4); }

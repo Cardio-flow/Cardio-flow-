@@ -69,6 +69,7 @@ jobs:
           run node scripts/all-lab-trends-check.mjs screenshots/all-lab-trends
           run node scripts/pathway-safety-round2-check.mjs screenshots/pathway-safety-round2
           run node --import tsx scripts/diagnosis-integrity-check.mjs screenshots/diagnosis-integrity
+          run node scripts/registries-check.mjs screenshots/registries
       - uses: actions/upload-artifact@v4
         if: always()
         with:

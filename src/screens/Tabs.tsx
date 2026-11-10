@@ -12,7 +12,7 @@ import {
 import { STUDY_LABEL } from "../../shared/studies";
 import { api, useData } from "../api";
 import { trendPercent } from "../lab-trend";
-import { Sparkline, Tag, useToast } from "../ui";
+import { DateInput, Sparkline, Tag, useToast } from "../ui";
 import {
   MEASURES,
   MEDICATION,
@@ -21,7 +21,7 @@ import {
   formatNumber,
   formatRange,
 } from "../../shared/catalog";
-import { addDays, flagFor, fmtDay } from "../../shared/clinical";
+import { addDays, flagFor, fmtDay, isoDay } from "../../shared/clinical";
 import { PlanMark, VIEW_LABEL, VIEW_SEV } from "./Summary";
 import { AdmissionTimeline } from "./AdmissionTimeline";
 import type { Open } from "./Patient";
@@ -1000,6 +1000,7 @@ export function RegistriesTab({
   const { data: eps } = useData<any>(`/patients/${id}/registries/eps`, [
     version,
   ]);
+  const { data: enrolment, reload: reloadEnrolment } = useData<any>(`/patients/${id}/registries`, [version]);
   const list = [hf, cad, eps].filter((r) => r && r.applicable !== false);
   if (!hf || !cad || !eps || !list.length) {
     return (
@@ -1020,14 +1021,53 @@ export function RegistriesTab({
   return (
     <main className="page">
       {list.map((r) => (
-        <RegistryCard key={r.registry} r={r} />
+        <RegistryCard key={r.registry} r={r} enrol={<EnrolLine id={id} reg={REG_ID[r.registry]} e={enrolment?.[REG_ID[r.registry]] ?? null} done={reloadEnrolment} />} />
       ))}
     </main>
   );
 }
 
+const REG_ID: Record<string, string> = { "Heart Failure Registry": "hf", "CAD Registry": "cad", "EP Registry": "eps" };
+const WITHDRAW_REASONS = ["Consent withdrawn", "Not eligible", "Entered in error", "Transferred care", "Other"];
+// enrolment in this registry (10 Nov 2026, phase 4): enrol with a date, or withdraw with a reason
+function EnrolLine({ id, reg, e, done }: { id: string; reg: string; e: any; done(): void }) {
+  const toast = useToast();
+  const [on, setOn] = useState(isoDay());
+  const [leaving, setLeaving] = useState(false);
+  const [reason, setReason] = useState("");
+  const go = async (path: string, body: any, text: string) => {
+    try { await api(`/patients/${id}/registries/${reg}/${path}`, { body }); toast({ text }); setLeaving(false); setReason(""); done(); }
+    catch (err: any) { toast({ text: err.message, err: true }); }
+  };
+  return (
+    <div className="reg-sum" style={{ marginBottom: 12 }}>
+      {e?.status === "enrolled" ? (
+        <div className="reg-status">
+          <span className="reg-in">Enrolled {fmtDay(e.on, { year: true })}</span>
+          <button className="btn ghost small" onClick={() => setLeaving(!leaving)} aria-expanded={leaving}>Withdraw</button>
+        </div>
+      ) : (
+        <div className="reg-status">
+          <span className="muted small">{e?.status === "withdrawn" ? `Withdrawn ${fmtDay(e.on, { year: true })} · ${e.reason}` : "Not enrolled"}</span>
+          <DateInput value={on} onChange={(x) => setOn(x.target.value)} max={isoDay()} aria-label="Enrolment date" style={{ maxWidth: 170 }} />
+          <button className="btn secondary small" onClick={() => go("enrol", { effectiveOn: on }, "Enrolled")}>Enrol</button>
+        </div>
+      )}
+      {leaving && (
+        <div className="reg-withdraw">
+          <div className="chips">{WITHDRAW_REASONS.map((w) => <button key={w} className="chip" aria-pressed={reason === w} onClick={() => setReason(w)}>{w}</button>)}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <DateInput value={on} onChange={(x) => setOn(x.target.value)} max={isoDay()} aria-label="Withdrawal date" style={{ maxWidth: 170 }} />
+            <button className="btn primary small" disabled={!reason} onClick={() => go("withdraw", { effectiveOn: on, reason }, "Withdrawn")}>Withdraw</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // One registry projection: what CardioFlow fills, what is missing, and the registry-only fields.
-function RegistryCard({ r }: { r: any }) {
+function RegistryCard({ r, enrol }: { r: any; enrol?: React.ReactNode }) {
   const toast = useToast();
   const [showOnly, setShowOnly] = useState(false);
   // 19 Oct 2026 (audit: up to 31,000 px on a phone): only the fields still missing, sections folded
@@ -1061,6 +1101,7 @@ function RegistryCard({ r }: { r: any }) {
           Read from the CardioFlow record · nothing is sent to the registry
         </span>
       </div>
+      {enrol}
       {r.index && (
         <p className="reg-intro">
           <b>Index record:</b> {r.index}

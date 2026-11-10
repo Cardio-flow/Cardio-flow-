@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot } from "../server/boot.js";
 import { loadState } from "../server/kernel/state.js";
-import { cadRegistryCohort, cadRegistryProjection } from "../server/engine/cad-registry.js";
+import { cadRegistryProjection } from "../server/engine/cad-registry.js";
+import { registryView } from "../server/engine/registries.js";
+import { SITE_ID } from "../server/boot.js";
 
 let db: DB;
 before(async () => { db = await createLocalDb(); await boot(db, { seed: true }); });
@@ -45,13 +47,10 @@ test("Fatma (NSTE-ACS PCI, still in hospital): baseline and nadir haemoglobin ov
 });
 
 test("cohort: every patient with a PCI, angiography or ACS admission, one CSV row each; HF-only patients are not in it", async () => {
-  const ids = ((await db.query(`SELECT id, name FROM cf.patient`)).rows as any[]);
-  const states = [];
-  for (const r of ids) states.push(await loadState(db, r.id));
-  const c = cadRegistryCohort(states);
+  const c = await db.transaction((q) => registryView(q, SITE_ID, "cad", true, "eligible"));
   const names = c.patients.map((p: any) => p.name);
   for (const n of ["Noura Al-Kandari", "Fatma Al-Ajmi", "Salem Al-Rashidi", "Saad Al-Otaibi"]) assert.ok(names.includes(n), n);
   assert.ok(!names.includes("Huda Al-Sabah"));
-  assert.equal(c.csv.split("\n").length, c.patients.length + 1);
+  assert.equal(c.csv.split(/\r?\n/).length, c.patients.length + 1);
   assert.equal(c.counts.byType.STEMI >= 2, true);
 });

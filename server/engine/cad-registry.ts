@@ -424,33 +424,3 @@ export function cadRegistryProjection(s: PatientState) {
     csv: filled.map((f) => f.key).join(",") + "\n" + filled.map((f) => csvCell(f.value!)).join(","),
   };
 }
-
-// The CAD registry as a whole: every patient with a PCI, an angiography or an ACS admission.
-export function cadRegistryCohort(states: PatientState[]) {
-  const mappedKeys = CAD_REGISTRY.flatMap((sec) => sec.fields.filter((f) => f.get).map((f) => f.key));
-  const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  const rows = states
-    .map((s) => ({ s, p: cadRegistryProjection(s) }))
-    .filter((y): y is { s: PatientState; p: NonNullable<ReturnType<typeof cadRegistryProjection>> } => !!y.p)
-    .map(({ s, p }) => {
-      const fields = p.sections.flatMap((y) => y.fields).filter((f) => f.mapped);
-      const byKey = Object.fromEntries(fields.map((f) => [f.key, f.value]));
-      return {
-        id: s.patient.id, name: s.patient.name, mrn: s.patient.mrn,
-        type: byKey.Presentation_Type ?? "—", index: p.index,
-        filled: p.counts.filled, mapped: p.counts.mapped,
-        missing: fields.filter((f) => f.value == null).map((f) => f.label),
-        cells: mappedKeys.map((k) => byKey[k] ?? ""),
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const byType: Record<string, number> = {};
-  for (const r of rows) byType[r.type] = (byType[r.type] ?? 0) + 1;
-  const filled = rows.reduce((n, r) => n + r.filled, 0), mapped = rows.reduce((n, r) => n + r.mapped, 0);
-  return {
-    registry: "CAD Registry",
-    counts: { patients: rows.length, byType, filledPct: mapped ? Math.round((filled / mapped) * 100) : null },
-    patients: rows.map(({ cells, ...r }) => r),
-    csv: [mappedKeys.join(","), ...rows.map((r) => r.cells.map((c) => (c ? csvCell(c) : "")).join(","))].join("\n"),
-  };
-}

@@ -6,7 +6,8 @@ import { createLocalDb, type DB } from "../server/db/db.js";
 import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
 import { loadState } from "../server/kernel/state.js";
-import { epsRegistryCohort, epsRegistryProjection, spssCode } from "../server/engine/eps-registry.js";
+import { epsRegistryProjection, spssCode } from "../server/engine/eps-registry.js";
+import { registryView } from "../server/engine/registries.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
 
@@ -94,16 +95,13 @@ test("cohort: device and ablation patients, one row each; a loop recorder alone 
   const pid = await tx((q) => K.createPatient(q, doc, { name: "Ilr Only " + Date.now(), mrn: "L" + Date.now(), sex: "Male", birthDate: "1970-01-01", conditions: [] }));
   await tx((q) => K.recordProcedure(q, doc, pid, { kind: "device", date: at(addDays(T, -10)), details: { type: "Implantable loop recorder", action: "New implant", indication: "Syncope / arrhythmia monitoring" } }));
   assert.equal(epsRegistryProjection(await loadState(db, pid)), null);
-  const ids = ((await db.query(`SELECT id FROM cf.patient`)).rows as any[]);
-  const states = [];
-  for (const r of ids) states.push(await loadState(db, r.id));
-  const c = epsRegistryCohort(states);
+  const c = await db.transaction((q) => registryView(q, SITE_ID, "eps", true, "eligible"));
   const names = c.patients.map((p: any) => p.name);
   for (const n of ["Bader Al-Mutairi", "Fatma Al-Ajmi", "Mariam Hussain", "Abdullah Al-Enezi"]) assert.ok(names.includes(n), n);
   assert.ok(!names.includes("Noura Al-Kandari"));
   assert.ok(!names.some((n: string) => n.startsWith("Ilr Only")));
-  assert.equal(c.csv.split("\n").length, c.patients.length + 1);
-  assert.equal(c.csvCoded.split("\n")[0], c.csv.split("\n")[0]);
+  assert.equal(c.csv.split(/\r?\n/).length, c.patients.length + 1);
+  assert.equal(c.csvCoded.split(/\r?\n/)[0], c.csv.split(/\r?\n/)[0]);
   assert.ok(c.counts.byType["CRT/AICD"] >= 1 && c.counts.byType.Pacemaker >= 2);
 });
 

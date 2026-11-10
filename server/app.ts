@@ -26,9 +26,10 @@ import { ADMISSION_HISTORY_SOURCES } from "../shared/admission-history.js";
 import { HTN_DIAGNOSIS_STATUS } from "../shared/hypertension.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
-import { hfRegistryProjection, hfRegistryCohort } from "./engine/hf-registry.js";
-import { epsRegistryCohort, epsRegistryProjection } from "./engine/eps-registry.js";
-import { cadRegistryCohort, cadRegistryProjection } from "./engine/cad-registry.js";
+import { hfRegistryProjection } from "./engine/hf-registry.js";
+import { epsRegistryProjection } from "./engine/eps-registry.js";
+import { cadRegistryProjection } from "./engine/cad-registry.js";
+import { enrol, patientEnrolment, registryView, withdraw, WITHDRAW_REASONS } from "./engine/registries.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { advanceRulesetRefresh } from "./boot.js";
@@ -925,49 +926,33 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), epsRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
   }));
 
-  // the EP registry as a whole: every patient with a device procedure (not a loop recorder) or an ablation
-  app.get("/api/registries/eps", route(async (req, res) => {
-    const siteId = actor(res).siteId;
-    res.json(await db.transaction(async (tx) => {
-      const ids = (await tx.query<{ id: string }>(
-        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic=$2 AND EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND (x.kind='ablation' OR (x.kind='device' AND coalesce(x.attributes->>'type','') <> 'Implantable loop recorder')))`,
-        [siteId, sampleQ(req)],
-      )).rows.map((r) => r.id);
-      const states = [];
-      for (const id of ids) states.push(await loadState(tx, id));
-      return epsRegistryCohort(states);
-    }));
+  // Each registry as a whole (10 Nov 2026, phase 4): eligible and enrolled patients, codebook, data in the registry's
+  // wording and SPSS codes, SPSS syntax and statistics. ?cohort=enrolled|eligible (default: enrolled once anyone is).
+  const regS = z.enum(["hf", "cad", "eps"]);
+  app.get("/api/registries/:reg", route(async (req, res) => {
+    const reg = regS.parse(req.params.reg);
+    const cohort = typeof req.query.cohort === "string" ? req.query.cohort : undefined;
+    res.json(await db.transaction((tx) => registryView(tx, actor(res).siteId, reg, sampleQ(req), cohort)));
   }));
-
-  // the CAD registry as a whole: every patient with a PCI, an angiography or an ACS admission
-  app.get("/api/registries/cad", route(async (req, res) => {
-    const siteId = actor(res).siteId;
-    res.json(await db.transaction(async (tx) => {
-      const ids = (await tx.query<{ id: string }>(
-        `SELECT p.id FROM cf.patient p WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic=$2 AND (
-           EXISTS (SELECT 1 FROM cf.procedure x WHERE x.patient_id=p.id AND x.kind='pci')
-           OR EXISTS (SELECT 1 FROM cf.study x WHERE x.patient_id=p.id AND x.kind='cath')
-           OR EXISTS (SELECT 1 FROM cf.care_context x WHERE x.patient_id=p.id AND x.kind='admission' AND array_to_string(x.reasons, ' ') ~* '(STEMI|NSTE)'))`,
-        [siteId, sampleQ(req)],
-      )).rows.map((r) => r.id);
-      const states = [];
-      for (const id of ids) states.push(await loadState(tx, id));
-      return cadRegistryCohort(states);
-    }));
+  // enrol several eligible patients at once (the Registries page); only patients of the current group (real or sample)
+  app.post("/api/registries/:reg/enrol", clinician, route(async (req, res) => {
+    const reg = regS.parse(req.params.reg);
+    const input = z.object({ patientIds: z.array(uuidS).min(1).max(2000), effectiveOn: isoDate }).parse(req.body);
+    res.json(await db.transaction((tx) => enrol(tx, actor(res), reg, input.patientIds, input.effectiveOn, sampleQ(req))));
   }));
-
-  // the HF registry as a whole: every HF patient of the site, read-only
-  app.get("/api/registries/hf", route(async (req, res) => {
-    const siteId = actor(res).siteId;
-    res.json(await db.transaction(async (tx) => {
-      const ids = (await tx.query<{ patient_id: string }>(
-        `SELECT DISTINCT c.patient_id FROM cf.condition c JOIN cf.patient p ON p.id=c.patient_id WHERE p.site_id=$1 AND p.removed_at IS NULL AND p.synthetic=$3 AND c.code = ANY($2)`,
-        [siteId, ["hfref", "hfmref", "hfpef", "hfimpef"], sampleQ(req)],
-      )).rows.map((r) => r.patient_id);
-      const states = [];
-      for (const id of ids) states.push(await loadState(tx, id));
-      return hfRegistryCohort(states);
-    }));
+  app.get("/api/patients/:id/registries", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id);
+    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), patientEnrolment(tx, id))));
+  }));
+  app.post("/api/patients/:id/registries/:reg/enrol", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id), reg = regS.parse(req.params.reg);
+    const input = z.object({ effectiveOn: isoDate }).parse(req.body);
+    res.json(await db.transaction((tx) => enrol(tx, actor(res), reg, [id], input.effectiveOn)));
+  }));
+  app.post("/api/patients/:id/registries/:reg/withdraw", clinician, route(async (req, res) => {
+    const id = uuidS.parse(req.params.id), reg = regS.parse(req.params.reg);
+    const input = z.object({ effectiveOn: isoDate, reason: z.enum(WITHDRAW_REASONS), detail: z.string().max(300).optional() }).parse(req.body);
+    res.json(await db.transaction((tx) => withdraw(tx, actor(res), reg, id, input.effectiveOn, input.reason, input.detail ?? "")));
   }));
 
   // ---------- wizards & recommendations ----------

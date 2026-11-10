@@ -94,6 +94,7 @@ export const MIGRATIONS = [
   { name: "v2-021-value-range", file: "./021-value-range.sql" },
   { name: "v2-022-other-medicines", file: "./022-other-medicines.sql" },
   { name: "v2-023-culture-study", file: "./023-culture-study.sql" },
+  { name: "v2-024-registry-enrolment", file: "./024-registry-enrolment.sql" },
 ];
 
 export async function migrate(db: DB) {

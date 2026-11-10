@@ -38,7 +38,7 @@ type Ctx = {
 };
 
 // the registry's SPSS codes (VALUE_CODES) for the categorical fields mapped here
-const CODES: Record<string, Record<string, number>> = {
+export const CODES: Record<string, Record<string, number>> = {
   Gender: { Male: 1, Female: 2 },
   Reason_EPlab: { "CRT/AICD": 1, Pacemaker: 2, "EPS/Ablation": 3, LAAO: 4, "CIED Extraction": 5 },
   PacemakerType: { "Temporary pacemaker": 1, "Permanent pacemaker": 2, "Temporary followed by permanent same hospitalization": 3 },
@@ -506,37 +506,5 @@ export function epsRegistryProjection(s: PatientState) {
     counts: { mapped: mapped.length, filled: filled.length, registryOnly: all.length - mapped.length },
     csv: filled.map((f) => f.key).join(",") + "\n" + filled.map((f) => csvCell(f.value!)).join(","),
     csvCoded: filled.map((f) => f.key).join(",") + "\n" + filled.map((f) => csvCell(f.code ?? "")).join(","),
-  };
-}
-
-// The EP registry as a whole: every patient with a device procedure or an ablation.
-export function epsRegistryCohort(states: PatientState[]) {
-  const rows = states
-    .map((s) => ({ s, p: epsRegistryProjection(s) }))
-    .filter((y): y is { s: PatientState; p: NonNullable<ReturnType<typeof epsRegistryProjection>> } => !!y.p)
-    .map(({ s, p }) => {
-      const fields = p.sections.flatMap((y) => y.fields).filter((f) => f.mapped);
-      const byKey = Object.fromEntries(fields.map((f) => [f.key, f]));
-      return {
-        id: s.patient.id, name: s.patient.name, mrn: s.patient.mrn,
-        type: (byKey.Reason_EPlab?.value as string) ?? "—", index: p.index,
-        filled: p.counts.filled, mapped: p.counts.mapped,
-        missing: fields.filter((f) => f.value == null).map((f) => f.label.replace(/^[\d.a-z]+ /, "")),
-        byKey,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-  // one column per mapped field that any record fills, in registry order
-  const keys = EPS_REGISTRY.flatMap((sec) => sec.fields.filter((f) => f.get).map((f) => f.key)).filter((k) => rows.some((r) => r.byKey[k]?.value != null));
-  const byType: Record<string, number> = {};
-  for (const r of rows) byType[r.type] = (byType[r.type] ?? 0) + 1;
-  const filled = rows.reduce((n, r) => n + r.filled, 0), mapped = rows.reduce((n, r) => n + r.mapped, 0);
-  const sheet = (coded: boolean) => [keys.join(","), ...rows.map((r) => keys.map((k) => { const f = r.byKey[k]; const v = f?.value == null ? "" : coded ? f.code ?? "" : f.value; return v ? csvCell(v) : ""; }).join(","))].join("\n");
-  return {
-    registry: "EP Registry",
-    counts: { patients: rows.length, byType, filledPct: mapped ? Math.round((filled / mapped) * 100) : null },
-    patients: rows.map(({ byKey, ...r }) => r),
-    csv: sheet(false),
-    csvCoded: sheet(true),
   };
 }
