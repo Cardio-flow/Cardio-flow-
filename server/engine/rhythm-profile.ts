@@ -95,6 +95,8 @@ export function rhythmProfile(s: PatientState) {
     stroke: score
       ? {
           score: score.score,
+          // ESC AF 2024 class I threshold (the panel marks "Not anticoagulated" from this, not from its own number)
+          oacIndicated: score.score >= 2,
           items: score.items.map((i) => `${i.label} +${i.pts}`),
           // ESC AF 2024: OAC recommended with CHA2DS2-VA ≥2 (I), considered with 1 (IIa)
           advice: closure?.attributes.method === "Transcatheter occlusion" && !s.conditions.some(c => ["mechanical-valve", "ms-significant"].includes(c.code)) ? "LAA closure: device-specific stroke-prevention review" : score.score >= 2 ? "OAC recommended (I)" : score.score === 1 ? "OAC should be considered (IIa)" : "No OAC indication from the score",

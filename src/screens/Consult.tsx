@@ -1,4 +1,3 @@
-import { consultationPriorities } from "../../shared/consultation.js";
 // "Consult" overview (25 Oct 2026, Ahmed: "stunning, premium and creative … many distractions"; approved mockup).
 // The overview reads like a consultant's handover:
 //   1. one sentence about the patient,
@@ -14,28 +13,24 @@ import { consultationPriorities } from "../../shared/consultation.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { Info, ChevronDown, AlertTriangle } from "lucide-react";
 import { api } from "../api";
-import { isRoutine, isRoutinePlan } from "../../shared/routine";
 import { PlanTasks } from "./PlanTasks";
-import { problemOfRule } from "../../shared/overview";
 import { fmtDay } from "../../shared/clinical";
 import { trendPercent } from "../lab-trend";
 import { formatNumber, formatRange } from "../../shared/catalog";
-import { ActionButton } from "./Summary";
-import { DismissPanel, buildProblems, RESULT_PROBLEM, TITLES } from "./Today";
+import { ActionButton } from "./Alert";
+import { DismissPanel } from "./Today";
+import { overviewLayout, decides, homeOf, TAG, type TodoEntry } from "../../shared/overview-layout";
+import { RESULT_PROBLEM } from "../../shared/overview-problems";
 import { DecisionPanel } from "./Decision";
 import type { Open } from "./Patient";
 
-const SEV: Record<string, number> = { red: 0, orange: 1, yellow: 2, blue: 3 };
 // the problem names are the overview's own (one name per problem everywhere)
-const TAG: Record<string, string> = new Proxy({} as Record<string, string>, { get: (_t, k: string) => TITLES[k] ?? TITLES.other });
 // the questions and examination from "ask today" that belong with each kind of decision
 const ASK_FOR: Record<string, string[]> = {
   kidney: ["nsaid", "postural"], anaemia: ["bleeding", "angina"], cad: ["angina", "bleeding"], hf: ["congestion", "urine", "postural"],
   af: ["af"], diabetes: ["urine"], medication: ["nsaid"], bp: ["postural"],
 };
-const decides = (a: any) => a.action?.type === "wizard" && a.severity !== "blue" && !(a.action.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title));
 // an alert's problem: its own context, else (an open task) the task's problem, else the rule's
-const homeOf = (a: any, s?: any) => a.clinicalContext?.problem ?? (a.action?.type === "plan" ? ((s?.plan ?? []) as any[]).find((p) => p.id === a.action.planId)?.clinicalContext?.problem : null) ?? problemOfRule(a.rule_id);
 const toneOf = (sev: string) => (sev === "red" ? "red" : sev === "orange" ? "amber" : "blue");
 
 export type ConsultSlots = { episodes?: ReactNode; meds?: ReactNode; plan?: ReactNode; results?: ReactNode; more?: ReactNode; moreLabel?: string; dismissed?: ReactNode };
@@ -230,19 +225,6 @@ function Pillars({ s }: { s: any }) {
           );
         })}
       </div>
-    </section>
-  );
-}
-
-export function Lifeline({ s }: { s: any }) {
-  const items = ((s.chronology?.items ?? []) as any[]).filter((i) => i.at);
-  if (!items.length) return null;
-  return (
-    <section className="cx-sec" aria-label="The story">
-      <div className="cx-sec-h"><h2>The story</h2>{(s.chronology?.undated ?? []).length > 0 && <span>Date not recorded: {s.chronology.undated.join(", ")}</span>}</div>
-      <ol className="cx-life">
-        {items.map((e, i) => <li key={i} className={e.tone === "bad" ? "bad" : e.tone === "good" ? "good" : ""}><b>{e.when}</b>{e.text}</li>)}
-      </ol>
     </section>
   );
 }
@@ -482,31 +464,12 @@ function Snapshot({ s, todo }: { s: any; todo: TodoItem[] }) {
 export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void; done(m?: string, r?: any): void; slots: ConsultSlots }) {
   // tasks of an open complication episode live on its card, except urgent ones (21 Oct 2026: urgent follow-through
   // stays visible); routine tasks fold with the routine checks
-  const onEpisode = new Set<string>([
-    ...((s.episodes ?? []) as any[]).filter((e) => e.status === "open").flatMap((e) => (e.open ?? []).map((x: any) => x.id)),
-    ...((s.plan ?? []) as any[]).filter((p) => p.clinicalContext?.episodeId && (p.status === "planned" || p.awaitingReview)).map((p) => p.id),
-  ]);
-  const live = ((s.attention ?? []) as any[]).filter((a) => !(a.severity !== "red" && a.action?.type === "plan" && onEpisode.has(a.action.planId)));
-  const routinePlan = (a: any) => a.action?.type === "plan" && ((s.plan ?? []) as any[]).some((p) => p.id === a.action.planId && isRoutinePlan(p));
-  const routine = live.filter((a) => isRoutine(a) || routinePlan(a));
-  const pending = ((s.plan ?? []) as any[]).filter((p) => p.status === "planned" || p.awaitingReview);
-  const routineTasks = pending.filter(isRoutinePlan);
-  const managementTasks = pending.filter((p) => !isRoutinePlan(p));
-  const planAlerted = new Set(live.filter((a) => a.action?.type === "plan").map((a) => a.action.planId as string));
+  // grouping and the "To do" list come from shared/overview-layout.ts (one arrangement for server and screen)
+  const { onEpisode, routine, routineTasks, managementTasks, planAlerted, consultation, ranked, ordered, rest, stage } = overviewLayout(s);
   const tasksFor = (key: string) => managementTasks.filter((p) => (p.clinicalContext?.problem ?? "other") === key && (!onEpisode.has(p.id) || p.clinicalContext?.urgent) && !planAlerted.has(p.id));
-  const consultation=s.consultation ?? consultationPriorities(s.attention ?? [],s.plan ?? [],s.today);
-  const ranked = live.filter((a) => !routine.includes(a)).sort((x, y) => SEV[x.severity] - SEV[y.severity] || Number(decides(y)) - Number(decides(x)));
-  // one card per problem with a decision (red, orange or yellow), most urgent first; the problem's other alerts sit
-  // inside its card; suggestions to consider (blue) fold into "Also to review"
-  const groups = new Map<string, any[]>();
-  for (const a of ranked.filter((x) => x.severity !== "blue")) { const k = homeOf(a, s); groups.set(k, [...(groups.get(k) ?? []), a]); }
-  // the card leads with the problem's decision (a pathway the engine can decide), its other alerts listed inside
-  const stage=(a:any)=>a.severity === "red" ? 0 : consultation.clarifyIds.includes(a.id) ? 1 : a.action?.type === "plan" ? 3 : 2;
   const stageLabels=["Urgent findings", "Information needed", "Management decisions", "Follow-through"];
-  const ordered = [...groups.values()].sort((a,b)=>stage(a[0])-stage(b[0]));
   const top = ordered.map((g) => g[0]);
   const extraOf = ordered.map((g) => g.slice(1));
-  const rest = ranked.filter((x) => x.severity === "blue");
   // each problem's open tasks show once: with its first decision, else in its tile below
   const taskHome = new Set<string>();
   const cardTasks = (a: any) => { const k = homeOf(a, s); if (taskHome.has(k)) return []; taskHome.add(k); return tasksFor(k); };
@@ -516,8 +479,8 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const resultsOf = (k: string) => ((s.abnormal?.items ?? []) as any[]).filter((r) => RESULT_PROBLEM[r.code] === k && !laneCodes.has(r.code)).map((r) => `${r.label} ${r.text}${r.note ? ` (${r.note})` : ""}`);
   const cardKeys = new Set(top.map((a) => homeOf(a, s)));
   const text = brief(s);
-  const outstanding=pending.filter(p=>p.awaitingReview || p.dueDate && p.dueDate<=s.today);
-  const problems = (() => { try { return buildProblems(s); } catch { return []; } })();
+  const outstanding=[...routineTasks,...managementTasks].filter((p:any)=>p.awaitingReview || p.dueDate && p.dueDate<=s.today);
+  const problems: any[] = s.problems ?? [];
   // a problem with nothing to say beyond "on track" folds into one line; the rest are listed
   const quiet = (p: any) => p.assessment === "met" && !p.need.length && !tileTasks(p.key).length && !((s.abnormal?.items ?? []) as any[]).some((r: any) => RESULT_PROBLEM[r.code] === p.key);
   const onTrack = problems.filter((p: any) => quiet(p) && !cardKeys.has(p.key));
@@ -526,22 +489,8 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const represented=new Set([...cardKeys,...standing.map((p:any)=>p.key),...onTrack.map((p:any)=>p.key)]);
   const orphanTasks=managementTasks.filter(p=>!represented.has(p.clinicalContext?.problem ?? "other") && !onEpisode.has(p.id));
   const jump = (id: string) => { const el = document.querySelector<HTMLElement>(`[data-recommendation-id="${id}"]`); el?.scrollIntoView({ block: "center" }); el?.focus({ preventScroll: true }); };
-  const shownTasks = new Set<string>();
-  // the running problem's own work leads (a planned operation's pre-procedure pathway, a positive test's next step),
-  // after anything urgent; then the other decisions in their order, then open tasks by date
-  const RUNNING = /^(event\.pre-procedure|cad\.test-result|cad\.cath-revascularisation|cad\.acs)/;
-  const lead = (a: any) => (a.severity === "red" ? 0 : RUNNING.test(a.rule_id ?? "") || a.action?.wizard === "pre-procedure" ? 1 : 2);
-  const operation = /pre-?op|pre-?operative|surgery|surgical|operation|clearance|transplant/i;
-  const alertTitles = ordered.flat().map((a) => String(a.title));
-  const todo: TodoItem[] = [
-    // every decision, not only the first of each problem (the others sit inside that problem's card)
-    ...ordered.flat().map((a, i) => ({ a, i })).sort((x, y) => lead(x.a) - lead(y.a) || x.i - y.i).map(({ a }) => {
-      const card = ordered.find((g) => g.includes(a))![0];
-      return { key: a.id, title: a.title, sub: a.action?.wizard === "pre-procedure" ? "Pre-procedure pathway" : TAG[homeOf(a, s)], tone: a.severity, go: () => (document.querySelector(`[data-recommendation-id="${a.id}"]`) ? jump(a.id) : jump(card.id)) };
-    }),
-    ...[...managementTasks].filter((p) => !planAlerted.has(p.id) && !alertTitles.some((x) => x.includes(p.title))).sort((x, y) => Number(!operation.test(x.title)) - Number(!operation.test(y.title)) || (x.dueDate ?? "9").localeCompare(y.dueDate ?? "9")).filter((p) => !shownTasks.has(p.id) && shownTasks.add(p.id))
-      .map((p) => ({ key: p.id, title: p.title, sub: p.awaitingReview ? "Done — result to review" : p.dueDate ? `${p.dueDate < s.today ? "Overdue · " : ""}${fmtDay(p.dueDate, { year: p.dueDate.slice(0, 4) !== s.today.slice(0, 4) })}` : "No date set", tone: p.awaitingReview || (p.dueDate && p.dueDate < s.today) ? "orange" : "blue", go: () => open({ kind: "plan-item", planId: p.id } as Open) })),
-  ];
+  // the server sends the list; the screen only adds where each entry leads
+  const todo: TodoItem[] = ((s.todo ?? []) as TodoEntry[]).map((t) => ({ ...t, go: t.kind === "task" ? () => open({ kind: "plan-item", planId: t.key } as Open) : () => (document.querySelector(`[data-recommendation-id="${t.key}"]`) ? jump(t.key) : jump(t.cardId ?? t.key)) }));
   return (
     <div className="cx">
       {text && <p className="cx-brief">{text}</p>}
@@ -552,13 +501,8 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
         <button className="btn secondary small" onClick={()=>openRecord("cx-medications-record")}>Medicines</button>
         <button className="btn secondary small" onClick={()=>openRecord("cx-plan-record")}>Plan</button>
       </nav>
-      {(Object.values(consultation.counts).some((n:any)=>n>0) || consultation.next || consultation.reconciliation.length>0) && <section className="cx-consultation" aria-label="Consultation priorities">
-        <div className="cx-priority-counts">
-          {consultation.counts.urgent>0 && <a href="#att" className="urgent">{consultation.counts.urgent} urgent</a>}
-          {consultation.counts.decisions > 0 && <a href="#att">{consultation.counts.decisions} problem{consultation.counts.decisions === 1 ? "" : "s"} to review</a>}
-          {consultation.counts.clarify>0 && <a href="#att">{consultation.counts.clarify} need information</a>}
-          {(consultation.counts.review>0 || consultation.counts.due>0) && <button onClick={()=>openRecord("cx-plan-record")}>{consultation.counts.review} to review · {consultation.counts.due} due</button>}
-        </div>
+      {/* the counts that stood here repeated the "To do" list above with different numbers (removed 10 Nov 2026) */}
+      {(consultation.connected.length>0 || consultation.gaps.length>0 || consultation.next || consultation.reconciliation.length>0) && <section className="cx-consultation" aria-label="Consultation priorities">
         {consultation.connected.map((c:any)=><a className="cx-connected" href="#att" key={c.label}>{c.label}</a>)}
         {consultation.reconciliation.length>0 && <button className="cx-next-checkpoint" onClick={()=>openRecord("cx-medications-record")}><b>Medication reconciliation · {consultation.reconciliation.length}</b> {consultation.reconciliation.map((m:any)=>m.label).join(" · ")}</button>}
         {consultation.gaps.length>0 && <details className="cx-gaps"><summary>Missing information · {consultation.gaps.length}</summary>{consultation.gaps.join(" · ")}</details>}
@@ -586,7 +530,8 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
           )}
           {(routine.length > 0 || routineTasks.length > 0) && (
             <FoldLine id="routine-due" dot="#8A99AF" title={`Routine checks · ${routine.length + routineTasks.length}`} sub={[...routine.map((a) => a.title.split(":")[0]), ...routineTasks.map((p) => p.title)].slice(0, 3).join(" · ")}>
-              {routine.map((a) => <Row key={a.id} a={a} s={s} open={open} done={done} />)}
+              {/* one button per pathway: a routine item whose pathway a decision above already opens has no second button */}
+              {routine.map((a) => <Row key={a.id} a={a} s={s} open={open} done={done} covered={a.action?.type === "wizard" && ranked.some((x) => x.action?.type === "wizard" && x.action.wizard === a.action.wizard) ? a.action.wizard : null} coveredLabel="In the decision above" />)}
               <PlanTasks tasks={routineTasks} open={open} today={s.today} />
             </FoldLine>
           )}

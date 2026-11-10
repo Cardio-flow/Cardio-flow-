@@ -1,80 +1,22 @@
 import { PlanTasks } from "./PlanTasks";
-import { isRoutine, isRoutinePlan } from "../../shared/routine";
-import { useEffect, useState } from "react";
+import { isRoutinePlan } from "../../shared/routine";
+import { useState } from "react";
 import { MedicationReviewLink } from "./MedicationReview";
-import { Pulse, toneOf } from "./Pulse";
-import { BookOpen, Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
+import { toneOf } from "../lab-trend";
+import { Check, FlaskConical, Pill, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { MedicationHistory, DoseProgress } from "./MedicationHistory";
-import { Link, SevIcon, Sparkline, Tag, type Sev } from "../ui";
+import { Sparkline, Tag, type Sev } from "../ui";
 import { api } from "../api";
 import { fmtDay, fmtTime } from "../../shared/clinical";
-import { BARRIER_CATEGORIES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog";
+import { MEDICATION, formatNumber, formatRange } from "../../shared/catalog";
 import type { Open } from "./Patient";
-import { Fold, TodayBoard, useTriage } from "./Today";
-import { StoryCard } from "./Story";
+import { Fold } from "./Today";
 import { Consult } from "./Consult";
 import { Dismissed } from "./Today";
 
 export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; done(message?: string): void }) {
-  const { hot } = useTriage(s);
-  const F = (k: string, node: React.ReactNode, isHot = hot.has(k)) => <Fold k={k} hot={isHot}>{node}</Fold>;
-  // phones and narrow screens: the pulse on top, then one section at a time (no long scroll to medicines/results)
-  const narrow = useNarrow();
-  // the section switch sticks just under the app's top bar
-  useEffect(() => {
-    const bar = document.querySelector<HTMLElement>(".topbar");
-    const set = () => document.documentElement.style.setProperty("--topbar-h", `${bar?.offsetHeight ?? 0}px`);
-    set();
-    window.addEventListener("resize", set);
-    return () => window.removeEventListener("resize", set);
-  }, [narrow]);
-  const [pane, setPane] = useState("decide");
-  const [allResults, setAllResults] = useState(false);
-  // "More detail" remembers being opened on this device, like the panels inside it
-  const moreOpen = (() => { try { return localStorage.getItem("cf.fold.more") === "1"; } catch { return false; } })();
-  const [nav, setNav] = useState<{ n: number; code: string | null }>({ n: 0, code: null });
-  const go = (p: string, code?: string) => { if (p === "results") setAllResults(true); setPane(p); setNav((x) => ({ n: x.n + 1, code: code ?? null })); };
-  // after a tap (never on first load): bring the chosen section, or the chosen result, into view
-  useEffect(() => {
-    if (!nav.n) return;
-    const el = nav.code ? document.querySelector<HTMLDetailsElement>(`[data-lab-code="${nav.code}"]`) : document.querySelector(narrow ? ".ov-switch" : ".lab-snapshot");
-    if (nav.code && el) (el as HTMLDetailsElement).open = true;
-    el?.scrollIntoView({ block: nav.code ? "center" : "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-  }, [nav]);
-  const decide = (
-    <>
-      <Episodes s={s} open={open} done={done} />
-      <TodayBoard s={s} open={open} done={done} />
-      {/* "What changed" now lives in the story and the timeline (20 Oct 2026) */}
-      {/* module detail (classification, procedures, devices, surveillance): one folded section at the end; the
-          problem cards above carry the decisions and the values (20 Oct 2026: nothing shown twice by default) */}
-      {(() => {
-        // module panels (classification, procedure history, aftercare boxes) fold into one "More detail" section,
-        // remembered open per device
-        const panels: [string, any, React.ReactNode, string][] = [
-          ["hf", s.hf, <HfPanel hf={s.hf} open={open} />, "heart failure"], ["cad", s.cad, <CadPanel cad={s.cad} open={open} />, "coronary"],
-          ["rhythm", s.rhythm, <RhythmPanel r={s.rhythm} open={open} />, "rhythm"], ["valve", s.valve, <ValvePanel v={s.valve} open={open} />, "valves"],
-          ["cmp", s.cmp, <CmpPanel c={s.cmp} open={open} />, "cardiomyopathy"], ["ph", s.ph, <PhPanel p={s.ph} open={open} />, "pulmonary hypertension"],
-        ];
-        const present = panels.filter(([, d]) => d);
-        // every panel folds into "More detail": its decisions and values are already in the problem cards
-        const live: typeof present = [], quiet = present;
-        return (
-          <>
-            {live.map(([k, , node]) => <div key={k}>{F(k, node, true)}</div>)}
-            {quiet.length > 0 && (
-              <details className="module-detail" open={moreOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; try { localStorage.setItem("cf.fold.more", o ? "1" : "0"); } catch {} }}>
-                <summary>More detail · {quiet.map(([, , , name]) => name).join(", ")}</summary>
-                <div className="stack">{quiet.map(([k, , node]) => <div key={k}>{F(k, node, hot.has(k))}</div>)}</div>
-              </details>
-            )}
-          </>
-        );
-      })()}
-    </>
-  );
-  // the Consult overview (25 Oct 2026): one sentence, ranked decisions, HF strip, story, rail; the rest of the
-  // record folds into "The record" at the end (same layout on phones, one column)
+  // module panels (classification, procedure history, aftercare boxes) fold into "More detail" at the end:
+  // their decisions and values are already in the problem cards
   const modules = (() => {
     const panels: [string, any, React.ReactNode, string][] = [
       ["hf", s.hf, <HfPanel hf={s.hf} open={open} />, "heart failure"], ["cad", s.cad, <CadPanel cad={s.cad} open={open} />, "coronary"],
@@ -82,9 +24,8 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
       ["cmp", s.cmp, <CmpPanel c={s.cmp} open={open} />, "cardiomyopathy"], ["ph", s.ph, <PhPanel p={s.ph} open={open} />, "pulmonary hypertension"],
     ];
     const present = panels.filter(([, d]) => d);
-    return present.length ? { node: <div className="stack">{present.map(([k, , node]) => <div key={k}>{F(k, node, false)}</div>)}</div>, label: present.map(([, , , name]) => name).join(", ") } : null;
+    return present.length ? { node: <div className="stack">{present.map(([k, , node]) => <div key={k}><Fold k={k} hot={false}>{node}</Fold></div>)}</div>, label: present.map(([, , , name]) => name).join(", ") } : null;
   })();
-  void decide; void narrow; void pane; void allResults; void setAllResults;
   return (
     <main className="page overview-page cx-page">
       {s.attention.filter((a:any)=>a.severity==="red").slice(0,1).map((a:any)=><div className="urgent-strip" key={a.id}><b>{a.title}</b><button className="btn secondary small" onClick={()=>{if(a.action?.type === "plan") {open({kind:"plan-item",planId:a.action.planId}); return;} const el=document.querySelector<HTMLElement>(`[data-recommendation-id="${a.id}"]`);el?.scrollIntoView({block:"center"});el?.focus({preventScroll:true});}}>Review urgent issue</button></div>)}
@@ -97,207 +38,6 @@ export function SummaryTab({ s, open, done }: { s: any; open(o: Open): void; don
         dismissed: <Dismissed s={s} done={done} />,
       }} />
     </main>
-  );
-}
-
-function useNarrow() {
-  const q = "(max-width: 1180px)";
-  const [n, setN] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
-  useEffect(() => {
-    const m = window.matchMedia(q);
-    const f = () => setN(m.matches);
-    m.addEventListener("change", f);
-    return () => m.removeEventListener("change", f);
-  }, []);
-  return n;
-}
-
-export function ActionButton({ a, open }: { a: any; open(o: Open): void }) {
-  const act = a.action ?? {};
-  if(act.type === "pregnancy-context")return <button className="go" onClick={()=>open({kind:"pregnancy-context"})}>{act.label}</button>;
-  // after a PCI, the stop dates are set on the next-steps sheet (timeline) rather than in the pathway
-  if (act.type === "wizard" && act.wizard === "antithrombotic" && a.rule_id === "cad.antithrombotic-plan" && /PCI/.test(a.title))
-    return (
-      <button className="go" onClick={() => open({ kind: "after-pci" })}>
-        Plan after PCI
-      </button>
-    );
-  if (act.type === "wizard")
-    return (
-      <button className="go" onClick={() => open({ kind: "wizard", wizard: act.wizard, recommendationId: act.standalone ? undefined : a.id })}>
-        {({ "pregnancy-plan":"Review pregnancy care", "vitamin-d-result":"Review vitamin D", "anaemia-result":"Review anaemia", "iv-iron":"Plan IV iron", "liver-result":"Review liver tests", "statin-ck-result":"Review statin CK", hyperkalaemia: "Manage hyperkalaemia", "renal-function": "Review renal function", congestion: "Manage congestion", hypotension: "Manage low BP", bradycardia: "Manage bradycardia",
-          shock: "Manage shock", sepsis: "Sepsis pathway", hyperglycaemia: "Manage glucose crisis", hypoglycaemia: "Manage hypoglycaemia", bleeding: "Manage bleeding",
-          "low-potassium": "Manage low K / Mg", hyponatraemia: "Manage low sodium", inr: "Manage INR", digoxin: "Manage digoxin", "severe-hypertension": "Manage severe BP",
-          "htn-review": "Review hypertension", "htn-resistance": "Verify resistance", "htn-secondary": "Screen secondary causes", "rdn-plan": "Assess RDN", "after-rdn": "Review RDN recovery",
-          diabetes: "Diabetes plan", "sick-day": "Sick-day rules", ramadan: "Ramadan plan",
-          syncope: "Assess syncope", "chest-infection": "Chest infection pathway", pericarditis: "Pericardial plan", endocarditis: "Endocarditis pathway", "pre-procedure": "Pre-op assessment", "amiodarone-thyroid": "Thyroid pathway", antithrombotic: "Plan antithrombotics", "acs-discharge": "Open bundle", "chest-pain-cad": "Chest pain pathway", "af-care": "AF-CARE plan", "peri-af-procedure": "Plan anticoagulation", "icd-shock": "ICD shock pathway", "valve-heart-team": "Heart Team decision", "valve-antithrombotic": "Plan antithrombotics", "prosthetic-valve": "Prosthetic valve pathway", "hcm-scd": "Assess SCD risk", "hcm-lvoto": "LVOT obstruction plan", "cmp-family": "Plan family screening", myocarditis: "Myocarditis pathway", "pah-followup": "Assess PAH risk", "post-pe": "After-PE pathway", "ph-lhd-lung": "PH pathway", "ph-suspected": "Suspected PH pathway", "after-cabg": "After-CABG plan", "after-device": "After-implant plan", "ccs-test-result": "Decide from the test", "suspected-ihd": "Choose the first test" } as Record<string, string>)[act.wizard] ?? "Review"}
-      </button>
-    );
-  if (act.type === "plan")
-    return (
-      <button className="go" onClick={() => open({ kind: "plan-item", planId: act.planId })}>
-        Open
-      </button>
-    );
-  if (act.type === "add-plan")
-    return (
-      <button className="go" onClick={() => open({ kind: "plan-add", template: act.template, medicationId: act.medicationId })}>
-        {act.template === "renal-k" ? "Book renal/K check" : act.template === "ecg" ? "Book ECG" : act.template === "device" ? "Plan device review" : act.template === "dm-eyes" ? "Book retinal screening" : act.template === "dm-feet" ? "Plan foot examination" : act.template === "device-check" || act.template === "device-first-check" ? "Book device check" : act.template === "wound-check" ? "Book wound check" : act.template === "valve-echo" ? "Book echo" : act.template === "remote-monitoring" ? "Plan remote monitoring" : act.template === "generator-change" ? "Plan generator change" : act.template === "lead-review" ? "Refer for lead review" : act.template?.startsWith("mon-") || act.template === "lipids" ? "Book check" : act.template === "echo" ? "Book echo" : "Add to plan"}
-      </button>
-    );
-  if (act.type === "tab")
-    return (
-      <Link className="go" to={`${location.pathname.replace(/\/(history|journey|visits|medications|investigations|plan|registries)$/, "")}/${act.tab}`}>
-        {act.tab === "medications" ? "Review medications" : act.tab === "journey" ? "Open journey" : "Review plan"}
-      </Link>
-    );
-  if (act.type === "start-med")
-    return (
-      <button className="go" onClick={() => open({ kind: "med-add", code: act.code, dose: act.dose, reason: a.title })}>
-        {act.label}
-      </button>
-    );
-  if (act.type === "titrate")
-    return (
-      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.direction, dose: act.dose, reason: act.direction === "increase" ? "Titration toward target" : undefined })}>
-        {act.label}
-      </button>
-    );
-  if (act.type === "med-correct") return <button className="go" onClick={()=>open({kind:"med-dose",medId:act.medicationId})}>{act.label}</button>;
-  if (act.type === "med-action")
-    return (
-      <button className="go" onClick={() => open({ kind: "med-action", medId: act.medicationId, action: act.action, reason: act.action === "resume" ? undefined : a.title })}>
-        {act.label}
-      </button>
-    );
-  if (act.type === "edit-dx")
-    return (
-      <button className="go" onClick={() => open({ kind: "dx-edit", code: act.code })}>
-        {act.label ?? "Edit diagnosis"}
-      </button>
-    );
-  if (act.type === "history")
-    return (
-      <button className="go" onClick={() => open({ kind: "history", focus: act.focus })}>
-        {act.label}
-      </button>
-    );
-  if (act.type === "add-labs")
-    return (
-      <button className="go" onClick={() => open({ kind: "labs", codes: act.codes })}>
-        {act.label}
-      </button>
-    );
-  return null;
-}
-
-export function WhyPanel({ a, patientId, done }: { a: any; patientId?: string; done?(message?: string): void }) {
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [cat, setCat] = useState("");
-  const isDrug = a.action?.type === "start-med" || (a.action?.type === "titrate" && a.action.direction === "increase");
-  const close = async (outcome: "deferred" | "declined", category?: string) => {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/patients/${patientId}/recommendations/${a.id}/decline`, { body: { outcome, reason, also: (a.also ?? []).map((x: any) => x.id), ...(category ? { category } : {}) } });
-      done?.(category ? "Reason recorded" : outcome === "deferred" ? "Suggestion deferred" : "Suggestion closed");
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
-  };
-  const sources = [a, ...(a.also ?? [])];
-  return (
-    <div className="why-panel">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <b style={{ color: "var(--navy)" }}>Why am I seeing this?</b>
-        <span className="small muted" style={{ fontWeight: 600 }}>
-          Rule {a.rule_id} · v{a.rule_version} · <Tag sev={a.rule_status === "PUBLISHED" ? "green" : "yellow"}>{a.rule_status.replace("_", " ")}</Tag>
-        </span>
-      </div>
-      <div className="facts">
-        {a.facts.filter((f: any) => f.label !== "Guideline").map((f: any, i: number) => (
-          <div className="fact" key={i}>
-            <small>
-              {f.label}
-              {f.date ? ` · ${fmtDay(f.date)}` : ""}
-            </small>
-            <b style={{ color: f.tone ? `var(--${f.tone}-ink, var(--${f.tone}))` : undefined }}>{f.value}</b>
-          </div>
-        ))}
-      </div>
-      {sources.flatMap((x: any) => x.facts.filter((f: any) => f.label === "Guideline").map((f: any) => f.value)).filter((v: string, i: number, all: string[]) => all.indexOf(v) === i).map((v: string, i: number) => (
-        <div className="guideline-src" key={"g" + i}>
-          <BookOpen size={14} /> {v}
-        </div>
-      ))}
-      {sources.filter((x: any) => x.ruleEvidence).map((x: any) => <details className="small muted" key={x.id}><summary>Evidence for {x.rule_id} · v{x.rule_version}</summary><p>{x.ruleEvidence}</p></details>)}
-      {a.also?.length > 0 && (
-        <div className="small" style={{ fontWeight: 600, color: "var(--ink-3)" }}>
-          Merged with {a.also.length} other suggestion{a.also.length === 1 ? "" : "s"} for the same drug class: {a.also.map((x: any) => x.title).join(" · ")}
-        </div>
-      )}
-      {a.missing.length > 0 && (
-        <div className="small" style={{ fontWeight: 700, color: "var(--orange-ink)" }}>
-          Assessment incomplete: {a.missing.join(", ")} not available. Missing data is never assumed normal.
-        </div>
-      )}
-      {patientId && isDrug && (
-        <div className="notnow">
-          <span className="small" style={{ fontWeight: 700, color: "var(--ink-3)", flexBasis: "100%" }}>Not giving it? Record why once: this drug class stops being suggested.</span>
-          <div className="choices" role="radiogroup" aria-label="Reason the medicine is not given" style={{ flexBasis: "100%" }}>
-            {BARRIER_CATEGORIES.map((c) => (
-              <button key={c.value} type="button" className="choice small" role="radio" aria-checked={cat === c.value} aria-pressed={cat === c.value} onClick={() => setCat(c.value)}>{c.label}</button>
-            ))}
-          </div>
-          <input className="input" placeholder={cat === "other" ? "Note (required)" : "Note (optional), e.g. genital infection, angioedema"} value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Note" />
-          <button className="btn ghost small" disabled={busy || !cat || (cat === "other" && reason.trim().length < 3)} onClick={() => close("declined", cat)}>Record reason</button>
-          {error && <span className="small" style={{ color: "var(--red-ink)", fontWeight: 700 }}>{error}</span>}
-        </div>
-      )}
-      {patientId && a.action?.type !== "wizard" && !isDrug && (
-        <div className="notnow">
-          <input className="input" placeholder="Reason (e.g. patient preference, not available, already tried)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for not acting now" />
-          <button className="btn ghost small" disabled={busy || reason.trim().length < 3} onClick={() => close("deferred")}>Not now</button>
-          <button className="btn ghost small" disabled={busy || reason.trim().length < 3} onClick={() => close("declined")}>Not appropriate</button>
-          {error && <span className="small" style={{ color: "var(--red-ink)", fontWeight: 700 }}>{error}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Changes({ changes }: { changes: any }) {
-  return (
-    <section className="card pad" id="chg">
-      <div className="card-head">
-        <h2>What changed</h2>
-        <span className="meta">{changes.since ? `${changes.label} · ${fmtDay(changes.since)}` : "No earlier discharge or visit to compare with"}</span>
-      </div>
-      {changes.items.length === 0 ? (
-        <div className="empty">No changes since the last reference point.</div>
-      ) : (
-        <div className="changes">
-          {changes.items.map((c: any, i: number) => (
-            <div className="change" key={i}>
-              <small>{c.label}</small>
-              {c.kind === "value" ? (
-                <div className="vals">
-                  <span className="b">{c.before}</span>
-                  <span className="muted">→</span>
-                  <span className="a" style={{ color: c.tone ? `var(--${c.tone}-ink)` : undefined }}>{c.after}</span>
-                  <span className="u">{c.text}</span>
-                </div>
-              ) : (
-                <span className="txt" style={{ color: c.tone ? `var(--${c.tone}-ink)` : undefined }}>{c.text}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -643,103 +383,6 @@ function Upcoming({ s, open }: { s: any; open(o: Open): void }) {
 }
 export { fmtTime };
 
-// ---------- Therapy & targets: guideline goals at a glance ----------
-function Targets({ s, open }: { s: any; open(o: Open): void }) {
-  const t = s.targets;
-  if (!t) return null;
-  const blocks = [t.ldl, t.bp, t.metabolic, t.diabetes, t.af].filter(Boolean);
-  if (!blocks.length && t.kidney.egfr == null && t.kidney.creatinineCurrent == null) return null;
-  const num = (v: number | null, d = 0) => (v == null ? "—" : formatNumber(v, d));
-  return (
-    <section className="card pad targets" aria-labelledby="tgt">
-      <div className="card-head">
-        <h2 id="tgt">Therapy &amp; targets</h2>
-        <span className="meta">ESC guideline goals · suggestions need clinician confirmation</span>
-      </div>
-      {t.hf && !s.hf && (
-        <div className="tgt-block">
-          <div className="tgt-title">
-            <span>Heart failure therapy · {t.hf.phenotype}{t.hf.lvef != null ? ` · LVEF ${num(t.hf.lvef)}%` : ""}</span>
-          </div>
-          <div className="pillars">
-            {t.hf.pillars.map((p: any) => (
-              <div key={p.key} className={`pillar st-${p.state}`}>
-                <small>{p.label}</small>
-                <b>{p.med ?? (p.state === "blocked" ? "Not now" : "Not started")}</b>
-                {p.percentOfTarget != null && (
-                  <span className="bar" aria-label={`${p.percentOfTarget}% of target dose`}>
-                    <i style={{ width: `${Math.min(100, p.percentOfTarget)}%` }} />
-                  </span>
-                )}
-                <em>{p.percentOfTarget != null ? `${p.percentOfTarget}% of target ${p.target}` : p.note ?? (p.state === "missing" ? "Foundational therapy" : "")}</em>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="tgt-grid">
-        {t.ldl && (
-          <Goal
-            label="LDL-C"
-            value={t.ldl.value != null ? `${num(t.ldl.value, 2)} mmol/L` : "Not measured"}
-            goal={`Goal <${t.ldl.goal} · ${t.ldl.category} risk`}
-            met={t.ldl.met}
-            sub={t.ldl.therapy.length ? t.ldl.therapy.join(" + ") : "No lipid-lowering therapy"}
-            onAdd={() => open({ kind: "labs", codes: ["total-cholesterol", "ldl-c", "hdl-c", "triglycerides"] })}
-          />
-        )}
-        {t.bp && (
-          <Goal label="Blood pressure" value={t.bp.sbp != null ? (t.bp.dbp != null ? `${num(t.bp.sbp)}/${num(t.bp.dbp)} mmHg` : `SBP ${num(t.bp.sbp)} mmHg`) : t.bp.dbp != null ? `DBP ${num(t.bp.dbp)} mmHg` : "Not measured"} goal={t.bp.target === "Individualized" ? "Individualized target" : `Goal ${t.bp.target}/${t.bp.diastolicTarget} if tolerated`} met={t.bp.met} sub={t.bp.at ? fmtDay(t.bp.at) : ""} />
-        )}
-        {t.metabolic && (
-          <Goal
-            label="Cardiometabolic"
-            value={[t.metabolic.bmi != null ? `BMI ${num(t.metabolic.bmi, 1)}` : null, t.metabolic.hba1c != null ? `HbA1c ${num(t.metabolic.hba1c, 1)}%` : null].filter(Boolean).join(" · ") || "No BMI or HbA1c"}
-            goal={[t.metabolic.sglt2.length ? "SGLT2i ✓" : "SGLT2i —", t.metabolic.glp1.length ? "GLP-1 RA ✓" : "GLP-1 RA —"].join(" · ")}
-            met={t.metabolic.sglt2.length > 0 && t.metabolic.glp1.length > 0 ? true : null}
-            sub={[...t.metabolic.sglt2, ...t.metabolic.glp1].join(" · ")}
-          />
-        )}
-        {t.diabetes && (
-          <Goal
-            label="Diabetes"
-            value={t.diabetes.hba1c != null ? `HbA1c ${num(t.diabetes.hba1c, 1)}%` : "No HbA1c"}
-            goal={`Target ${t.diabetes.target}${t.diabetes.source === "default" ? " (default)" : t.diabetes.source === "suggested" ? " (less stringent)" : ""}`}
-            met={t.diabetes.met}
-            sub={t.diabetes.therapy.length ? t.diabetes.therapy.join(" · ") : "No glucose-lowering therapy"}
-          />
-        )}
-        {t.af && (
-          t.af.vkaOnly ? (
-            <Goal
-              label="AF anticoagulation"
-              value="Valve: VKA only"
-              goal={t.af.inrTarget && t.af.inrTarget !== "unset" ? `INR target ${num(t.af.inrTarget.target, 1)} (${num(t.af.inrTarget.low, 1)}–${num(t.af.inrTarget.high, 1)})${t.af.inrTarget.source === "suggested" ? " · suggested" : ""}` : t.af.inrTarget === "unset" ? "Warfarin · record the INR target" : "Warfarin whatever the CHA₂DS₂-VA"}
-              met={t.af.onVka && t.af.oac.length === 1 && (typeof t.af.inrTarget !== "object" || !t.af.inrTarget || (t.af.inr != null && t.af.inr >= t.af.inrTarget.low && t.af.inr <= t.af.inrTarget.high))}
-              sub={[t.af.oac.length ? t.af.oac.join(" · ") : "No anticoagulant", t.af.inr != null ? `INR ${num(t.af.inr, 1)}` : null].filter(Boolean).join(" · ")}
-            />
-          ) : (
-            <Goal label="AF stroke risk" value={`CHA₂DS₂-VA ${t.af.score}`} goal={t.af.score >= 2 ? "OAC recommended" : t.af.score === 1 ? "Consider OAC" : "No OAC indicated"} met={t.af.score === 0 || t.af.oac.length > 0} sub={t.af.oac.length ? t.af.oac.join(" · ") : t.af.items.join(" · ")} />
-          )
-        )}
-        {s.pregnancy?.phase === "Pregnant" ? <Goal
-          label="Pregnancy renal assessment"
-          value={[t.kidney.creatinineCurrent != null ? `Creatinine ${num(t.kidney.creatinineCurrent)} µmol/L` : null, t.kidney.uacr != null ? `UACR ${num(t.kidney.uacr, 1)} mg/mmol` : null].filter(Boolean).join(" · ") || "Serum creatinine not recorded"}
-          goal="Assess serum creatinine and urine protein with obstetrics; eGFR is not valid in pregnancy"
-          met={null}
-          sub={t.kidney.creatinineAt ? fmtDay(t.kidney.creatinineAt) : ""}
-        /> : <Goal
-          label="Kidney"
-          value={[t.kidney.egfr != null ? `eGFR ${num(t.kidney.egfr)}` : null, t.kidney.uacr != null ? `UACR ${num(t.kidney.uacr, 1)}` : null].filter(Boolean).join(" · ") || "No eGFR"}
-          goal={t.kidney.uacr == null ? "UACR not measured" : t.kidney.uacr >= 3 ? "Albuminuria" : "No albuminuria"}
-          met={t.kidney.uacr == null ? null : t.kidney.uacr < 3 && (t.kidney.egfr ?? 90) >= 60}
-          sub={t.kidney.egfrAt ? fmtDay(t.kidney.egfrAt) : ""}
-        />}
-      </div>
-    </section>
-  );
-}
-
 // Heart failure panel (blueprint P2.1, P2.8): HF type with dates, LVEF history, today's status
 // against the last value, and each foundational drug with its dates. Reads the record only.
 const LAST_CHANGE: Record<string, string> = { frequency: "frequency changed", continue: "frequency changed", start: "started", restart: "restarted", increase: "increased", decrease: "reduced", hold: "held", not_taking: "not taking", resume: "taken again" };
@@ -833,7 +476,7 @@ function RhythmPanel({ r, open }: { r: any; open(o: Open): void }) {
     </div>
   );
   const oac = r.anticoagulation[0];
-  const needsOac = r.stroke && r.stroke.score >= 2 && !oac && r.aftercare?.closure?.method !== "Transcatheter occlusion";
+  const needsOac = r.stroke?.oacIndicated && !oac && r.aftercare?.closure?.method !== "Transcatheter occlusion";
   return (
     <section className="card pad cad-panel" aria-labelledby="rhp">
       <div className="card-head">
@@ -1386,25 +1029,6 @@ function TreatmentTimeline({ t }: { t: any }) {
             {bands.length > 0 && <span><i className="band" />HF admission</span>}
           </div>
         </>
-      )}
-    </div>
-  );
-}
-
-function Goal({ label, value, goal, met, sub, onAdd }: { label: string; value: string; goal: string; met: boolean | null; sub?: string; onAdd?(): void }) {
-  return (
-    <div className={`goal ${met === true ? "met" : met === false ? "unmet" : "unknown"}`}>
-      <small>{label}</small>
-      <b>{value}</b>
-      <span className="g">
-        {met === true ? "✓ " : met === false ? "▲ " : ""}
-        {goal}
-      </span>
-      {sub && <em>{sub}</em>}
-      {onAdd && met === null && (
-        <button className="btn ghost small" onClick={onAdd}>
-          Add result
-        </button>
       )}
     </div>
   );

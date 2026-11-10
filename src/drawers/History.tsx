@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect } from "react";
 import { ClipboardList, IdCard, X } from "lucide-react";
 import { api, useData } from "../api";
 import { Drawer, Segmented, SingleChoice, navigate, useToast, DateInput } from "../ui";
-import { DIAGNOSIS, MEDICATION } from "../../shared/catalog";
+import { DIAGNOSIS } from "../../shared/catalog";
+import { riskHints, type Hint } from "../../shared/history-hints";
 import { DIAGNOSIS_ATTRIBUTES, HISTORY_ITEMS, MI_FEATURES, MULTIPLE_ALLOWED, fieldShown, siblingsOf, type HistoryItem } from "../../shared/history";
 import { ageOn, fmtDay, localDay } from "../../shared/clinical";
 import { DateField } from "../screens/SuggestLine";
@@ -45,8 +46,8 @@ function initialRow(item: HistoryItem, v: any): Row {
 }
 
 export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { patientId: string; focus?: "risk" | "cardiac" | "past"; summary?: any; onClose(): void; onDone(m?: string, r?: any): void }) {
-  const hints = useMemo(() => riskHints(summary), [summary]);
   const { data } = useData<any>(`/patients/${patientId}/history`);
+  const hints = useMemo(() => riskHints(summary, data?.bmi), [summary, data?.bmi]);
   const [rows, setRows] = useState<Record<string, Row> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -199,37 +200,12 @@ export function HistoryDrawer({ patientId, focus, summary, onClose, onDone }: { 
   );
 }
 
-// Hints from the record (never answers): guideline diagnostic values and the medicines the patient takes.
-//  - diabetes: HbA1c ≥6.5% (ADA 2026 / ESC 2023 diagnostic threshold) or a glucose-lowering medicine
-//  - obesity: BMI ≥30 kg/m² (WHO)
-//  - CKD: eGFR <60 (KDIGO 2024), with the G stage preselected
-//  - hypertension: a blood-pressure medicine; dyslipidaemia: a lipid-lowering medicine
-type Hint = { text: string; code?: string };
-const KDIGO = (e: number) => (e >= 45 ? "ckd-3a" : e >= 30 ? "ckd-3b" : e >= 15 ? "ckd-4" : "ckd-5");
-function riskHints(s: any): Record<string, Hint> {
-  if (!s) return {};
-  const out: Record<string, Hint> = {};
-  const res = (code: string) => s.results?.find((r: any) => r.code === code)?.current?.value as number | undefined;
-  const meds: { name: string; code: string }[] = (s.medications?.groups ?? []).flatMap((g: any) => g.meds);
-  const on = (pred: (d: any) => boolean) => meds.filter((m) => MEDICATION[m.code] && pred(MEDICATION[m.code])).map((m) => m.name);
-  const a1c = res("hba1c");
-  const dm = on((d) => d.tags.some((t: string) => ["metformin", "insulin", "sulfonylurea", "dpp4", "tzd"].includes(t)));
-  if ((a1c != null && a1c >= 6.5) || dm.length) out.diabetes = { text: [a1c != null && a1c >= 6.5 ? `HbA1c ${a1c}%` : null, dm.length ? `on ${dm.join(", ").toLowerCase()}` : null].filter(Boolean).join(" · "), code: "t2dm" };
-  const egfr = res("egfr");
-  if (egfr != null && egfr < 60) out.ckd = { text: `eGFR ${Math.round(egfr)}`, code: KDIGO(egfr) };
-  const bp = on((d) => d.purpose === "Blood pressure");
-  if (bp.length) out.hypertension = { text: `on ${bp.join(", ").toLowerCase()}` };
-  const lip = on((d) => d.tags.includes("lipid"));
-  if (lip.length) out.dyslipidaemia = { text: `on ${lip.join(", ").toLowerCase()}` };
-  return out;
-}
 
 // One risk factor in one tap: Yes / No / ? (and the smoking states). Yes adds the diagnosis straight away —
 // the hinted or most common one — and shows it as a chip to change.
 const DEFAULT_CODE: Record<string, string> = { diabetes: "t2dm", dyslipidaemia: "dyslipidaemia", hypertension: "htn", obesity: "obesity" };
 function TapRow({ item, row, view, hint, bmi, onChange }: { item: HistoryItem; row: Row; view: any; hint?: Hint; bmi: any; onChange(p: Partial<Row>): void }) {
-  const obeseHint = item.key === "obesity" && bmi && bmi.value >= 30 ? { text: `BMI ${bmi.value.toFixed(1)}` } : null;
-  const h = hint ?? obeseHint ?? null;
+  const h = hint ?? null;
   const choose = (answer: string) => {
     if (!item.conditions) return onChange({ answer: row.answer === answer ? row.initial : answer });
     if (answer === "yes") {

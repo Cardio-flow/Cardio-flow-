@@ -5,7 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { planContext } from "../server/engine/plan-context.js";
 import { RULES } from "../server/engine/rules.js";
 import { overviewCounts } from "../shared/overview.js";
-import { TodayBoard } from "../src/screens/Today.js";
+import { Consult } from "../src/screens/Consult.js";
+import { buildProblems } from "../shared/overview-problems.js";
+import { todoList } from "../shared/overview-layout.js";
+// hand-built fixtures get the problem and to-do lists the server adds to a real summary
+const withProblems = (s: any) => (s.problems ? s : { ...s, problems: buildProblems(s), todo: todoList(s) });
 import { planView, overview } from "../server/kernel/views.js";
 import type { PatientState, PlanRow } from "../server/kernel/state.js";
 
@@ -157,7 +161,7 @@ test("one diabetes pathway button while specific medication safety actions remai
     medications: { groups: [] },
   };
   const html = renderToStaticMarkup(
-    createElement(TodayBoard, { s, open() {}, done() {} }),
+    createElement(Consult, { s: withProblems(s), open() {}, done() {}, slots: {} }),
   );
   assert.equal(
     (html.match(/>Review diabetes care<\/button>/g) ?? []).length,
@@ -191,10 +195,10 @@ test("episode results awaiting review stay in the episode, not duplicated on Tod
     ],
   };
   const html = renderToStaticMarkup(
-    createElement(TodayBoard, { s, open() {}, done() {} }),
+    createElement(Consult, { s: withProblems(s), open() {}, done() {}, slots: {} }),
   );
   assert.ok(!html.includes("Episode blood panel"));
-  assert.match(html, /1 awaiting review/);
+  assert.match(html, /1 tasks need completion or review/);
 });
 
 test("urgent hyperkalaemia assessment retains urgency without promoting its routine blood tests",()=>{

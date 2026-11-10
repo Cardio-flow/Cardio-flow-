@@ -3,6 +3,8 @@ import { distinctConditions } from "../../shared/diagnosis-identity.js";
 import { isRoutinePlan } from "../../shared/routine.js";
 import { planContext } from "../engine/plan-context.js";
 import { overviewCounts } from "../../shared/overview.js";
+import { buildProblems } from "../../shared/overview-problems.js";
+import { todoList } from "../../shared/overview-layout.js";
 import { pregnancyProfile } from "../engine/pregnancy-profile.js";
 import { medicationReview } from "../engine/medication-review.js";
 import { medicationOverlaps } from "../../shared/medication-identity.js";
@@ -603,6 +605,12 @@ export function planView(s: PatientState) {
 
 // Guideline goals are clinical content still in review: shown on sandbox sites only.
 export async function summary(tx: Q, patientId: string, siteMode: "sandbox" | "production" = "production") {
+  const view = await summaryView(tx, patientId, siteMode);
+  // the problems the overview is organised by, built here from the same projection the screen receives
+  // and the single "To do" list: the header, the Overview tab and the overview card all read this one list
+  return { ...view, problems: buildProblems(view), todo: todoList(view) };
+}
+async function summaryView(tx: Q, patientId: string, siteMode: "sandbox" | "production") {
   const s = await loadState(tx, patientId);
   const plan = planView(s);
   // the active plan: what came out of the most recent plan-making context plus anything still open

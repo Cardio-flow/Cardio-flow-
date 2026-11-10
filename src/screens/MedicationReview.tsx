@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ShieldCheck, CalendarCheck, ChevronRight } from "lucide-react";
 import { Link } from "../ui";
 import { fmtDay } from "../../shared/clinical";
-import { ActionButton } from "./Summary";
+import { ActionButton } from "./Alert";
 import type { Open } from "./Patient";
 
 // Rendering only: the server selects, prioritizes and groups the findings.

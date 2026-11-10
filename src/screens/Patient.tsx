@@ -14,7 +14,8 @@ import {
 import { PATIENT_SECTIONS, RECORD_VIEWS, patientSection } from "../../shared/patient-sections";
 import { useData, setSampleMode } from "../api";
 import { Drawer, DrawerWorkspace, Link, Tag, initials, useToast } from "../ui";
-import { SummaryTab, ActionButton, WhyPanel } from "./Summary";
+import { SummaryTab } from "./Summary";
+import { ActionButton, WhyPanel } from "./Alert";
 import { triage } from "../../shared/triage";
 import { JourneyTab } from "./Journey";
 import {
@@ -204,6 +205,7 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
   const headDx = (h.displayDiagnoses ?? dxOnly).filter((d: any) => !d.riskFactor && d.family !== "Comorbidity" && !(h.ihd && h.ihd.codes.includes(d.code)) && !(h.structural && h.structural.covers.includes(d.code)));
   const ctx = h.openContext;
   const redCount = triage(s.attention).filter((c) => c.lane === "act").length;
+  const todoCount: number = (s.todo ?? []).length;
   return (
     <>
       <section
@@ -274,11 +276,11 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
                     }
                   </span>
                 )}
-              {s.attention.length > 0 && (
-                <span className={`chip sev sev-${s.attention[0].severity}`}>
+              {/* the same number as "To do" on the overview and the Overview tab (one list from the server) */}
+              {todoCount > 0 && (
+                <span className={`chip sev sev-${s.todo[0].tone}`}>
                   <span className="dot" />
-                  {s.attention.length} alert
-                  {s.attention.length === 1 ? "" : "s"}
+                  {todoCount} to do
                 </span>
               )}
             </div>
@@ -415,9 +417,9 @@ export function PatientPage({ id, tab }: { id: string; tab: string }) {
             >
               <span className="tl-long">{label}</span>
               <span className="tl-short" aria-hidden="true">{short}</span>
-              {/* one number everywhere: the alerts, red when any needs action now (19 Oct audit) */}
-              {key === "summary" && s.attention.length > 0 && (
-                <span className={`n${redCount > 0 ? "" : " calm"}`} aria-hidden="true" title={`${s.attention.length} alerts${redCount ? `, ${redCount} to act on now` : ""}`}>{s.attention.length}</span>
+              {/* one number everywhere: the "To do" list, red when any item needs action now */}
+              {key === "summary" && todoCount > 0 && (
+                <span className={`n${redCount > 0 ? "" : " calm"}`} aria-hidden="true" title={`${todoCount} to do${redCount ? `, ${redCount} to act on now` : ""}`}>{todoCount}</span>
               )}
             </Link>
           ))}
