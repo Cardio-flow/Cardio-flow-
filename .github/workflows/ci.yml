@@ -27,44 +27,48 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # some walkthroughs serve the built app from dist/
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
       - name: Browser walkthroughs of clinical care
         run: |
           CARDIO_DATA_DIR=memory npx tsx server/index.ts > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:4310/api/health && break; sleep 1; done
-          mkdir -p screenshots && node scripts/shots.mjs screenshots
-          node scripts/admission-shots.mjs screenshots/admission
-          node scripts/entry-fixes.mjs screenshots/entry-fixes
-          node scripts/phone-polish.mjs screenshots/phone-polish
-          node scripts/af-care-check.mjs screenshots/af-care
-          node scripts/structural-context-check.mjs screenshots/structural-context
-          node scripts/hypertension-admin-check.mjs screenshots/hypertension-admin
-          node scripts/date-journey-check.mjs screenshots/date-journey
-          node scripts/overview-snapshots-check.mjs screenshots/overview-snapshots
-          node scripts/journey-focus-check.mjs screenshots/journey-focus
-          node scripts/lab-record-check.mjs screenshots/lab-record
-          node scripts/flow-integrity-check.mjs screenshots/flow-integrity
-          node scripts/round4-flow-check.mjs screenshots/round4-flow
-          node scripts/round5-flow-check.mjs screenshots/round5-flow
-          node scripts/round6-flow-check.mjs screenshots/round6-flow
-          node scripts/past-admission-check.mjs screenshots/past-admission
-          node scripts/labs-hypertension-check.mjs screenshots/labs-hypertension
-          node scripts/audit-oct17-check.mjs screenshots/audit-oct17
-          node scripts/syncope-check.mjs screenshots/syncope
-          node scripts/aorta-check.mjs screenshots/aorta
-          node scripts/pericardial-check.mjs screenshots/pericardial
-          node scripts/medication-review-check.mjs screenshots/medication-review
-          CARDIO_TEST_URL=http://127.0.0.1:4310 node scripts/cardiorenal-reconciliation-check.mjs screenshots/cardiorenal-reconciliation
-          node scripts/pregnancy-check.mjs screenshots/pregnancy
-          node scripts/audit-fixes-check.mjs screenshots/audit-fixes
-          node --import tsx scripts/all-pathways-decision-check.mjs screenshots/all-pathways
-          node scripts/simple-patient-flow-check.mjs screenshots/simple-patient-flow
-          node scripts/consult-audit-check.mjs screenshots/consult-audit
-          node scripts/refinement-oct29-check.mjs screenshots/refinement-oct29
-          node scripts/refinement-oct31-check.mjs screenshots/refinement-oct31
-          node scripts/all-lab-trends-check.mjs screenshots/all-lab-trends
-          node scripts/pathway-safety-round2-check.mjs screenshots/pathway-safety-round2
-          node --import tsx scripts/diagnosis-integrity-check.mjs screenshots/diagnosis-integrity
+          # one retry per script: a dialog-timing wait fails now and then on the shared runner; a second failure is real
+          run() { "$@" || { echo "::warning::retrying after a failure: $*"; "$@"; }; }
+          mkdir -p screenshots && run node scripts/shots.mjs screenshots
+          run node scripts/admission-shots.mjs screenshots/admission
+          run node scripts/entry-fixes.mjs screenshots/entry-fixes
+          run node scripts/phone-polish.mjs screenshots/phone-polish
+          run node scripts/af-care-check.mjs screenshots/af-care
+          run node scripts/structural-context-check.mjs screenshots/structural-context
+          run node scripts/hypertension-admin-check.mjs screenshots/hypertension-admin
+          run node scripts/date-journey-check.mjs screenshots/date-journey
+          run node scripts/overview-snapshots-check.mjs screenshots/overview-snapshots
+          run node scripts/journey-focus-check.mjs screenshots/journey-focus
+          run node scripts/lab-record-check.mjs screenshots/lab-record
+          run node scripts/flow-integrity-check.mjs screenshots/flow-integrity
+          run node scripts/round4-flow-check.mjs screenshots/round4-flow
+          run node scripts/round5-flow-check.mjs screenshots/round5-flow
+          run node scripts/round6-flow-check.mjs screenshots/round6-flow
+          run node scripts/past-admission-check.mjs screenshots/past-admission
+          run node scripts/labs-hypertension-check.mjs screenshots/labs-hypertension
+          run node scripts/audit-oct17-check.mjs screenshots/audit-oct17
+          run node scripts/syncope-check.mjs screenshots/syncope
+          run node scripts/aorta-check.mjs screenshots/aorta
+          run node scripts/pericardial-check.mjs screenshots/pericardial
+          run node scripts/medication-review-check.mjs screenshots/medication-review
+          run env CARDIO_TEST_URL=http://127.0.0.1:4310 node scripts/cardiorenal-reconciliation-check.mjs screenshots/cardiorenal-reconciliation
+          run node scripts/pregnancy-check.mjs screenshots/pregnancy
+          run node scripts/audit-fixes-check.mjs screenshots/audit-fixes
+          run node --import tsx scripts/all-pathways-decision-check.mjs screenshots/all-pathways
+          run node scripts/simple-patient-flow-check.mjs screenshots/simple-patient-flow
+          run node scripts/consult-audit-check.mjs screenshots/consult-audit
+          run node scripts/refinement-oct29-check.mjs screenshots/refinement-oct29
+          run node scripts/refinement-oct31-check.mjs screenshots/refinement-oct31
+          run node scripts/all-lab-trends-check.mjs screenshots/all-lab-trends
+          run node scripts/pathway-safety-round2-check.mjs screenshots/pathway-safety-round2
+          run node --import tsx scripts/diagnosis-integrity-check.mjs screenshots/diagnosis-integrity
       - uses: actions/upload-artifact@v4
         if: always()
         with:
