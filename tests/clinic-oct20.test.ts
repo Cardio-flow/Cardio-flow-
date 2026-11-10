@@ -145,7 +145,9 @@ test("overview story: turning point, since discharge, where things stand, timeli
     echoes: [{ date: "2025-12", lvef: 30, lvefHigh: 35 }, { date: "2026-08-20", lvef: 55 }],
     results: [
       { date: "2026-06-01", items: [{ code: "creatinine", value: 95 }, { code: "potassium", value: 4.4 }, { code: "haemoglobin", value: 11.2 }] },
-      { date: "2026-09-02", items: [{ code: "creatinine", value: 118 }, { code: "potassium", value: 5.3 }, { code: "haemoglobin", value: 10.1 }, { code: "magnesium", value: 0.62 }, { code: "sbp", value: 112 }, { code: "hr", value: 58 }] }],
+      { date: "2026-09-02", items: [{ code: "creatinine", value: 118 }, { code: "potassium", value: 5.3 }, { code: "haemoglobin", value: 10.1 }, { code: "magnesium", value: 0.62 }] },
+      // vitals a week old: the titration gates read BP and heart rate from the last 60 days, so a fixed date ages out
+      { date: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), items: [{ code: "sbp", value: 112 }, { code: "hr", value: 58 }] }],
     medications: [{ code: "bisoprolol", doseValue: 1.25, frequency: "OD", indication: "hf" }, { code: "aspirin", doseValue: 100, frequency: "OD", indication: "cad" }, { code: "clopidogrel", doseValue: 75, frequency: "OD", indication: "cad" }],
     admissions: [{ startedOn: "2026-07-20", endedOn: "2026-07-28", reasons: ["Acute kidney injury", "Sepsis / urinary infection"] }],
   });

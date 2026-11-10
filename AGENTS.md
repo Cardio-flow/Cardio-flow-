@@ -7,3 +7,5 @@
 - `server/db/schema.sql` is checksum-protected once applied. Add a new migration file instead of editing it.
 - Synthetic data only. Run `npm test` and `npm run build` before committing; report only checks you actually ran.
 - Add a line to `docs/DECISIONS.md` for any structural decision.
+- One change at a time, whichever tool makes it: start from the current `main`, work on a branch, open a pull request, and merge only when CI is green. Do not push to `main` directly and do not start from an older branch.
+- Tests must not depend on the calendar: a result that a rule reads through a freshness window (for example "last 60 days") is dated relative to today, never with a fixed date.
