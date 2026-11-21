@@ -10,7 +10,7 @@ import { exposureChange } from "../../shared/medication-exposure.js";
 // Production sites run PUBLISHED versions only. Sandbox sites may run versions that
 // are still in review, and every output carries that status so it is labelled.
 import { MEASURES, MEDICATION, formatNumber, formatRange } from "../../shared/catalog.js";
-import { daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
+import { emergencyPotassium, daysBetween, fmtDay, planStatusView } from "../../shared/clinical.js";
 import { latestDischarge, medsWithTag, series, type PatientState } from "../kernel/state.js";
 import { LAB_RULES } from "./lab-rules.js";
 import { GUIDELINE_RULES } from "./guidelines.js";
@@ -87,7 +87,7 @@ export const RULES: RuleDef[] = [
     title: "Hyperkalaemia review",
     inputs: ["potassium", "creatinine", "egfr", "meds"],
     defaultParams: { review_threshold_mmol: 5.5 },
-    evidence: "ESC HF 2021 practical guidance on MRA and RAAS inhibitors (retained 2023/2026): potassium >5.5 mmol/L needs dose reduction and review; >6.0 stop. ESC/ERA CVD–CKD 2026: manage hyperkalaemia to keep cardiorenal therapy.",
+    evidence: "ESC HF 2021 practical guidance on MRA and RAAS inhibitors (retained 2023/2026): potassium >5.5 mmol/L needs dose reduction and review; >6.0 stop. ESC/ERA CVD–CKD 2026: manage hyperkalaemia to keep cardiorenal therapy. UK Kidney Association 2023, recommendation 1.2.3: immediate hospital assessment for severe hyperkalaemia (K ≥6.5 mmol/L).",
     evaluate(s, p) {
       const k = s.resolved("potassium");
       const cur = k.current;
@@ -114,6 +114,7 @@ export const RULES: RuleDef[] = [
           // an old result is still the latest: say how old, so it is rechecked rather than acted on blindly
           title: `Potassium ${v("potassium", cur.value_num)}${hist.length > 1 && hist[hist.length - 1].value_num! > hist[0].value_num! ? " and rising" : ""}${daysBetween(cur.effective_at, s.today) > 14 ? ` (result from ${day(cur.effective_at)} — recheck)` : ""}`,
           detail:
+            (emergencyPotassium(cur.value_num) && daysBetween(cur.effective_at, s.today) <= 14 ? "Arrange emergency hospital assessment now. " : "") +
             (hist.length > 1 ? hist.map((o) => formatNumber(o.value_num!, 1)).join(" → ") + " · " : "") +
             (raas.length ? "on " + raas.map((m) => m.name.toLowerCase()).join(" and ") : "no RAAS or MRA therapy recorded"),
           facts: [
@@ -279,7 +280,7 @@ export const RULES: RuleDef[] = [
 ];
 
 // Bump when rule logic changes so every patient is re-evaluated once on the next boot.
-export const RULESET = "2026-11-03.overview-snapshot1";
+export const RULESET = "2026-11-21.overview-registry1";
 
 export const RULE = Object.fromEntries(RULES.map((r) => [r.id, r]));
 

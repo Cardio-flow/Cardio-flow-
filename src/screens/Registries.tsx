@@ -64,11 +64,11 @@ export function Registries() {
           <div className="row wrap" style={{ gap: 10, alignItems: "center" }}>
             <Segmented
               label="Who is counted"
-              options={[{ value: "enrolled", label: `Enrolled · ${r.counts.enrolled}` }, { value: "eligible", label: `All eligible · ${r.counts.eligible}` }]}
+              options={[{ value: "enrolled", label: `Enrolled · ${r.counts.enrolled}` }, { value: "eligible", label: `Eligible cohort · ${r.counts.eligibleForCohort}` }]}
               value={r.cohort}
               onChange={setCohort}
             />
-            <span className="muted small">{r.cohort === "enrolled" ? "Statistics and exports use the enrolled patients." : r.counts.enrolled ? "Statistics and exports use every eligible patient." : "No one is enrolled yet: statistics and exports use every eligible patient."}</span>
+            <span className="muted small">{r.cohort === "enrolled" ? "Statistics and exports use the enrolled patients." : "Statistics and exports exclude withdrawn patients."}</span>
           </div>
         </div>
         <Segmented label="Show" options={VIEWS} value={view} onChange={setView} />
@@ -90,7 +90,7 @@ function Patients({ r, reg, who, sample, reload }: { r: any; reg: string; who: s
   const [busy, setBusy] = useState(false);
   const [leaving, setLeaving] = useState<string | null>(null);
   const rows = r.patients.filter((p: any) => !q || `${p.name} ${p.mrn}`.toLowerCase().includes(q.toLowerCase()));
-  const waiting = r.patients.filter((p: any) => p.eligible && p.enrolment?.status !== "enrolled");
+  const waiting = r.patients.filter((p: any) => p.eligible && !p.enrolment);
   const run = async (fn: () => Promise<any>, text: string) => {
     setBusy(true);
     try { await fn(); toast({ text }); reload(); } catch (e: any) { toast({ text: e.message, err: true }); } finally { setBusy(false); }
@@ -126,7 +126,7 @@ function Patients({ r, reg, who, sample, reload }: { r: any; reg: string; who: s
                   ) : (
                     <div className="reg-status">
                       {e?.status === "withdrawn" && <span className="muted small" title={e.reason}>Withdrawn {fmt(e.on)} · {e.reason}</span>}
-                      {p.eligible && <button className="btn secondary small" disabled={busy} onClick={() => enrolOne(p)}>Enrol</button>}
+                      {p.eligible && <button className="btn secondary small" disabled={busy} onClick={() => enrolOne(p)}>{e?.status === "withdrawn" ? "Re-enrol" : "Enrol"}</button>}
                     </div>
                   )}
                   {leaving === p.id && <Withdraw p={p} reg={reg} done={() => { setLeaving(null); reload(); }} />}
@@ -297,7 +297,7 @@ function Export({ r }: { r: any }) {
   ];
   return (
     <div className="stack">
-      <p className="muted small">{r.counts.inCohort} patients ({r.cohort === "enrolled" ? "enrolled" : "all eligible"}). Columns starting <code>CF_</code> are added by CardioFlow after the registry's own: enrolment, group, index date, last contact, death and the outcome times for survival analysis. The files contain names and identifiers: keep them on approved hospital storage.</p>
+      <p className="muted small">{r.counts.inCohort} patients ({r.cohort === "enrolled" ? "enrolled" : "eligible cohort"}). Columns starting <code>CF_</code> are added by CardioFlow after the registry's own: enrolment, group, index date, last contact, death and the outcome times for survival analysis. The files contain names and identifiers: keep them on approved hospital storage.</p>
       <div className="reg-exports">
         {items.map((it) => (
           <button key={it.name} className="reg-export" disabled={!r.counts.inCohort} onClick={() => download(it.name, it.text, it.type)}>

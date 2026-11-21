@@ -2292,3 +2292,10 @@ details.reg-sec[open] > summary::before { content: "▾"; }
 .reg-export b { color: var(--navy); }
 .reg-export span { font-size: 12.5px; font-weight: 500; color: var(--ink-3); line-height: 1.45; }
 .reg-export code { color: var(--ink-4); }
+
+.cx-urgent { margin-bottom: 12px; padding: 12px 16px; border: 1px solid #f3b7b1; border-inline-start: 4px solid #b42318; border-radius: 12px; background: #fff4f2; color: #7a2118; }
+.cx-urgent > strong { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.cx-urgent > div { padding-top: 6px; }
+.cx-urgent > div + div { margin-top: 8px; border-top: 1px solid #f3b7b1; }
+.cx-urgent p { margin: 2px 0; font-size: 14px; }
+.cx-urgent button { margin-top: 5px; min-height: 44px; }

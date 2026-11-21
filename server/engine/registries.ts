@@ -28,18 +28,17 @@ const died = (s: PatientState) => (s.status.vital?.status === "died" ? s.status.
 const firstAdmissionAfter = (s: PatientState, after: string, hf: boolean) =>
   s.contexts.filter((c) => c.kind === "admission" && day(c.started_at) > after && (!hf || isHfAdmission(c as any))).map((c) => day(c.started_at)).sort()[0] ?? null;
 const earliest = (...d: (string | null)[]) => d.filter((x): x is string => !!x).sort()[0] ?? null;
-// the HF index date: the earliest evidence of heart failure in the record — a dated diagnosis (onset, else the onset
-// year), the first HF admission or the first LVEF; the day the diagnosis was entered only when nothing else is dated
-const hfIndex = (s: PatientState) => {
-  const c = s.conditions.filter((c) => ["hfref", "hfmref", "hfpef", "hfimpef"].includes(c.code) && c.status !== "entered_in_error");
-  if (!c.length) return null;
-  const dated = earliest(
-    ...c.map((x) => (x.onset ? day(x.onset) : x.attributes?.onsetYear ? `${x.attributes.onsetYear}-01-01` : null)),
-    ...s.contexts.filter((x) => x.kind === "admission" && isHfAdmission(x as any)).map((x) => day(x.started_at)),
-    ...s.resolved("lvef").history.filter((o) => o.status !== "entered_in_error").map((o) => day(o.effective_at)),
-  );
-  return dated ?? earliest(...c.map((x) => day(x.recorded_at)));
-};
+type RegistryIndex = { date: string | null; source: string };
+function hfIndex(s: PatientState): RegistryIndex {
+  const diagnoses = (s.conditionHistory ?? s.conditions).filter((c) => ["hfref", "hfmref", "hfpef", "hfimpef"].includes(c.code));
+  const evidence = [
+    ...diagnoses.flatMap((c) => c.onset ? [{ date: day(c.onset), source: "Documented HF onset" }] : []),
+    ...s.contexts.filter((c) => c.kind === "admission" && isHfAdmission(c as any)).map((c) => ({ date: day(c.started_at), source: "HF admission" })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  if (evidence.length) return evidence[0];
+  const year = diagnoses.map((c) => c.attributes?.onsetYear).filter(Boolean).sort()[0];
+  return { date: null, source: year ? `HF onset year only (${year})` : "HF onset date unknown" };
+}
 const afterIndexStay = (s: PatientState, x: { at: string; dischargeDay: string | null } | null) => (x ? x.dischargeDay ?? x.at : null);
 
 const DEFS: Record<RegId, {
@@ -49,7 +48,7 @@ const DEFS: Record<RegId, {
   groupKey: string;
   groupLabel: string;
   group(v: Record<string, string | null>): string;
-  indexDate(s: PatientState): string | null;
+  index(s: PatientState): RegistryIndex;
   indexLabel: string;
   outcomes: Outcome[];
   eligibleSql: string;
@@ -61,8 +60,8 @@ const DEFS: Record<RegId, {
     groupKey: "HF_Type",
     groupLabel: "HF type",
     group: (v) => (v.HF_Type === "Others" ? "HF improved LVEF" : v.HF_Type ?? "Not recorded"),
-    indexDate: hfIndex,
-    indexLabel: "HF diagnosis",
+    index: hfIndex,
+    indexLabel: "earliest dated HF onset or HF admission",
     outcomes: [
       { key: "death", label: "All-cause death", event: (s) => died(s) },
       { key: "hfh_death", label: "HF hospitalisation or death", event: (s, i) => earliest(firstAdmissionAfter(s, i, true), died(s)) },
@@ -76,7 +75,10 @@ const DEFS: Record<RegId, {
     groupKey: "Presentation_Type",
     groupLabel: "Presentation",
     group: (v) => v.Presentation_Type ?? "Not recorded",
-    indexDate: (s) => cadIndex(s)?.at ?? null,
+    index: (s) => {
+      const x = cadIndex(s);
+      return { date: x?.at ?? null, source: x?.pci ? "PCI" : x?.cath ? "Coronary angiography" : x ? "ACS admission" : "Unknown" };
+    },
     indexLabel: "index PCI, angiography or ACS admission",
     outcomes: [
       { key: "death", label: "All-cause death", event: (s) => died(s) },
@@ -94,7 +96,10 @@ const DEFS: Record<RegId, {
     groupKey: "Reason_EPlab",
     groupLabel: "Reason for EP lab",
     group: (v) => v.Reason_EPlab ?? "Not recorded",
-    indexDate: (s) => epsIndex(s)?.at ?? null,
+    index: (s) => {
+      const x = epsIndex(s);
+      return { date: x?.at ?? null, source: x?.reason ?? "Unknown" };
+    },
     indexLabel: "index device procedure or ablation",
     outcomes: [
       { key: "death", label: "All-cause death", event: (s) => died(s) },
@@ -136,6 +141,10 @@ export async function enrol(q: Q, actor: Actor, reg: RegId, patientIds: string[]
     if (!DEFS[reg].project(s)) throw new ApiError(409, `${s.patient.name} is not eligible for the ${DEFS[reg].name}`);
     const cur = (await currentEnrolment(q, [id], reg)).get(id);
     if (cur?.status === "enrolled") { if (patientIds.length === 1) throw new ApiError(409, `${s.patient.name} is already enrolled`); continue; }
+    if (cur?.status === "withdrawn") {
+      if (sample !== undefined || patientIds.length !== 1) throw new ApiError(409, "Re-enrol a withdrawn patient individually");
+      if (effectiveOn < cur.on) throw new ApiError(400, "Re-enrolment date is before withdrawal");
+    }
     const eid = uuid();
     await q.query(`INSERT INTO cf.registry_event(id,patient_id,registry,action,effective_on,reason,recorded_by) VALUES($1,$2,$3,'enrol',$4,'',$5)`, [eid, id, reg, effectiveOn, actor.id]);
     await audit(q, actor, "registry.enrol", "registry_event", eid, id, { registry: reg, effectiveOn });
@@ -163,6 +172,13 @@ export async function patientEnrolment(q: Q, patientId: string) {
   const out: Record<string, Enrolment | null> = {};
   for (const reg of REG_IDS) out[reg] = (await currentEnrolment(q, [patientId], reg)).get(patientId) ?? null;
   return out;
+}
+
+export async function patientRegistryView(q: Q, patientId: string, reg: RegId) {
+  const record = DEFS[reg].project(await loadState(q, patientId));
+  if (!record) return { applicable: false };
+  const enrolment = (await currentEnrolment(q, [patientId], reg)).get(patientId) ?? null;
+  return { ...record, enrolment, ...(enrolment?.status === "withdrawn" ? { csv: null, csvCoded: null } : {}) };
 }
 
 // ---------- variables: type, codes, codebook ----------
@@ -230,6 +246,7 @@ function cfVars(reg: RegId): Var[] {
     v("CF_Enrolled_On", "Enrolment date", "date"),
     v("CF_Group", DEFS[reg].groupLabel, "string"),
     v("CF_Index_Date", `Index date (${DEFS[reg].indexLabel})`, "date"),
+    v("CF_Index_Source", "Clinical evidence for the index date", "string"),
     v("CF_Last_Contact", "Last contact in the record (censoring date)", "date"),
     v("CF_Died", "Died", "binary"),
     v("CF_Death_Date", "Date of death", "date"),
@@ -255,7 +272,7 @@ function lastContact(s: PatientState): string {
   return d.pop() ?? s.today;
 }
 function followUp(reg: RegId, s: PatientState) {
-  const index = DEFS[reg].indexDate(s);
+  const { date: index, source } = DEFS[reg].index(s);
   const deathOn = died(s);
   const fu = s.status.followUp;
   // lost to follow-up or transferred: observation stops at that date
@@ -268,7 +285,7 @@ function followUp(reg: RegId, s: PatientState) {
     const end = event ? e! : deathOn ?? last;
     return { key: o.key, event, days: Math.max(0, daysBetween(index, end)) };
   });
-  return { index, last: deathOn ?? last, deathOn, cause: deathOn ? CAUSE[s.status.vital?.cause_group ?? "unknown"] : null, outcomes };
+  return { index, source, last: deathOn ?? last, deathOn, cause: deathOn ? CAUSE[s.status.vital?.cause_group ?? "unknown"] : null, outcomes };
 }
 
 // ---------- the registry view ----------
@@ -290,8 +307,9 @@ export async function registryView(q: Q, siteId: string, reg: RegId, sample: boo
   people.sort((a, b) => a.s.patient.name.localeCompare(b.s.patient.name));
 
   const nEnrolled = people.filter((x) => x.e?.status === "enrolled").length;
-  const cohort: "enrolled" | "eligible" = cohortParam === "eligible" ? "eligible" : cohortParam === "enrolled" ? "enrolled" : nEnrolled ? "enrolled" : "eligible";
-  const inCohort = people.filter((x) => x.p && (cohort === "eligible" || x.e?.status === "enrolled"));
+  const cohort: "enrolled" | "eligible" = cohortParam === "eligible" ? "eligible" : cohortParam === "enrolled" ? "enrolled" : enrolment.size ? "enrolled" : "eligible";
+  const eligibleForCohort = people.filter((x) => x.p && x.e?.status !== "withdrawn");
+  const inCohort = eligibleForCohort.filter((x) => cohort === "eligible" || x.e?.status === "enrolled");
 
   // values per patient, by variable
   const rows = inCohort.map((x) => {
@@ -310,6 +328,7 @@ export async function registryView(q: Q, siteId: string, reg: RegId, sample: boo
     if (key === "CF_Enrolled_On") return r.e?.status === "enrolled" ? r.e.on : null;
     if (key === "CF_Group") return r.group;
     if (key === "CF_Index_Date") return r.fu.index;
+    if (key === "CF_Index_Source") return r.fu.source;
     if (key === "CF_Last_Contact") return r.fu.last;
     if (key === "CF_Died") return r.fu.deathOn ? "Yes" : "No";
     if (key === "CF_Death_Date") return r.fu.deathOn;
@@ -334,7 +353,7 @@ export async function registryView(q: Q, siteId: string, reg: RegId, sample: boo
   const codebook = [...vars, ...cfVars(reg)].map((v) => ({
     variable: v.key, label: v.label, section: v.section, type: v.type, values: valuesText(v),
     source: v.cf ? "CardioFlow" : v.mapped ? "CardioFlow record" : "Registry only",
-    filled: v.cf ? rows.length : (seen.get(v.key) ?? []).length,
+    filled: v.cf ? rows.filter((r) => cfValue(r, v.key) != null).length : (seen.get(v.key) ?? []).length,
     unmapped: [...(unmapped.get(v.key) ?? [])],
     note: v.note ?? null,
   }));
@@ -345,6 +364,7 @@ export async function registryView(q: Q, siteId: string, reg: RegId, sample: boo
     counts: {
       patients: people.filter((x) => x.p).length,
       eligible: people.filter((x) => x.p).length,
+      eligibleForCohort: eligibleForCohort.length,
       enrolled: nEnrolled,
       inCohort: rows.length,
       byType: Object.fromEntries([...new Set(rows.map((r) => r.group))].map((g) => [g, rows.filter((r) => r.group === g).length])),

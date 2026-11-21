@@ -23,7 +23,7 @@ import { planningMissing, taviSchedulingMissing } from "./wizards-structural.js"
 // hyponatraemia guideline 2014; ESC 2024 hypertension; IDF-DAR 2021; ESC 2022 non-cardiac surgery;
 // NICE NG138/NG139 and BTS; ESC 2025 myocarditis/pericarditis; ESC 2023 endocarditis; ETA 2018.
 import type { Answers, WizardContext } from "./wizards.js";
-import { fmtDay, localDay } from "./clinical.js";
+import { emergencyPotassium, fmtDay, localDay } from "./clinical.js";
 import { MEDICATION } from "./catalog.js";
 import { chestPainRisk, highIschaemic, isHbr } from "./wizards-coronary.js";
 import { ihd, onAmiodarone, onBbOrSotalol } from "./wizards-rhythm.js";
@@ -131,7 +131,7 @@ export const GUIDANCE: Record<string, Record<string, Fn>> = {
       const keep = ["reduce-mra", "hold-mra", "reduce-raas", "hold-raas"];
       const onBinder = c.meds.some((m) => m.tags.includes("k-binder"));
       return [
-        (k >= 6.5 || ecg || (k >= 6.0 && sym)) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment by the hospital protocol (UK Kidney Association 2023: K ≥6.5 is severe)`),
+        emergencyPotassium(k, ecg, sym) && S("urgent", `K ${n1(k)}${ecg ? " with ECG changes" : ""}: same-day emergency treatment by the hospital protocol (UK Kidney Association 2023: K ≥6.5 is severe)`),
         k > 6.0 && mra && S("hold-mra", `K ${n1(k)} >6.0: stop ${mra.name} (ESC HF practical guidance)`),
         k > 6.0 && raas && S("hold-raas", `K ${n1(k)} >6.0: stop ${raas.name} (ESC HF practical guidance)`),
         k > 5.5 && k <= 6.0 && mra && !mraLowest(c) && S("reduce-mra", `K ${n1(k)} >5.5: halve ${mra.name} (ESC HF practical guidance)`),

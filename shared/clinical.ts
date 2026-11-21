@@ -141,3 +141,7 @@ export function flagFor(value: number, ref?: { low?: number; high?: number }) {
   if (ref.low != null && value < ref.low) return "low" as const;
   return null;
 }
+
+// UK Kidney Association 2023, community recommendation 1.2.3 and acute assessment.
+export const emergencyPotassium = (k: number, ecgChanges = false, symptomatic = false) =>
+  k >= 6.5 || ecgChanges || (k >= 6 && symptomatic);

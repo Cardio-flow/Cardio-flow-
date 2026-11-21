@@ -993,14 +993,14 @@ export function RegistriesTab({
   id: string;
   version: number;
 }) {
-  const { data: hf } = useData<any>(`/patients/${id}/registries/hf`, [version]);
-  const { data: cad } = useData<any>(`/patients/${id}/registries/cad`, [
+  const { data: hf, reload: reloadHF } = useData<any>(`/patients/${id}/registries/hf`, [version]);
+  const { data: cad, reload: reloadCAD } = useData<any>(`/patients/${id}/registries/cad`, [
     version,
   ]);
-  const { data: eps } = useData<any>(`/patients/${id}/registries/eps`, [
+  const { data: eps, reload: reloadEPS } = useData<any>(`/patients/${id}/registries/eps`, [
     version,
   ]);
-  const { data: enrolment, reload: reloadEnrolment } = useData<any>(`/patients/${id}/registries`, [version]);
+  const reloadRegistry: Record<string, () => void> = { hf: reloadHF, cad: reloadCAD, eps: reloadEPS };
   const list = [hf, cad, eps].filter((r) => r && r.applicable !== false);
   if (!hf || !cad || !eps || !list.length) {
     return (
@@ -1021,7 +1021,7 @@ export function RegistriesTab({
   return (
     <main className="page">
       {list.map((r) => (
-        <RegistryCard key={r.registry} r={r} enrol={<EnrolLine id={id} reg={REG_ID[r.registry]} e={enrolment?.[REG_ID[r.registry]] ?? null} done={reloadEnrolment} />} />
+        <RegistryCard key={r.registry} r={r} enrol={<EnrolLine id={id} reg={REG_ID[r.registry]} e={r.enrolment} done={reloadRegistry[REG_ID[r.registry]]} />} />
       ))}
     </main>
   );
@@ -1050,7 +1050,7 @@ function EnrolLine({ id, reg, e, done }: { id: string; reg: string; e: any; done
         <div className="reg-status">
           <span className="muted small">{e?.status === "withdrawn" ? `Withdrawn ${fmtDay(e.on, { year: true })} · ${e.reason}` : "Not enrolled"}</span>
           <DateInput value={on} onChange={(x) => setOn(x.target.value)} max={isoDay()} aria-label="Enrolment date" style={{ maxWidth: 170 }} />
-          <button className="btn secondary small" onClick={() => go("enrol", { effectiveOn: on }, "Enrolled")}>Enrol</button>
+          <button className="btn secondary small" onClick={() => go("enrol", { effectiveOn: on }, "Enrolled")}>{e?.status === "withdrawn" ? "Re-enrol" : "Enrol"}</button>
         </div>
       )}
       {leaving && (
@@ -1125,12 +1125,12 @@ function RegistryCard({ r, enrol }: { r: any; enrol?: React.ReactNode }) {
           {r.counts.registryOnly} fields are asked in the registry only
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          <button className="btn secondary small" onClick={copy}>
-            Copy registry row (CSV)
-          </button>
-          <button className="btn ghost small" onClick={() => download()}>
-            Download CSV
-          </button>
+          {r.csv && (
+            <>
+              <button className="btn secondary small" onClick={copy}>Copy registry row (CSV)</button>
+              <button className="btn ghost small" onClick={() => download()}>Download CSV</button>
+            </>
+          )}
           {r.csvCoded && (
             <button className="btn ghost small" onClick={() => download(true)}>
               CSV with SPSS codes

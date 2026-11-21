@@ -411,6 +411,7 @@ function Snapshot({ s, todo }: { s: any; todo: TodoItem[] }) {
   const now = (s.snapshot?.now ?? []) as any[];
   const tests = (s.snapshot?.tests ?? []) as any[];
   const story = ((s.chronology?.items ?? []) as any[]).filter((i) => i.at);
+  const [allNow, setAllNow] = useState(false);
   const [allStory, setAllStory] = useState(false);
   const [allTodo, setAllTodo] = useState(false);
   const storyShown = allStory ? story : story.slice(-6);
@@ -421,7 +422,8 @@ function Snapshot({ s, todo }: { s: any; todo: TodoItem[] }) {
       {now.length > 0 && (
         <div className="cx-snap-block cx-snap-now">
           <h2>Now</h2>
-          <ul>{now.map((n) => <li key={n.key} className={`t-${n.tone}`}><span className="cx-dot" style={{ background: TONE_DOT[n.tone] }} aria-hidden="true" /><span><b>{n.text}</b>{n.sub && <small>{n.sub}</small>}</span></li>)}</ul>
+          <ul>{(allNow ? now : now.slice(0, 6)).map((n) => <li key={n.key} className={`t-${n.tone}`}><span className="cx-dot" style={{ background: TONE_DOT[n.tone] }} aria-hidden="true" /><span><b>{n.text}</b>{n.sub && <small>{n.sub}</small>}</span></li>)}</ul>
+          {now.length > 6 && <button type="button" className="btn ghost small" aria-expanded={allNow} onClick={() => setAllNow(!allNow)}>{allNow ? "Show fewer" : `Show ${now.length - 6} more running problems`}</button>}
         </div>
       )}
       <div className="cx-snap-grid">
@@ -468,6 +470,7 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const { onEpisode, routine, routineTasks, managementTasks, planAlerted, consultation, ranked, ordered, rest, stage } = overviewLayout(s);
   const tasksFor = (key: string) => managementTasks.filter((p) => (p.clinicalContext?.problem ?? "other") === key && (!onEpisode.has(p.id) || p.clinicalContext?.urgent) && !planAlerted.has(p.id));
   const stageLabels=["Urgent findings", "Information needed", "Management decisions", "Follow-through"];
+  const urgent = ranked.filter((a) => a.severity === "red");
   const top = ordered.map((g) => g[0]);
   const extraOf = ordered.map((g) => g.slice(1));
   // each problem's open tasks show once: with its first decision, else in its tile below
@@ -493,6 +496,13 @@ export function Consult({ s, open, done, slots }: { s: any; open(o: Open): void;
   const todo: TodoItem[] = ((s.todo ?? []) as TodoEntry[]).map((t) => ({ ...t, go: t.kind === "task" ? () => open({ kind: "plan-item", planId: t.key } as Open) : () => (document.querySelector(`[data-recommendation-id="${t.key}"]`) ? jump(t.key) : jump(t.cardId ?? t.key)) }));
   return (
     <div className="cx">
+      {urgent.length > 0 && <section className="cx-urgent" aria-label="Urgent actions">
+        <strong><AlertTriangle size={16} aria-hidden="true" /> Urgent review</strong>
+        {urgent.map((a) => <div key={a.id}>
+          <b>{a.title}</b>{a.detail && <p>{a.detail}</p>}
+          <button type="button" className="btn secondary small" onClick={() => todo.find((t) => t.key === a.id)?.go()} aria-label={`Review now · ${a.title}`}>Review now</button>
+        </div>)}
+      </section>}
       {text && <p className="cx-brief">{text}</p>}
       <Snapshot s={s} todo={todo} />
       <nav className="cx-shortcuts" aria-label="Overview sections">
