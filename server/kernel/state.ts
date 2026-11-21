@@ -92,6 +92,7 @@ export type PatientState = {
   patient: { id: string; name: string; mrn: string; sex: "Male" | "Female"; birth_date: string; age: number; allergies: string; civil_id: string | null; nationality: string | null; mobile: string | null; synthetic: boolean; birth_date_estimated: boolean };
   today: string;
   conditions: ConditionRow[];
+  conditionHistory?: ConditionRow[];
   tags: Set<string>;
   observations: Obs[];
   resolved: (code: string) => Resolved<Obs>;
@@ -169,7 +170,8 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
   const barrierRows = (j(bundle.barriers).rows as BarrierRow[]).filter((b) => !b.cleared).map((b) => ({ ...b, effective_at: new Date(b.effective_at).toISOString() }));
   const statusRows = (j(bundle.status).rows as StatusRow[]).map((r) => ({ ...r, effective_on: String(r.effective_on).slice(0, 10) }));
   const vital = statusRows.find((r) => r.kind === "vital") ?? null;
-  const conditions = conds.rows.filter((c) => c.status === "active").map((c) => ({ ...c, attributes: (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes) ?? {} }));
+  const conditionHistory = conds.rows.filter((c) => c.status !== "entered_in_error").map((c) => ({ ...c, attributes: (typeof c.attributes === "string" ? JSON.parse(c.attributes) : c.attributes) ?? {} }));
+  const conditions = conditionHistory.filter((c) => c.status === "active");
   const tags = new Set<string>([...conditions.flatMap((c) => DIAGNOSIS[c.code]?.tags ?? []), ...conditions.flatMap(detailTags)]);
   const preferences = Object.fromEntries(prefs.rows.map((r) => [r.code, r.observation_id]));
   const cache = new Map<string, Resolved<Obs>>();
@@ -255,6 +257,7 @@ export async function loadState(tx: Q, patientId: string): Promise<PatientState>
     },
     today,
     conditions,
+    conditionHistory,
     tags,
     observations: obs.rows.map(normaliseTime),
     resolved,

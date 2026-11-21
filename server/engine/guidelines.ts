@@ -125,7 +125,7 @@ export function doacDoseCheck(s: PatientState): { med: MedState; right: number; 
     // dabigatran (EU SmPC 4.2): 110 mg at age ≥80 or with verapamil; 150 mg otherwise, except that age 75–80, CrCl 30–50
     // or a high bleeding risk leave 110 or 150 to the clinician (no alert then)
     // dabigatran with CrCl <30 is contraindicated (med-safety renal row): no dose suggestion alongside it
-    if (m.code === "dabigatran" && !(crcl != null && crcl < 30)) {
+    if (m.code === "dabigatran" && crcl != null && crcl >= 30) {
       const verapamil = s.meds.some((x) => x.status === "active" && x.code === "verapamil");
       if (age >= 80 || verapamil) out.push({ med: m, right: 110, why: age >= 80 ? `Age ${age}` : "With verapamil" });
       else if (age < 75 && crcl != null && crcl > 50) out.push({ med: m, right: 150, why: `Age ${age} · CrCl ${Math.round(crcl)} mL/min` });

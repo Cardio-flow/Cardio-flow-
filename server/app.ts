@@ -26,10 +26,7 @@ import { ADMISSION_HISTORY_SOURCES } from "../shared/admission-history.js";
 import { HTN_DIAGNOSIS_STATUS } from "../shared/hypertension.js";
 import { BARRIER_LABEL, MEDICATION, drugClassOf } from "../shared/catalog.js";
 import { documents } from "./kernel/documents.js";
-import { hfRegistryProjection } from "./engine/hf-registry.js";
-import { epsRegistryProjection } from "./engine/eps-registry.js";
-import { cadRegistryProjection } from "./engine/cad-registry.js";
-import { enrol, patientEnrolment, registryView, withdraw, WITHDRAW_REASONS } from "./engine/registries.js";
+import { enrol, patientEnrolment, patientRegistryView, registryView, withdraw, WITHDRAW_REASONS } from "./engine/registries.js";
 import { nightlyReassess } from "./engine/nightly.js";
 import { reassess } from "./engine/engine.js";
 import { advanceRulesetRefresh } from "./boot.js";
@@ -908,27 +905,15 @@ export function createApp(db: DB, hosted?: HostedAuth, ready?: Promise<unknown>)
     res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), documents(tx, id))));
   }));
 
-  // Heart Failure Registry projection: read-only, the registry fields CardioFlow can already fill
-  app.get("/api/patients/:id/registries/hf", route(async (req, res) => {
-    const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), hfRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
-  }));
-
-  // CAD Registry projection: read-only, the registry fields CardioFlow can already fill
-  app.get("/api/patients/:id/registries/cad", route(async (req, res) => {
-    const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), cadRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
-  }));
-
-  // EP Registry projection: read-only, the registry fields CardioFlow can already fill
-  app.get("/api/patients/:id/registries/eps", route(async (req, res) => {
-    const id = uuidS.parse(req.params.id);
-    res.json(await db.transaction(async (tx) => (await patientInSite(tx, actor(res), id), epsRegistryProjection(await loadState(tx, id)) ?? { applicable: false })));
-  }));
-
-  // Each registry as a whole (10 Nov 2026, phase 4): eligible and enrolled patients, codebook, data in the registry's
-  // wording and SPSS codes, SPSS syntax and statistics. ?cohort=enrolled|eligible (default: enrolled once anyone is).
   const regS = z.enum(["hf", "cad", "eps"]);
+  app.get("/api/patients/:id/registries/:reg", route(async (req, res) => {
+    const id = uuidS.parse(req.params.id), reg = regS.parse(req.params.reg);
+    res.json(await db.transaction(async (tx) => {
+      await patientInSite(tx, actor(res), id);
+      return patientRegistryView(tx, id, reg);
+    }));
+  }));
+
   app.get("/api/registries/:reg", route(async (req, res) => {
     const reg = regS.parse(req.params.reg);
     const cohort = typeof req.query.cohort === "string" ? req.query.cohort : undefined;

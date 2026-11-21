@@ -74,16 +74,32 @@ export function runningProblems(s: PatientState): NowItem[] {
   const out: NowItem[] = [];
   const day = (d: string) => fmtDay(d, { year: true });
   // in hospital now, or discharged in the last 30 days
-  for (const c of s.contexts.filter((c) => c.kind === "admission")) {
+  for (const c of s.contexts.filter((c) => c.kind === "admission").sort((a, b) => Number(b.status === "open") - Number(a.status === "open") || b.started_at.localeCompare(a.started_at))) {
     if (c.status === "open" && !c.ended_at) out.push({ key: `adm-${c.id}`, text: `In hospital since ${day(c.started_at)} for ${c.reasons.join(", ")}`, tone: "bad", at: c.started_at });
     else if (c.ended_at && daysBetween(c.ended_at, s.today) <= 30) out.push({ key: `adm-${c.id}`, text: `Discharged ${day(c.ended_at)} after admission for ${c.reasons.join(", ")}`, sub: c.location ?? undefined, tone: "warn", at: c.ended_at });
   }
   // the reason for today's open visit
   for (const c of s.contexts.filter((c) => c.kind !== "admission" && c.status === "open" && c.reasons.length))
     out.push({ key: `visit-${c.id}`, text: `Seen for ${c.reasons.join(", ").toLowerCase()}`, tone: "neutral", at: c.started_at });
-  // a planned operation or procedure
-  for (const p of s.plan.filter(isOperationPlan))
-    out.push({ key: `plan-${p.id}`, text: p.title, sub: [p.due_date ? `Due ${day(p.due_date)}` : null, p.reason || null].filter(Boolean).join(" · ") || undefined, tone: "warn", at: p.created_at });
+  // Keep unresolved coronary results ahead of procedures and routine follow-up.
+  const newest = [...s.studies].reverse();
+  const lastCath = newest.find((st) => st.kind === "cath");
+  const lastTest = newest.find((st) => ISCHAEMIA_KINDS.has(st.kind) || st.kind === "ccta");
+  for (const latest of [lastCath, lastTest]) {
+    if (!latest || daysBetween(latest.performed_at, s.today) > 183 || testTone(latest) !== "bad") continue;
+    const since = (at: string) => localDay(at) >= localDay(latest.performed_at);
+    const cath = latest.kind === "cath";
+    const disposition = cath ? latest.attributes?.outcome : null;
+    const revascularised = s.procedures.some((p) => ["pci", "cabg"].includes(p.kind) && since(p.performed_at));
+    const decided = cath ? ["Medical therapy", "PCI performed"].includes(disposition)
+      : (s.pathwaysDone["ccs-test-result"] && since(s.pathwaysDone["ccs-test-result"])) ||
+        s.studies.some((st) => st.kind === "cath" && since(st.performed_at));
+    if (!decided && !revascularised) {
+      const booked = s.plan.find((p) => p.status === "planned" && (cath ? /heart team|cabg|cardiac surg/i : /^invasive coronary angiography/i).test(p.title));
+      const sub = booked ? `Planned · ${booked.title}` : cath && disposition && disposition !== "Not stated" ? "Review revascularisation follow-up" : "Review the coronary result and next step";
+      out.push({ key: `test-${latest.id}`, text: `${STUDY[latest.kind]?.short ?? latest.kind} ${day(latest.performed_at)}: ${reportLine(latest.kind, latest.attributes ?? {})}`, sub, tone: booked ? "warn" : "bad", at: latest.performed_at });
+    }
+  }
   // tests ordered and not yet reported
   const awaited = s.plan.filter((p) => p.status === "planned" && p.category === "investigation").sort((a, b) => (a.due_date ?? "9").localeCompare(b.due_date ?? "9"));
   if (awaited.length) out.push({ key: "awaited", text: `Awaiting: ${awaited.map((p) => `${p.title}${p.due_date ? ` (${day(p.due_date)})` : ""}`).join(" · ")}`, tone: "neutral", at: awaited[0].created_at });
@@ -96,17 +112,10 @@ export function runningProblems(s: PatientState): NowItem[] {
   // a new cardiac diagnosis in the last 90 days (AF, HF…)
   for (const c of s.conditions.filter((c) => c.status === "active" && c.onset && daysBetween(c.onset, s.today) <= 90 && !["acs-stemi", "acs-nstemi", "prior-mi", "prior-pci", "prior-cabg"].includes(c.code)))
     out.push({ key: `dx-${c.logical_id}`, text: `New: ${c.display}`, sub: `Since ${day(c.onset!)}`, tone: "warn", at: c.onset });
-  // an ischaemia test or angiogram in the last 6 months showing disease, with no angiogram or revascularisation after it
-  const abnormal = [...s.studies].filter((st) => (ISCHAEMIA_KINDS.has(st.kind) || ANATOMY_KINDS.has(st.kind)) && daysBetween(st.performed_at, s.today) <= 183 && testTone(st) === "bad")
-    .sort((a, b) => b.performed_at.localeCompare(a.performed_at))[0];
-  if (abnormal) {
-    // an angiogram after the test, or a revascularisation on the same day or later (PCI at the same cath)
-    const after = (x: string) => localDay(x) > localDay(abnormal.performed_at);
-    const sameOrAfter = (x: string) => localDay(x) >= localDay(abnormal.performed_at);
-    const next = s.studies.some((x) => ANATOMY_KINDS.has(x.kind) && after(x.performed_at)) || s.procedures.some((p) => ["pci", "cabg"].includes(p.kind) && sameOrAfter(p.performed_at)) || (abnormal.kind === "cath" && abnormal.attributes?.outcome === "PCI performed");
-    if (!next) out.push({ key: `test-${abnormal.id}`, text: `${STUDY[abnormal.kind]?.short ?? abnormal.kind} ${day(abnormal.performed_at)}: ${reportLine(abnormal.kind, abnormal.attributes ?? {})}`, sub: "No angiogram or revascularisation recorded since", tone: "bad", at: abnormal.performed_at });
-  }
-  return out.slice(0, 6);
+  // a planned operation or procedure
+  for (const p of s.plan.filter(isOperationPlan))
+    out.push({ key: `plan-${p.id}`, text: p.title, sub: [p.due_date ? `Due ${day(p.due_date)}` : null, p.reason || null].filter(Boolean).join(" · ") || undefined, tone: "warn", at: p.created_at });
+  return out;
 }
 
 export function snapshot(s: PatientState) {

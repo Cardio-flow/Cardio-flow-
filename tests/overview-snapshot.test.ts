@@ -1,6 +1,9 @@
 // 3 Nov 2026 — the overview snapshot (Ahmed: "what is needed to be done, the story and the actual running problem";
 // "result of stress MIBI done recently does not show"; "patient is going for operation so the pre-procedure pathway,
 // echo results and stress MIBI result are priorities to show"). Synthetic patients.
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Consult } from "../src/screens/Consult.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createLocalDb, type DB } from "../server/db/db.js";
@@ -65,10 +68,16 @@ test("a work-up test is awaited, not the operation itself", async () => {
 test("a positive ischaemia test without a later angiogram is a running problem; PCI at the same cath is not", async () => {
   const pos = await load({
     patient: pt("Male"), conditions: [{ code: "t2dm" }, { code: "cad-suspected" }],
+    plan: Array.from({ length: 6 }, (_, i) => ({ category: "procedure", title: `Procedure ${i + 1}`, dueDate: null })),
     studies: [{ kind: "nuclear", date: ago(10), findings: { stressor: "Adenosine", result: "Reversible defect (ischaemia)", extent: "Moderate", territory: ["RCA"] } }],
   });
   const line = pos.snapshot.now.find((n: any) => /^Stress MIBI/.test(n.text));
   assert.equal(line?.tone, "bad");
+  assert.equal(pos.snapshot.now[0], line);
+  assert.equal(pos.snapshot.now.filter((n: any) => n.text.startsWith("Procedure ")).length, 6);
+  const medical = await load({ patient: pt(), studies: [{ kind: "cath", date: ago(3), findings: { lad: "70–99%", lm: "None", lcx: "None", rca: "None", outcome: "Medical therapy" } }] });
+  assert.equal(medical.snapshot.tests[0].tone, "bad");
+  assert.ok(!medical.snapshot.now.some((n: any) => n.key.startsWith("test-")));
   assert.equal(pos.snapshot.tests[0].tone, "bad");
   const pci = await load({
     patient: pt("Male"), conditions: [{ code: "prior-mi", onset: ago(120), attributes: { type: "STEMI", territory: "Inferior" } }],
@@ -87,4 +96,14 @@ test("a recent discharge and a new diagnosis are the running problem", async () 
   });
   assert.ok(s.snapshot.now.some((n: any) => /^Discharged .* after admission for AF \/ flutter$/.test(n.text)));
   assert.ok(s.snapshot.now.some((n: any) => n.text === "New: Atrial fibrillation"));
+});
+
+test("urgent overview shows the emergency action before the snapshot and links to its decision", async () => {
+  const s = await load({ patient: pt(), results: [{ date: ago(0), items: [{ code: "potassium", value: 6.8 }] }] });
+  (globalThis as any).location ??= { pathname: "/patients/fixture", search: "" };
+  const html = renderToStaticMarkup(createElement(Consult, { s, open() {}, done() {}, slots: {} }));
+  const urgent = html.slice(0, html.indexOf('aria-label="At a glance"'));
+  assert.match(urgent, /Potassium 6.8 mmol\/L/);
+  assert.match(urgent, /emergency hospital assessment now/);
+  assert.match(urgent, /Review now/);
 });

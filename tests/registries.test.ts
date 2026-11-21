@@ -6,7 +6,7 @@ import { boot, SITE_ID } from "../server/boot.js";
 import * as K from "../server/kernel/clinical.js";
 import { today, type Actor } from "../server/kernel/base.js";
 import { addDays } from "../shared/clinical.js";
-import { enrol, patientEnrolment, registryView, withdraw, REG_IDS } from "../server/engine/registries.js";
+import { enrol, patientEnrolment, patientRegistryView, registryView, withdraw, REG_IDS } from "../server/engine/registries.js";
 import { CAD_VARS, HF_VARS } from "../server/engine/registry-schema.js";
 
 let db: DB;
@@ -68,11 +68,24 @@ test("withdrawal keeps the history (append-only) and leaves the patient listed a
   assert.equal(e.hf!.status, "withdrawn");
   assert.equal(e.hf!.reason, "Consent withdrawn: asked at clinic");
   assert.equal(e.cad, null);
+  const individual = await patientRegistryView(db, huda, "hf");
+  assert.ok("csv" in individual && individual.csv === null && individual.csvCoded === null);
   const v = await view("hf");
   assert.equal(v.counts.enrolled, 1);
   assert.equal(v.patients.find((x: any) => x.id === huda).enrolment.status, "withdrawn");
   await assert.rejects(db.query(`DELETE FROM cf.registry_event WHERE patient_id=$1`, [huda]), /append-only|not allowed|forbid/i);
   await assert.rejects(db.transaction((q) => withdraw(q, doc, "hf", huda, T, "Other")), /Not enrolled/);
+  const saad = await idOf("Saad Al-Otaibi");
+  await db.transaction((q) => withdraw(q, doc, "hf", saad, T, "Consent withdrawn"));
+  const empty = await view("hf");
+  assert.equal(empty.cohort, "enrolled");
+  assert.equal(empty.stats.n, 0);
+  for (const cohort of [empty, await view("hf", "eligible")]) {
+    for (const csv of [cohort.csv, cohort.csvCoded]) assert.ok(!csv.includes("Huda Al-Sabah") && !csv.includes("Saad Al-Otaibi"));
+    assert.equal(cohort.stats.n, parse(cohort.csv).length - 1);
+  }
+  await assert.rejects(db.transaction((q) => enrol(q, doc, "hf", [huda], T, true)), /individually/);
+  await assert.rejects(db.transaction((q) => enrol(q, doc, "hf", [huda], addDays(T, -1))), /before withdrawal/);
   // re-enrolment after a withdrawal is allowed
   await db.transaction((q) => enrol(q, doc, "hf", [huda], T));
   assert.equal((await db.transaction((q) => patientEnrolment(q, huda))).hf!.status, "enrolled");
@@ -165,4 +178,26 @@ test("statistics: baseline table by group with tests; survival from the index da
   assert.equal(line[header.indexOf("CF_Death_Date")], addDays(T, -3));
   assert.equal(line[header.indexOf("CF_death_event")], "1");
   assert.ok(Number(line[header.indexOf("CF_death_days")]) >= 0);
+});
+
+test("HF survival starts with dated HF evidence and preserves year-only uncertainty in both exports", async () => {
+  const id = await db.transaction((q) => K.createPatient(q, doc, { name: "Synthetic onset", mrn: "SYN-HF-INDEX", sex: "Female", birthDate: "1950-01-01", synthetic: true }));
+  await db.transaction((q) => K.recordEcho(q, doc, id, { date: addDays(T, -365), quality: "formal", lvef: 65, findings: [] }));
+  const dx = await db.transaction((q) => K.addCondition(q, doc, id, { code: "hfpef", onsetYear: Number(T.slice(0, 4)) }));
+  async function check(date: string, source: string) {
+    const v = await view("hf", "eligible");
+    for (const csv of [v.csv, v.csvCoded]) {
+      const [header, ...rows] = parse(csv);
+      const row = rows.find((r) => r[header.indexOf("File_No")] === "SYN-HF-INDEX");
+      assert.ok(row, "the synthetic HF patient is in the export");
+      assert.equal(row[header.indexOf("CF_Index_Date")], date);
+      assert.equal(row[header.indexOf("CF_Index_Source")], source);
+      if (!date) assert.equal(row[header.indexOf("CF_death_days")], "");
+    }
+  }
+  await check("", `HF onset year only (${T.slice(0, 4)})`);
+  await db.transaction((q) => K.updateCondition(q, doc, id, dx.id!, { onset: T }));
+  await check(T, "Documented HF onset");
+  await db.transaction((q) => K.startAdmission(q, doc, id, { startedAt: addDays(T, -8), reasons: ["Acute decompensated HF"] }));
+  await check(addDays(T, -8), "HF admission");
 });
